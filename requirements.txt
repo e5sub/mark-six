@@ -1,3 +1,6 @@
 Flask
 gunicorn
 requests
+Werkzeug
+Flask-Login
+Flask-SQLAlchemy

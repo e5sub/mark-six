@@ -1,11 +1,12 @@
 services:
   mark-six:
-    image: ghcr.io/e5sub/mark-six:latest
+    image: ghcr.io/e5sub/mark-six:dev
     container_name: mark-six
     environment:
       - TZ=Asia/Shanghai
     volumes: 
       - ./app.py:/app/app.py
+      - ./instance:/app/instance
     ports:
       - "5000:5000"
     restart: unless-stopped

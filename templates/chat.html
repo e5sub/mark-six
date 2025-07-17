@@ -1,9 +1,8 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 聊天室</title>
+{% extends "layout.html" %}
+
+{% block title %}AI 聊天室{% endblock %}
+
+{% block head_extra %}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
@@ -16,19 +15,18 @@
             --text-color: #dcdcdc;
             --text-muted: #8899a6;
         }
-        * { box-sizing: border-box; }
         body {
             font-family: 'Noto Sans SC', sans-serif;
             background-color: var(--bg-color);
             color: var(--text-color);
             margin: 0;
-            display: grid;
-            grid-template-columns: 280px 1fr 280px;
-            grid-template-rows: calc(100vh - 40px);
-            gap: 20px;
             padding: 20px;
             overflow: hidden;
+            display: grid;
+            grid-template-columns: 280px 1fr 280px;
+            gap: 20px;
         }
+        * { box-sizing: border-box; }
         .side-panel, .chat-wrapper {
             background-color: var(--surface-color);
             border-radius: 12px;
@@ -36,6 +34,7 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            height: 100%;
         }
         .panel-header {
             padding: 15px;
@@ -46,34 +45,11 @@
             border-bottom: 2px solid var(--secondary-color);
             flex-shrink: 0;
         }
-        .results-list {
-            list-style: none;
-            padding: 10px;
-            margin: 0;
-            overflow-y: auto;
-        }
-        .result-item {
-            background-color: rgba(255,255,255,0.05);
-            margin-bottom: 8px;
-            padding: 10px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-            border: 1px solid transparent;
-        }
-        .result-item:hover {
-            background-color: rgba(255,255,255,0.1);
-            border-color: var(--secondary-color);
-        }
-        .result-item-header {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-        }
+        .results-list { list-style: none; padding: 10px; margin: 0; overflow-y: auto; }
+        .result-item { background-color: rgba(255,255,255,0.05); margin-bottom: 8px; padding: 10px; border-radius: 6px; cursor: pointer; transition: background-color 0.2s ease; border: 1px solid transparent; }
+        .result-item:hover { background-color: rgba(255,255,255,0.1); border-color: var(--secondary-color); }
+        .result-item-header { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; }
         .ball-container { display: flex; gap: 2px; flex-wrap: wrap; align-items: center; }
-        /* 核心修改：新增 ball-wrapper 样式 */
         .ball-wrapper { display: inline-flex; align-items: center; margin: 2px; }
         .ball { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; justify-content: center; align-items: center; font-size: 0.8rem; font-weight: 700; color: white; }
         .ball.red { background-color: #e74c3c; } .ball.blue { background-color: #3498db; } .ball.green { background-color: #2ecc71; }
@@ -81,15 +57,30 @@
         .zodiac-label { font-size: 0.9rem; margin-left: 5px; color: var(--text-muted); font-weight: bold; }
         
         .chat-wrapper { grid-column: 2 / 3; }
-        .chat-header {
-            text-align: center; padding: 15px;
-            background-color: var(--primary-color);
-            position: relative;
+        
+        .integrated-nav {
+            background-color: var(--primary-color) !important;
             flex-shrink: 0;
+            border-bottom: 2px solid var(--secondary-color);
         }
-        .chat-header h1 { margin: 0; font-size: 1.2rem; }
-        .chat-header a { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); background-color: rgba(255, 255, 255, 0.1); color: #ffffff; padding: 8px 16px; border-radius: 20px; text-decoration: none; font-weight: 700; transition: background-color 0.2s ease; }
-        .chat-header a:hover { background-color: rgba(255, 255, 255, 0.2); }
+        .integrated-nav .navbar-brand {
+            font-weight: bold;
+        }
+        .integrated-nav .navbar-brand,
+        .integrated-nav .nav-link {
+            color: var(--text-color) !important;
+        }
+        .integrated-nav .nav-link:hover {
+            color: white !important;
+        }
+        /* 为居中标题添加样式 */
+        .navbar-brand-centered {
+            /* 使用绝对定位实现完美居中 */
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
         .chat-container { flex-grow: 1; overflow-y: auto; padding: 20px; }
         .message { max-width: 80%; margin-bottom: 15px; padding: 12px 18px; border-radius: 20px; line-height: 1.6; animation: message-in 0.3s ease; }
         .user-message { background: linear-gradient(45deg, var(--secondary-color), #c0392b); color: white; margin-left: auto; border-bottom-right-radius: 5px; }
@@ -103,95 +94,103 @@
         #send-btn:disabled { background: #555; cursor: not-allowed; }
         @keyframes message-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
-</head>
-<body>
+{% endblock %}
 
-    <aside class="side-panel">
-        <div class="panel-header">香港最近10期开奖结果</div>
-        <ul class="results-list">
-            {% for result in hk_results %}
-            <li class="result-item clickable-result" 
-                data-region="香港" 
-                data-id="{{ result.id }}" 
-                data-numbers="{{ (result.no + [result.sno]) | join(',') }}" 
-                data-sno_zodiac="{{ result.sno_zodiac }}">
-                <div class="result-item-header">
-                    <span>第 {{ result.id }} 期</span>
-                    <span>{{ result.date.split(' ')[0] }}</span>
-                </div>
-                <div class="ball-container">
-                    {% for num in result.no %}
-                    <div class="ball-wrapper"><div class="ball">{{ num }}</div></div>
-                    {% endfor %}
-                    <div class="ball-wrapper">
-                        <div class="ball special">{{ result.sno }}</div>
-                        <span class="zodiac-label">({{ result.sno_zodiac }})</span>
-                    </div>
-                </div>
-            </li>
-            {% else %}
-            <li>暂无数据</li>
-            {% endfor %}
-        </ul>
-    </aside>
+{% block header %}{% endblock %}
 
-    <main class="chat-wrapper">
-        <div class="chat-header">
-            <a href="/">&larr; 返回</a>
-            <h1>AI 智能分析师</h1>
-        </div>
-        <div class="chat-container" id="chat-container">
-            <div class="message ai-message">
-                你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门六合彩的历史、规则或数据规律，我会尽力为您解答。
+{% block main_content %}
+<aside class="side-panel">
+    <div class="panel-header">香港最近10期</div>
+    <ul class="results-list">
+        {% for result in hk_results %}
+        <li class="result-item clickable-result" data-region="香港" data-id="{{ result.id }}" data-numbers="{{ (result.no + [result.sno]) | join(',') }}" data-sno_zodiac="{{ result.sno_zodiac }}">
+            <div class="result-item-header">
+                <span>第 {{ result.id }} 期</span>
+                <span>{{ result.date.split(' ')[0] }}</span>
+            </div>
+            <div class="ball-container">
+                {% for num in result.no %}<div class="ball-wrapper"><div class="ball">{{ num }}</div></div>{% endfor %}
+                <div class="ball-wrapper">
+                    <div class="ball special">{{ result.sno }}</div>
+                    <span class="zodiac-label">({{ result.sno_zodiac }})</span>
+                </div>
+            </div>
+        </li>
+        {% else %}<li>暂无数据</li>{% endfor %}
+    </ul>
+</aside>
+
+<div class="chat-wrapper">
+    <nav class="navbar navbar-expand-lg navbar-dark integrated-nav position-relative">
+        <div class="container-fluid">
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('index') }}">返回分析主页</a>
+                </li>
+            </ul>
+
+            <a class="navbar-brand navbar-brand-centered" href="#">AI 智能分析师</a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            {{ current_user.username }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="navbarDropdown">
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">退出登录</a></li>
+                        </ul>
+                    </li>
+                </ul>
             </div>
         </div>
-        <form class="chat-form" id="chat-form">
-            <input type="text" id="chat-input" placeholder="请输入您的问题..." autocomplete="off">
-            <button id="send-btn" type="submit" disabled>&#10148;</button>
-        </form>
-    </main>
-    
-    <aside class="side-panel">
-        <div class="panel-header">澳门最近10期开奖结果</div>
-        <ul class="results-list">
-            {% for result in macau_results %}
-            <li class="result-item clickable-result" 
-                data-region="澳门" 
-                data-id="{{ result.id }}"
-                data-numbers="{{ (result.no + [result.sno]) | join(',') }}" 
-                data-zodiacs="{{ result.raw_zodiac }}"
-                data-waves="{{ result.raw_wave }}">
-                <div class="result-item-header">
-                     <span>第 {{ result.id }} 期</span>
-                     <span>{{ result.date.split(' ')[0] }}</span>
-                </div>
-                 <div class="ball-container">
-                    {% for num in result.no %}
-                    <div class="ball-wrapper"><div class="ball">{{ num }}</div></div>
-                    {% endfor %}
-                    <div class="ball-wrapper">
-                        <div class="ball special">{{ result.sno }}</div>
-                        <span class="zodiac-label">({{ result.sno_zodiac }})</span>
-                    </div>
-                </div>
-            </li>
-            {% else %}
-            <li>暂无数据</li>
-            {% endfor %}
-        </ul>
-    </aside>
+    </nav>
+    <div class="chat-container" id="chat-container">
+        <div class="message ai-message">
+            你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门六合彩的历史、规则或数据规律，我会尽力为您解答。
+        </div>
+    </div>
+    <form class="chat-form" id="chat-form">
+        <input type="text" id="chat-input" placeholder="请输入您的问题..." autocomplete="off">
+        <button id="send-btn" type="submit" disabled>&#10148;</button>
+    </form>
+</div>
 
+<aside class="side-panel">
+    <div class="panel-header">澳门最近10期</div>
+    <ul class="results-list">
+        {% for result in macau_results %}
+        <li class="result-item clickable-result" data-region="澳门" data-id="{{ result.id }}" data-numbers="{{ (result.no + [result.sno]) | join(',') }}" data-zodiacs="{{ result.raw_zodiac }}" data-waves="{{ result.raw_wave }}">
+            <div class="result-item-header">
+                 <span>第 {{ result.id }} 期</span>
+                 <span>{{ result.date.split(' ')[0] }}</span>
+            </div>
+             <div class="ball-container">
+                {% for num in result.no %}<div class="ball-wrapper"><div class="ball">{{ num }}</div></div>{% endfor %}
+                <div class="ball-wrapper">
+                    <div class="ball special">{{ result.sno }}</div>
+                    <span class="zodiac-label">({{ result.sno_zodiac }})</span>
+                </div>
+            </div>
+        </li>
+        {% else %}<li>暂无数据</li>{% endfor %}
+    </ul>
+</aside>
+{% endblock %}
+
+{% block scripts %}
 <script>
-// 接收来自后端的颜色定义
+// 此处的 JavaScript 代码与之前完全相同，无需改动
 const BALL_COLORS = JSON.parse('{{ ball_colors | safe }}');
-
 document.addEventListener('DOMContentLoaded', () => {
     const chatContainer = document.getElementById('chat-container');
     const chatForm = document.getElementById('chat-form');
     const chatInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-btn');
-
-    // 为侧边栏的号码球上色
     const ballElements = document.querySelectorAll('.ball');
     ballElements.forEach(el => {
         const num = parseInt(el.textContent, 10);
@@ -199,21 +198,15 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (BALL_COLORS.blue.includes(num)) el.classList.add('blue');
         else if (BALL_COLORS.green.includes(num)) el.classList.add('green');
     });
-
-    // 启用/禁用发送按钮
     chatInput.addEventListener('input', () => {
         sendBtn.disabled = chatInput.value.trim() === '';
     });
-
-    // 提交表单事件
     chatForm.addEventListener('submit', (event) => {
         event.preventDefault();
         const userMessage = chatInput.value.trim();
         if (!userMessage) return;
         sendMessageToAI(userMessage);
     });
-
-    // 为所有可点击的开奖结果项添加事件监听
     const clickableResults = document.querySelectorAll('.clickable-result');
     clickableResults.forEach(item => {
         item.addEventListener('click', () => {
@@ -222,7 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (data.region === '香港') {
                 prompt += `\n特码生肖: ${data.sno_zodiac}`;
-            } else { // 澳门
+            } else {
                 prompt += `\n生肖: ${data.zodiacs}\n波色: ${data.waves}`;
             }
             prompt += "\n请从号码大小、奇偶、波色、生肖等角度进行分析，并给出你的看法。";
@@ -230,15 +223,11 @@ document.addEventListener('DOMContentLoaded', () => {
             sendMessageToAI(prompt);
         });
     });
-    
-    // 将消息发送逻辑封装成一个函数
     function sendMessageToAI(messageText) {
         appendMessage(messageText, 'user');
         chatInput.value = '';
         sendBtn.disabled = true;
-
         const typingIndicator = appendMessage('AI正在思考中...', 'ai', true);
-
         fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -259,8 +248,6 @@ document.addEventListener('DOMContentLoaded', () => {
             appendMessage(`抱歉，出错了：${error.message}`, 'ai', false, true);
         });
     }
-
-    // 在聊天窗口中追加消息的函数
     function appendMessage(text, sender, isTyping = false, isError = false) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message`;
@@ -273,5 +260,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 </script>
-</body>
-</html>
+{% endblock %}

@@ -1,12 +1,13 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8" />
-    <title>六合彩数据分析</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% extends "layout.html" %}
+
+{% block title %}数据分析主页{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block head_extra %}
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f4f7f6; padding: 20px; color: #333; }
-        .container { max-width: 1200px; margin: auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        body { padding-top: 0 !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f4f7f6; color: #333; }
+        .main-container { max-width: 1200px; margin: auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         h1, h2, h4 { text-align: center; color: #2c3e50; }
         h2 { margin-top: 40px; }
         button, .button-link { padding: 10px 20px; border: 1px solid transparent; color: #fff; border-radius: 5px; cursor: pointer; font-size: 1em; margin: 5px; transition: all 0.2s; text-decoration: none; display: inline-block; vertical-align: middle; }
@@ -35,7 +36,7 @@
         .details-btn { background-color: #95a5a6; color: white !important; text-shadow: 1px 1px 1px rgba(0,0,0,0.3); }
         .controls-container select, .search-container input { padding: 10px 15px; font-size: 1em; border: 1px solid #ccc; border-radius: 5px; height: 42px; box-sizing: border-box; vertical-align: middle; margin: 0 5px; }
         .search-container { display: flex; justify-content: center; align-items: center; margin-top: 20px; margin-bottom: 20px; }
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); align-items: center; justify-content: center; animation: fadeIn 0.3s ease-out; }
+        .modal { display: none; position: fixed; z-index: 1050; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); align-items: center; justify-content: center; animation: fadeIn 0.3s ease-out; }
         .modal-content { background-color: #fefefe; margin: auto; border: 1px solid #888; width: 90%; max-width: 550px; border-radius: 10px; box-shadow: 0 5px 25px rgba(0,0,0,0.2); animation: slideIn 0.3s ease-out; }
         .modal-header { padding: 16px 24px; background-color: #34495e; color: white; border-bottom: 1px solid #dee2e6; border-top-left-radius: 10px; border-top-right-radius: 10px; }
         .modal-header h3 { margin: 0; font-size: 1.5rem; }
@@ -61,67 +62,90 @@
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideIn { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     </style>
-</head>
-<body>
-    <div class="container">
-        <h1 id="mainTitle">六合彩数据分析</h1>
-        <div class="controls-container">
-            <strong>地区:</strong>
-            <div id="region-selector-buttons" class="region-selector">
-                <button id="hkBtn" class="region-btn active" data-region="hk">香港</button>
-                <button id="macauBtn" class="region-btn" data-region="macau">澳门</button>
-            </div>
-            <div id="year-selector-container">
-                <label for="yearSelect"><strong>年份:</strong></label>
-                <select id="yearSelect"></select>
-            </div>
-            <button id="queryBtn" style="background: #3498db;">查询</button>
-        </div>
-        <div class="button-container">
-            <button id="updateBtn">更新数据</button>
-            <button id="randomRecommendationBtn">随机推荐</button>
-            <button id="balancedRecommendationBtn">均衡推荐</button>
-            <button id="aiPredictBtn">AI 智能推荐</button>
-            <a href="/chat" id="chatBtn" class="button-link">AI 聊天室</a>
-        </div>
-        <div id="recommendation"><p>请选择地区并查询数据</p></div>
-        <h2>近期开奖历史 (仅显示最新20期)</h2>
-        <div class="search-container">
-            <input type="text" id="searchInput" placeholder="输入特码或其生肖进行搜索..."><button id="searchBtn" style="background: #3498db;">搜索</button><button id="resetBtn" style="background: #95a5a6;">重置</button>
-        </div>
-        <table id="recentDrawsTable">
-            <thead><tr><th>期号</th><th>日期</th><th>开奖号码</th><th>详情</th></tr></thead>
-            <tbody></tbody>
-        </table>
-        
-        <h2 id="frequency-heading">特码出现频率分析 (基于所选年份数据)</h2>
-        <canvas id="frequencyChart"></canvas>
+{% endblock %}
 
-        <div class="chart-grid">
-            <div class="chart-container">
-                <h2>特码波色出现次数</h2>
-                <div class="doughnut-chart-wrapper">
-                    <canvas id="colorChart"></canvas>
-                </div>
-                <div id="colorLegend" class="chart-legend"></div>
+{% block main_content %}
+<div class="main-container">
+    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4" style="border-radius: 8px;">
+        <div class="container-fluid">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#page-nav" aria-controls="page-nav" aria-expanded="false">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="page-nav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            {{ current_user.username }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">退出登录</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('chat_page') }}">前往 AI 聊天室</a></li>
+                        </ul>
+                    </li>
+                </ul>
             </div>
-            <div class="chart-container">
-                <h2>特肖出现次数</h2>
-                <div class="doughnut-chart-wrapper">
-                    <canvas id="zodiacChart"></canvas>
-                </div>
-                <div id="zodiacLegend" class="chart-legend"></div>
+        </div>
+    </nav>
+    <h1 id="mainTitle">六合彩数据分析</h1>
+    <div class="controls-container">
+        <strong>地区:</strong>
+        <div id="region-selector-buttons" class="region-selector">
+            <button id="hkBtn" class="region-btn active" data-region="hk">香港</button>
+            <button id="macauBtn" class="region-btn" data-region="macau">澳门</button>
+        </div>
+        <div id="year-selector-container">
+            <label for="yearSelect"><strong>年份:</strong></label>
+            <select id="yearSelect"></select>
+        </div>
+        <button id="queryBtn" style="background: #3498db;">查询</button>
+    </div>
+    <div class="button-container">
+        <button id="updateBtn">更新香港数据</button>
+        <button id="randomRecommendationBtn">随机推荐</button>
+        <button id="balancedRecommendationBtn">均衡推荐</button>
+        <button id="aiPredictBtn">AI 智能推荐</button>
+        <a href="{{ url_for('chat_page') }}" id="chatBtn" class="button-link">AI 聊天室</a>
+    </div>
+    <div id="recommendation"><p>请选择地区并查询数据</p></div>
+    <h2>近期开奖历史 (仅显示最新20期)</h2>
+    <div class="search-container">
+        <input type="text" id="searchInput" placeholder="输入特码或其生肖进行搜索..."><button id="searchBtn" style="background: #3498db;">搜索</button><button id="resetBtn" style="background: #95a5a6;">重置</button>
+    </div>
+    <table id="recentDrawsTable">
+        <thead><tr><th>期号</th><th>日期</th><th>开奖号码</th><th>详情</th></tr></thead>
+        <tbody></tbody>
+    </table>
+    
+    <h2 id="frequency-heading">特码出现频率分析 (基于所选年份数据)</h2>
+    <canvas id="frequencyChart"></canvas>
+
+    <div class="chart-grid">
+        <div class="chart-container">
+            <h2>特码波色出现次数</h2>
+            <div class="doughnut-chart-wrapper">
+                <canvas id="colorChart"></canvas>
             </div>
+            <div id="colorLegend" class="chart-legend"></div>
+        </div>
+        <div class="chart-container">
+            <h2>特肖出现次数</h2>
+            <div class="doughnut-chart-wrapper">
+                <canvas id="zodiacChart"></canvas>
+            </div>
+            <div id="zodiacLegend" class="chart-legend"></div>
         </div>
     </div>
-    <div id="detailsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header"><h3 id="modalTitle">开奖详情</h3></div>
-            <div id="modalBody" class="modal-body"></div>
-            <div class="modal-footer"><button type="button" class="close-btn">关闭</button></div>
-        </div>
+</div>
+<div id="detailsModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header"><h3 id="modalTitle">开奖详情</h3></div>
+        <div id="modalBody" class="modal-body"></div>
+        <div class="modal-footer"><button type="button" class="close-btn btn btn-secondary">关闭</button></div>
     </div>
+</div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     // --- 元素引用 ---
@@ -183,7 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return wrapper;
     };
     const openDetailsModal = (drawId) => {
-        const draw = allDrawData.find(d => d.id === drawId);
+        const draw = allDrawData.find(d => d.id == drawId); 
         if (!draw) return;
         modalTitle.textContent = `第 ${draw.id} 期 开奖详情`;
         let modalHtml = '';
@@ -231,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
             numbersCell.appendChild(numbersContainer);
             const detailsCell = row.insertCell();
             const detailsButton = document.createElement('button');
-            detailsButton.textContent = '查看详情'; detailsButton.className = 'details-btn';
+            detailsButton.textContent = '查看详情'; detailsButton.className = 'details-btn btn btn-sm';
             detailsButton.onclick = () => openDetailsModal(draw.id);
             detailsCell.appendChild(detailsButton);
         });
@@ -243,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
         hkBtn.classList.toggle('active', isHongKong);
         macauBtn.classList.toggle('active', !isHongKong);
         updateBtn.style.display = isHongKong ? 'inline-block' : 'none';
+        updateBtn.textContent = isHongKong ? '更新香港数据' : '更新澳门数据';
         frequencyHeading.textContent = "特码出现频率分析 (基于所选年份数据)";
     }
     function renderDoughnutChart(canvas, legendContainer, chartInstance, data, colorMapping, emojiMapping = {}) {
@@ -312,7 +337,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('queryBtn').addEventListener('click', fetchData);
         document.querySelector('.close-btn').onclick = () => { modal.style.display = "none"; };
         window.onclick = (event) => { if (event.target == modal) modal.style.display = "none"; };
-        updateBtn.onclick = () => { recommendationDiv.innerHTML = '<p>正在从源服务器更新数据...</p>'; fetch('/api/update_data', { method: 'POST' }).then(() => fetchData()); };
+        updateBtn.onclick = () => { recommendationDiv.innerHTML = '<p>正在从源服务器更新香港数据...</p>'; fetch('/api/update_data', { method: 'POST' }).then(res => res.json()).then(data => { alert(data.message); fetchData(); }); };
         randomBtn.onclick = () => getPrediction('random');
         balancedBtn.onclick = () => getPrediction('balanced');
         aiBtn.onclick = () => getPrediction('ai');
@@ -325,5 +350,4 @@ document.addEventListener('DOMContentLoaded', () => {
     initialize();
 });
 </script>
-</body>
-</html>
+{% endblock %}
