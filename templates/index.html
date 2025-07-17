@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>六合彩数据分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f4f7f6; padding: 20px; color: #333; }
+        .container { max-width: 1200px; margin: auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1, h2, h4 { text-align: center; color: #2c3e50; }
+        h2 { margin-top: 40px; }
+        button, .button-link { padding: 10px 20px; border: 1px solid transparent; color: #fff; border-radius: 5px; cursor: pointer; font-size: 1em; margin: 5px; transition: all 0.2s; text-decoration: none; display: inline-block; vertical-align: middle; }
+        button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+        button:hover:not(:disabled), .button-link:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .region-selector { display: inline-flex; border-radius: 5px; overflow: hidden; border: 1px solid #3498db; }
+        .region-btn { background-color: #ffffff; color: #3498db; border: none; border-radius: 0; margin: 0; border-left: 1px solid #3498db; }
+        .region-btn:first-child { border-left: none; }
+        .region-btn.active { background-color: #3498db; color: #ffffff; }
+        #updateBtn { background: #27ae60; }
+        #randomRecommendationBtn, #balancedRecommendationBtn { background: #e67e22; }
+        #aiPredictBtn { background: #4a69bd; }
+        #chatBtn { background: #16a085; }
+        .controls-container { text-align: center; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .button-container, .search-container { text-align: center; margin-bottom: 20px; }
+        #recommendation { text-align: center; margin-top: 20px; padding: 15px; background-color: #e8f6f3; border-left: 5px solid #1abc9c; border-radius: 5px; min-height: 50px; }
+        #recommendation pre { white-space: pre-wrap; text-align: left; background: #fff; padding: 15px; border-radius: 5px; line-height: 1.6; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: center; vertical-align: middle; }
+        th { background-color: #34495e; color: white; }
+        .lottery-ball { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; color: white; font-weight: bold; }
+        .lottery-ball.red { background-color: #e74c3c; } .lottery-ball.blue { background-color: #3498db; } .lottery-ball.green { background-color: #2ecc71; }
+        .lottery-ball.special { border: 3px solid #f1c40f; }
+        .ball-wrapper { display: inline-flex; align-items: center; justify-content: center; margin: 0 5px; }
+        .zodiac-label { margin-left: 8px; font-weight: bold; }
+        .details-btn { background-color: #95a5a6; color: white !important; text-shadow: 1px 1px 1px rgba(0,0,0,0.3); }
+        .controls-container select, .search-container input { padding: 10px 15px; font-size: 1em; border: 1px solid #ccc; border-radius: 5px; height: 42px; box-sizing: border-box; vertical-align: middle; margin: 0 5px; }
+        .search-container { display: flex; justify-content: center; align-items: center; margin-top: 20px; margin-bottom: 20px; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); align-items: center; justify-content: center; animation: fadeIn 0.3s ease-out; }
+        .modal-content { background-color: #fefefe; margin: auto; border: 1px solid #888; width: 90%; max-width: 550px; border-radius: 10px; box-shadow: 0 5px 25px rgba(0,0,0,0.2); animation: slideIn 0.3s ease-out; }
+        .modal-header { padding: 16px 24px; background-color: #34495e; color: white; border-bottom: 1px solid #dee2e6; border-top-left-radius: 10px; border-top-right-radius: 10px; }
+        .modal-header h3 { margin: 0; font-size: 1.5rem; }
+        .modal-body { padding: 24px; }
+        .modal-body p { display: flex; justify-content: space-between; padding: 12px 8px; margin: 0; font-size: 1rem; border-bottom: 1px solid #f1f1f1; }
+        .modal-body p:last-child { border-bottom: none; }
+        .modal-body p strong { color: #555; }
+        .modal-body p span { color: #c0392b; font-weight: bold; }
+        .modal-body table { margin-top: 0; }
+        .modal-body table th { background-color: #f8f9fa; color: #333; }
+        .modal-body table tr:nth-child(even) { background-color: #f9f9f9; }
+        .modal-footer { padding: 12px 24px; text-align: right; background-color: #f8f9fa; border-top: 1px solid #dee2e6; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
+        .close-btn { background-color: #6c757d; }
+        .color-text-red { color: #e74c3c; font-weight: bold; }
+        .color-text-blue { color: #3498db; font-weight: bold; }
+        .color-text-green { color: #2ecc71; font-weight: bold; }
+        .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 40px; align-items: flex-start; margin-top: 30px; }
+        .chart-container { display: flex; flex-direction: column; align-items: center; }
+        .doughnut-chart-wrapper { position: relative; width: 250px; height: 250px; }
+        .chart-legend { margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; width: 100%; max-width: 300px; }
+        .legend-item { display: flex; align-items: center; font-size: 1rem; }
+        .legend-swatch { width: 16px; height: 16px; border-radius: 4px; margin-right: 10px; flex-shrink: 0; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideIn { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="mainTitle">六合彩数据分析</h1>
+        <div class="controls-container">
+            <strong>地区:</strong>
+            <div id="region-selector-buttons" class="region-selector">
+                <button id="hkBtn" class="region-btn active" data-region="hk">香港</button>
+                <button id="macauBtn" class="region-btn" data-region="macau">澳门</button>
+            </div>
+            <div id="year-selector-container">
+                <label for="yearSelect"><strong>年份:</strong></label>
+                <select id="yearSelect"></select>
+            </div>
+            <button id="queryBtn" style="background: #3498db;">查询</button>
+        </div>
+        <div class="button-container">
+            <button id="updateBtn">更新数据</button>
+            <button id="randomRecommendationBtn">随机推荐</button>
+            <button id="balancedRecommendationBtn">均衡推荐</button>
+            <button id="aiPredictBtn">AI 智能推荐</button>
+            <a href="/chat" id="chatBtn" class="button-link">AI 聊天室</a>
+        </div>
+        <div id="recommendation"><p>请选择地区并查询数据</p></div>
+        <h2>近期开奖历史 (仅显示最新20期)</h2>
+        <div class="search-container">
+            <input type="text" id="searchInput" placeholder="输入特码或其生肖进行搜索..."><button id="searchBtn" style="background: #3498db;">搜索</button><button id="resetBtn" style="background: #95a5a6;">重置</button>
+        </div>
+        <table id="recentDrawsTable">
+            <thead><tr><th>期号</th><th>日期</th><th>开奖号码</th><th>详情</th></tr></thead>
+            <tbody></tbody>
+        </table>
+        
+        <h2 id="frequency-heading">特码出现频率分析 (基于所选年份数据)</h2>
+        <canvas id="frequencyChart"></canvas>
+
+        <div class="chart-grid">
+            <div class="chart-container">
+                <h2>特码波色出现次数</h2>
+                <div class="doughnut-chart-wrapper">
+                    <canvas id="colorChart"></canvas>
+                </div>
+                <div id="colorLegend" class="chart-legend"></div>
+            </div>
+            <div class="chart-container">
+                <h2>特肖出现次数</h2>
+                <div class="doughnut-chart-wrapper">
+                    <canvas id="zodiacChart"></canvas>
+                </div>
+                <div id="zodiacLegend" class="chart-legend"></div>
+            </div>
+        </div>
+    </div>
+    <div id="detailsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h3 id="modalTitle">开奖详情</h3></div>
+            <div id="modalBody" class="modal-body"></div>
+            <div class="modal-footer"><button type="button" class="close-btn">关闭</button></div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- 元素引用 ---
+    const hkBtn = document.getElementById('hkBtn');
+    const macauBtn = document.getElementById('macauBtn');
+    const yearSelect = document.getElementById('yearSelect');
+    const yearSelectorContainer = document.getElementById('year-selector-container');
+    const mainTitle = document.getElementById('mainTitle');
+    const recommendationDiv = document.getElementById('recommendation');
+    const recentDrawsTableBody = document.querySelector('#recentDrawsTable tbody');
+    const frequencyChartCanvas = document.getElementById('frequencyChart');
+    const modal = document.getElementById('detailsModal');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+    const updateBtn = document.getElementById('updateBtn');
+    const randomBtn = document.getElementById('randomRecommendationBtn');
+    const balancedBtn = document.getElementById('balancedRecommendationBtn');
+    const aiBtn = document.getElementById('aiPredictBtn');
+    const searchContainer = document.getElementById('searchContainer');
+    const searchInput = document.getElementById('searchInput');
+    const frequencyHeading = document.getElementById('frequency-heading');
+    const colorChartCanvas = document.getElementById('colorChart');
+    const colorLegend = document.getElementById('colorLegend');
+    const zodiacChartCanvas = document.getElementById('zodiacChart');
+    const zodiacLegend = document.getElementById('zodiacLegend');
+
+    // --- 状态与配置 ---
+    let currentRegion = 'hk';
+    let frequencyChart = null;
+    let colorChart = null;
+    let zodiacChart = null;
+    let allDrawData = [];
+    const RED_BALLS = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46];
+    const BLUE_BALLS = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48];
+    const GREEN_BALLS = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49];
+    
+    // --- 工具函数 ---
+    const getBallColorClass = (numberStr) => {
+        const number = parseInt(numberStr, 10);
+        if (RED_BALLS.includes(number)) return 'red';
+        if (BLUE_BALLS.includes(number)) return 'blue';
+        if (GREEN_BALLS.includes(number)) return 'green';
+        return '';
+    };
+    const createLotteryBallElement = (num, isSpecial = false, zodiac = '') => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'ball-wrapper';
+        const ball = document.createElement('div');
+        ball.className = `lottery-ball ${getBallColorClass(num)}`;
+        if (isSpecial) ball.classList.add('special');
+        ball.textContent = num;
+        wrapper.appendChild(ball);
+        if (isSpecial && zodiac) {
+            const zodiacLabel = document.createElement('span');
+            zodiacLabel.className = 'zodiac-label';
+            zodiacLabel.textContent = `(${zodiac})`;
+            wrapper.appendChild(zodiacLabel);
+        }
+        return wrapper;
+    };
+    const openDetailsModal = (drawId) => {
+        const draw = allDrawData.find(d => d.id === drawId);
+        if (!draw) return;
+        modalTitle.textContent = `第 ${draw.id} 期 开奖详情`;
+        let modalHtml = '';
+        if (currentRegion === 'hk') {
+            const parseAndFormat = (value) => {
+                if (value === null || value === undefined) return 'N/A';
+                const num = parseFloat(String(value).replace(/,/g, ''));
+                return isNaN(num) ? 'N/A' : `¥${num.toLocaleString('en-US')}`;
+            };
+            modalHtml += `<div><p><strong>总投注金额：</strong><span>${parseAndFormat(draw.inv)}</span></p><p><strong>头奖：</strong><span>${parseAndFormat(draw.p1)} / ${draw.p1u||0} 注</span></p><p><strong>二奖：</strong><span>${parseAndFormat(draw.p2)} / ${draw.p2u||0} 注</span></p><p><strong>三奖：</strong><span>${parseAndFormat(draw.p3)} / ${draw.p3u||0} 注</span></p><p><strong>四奖：</strong><span>${parseAndFormat(draw.p4)} / ${draw.p4u||0} 注</span></p><p><strong>五奖：</strong><span>${parseAndFormat(draw.p5)} / ${draw.p5u||0} 注</span></p><p><strong>六奖：</strong><span>${parseAndFormat(draw.p6)} / ${draw.p6u||0} 注</span></p><p><strong>七奖：</strong><span>${parseAndFormat(draw.p7)} / ${draw.p7u||0} 注</span></p></div><hr><h4 style="text-align:center; margin:20px 0 15px;">号码详情</h4>`;
+            if (draw.details_breakdown && draw.details_breakdown.length > 0) {
+                modalHtml += `<table class="table table-bordered text-center"><thead><tr><th>位置</th><th>号码</th><th>波色</th><th>生肖</th></tr></thead><tbody>`;
+                draw.details_breakdown.forEach(item => { modalHtml += `<tr><td>${item.position}</td><td>${item.number||'N/A'}</td><td><span class="color-text-${item.color_en}">${item.color_zh||'N/A'}</span></td><td>${item.zodiac||'N/A'}</td></tr>`; });
+                modalHtml += '</tbody></table>';
+            }
+        } else {
+             modalHtml = `<table class="table table-bordered text-center"><thead><tr><th>位置</th><th>号码</th><th>波色</th><th>生肖</th></tr></thead><tbody>`;
+             const colorMap = { 'red': '红', 'blue': '蓝', 'green': '绿' };
+             const numbers = (draw.no || []).concat(draw.sno || []);
+             const waves = draw.raw_wave ? draw.raw_wave.split(',') : [];
+             const zodiacs = draw.raw_zodiac ? draw.raw_zodiac.split(',') : [];
+             for (let i = 0; i < numbers.length; i++) {
+                const position = i < 6 ? `平码 ${i + 1}` : '<b>特码</b>';
+                const englishColor = (waves[i] || 'N/A').toLowerCase();
+                const chineseColor = colorMap[englishColor] || waves[i];
+                modalHtml += `<tr><td>${position}</td><td>${numbers[i]||'N/A'}</td><td><span class="color-text-${englishColor}">${chineseColor}</span></td><td>${zodiacs[i]||'N/A'}</td></tr>`;
+            }
+            modalHtml += '</tbody></table>';
+        }
+        modalBody.innerHTML = modalHtml;
+        modal.style.display = "flex";
+    };
+    function displayDraws(data) {
+        recentDrawsTableBody.innerHTML = ''; allDrawData = data;
+        if (!data || data.length === 0) { recentDrawsTableBody.innerHTML = '<tr><td colspan="4">没有找到数据</td></tr>'; return; }
+        data.forEach(draw => {
+            const row = recentDrawsTableBody.insertRow();
+            row.insertCell().textContent = draw.id || '';
+            row.insertCell().textContent = draw.date ? draw.date.split(' ')[0] : '';
+            const numbersCell = row.insertCell();
+            const numbersContainer = document.createElement('div');
+            numbersContainer.style.cssText = 'display:flex; justify-content:center; align-items:center; flex-wrap:wrap;';
+            if (Array.isArray(draw.no)) draw.no.forEach(num => numbersContainer.appendChild(createLotteryBallElement(num)));
+            if (draw.sno) numbersContainer.appendChild(createLotteryBallElement(draw.sno, true, draw.sno_zodiac));
+            numbersCell.appendChild(numbersContainer);
+            const detailsCell = row.insertCell();
+            const detailsButton = document.createElement('button');
+            detailsButton.textContent = '查看详情'; detailsButton.className = 'details-btn';
+            detailsButton.onclick = () => openDetailsModal(draw.id);
+            detailsCell.appendChild(detailsButton);
+        });
+    }
+    function updateUIForRegion() {
+        const isHongKong = (currentRegion === 'hk');
+        mainTitle.textContent = `${isHongKong ? '香港' : '澳门'}六合彩数据分析`;
+        yearSelectorContainer.style.display = 'inline-block';
+        hkBtn.classList.toggle('active', isHongKong);
+        macauBtn.classList.toggle('active', !isHongKong);
+        updateBtn.style.display = isHongKong ? 'inline-block' : 'none';
+        frequencyHeading.textContent = "特码出现频率分析 (基于所选年份数据)";
+    }
+    function renderDoughnutChart(canvas, legendContainer, chartInstance, data, colorMapping, emojiMapping = {}) {
+        if (chartInstance) chartInstance.destroy();
+        legendContainer.innerHTML = '';
+        const sortedData = Object.entries(data).sort(([,a],[,b]) => b-a);
+        const labels = sortedData.map(item => item[0]);
+        const values = sortedData.map(item => item[1]);
+        sortedData.forEach(([label, value]) => {
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+            const swatch = document.createElement('div');
+            swatch.className = 'legend-swatch';
+            swatch.style.backgroundColor = colorMapping[label];
+            const emoji = emojiMapping[label] ? `${emojiMapping[label]} ` : '';
+            item.innerHTML = `${swatch.outerHTML} ${emoji}${label}: <strong>${value}次</strong>`;
+            legendContainer.appendChild(item);
+        });
+        return new Chart(canvas, { type: 'doughnut', data: { labels: labels, datasets: [{ data: values, backgroundColor: labels.map(label => colorMapping[label]), borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, cutout: '70%' } });
+    }
+    function fetchData() {
+        const year = yearSelect.value;
+        recommendationDiv.innerHTML = `<p>正在加载 ${currentRegion === 'hk' ? '香港' : '澳门'} ${year}年 数据...</p>`;
+        const urls = [`/api/draws?region=${currentRegion}&year=${year}`, `/api/number_frequency?region=${currentRegion}&year=${year}`, `/api/special_zodiac_frequency?region=${currentRegion}&year=${year}`, `/api/special_color_frequency?region=${currentRegion}&year=${year}`];
+        Promise.all(urls.map(url => fetch(url)))
+            .then(responses => { if (responses.some(res => !res.ok)) throw new Error("服务器响应错误"); return Promise.all(responses.map(res => res.json())); })
+            .then(([drawsData, freqData, zodiacData, colorData]) => {
+                if (drawsData.error) throw new Error(drawsData.error);
+                displayDraws(drawsData);
+                if (frequencyChart) frequencyChart.destroy();
+                frequencyChart = new Chart(frequencyChartCanvas, { type: 'bar', data: { labels: Object.keys(freqData), datasets: [{ label: '特码出现频率', data: Object.values(freqData), backgroundColor: Object.keys(freqData).map(label => getBallColorClass(label)), }] }, options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } } });
+                const colorChartColors = {'红': '#e74c3c', '蓝': '#3498db', '绿': '#2ecc71'};
+                colorChart = renderDoughnutChart(colorChartCanvas, colorLegend, colorChart, colorData, colorChartColors);
+                const zodiacChartColors = {'鼠':'#8e44ad','牛':'#c0392b','虎':'#d35400','兔':'#27ae60','龙':'#f39c12','蛇':'#2980b9','马':'#e74c3c','羊':'#f1c40f','猴':'#16a085','鸡':'#95a5a6','狗':'#34495e','猪':'#ea8685'};
+                const zodiacEmojis = {'鼠':'🐀','牛':'🐂','虎':'🐅','兔':'🐇','龙':'🐉','蛇':'🐍','马':'🐎','羊':'🐑','猴':'🐒','鸡':'🐓','狗':'🐕','猪':'🐖'};
+                zodiacChart = renderDoughnutChart(zodiacChartCanvas, zodiacLegend, zodiacChart, zodiacData, zodiacChartColors, zodiacEmojis);
+                recommendationDiv.innerHTML = `<p>${currentRegion === 'hk' ? '香港' : '澳门'} 数据加载完成。</p>`;
+            })
+            .catch(err => { console.error("Fetch Data Error:", err); recentDrawsTableBody.innerHTML = `<tr><td colspan="4" style="color:red;"><b>加载失败:</b> ${err.message}</td></tr>`; recommendationDiv.innerHTML = '<p style="color:red;">数据加载失败！请检查后端服务。</p>'; });
+    }
+    function getPrediction(strategy) {
+        const strategyText = { 'random': '随机', 'balanced': '均衡', 'ai': 'AI智能' }[strategy];
+        recommendationDiv.innerHTML = `<p>正在为${currentRegion === 'hk' ? '香港' : '澳门'}地区生成<b>${strategyText}</b>推荐...</p>`;
+        fetch(`/api/predict?strategy=${strategy}&region=${currentRegion}&year=${yearSelect.value}`)
+            .then(res => { if (!res.ok) { return res.json().then(errData => { throw new Error(errData.error || '服务器响应错误') }); } return res.json(); })
+            .then(data => {
+                if (data.error) { recommendationDiv.innerHTML = `<p style="color:red;">错误: ${data.error}</p>`; }
+                else if (data.recommendation_text) { recommendationDiv.innerHTML = `<h3>AI 智能推荐</h3><pre>${data.recommendation_text}</pre>`; }
+                else {
+                    recommendationDiv.innerHTML = ""; const nC = document.createElement('div'); nC.innerHTML = '<strong>普通号码: </strong>'; data.normal.forEach(num => nC.appendChild(createLotteryBallElement(String(num)))); recommendationDiv.appendChild(nC);
+                    const sC = document.createElement('div'); sC.innerHTML = '<strong>特别号码: </strong>'; sC.appendChild(createLotteryBallElement(data.special.number, true, data.special.sno_zodiac)); recommendationDiv.appendChild(sC);
+                }
+            })
+            .catch(err => { recommendationDiv.innerHTML = `<p style="color:red;">推荐获取失败。(${err.message})</p>`; });
+    }
+    function switchRegion(newRegion) {
+        if (currentRegion === newRegion) return;
+        currentRegion = newRegion;
+        updateUIForRegion();
+        fetchData();
+    }
+    function initialize() {
+        const currentYear = new Date().getFullYear();
+        for (let year = currentYear; year >= 2015; year--) { yearSelect.add(new Option(year, year)); }
+        hkBtn.addEventListener('click', () => switchRegion('hk'));
+        macauBtn.addEventListener('click', () => switchRegion('macau'));
+        document.getElementById('queryBtn').addEventListener('click', fetchData);
+        document.querySelector('.close-btn').onclick = () => { modal.style.display = "none"; };
+        window.onclick = (event) => { if (event.target == modal) modal.style.display = "none"; };
+        updateBtn.onclick = () => { recommendationDiv.innerHTML = '<p>正在从源服务器更新数据...</p>'; fetch('/api/update_data', { method: 'POST' }).then(() => fetchData()); };
+        randomBtn.onclick = () => getPrediction('random');
+        balancedBtn.onclick = () => getPrediction('balanced');
+        aiBtn.onclick = () => getPrediction('ai');
+        document.getElementById('searchBtn').onclick = () => { const term = searchInput.value.trim(); if (!term) return; fetch(`/api/search_draws?region=${currentRegion}&year=${yearSelect.value}&term=${encodeURIComponent(term)}`).then(res => res.json()).then(displayDraws); };
+        document.getElementById('resetBtn').onclick = () => { searchInput.value = ''; fetchData(); };
+        searchInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') document.getElementById('searchBtn').click(); });
+        updateUIForRegion();
+        fetchData();
+    }
+    initialize();
+});
+</script>
+</body>
+</html>
