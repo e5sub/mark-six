@@ -87,8 +87,19 @@ def get_macau_data(year):
                 "sno_zodiac": simplified_zodiacs[6] if len(simplified_zodiacs) >= 7 else "",
                 "raw_wave": record.get("wave", ""), "raw_zodiac": ",".join(simplified_zodiacs)
             })
-            
-        filtered_by_year = [rec for rec in normalized_data if rec.get("date", "").startswith(str(year))]
+        
+        # --- 新增去重逻辑 ---
+        unique_data = []
+        seen_ids = set()
+        for record in normalized_data:
+            record_id = record.get("id")
+            if record_id and record_id not in seen_ids:
+                unique_data.append(record)
+                seen_ids.add(record_id)
+        # --- 去重逻辑结束 ---
+
+        # 使用去重后的 unique_data 进行过滤和排序
+        filtered_by_year = [rec for rec in unique_data if rec.get("date", "").startswith(str(year))]
         return sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
     except Exception as e:
         print(f"Error in get_macau_data for year {year}: {e}")
