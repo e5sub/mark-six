@@ -522,7 +522,7 @@
         }
 
         .modal-content {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.9) 100%);
+            background: rgba(255, 255, 255, 0.7);
             border-radius: 15px;
             width: 90%;
             max-width: 600px;
@@ -531,6 +531,7 @@
             box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
             animation: modalSlideIn 0.4s ease-out;
             backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
         @keyframes modalSlideIn {
@@ -560,13 +561,17 @@
         .modal-body {
             padding: 25px;
             color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(10px);
+            border-radius: 0;
         }
 
         .modal-footer {
             padding: 15px 25px;
             text-align: right;
-            background: rgba(248, 249, 250, 0.8);
+            background: rgba(248, 249, 250, 0.5);
             border-radius: 0 0 15px 15px;
+            backdrop-filter: blur(10px);
         }
 
         /* 模态框内波色样式 */
