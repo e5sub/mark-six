@@ -522,7 +522,7 @@
         }
 
         .modal-content {
-            background: rgba(255, 255, 255, 0);
+            background: #ffffff;
             border-radius: 15px;
             width: 90%;
             max-width: 600px;
@@ -561,17 +561,15 @@
         .modal-body {
             padding: 25px;
             color: var(--text-primary);
-            background: rgba(255, 255, 255, 0);
-            backdrop-filter: blur(10px);
+            background: #ffffff;
             border-radius: 0;
         }
 
         .modal-footer {
             padding: 15px 25px;
             text-align: right;
-            background: rgba(255, 255, 255, 0);
+            background: #ffffff;
             border-radius: 0 0 15px 15px;
-            backdrop-filter: blur(10px);
         }
 
         /* 模态框内波色样式 */
@@ -965,28 +963,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 const num = parseFloat(String(value).replace(/,/g, ''));
                 return isNaN(num) ? 'N/A' : `¥${num.toLocaleString('en-US')}`;
             };
-            modalHtml += `<div style="background: rgba(255, 255, 255, 0); padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.3);">`;
-            modalHtml += `<p><strong><i class="fas fa-coins"></i> 总投注金额：</strong><span style="color: #28a745; font-weight: bold;">${parseAndFormat(draw.inv)}</span></p>`;
-            modalHtml += `<p><strong><i class="fas fa-trophy"></i> 头奖：</strong><span style="color: #dc3545; font-weight: bold;">${parseAndFormat(draw.p1)} / ${draw.p1u||0} 注</span></p>`;
-            modalHtml += `<p><strong><i class="fas fa-medal"></i> 二奖：</strong><span style="color: #fd7e14; font-weight: bold;">${parseAndFormat(draw.p2)} / ${draw.p2u||0} 注</span></p>`;
-            modalHtml += `<p><strong><i class="fas fa-award"></i> 三奖：</strong><span style="color: #ffc107; font-weight: bold;">${parseAndFormat(draw.p3)} / ${draw.p3u||0} 注</span></p>`;
-            modalHtml += `<p><strong>四奖：</strong><span>${parseAndFormat(draw.p4)} / ${draw.p4u||0} 注</span></p>`;
-            modalHtml += `<p><strong>五奖：</strong><span>${parseAndFormat(draw.p5)} / ${draw.p5u||0} 注</span></p>`;
-            modalHtml += `<p><strong>六奖：</strong><span>${parseAndFormat(draw.p6)} / ${draw.p6u||0} 注</span></p>`;
-            modalHtml += `<p><strong>七奖：</strong><span>${parseAndFormat(draw.p7)} / ${draw.p7u||0} 注</span></p>`;
+            modalHtml += `<div style="background: #ffffff; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid rgba(0, 0, 0, 0.1);">`;
+            modalHtml += `<table style="width: 100%; border-collapse: collapse;">`;
+            modalHtml += `<tr><td style="padding: 5px; width: 150px; text-align: right;"><strong><i class="fas fa-coins"></i> 总投注金额：</strong></td><td style="padding: 5px; text-align: left;"><span style="color: #28a745; font-weight: bold;">${parseAndFormat(draw.inv)}</span></td></tr>`;
+            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong><i class="fas fa-trophy"></i> 头奖：</strong></td><td style="padding: 5px; text-align: left;"><span style="color: #dc3545; font-weight: bold;">${parseAndFormat(draw.p1)} / ${draw.p1u||0} 注</span></td></tr>`;
+            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong><i class="fas fa-medal"></i> 二奖：</strong></td><td style="padding: 5px; text-align: left;"><span style="color: #fd7e14; font-weight: bold;">${parseAndFormat(draw.p2)} / ${draw.p2u||0} 注</span></td></tr>`;
+            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong><i class="fas fa-award"></i> 三奖：</strong></td><td style="padding: 5px; text-align: left;"><span style="color: #ffc107; font-weight: bold;">${parseAndFormat(draw.p3)} / ${draw.p3u||0} 注</span></td></tr>`;
+            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong>四奖：</strong></td><td style="padding: 5px; text-align: left;"><span>${parseAndFormat(draw.p4)} / ${draw.p4u||0} 注</span></td></tr>`;
+            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong>五奖：</strong></td><td style="padding: 5px; text-align: left;"><span>${parseAndFormat(draw.p5)} / ${draw.p5u||0} 注</span></td></tr>`;
+            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong>六奖：</strong></td><td style="padding: 5px; text-align: left;"><span>${parseAndFormat(draw.p6)} / ${draw.p6u||0} 注</span></td></tr>`;
+            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong>七奖：</strong></td><td style="padding: 5px; text-align: left;"><span>${parseAndFormat(draw.p7)} / ${draw.p7u||0} 注</span></td></tr>`;
+            modalHtml += `</table>`;
             modalHtml += `</div>`;
             modalHtml += `<h4 style="text-align:center; margin:20px 0 15px; color: #495057;"><i class="fas fa-list"></i> 号码详情</h4>`;
             
             if (draw.details_breakdown && draw.details_breakdown.length > 0) {
-                modalHtml += `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: rgba(255, 255, 255, 0); color: white;"><th style="padding: 12px;">位置</th><th style="padding: 12px;">号码</th><th style="padding: 12px;">波色</th><th style="padding: 12px;">生肖</th></tr></thead><tbody>`;
+                modalHtml += `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: #f8f9fa; color: #333;"><th style="padding: 12px; text-align: center;">位置</th><th style="padding: 12px; text-align: center;">号码</th><th style="padding: 12px; text-align: center;">波色</th><th style="padding: 12px; text-align: center;">生肖</th></tr></thead><tbody>`;
                 draw.details_breakdown.forEach((item, index) => { 
-                    const bgColor = index % 2 === 0 ? 'rgba(255, 255, 255, 0)' : 'rgba(255, 255, 255, 0)';
-                    modalHtml += `<tr style="background: ${bgColor};"><td style="padding: 10px;">${item.position}</td><td style="padding: 10px; font-weight: bold;">${item.number||'N/A'}</td><td style="padding: 10px;"><span class="color-text-${item.color_en}" style="font-weight: bold;">${item.color_zh||'N/A'}</span></td><td style="padding: 10px;">${item.zodiac||'N/A'}</td></tr>`; 
+                    const bgColor = index % 2 === 0 ? '#ffffff' : '#f8f9fa';
+                    modalHtml += `<tr style="background: ${bgColor};"><td style="padding: 10px; text-align: center;">${item.position}</td><td style="padding: 10px; font-weight: bold; text-align: center;">${item.number||'N/A'}</td><td style="padding: 10px; text-align: center;"><span class="color-text-${item.color_en}" style="font-weight: bold;">${item.color_zh||'N/A'}</span></td><td style="padding: 10px; text-align: center;">${item.zodiac||'N/A'}</td></tr>`; 
                 });
                 modalHtml += '</tbody></table>';
             }
         } else {
-            modalHtml = `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: rgba(255, 255, 255, 0); color: white;"><th style="padding: 12px;">位置</th><th style="padding: 12px;">号码</th><th style="padding: 12px;">波色</th><th style="padding: 12px;">生肖</th></tr></thead><tbody>`;
+            modalHtml = `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: #f8f9fa; color: #333;"><th style="padding: 12px; text-align: center;">位置</th><th style="padding: 12px; text-align: center;">号码</th><th style="padding: 12px; text-align: center;">波色</th><th style="padding: 12px; text-align: center;">生肖</th></tr></thead><tbody>`;
             const colorMap = { 'red': '红', 'blue': '蓝', 'green': '绿' };
             const numbers = (draw.no || []).concat(draw.sno || []);
             const waves = draw.raw_wave ? draw.raw_wave.split(',') : [];
@@ -996,8 +996,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const position = i < 6 ? `平码 ${i + 1}` : '<b><i class="fas fa-star"></i> 特码</b>';
                 const englishColor = (waves[i] || 'N/A').toLowerCase();
                 const chineseColor = colorMap[englishColor] || waves[i];
-                const bgColor = i % 2 === 0 ? 'rgba(255, 255, 255, 0)' : 'rgba(255, 255, 255, 0)';
-                modalHtml += `<tr style="background: ${bgColor};"><td style="padding: 10px;">${position}</td><td style="padding: 10px; font-weight: bold;">${numbers[i]||'N/A'}</td><td style="padding: 10px;"><span class="color-text-${englishColor}" style="font-weight: bold;">${chineseColor}</span></td><td style="padding: 10px;">${zodiacs[i]||'N/A'}</td></tr>`;
+                const bgColor = i % 2 === 0 ? '#ffffff' : '#f8f9fa';
+                modalHtml += `<tr style="background: ${bgColor};"><td style="padding: 10px; text-align: center;">${position}</td><td style="padding: 10px; font-weight: bold; text-align: center;">${numbers[i]||'N/A'}</td><td style="padding: 10px; text-align: center;"><span class="color-text-${englishColor}" style="font-weight: bold;">${chineseColor}</span></td><td style="padding: 10px; text-align: center;">${zodiacs[i]||'N/A'}</td></tr>`;
             }
             modalHtml += '</tbody></table>';
         }
@@ -1037,9 +1037,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const detailsCell = row.insertCell();
             const detailsButton = document.createElement('button');
             detailsButton.innerHTML = '<i class="fas fa-eye"></i> 查看详情';
-            detailsButton.className = 'modern-btn';
-            detailsButton.style.background = 'white';
-            detailsButton.style.color = '#495057';
+            detailsButton.className = 'modern-btn btn-secondary';
+            detailsButton.style.padding = '8px 16px';
+            detailsButton.style.fontSize = '0.85rem';
             detailsButton.style.padding = '8px 16px';
             detailsButton.style.fontSize = '0.85rem';
             detailsButton.onclick = () => openDetailsModal(draw.id);
@@ -1189,7 +1189,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     color: 'rgba(255, 255, 255, 0.1)'
                                 },
                                 ticks: {
-                                    color: 'rgba(255, 255, 255, 0.8)'
+                                    color: '#000000'
                                 }
                             },
                             x: {
