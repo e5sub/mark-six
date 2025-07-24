@@ -1037,7 +1037,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const detailsCell = row.insertCell();
             const detailsButton = document.createElement('button');
             detailsButton.innerHTML = '<i class="fas fa-eye"></i> 查看详情';
-            detailsButton.className = 'modern-btn btn-secondary';
+            detailsButton.className = 'modern-btn';
+            detailsButton.style.background = 'white';
+            detailsButton.style.color = '#495057';
             detailsButton.style.padding = '8px 16px';
             detailsButton.style.fontSize = '0.85rem';
             detailsButton.onclick = () => openDetailsModal(draw.id);
@@ -1260,10 +1262,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 else {
                     recommendationDiv.innerHTML = "";
-                    
-                    const titleDiv = document.createElement('div');
-                    titleDiv.innerHTML = `<h3 style="color: white; margin-bottom: 20px;"><i class="${strategyIcon}"></i> ${strategyText}推荐结果</h3>`;
-                    recommendationDiv.appendChild(titleDiv);
                     
                     const ballsContainer = document.createElement('div');
                     ballsContainer.style.cssText = 'display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 auto; width: fit-content;';
