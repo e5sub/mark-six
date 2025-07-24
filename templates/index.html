@@ -262,7 +262,7 @@
 
         /* 推荐区域 */
         .recommendation-card {
-            background: rgba(248, 249, 250, 0.7);
+            background: rgba(255, 255, 255, 0);
             border-radius: 12px;
             padding: 20px;
             text-align: center;
@@ -284,14 +284,14 @@
         }
 
         .recommendation-card pre {
-            background: #e9ecef;
+            background: rgba(255, 255, 255, 0);
             padding: 16px;
             border-radius: 8px;
             color: #495057;
             text-align: left;
             line-height: 1.6;
             margin: 12px 0;
-            border: 1px solid #ced4da;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
         /* 搜索区域 */
@@ -1268,7 +1268,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const normalContainer = document.createElement('div');
                     normalContainer.innerHTML = '<div style="color: rgba(255,255,255,0.9); margin-bottom: 15px; font-weight: 600;"><i class="fas fa-dice"></i> 普通号码:</div>';
                     const normalBalls = document.createElement('div');
-                    normalBalls.style.cssText = 'display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 20px;';
+                    normalBalls.style.cssText = 'display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; margin-left: auto; margin-right: auto; width: fit-content;';
                     data.normal.forEach(num => normalBalls.appendChild(createLotteryBallElement(String(num))));
                     normalContainer.appendChild(normalBalls);
                     recommendationDiv.appendChild(normalContainer);
@@ -1276,7 +1276,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const specialContainer = document.createElement('div');
                     specialContainer.innerHTML = '<div style="color: rgba(255,255,255,0.9); margin-bottom: 15px; font-weight: 600;"><i class="fas fa-star"></i> 特别号码:</div>';
                     const specialBalls = document.createElement('div');
-                    specialBalls.style.cssText = 'display: flex; justify-content: center; flex-wrap: wrap; gap: 8px;';
+                    specialBalls.style.cssText = 'display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-left: auto; margin-right: auto; width: fit-content;';
                     specialBalls.appendChild(createLotteryBallElement(data.special.number, true, data.special.sno_zodiac));
                     specialContainer.appendChild(specialBalls);
                     recommendationDiv.appendChild(specialContainer);
