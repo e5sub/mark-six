@@ -71,7 +71,7 @@
 
         /* 玻璃拟态卡片 */
         .glass-card {
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border-radius: 15px;
@@ -331,7 +331,7 @@
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0);
             border-radius: 10px;
             overflow: hidden;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -339,7 +339,7 @@
         }
 
         .modern-table th {
-            background: #f8f9fa;
+            background: rgba(255, 255, 255, 0);
             color: #495057;
             padding: 14px 12px;
             text-align: center;
@@ -447,7 +447,7 @@
         }
 
         .chart-card {
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0);
             border-radius: 12px;
             padding: 20px;
             border: 1px solid rgba(255, 255, 255, 0.3);
@@ -522,7 +522,7 @@
         }
 
         .modal-content {
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0);
             border-radius: 15px;
             width: 90%;
             max-width: 600px;
@@ -561,7 +561,7 @@
         .modal-body {
             padding: 25px;
             color: var(--text-primary);
-            background: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0);
             backdrop-filter: blur(10px);
             border-radius: 0;
         }
@@ -569,7 +569,7 @@
         .modal-footer {
             padding: 15px 25px;
             text-align: right;
-            background: rgba(248, 249, 250, 0.5);
+            background: rgba(255, 255, 255, 0);
             border-radius: 0 0 15px 15px;
             backdrop-filter: blur(10px);
         }
@@ -965,7 +965,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const num = parseFloat(String(value).replace(/,/g, ''));
                 return isNaN(num) ? 'N/A' : `¥${num.toLocaleString('en-US')}`;
             };
-            modalHtml += `<div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 20px; border-radius: 15px; margin-bottom: 20px;">`;
+            modalHtml += `<div style="background: rgba(255, 255, 255, 0); padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.3);">`;
             modalHtml += `<p><strong><i class="fas fa-coins"></i> 总投注金额：</strong><span style="color: #28a745; font-weight: bold;">${parseAndFormat(draw.inv)}</span></p>`;
             modalHtml += `<p><strong><i class="fas fa-trophy"></i> 头奖：</strong><span style="color: #dc3545; font-weight: bold;">${parseAndFormat(draw.p1)} / ${draw.p1u||0} 注</span></p>`;
             modalHtml += `<p><strong><i class="fas fa-medal"></i> 二奖：</strong><span style="color: #fd7e14; font-weight: bold;">${parseAndFormat(draw.p2)} / ${draw.p2u||0} 注</span></p>`;
@@ -978,15 +978,15 @@ document.addEventListener('DOMContentLoaded', () => {
             modalHtml += `<h4 style="text-align:center; margin:20px 0 15px; color: #495057;"><i class="fas fa-list"></i> 号码详情</h4>`;
             
             if (draw.details_breakdown && draw.details_breakdown.length > 0) {
-                modalHtml += `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%); color: white;"><th style="padding: 12px;">位置</th><th style="padding: 12px;">号码</th><th style="padding: 12px;">波色</th><th style="padding: 12px;">生肖</th></tr></thead><tbody>`;
+                modalHtml += `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: rgba(255, 255, 255, 0); color: white;"><th style="padding: 12px;">位置</th><th style="padding: 12px;">号码</th><th style="padding: 12px;">波色</th><th style="padding: 12px;">生肖</th></tr></thead><tbody>`;
                 draw.details_breakdown.forEach((item, index) => { 
-                    const bgColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                    const bgColor = index % 2 === 0 ? 'rgba(255, 255, 255, 0)' : 'rgba(255, 255, 255, 0)';
                     modalHtml += `<tr style="background: ${bgColor};"><td style="padding: 10px;">${item.position}</td><td style="padding: 10px; font-weight: bold;">${item.number||'N/A'}</td><td style="padding: 10px;"><span class="color-text-${item.color_en}" style="font-weight: bold;">${item.color_zh||'N/A'}</span></td><td style="padding: 10px;">${item.zodiac||'N/A'}</td></tr>`; 
                 });
                 modalHtml += '</tbody></table>';
             }
         } else {
-            modalHtml = `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%); color: white;"><th style="padding: 12px;">位置</th><th style="padding: 12px;">号码</th><th style="padding: 12px;">波色</th><th style="padding: 12px;">生肖</th></tr></thead><tbody>`;
+            modalHtml = `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: rgba(255, 255, 255, 0); color: white;"><th style="padding: 12px;">位置</th><th style="padding: 12px;">号码</th><th style="padding: 12px;">波色</th><th style="padding: 12px;">生肖</th></tr></thead><tbody>`;
             const colorMap = { 'red': '红', 'blue': '蓝', 'green': '绿' };
             const numbers = (draw.no || []).concat(draw.sno || []);
             const waves = draw.raw_wave ? draw.raw_wave.split(',') : [];
@@ -996,7 +996,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const position = i < 6 ? `平码 ${i + 1}` : '<b><i class="fas fa-star"></i> 特码</b>';
                 const englishColor = (waves[i] || 'N/A').toLowerCase();
                 const chineseColor = colorMap[englishColor] || waves[i];
-                const bgColor = i % 2 === 0 ? '#f8f9fa' : '#ffffff';
+                const bgColor = i % 2 === 0 ? 'rgba(255, 255, 255, 0)' : 'rgba(255, 255, 255, 0)';
                 modalHtml += `<tr style="background: ${bgColor};"><td style="padding: 10px;">${position}</td><td style="padding: 10px; font-weight: bold;">${numbers[i]||'N/A'}</td><td style="padding: 10px;"><span class="color-text-${englishColor}" style="font-weight: bold;">${chineseColor}</span></td><td style="padding: 10px;">${zodiacs[i]||'N/A'}</td></tr>`;
             }
             modalHtml += '</tbody></table>';
@@ -1265,21 +1265,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     titleDiv.innerHTML = `<h3 style="color: white; margin-bottom: 20px;"><i class="${strategyIcon}"></i> ${strategyText}推荐结果</h3>`;
                     recommendationDiv.appendChild(titleDiv);
                     
-                    const normalContainer = document.createElement('div');
-                    normalContainer.innerHTML = '<div style="color: rgba(255,255,255,0.9); margin-bottom: 15px; font-weight: 600;"><i class="fas fa-dice"></i> 普通号码:</div>';
-                    const normalBalls = document.createElement('div');
-                    normalBalls.style.cssText = 'display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; margin-left: auto; margin-right: auto; width: fit-content;';
-                    data.normal.forEach(num => normalBalls.appendChild(createLotteryBallElement(String(num))));
-                    normalContainer.appendChild(normalBalls);
-                    recommendationDiv.appendChild(normalContainer);
+                    const ballsContainer = document.createElement('div');
+                    ballsContainer.style.cssText = 'display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 auto; width: fit-content;';
                     
-                    const specialContainer = document.createElement('div');
-                    specialContainer.innerHTML = '<div style="color: rgba(255,255,255,0.9); margin-bottom: 15px; font-weight: 600;"><i class="fas fa-star"></i> 特别号码:</div>';
-                    const specialBalls = document.createElement('div');
-                    specialBalls.style.cssText = 'display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-left: auto; margin-right: auto; width: fit-content;';
-                    specialBalls.appendChild(createLotteryBallElement(data.special.number, true, data.special.sno_zodiac));
-                    specialContainer.appendChild(specialBalls);
-                    recommendationDiv.appendChild(specialContainer);
+                    // 添加普通号码
+                    data.normal.forEach(num => ballsContainer.appendChild(createLotteryBallElement(String(num))));
+                    
+                    // 添加特别号码
+                    ballsContainer.appendChild(createLotteryBallElement(data.special.number, true, data.special.sno_zodiac));
+                    
+                    recommendationDiv.appendChild(ballsContainer);
                 }
             })
             .catch(err => { 
