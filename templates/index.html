@@ -141,10 +141,12 @@
         /* 地区选择器 */
         .region-selector {
             display: flex;
-            background: #f8f9fa;
+            background: rgba(248, 249, 250, 0.7);
             border-radius: 10px;
             padding: 4px;
-            border: 1px solid #dee2e6;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
         }
 
         .region-btn {
@@ -178,14 +180,16 @@
         /* 选择器样式 */
         .modern-select {
             padding: 10px 16px;
-            border: 1px solid #ced4da;
+            border: 1px solid rgba(255, 255, 255, 0.3);
             border-radius: 8px;
-            background: white;
+            background: rgba(255, 255, 255, 0.7);
             color: #495057;
             font-size: 0.95rem;
             font-weight: 500;
             transition: all 0.3s ease;
             min-width: 120px;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
         }
 
         .modern-select:focus {
@@ -301,13 +305,15 @@
 
         .search-input {
             padding: 12px 16px;
-            border: 1px solid #ced4da;
+            border: 1px solid rgba(255, 255, 255, 0.3);
             border-radius: 8px;
-            background: white;
+            background: rgba(255, 255, 255, 0.7);
             color: #495057;
             font-size: 0.95rem;
             transition: all 0.3s ease;
             min-width: 280px;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
         }
 
         .search-input::placeholder {
@@ -1139,15 +1145,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             backgroundColor: freqLabels.map(label => {
                                 const colorClass = getBallColorClass(label);
                                 if (colorClass === 'red') return 'rgba(255, 107, 107, 0.8)';
-                                if (colorClass === 'blue') return 'rgba(78, 205, 196, 0.8)';
-                                if (colorClass === 'green') return 'rgba(150, 206, 180, 0.8)';
+                                if (colorClass === 'blue') return 'rgba(52, 152, 219, 0.8)';
+                                if (colorClass === 'green') return 'rgba(46, 204, 113, 0.8)';
                                 return 'rgba(156, 163, 175, 0.8)';
                             }),
                             borderColor: freqLabels.map(label => {
                                 const colorClass = getBallColorClass(label);
                                 if (colorClass === 'red') return '#ff6b6b';
-                                if (colorClass === 'blue') return '#4ecdc4';
-                                if (colorClass === 'green') return '#96ceb4';
+                                if (colorClass === 'blue') return '#3498db';
+                                if (colorClass === 'green') return '#2ecc71';
                                 return '#9ca3af';
                             }),
                             borderWidth: 2,
@@ -1195,7 +1201,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     } 
                 });
                 
-                const colorChartColors = {'红': '#ff6b6b', '蓝': '#4ecdc4', '绿': '#96ceb4'};
+                const colorChartColors = {'红': '#ff6b6b', '蓝': '#3498db', '绿': '#2ecc71'};
                 colorChart = renderDoughnutChart(colorChartCanvas, colorLegend, colorChart, colorData, colorChartColors);
                 
                 const zodiacChartColors = {
