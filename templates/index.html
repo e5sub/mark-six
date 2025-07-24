@@ -71,11 +71,11 @@
 
         /* 玻璃拟态卡片 */
         .glass-card {
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border-radius: 15px;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             padding: 25px;
             margin-bottom: 25px;
@@ -258,17 +258,19 @@
 
         /* 推荐区域 */
         .recommendation-card {
-            background: #f8f9fa;
+            background: rgba(248, 249, 250, 0.7);
             border-radius: 12px;
             padding: 20px;
             text-align: center;
-            border: 1px solid #dee2e6;
+            border: 1px solid rgba(255, 255, 255, 0.3);
             margin-bottom: 25px;
             min-height: 70px;
             display: flex;
             align-items: center;
             justify-content: center;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
 
         .recommendation-card p {
@@ -323,11 +325,11 @@
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            background: white;
+            background: rgba(255, 255, 255, 0.7);
             border-radius: 10px;
             overflow: hidden;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            border: 1px solid #dee2e6;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
         .modern-table th {
@@ -382,10 +384,10 @@
             background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
         }
         .lottery-ball.blue { 
-            background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
         }
         .lottery-ball.green { 
-            background: linear-gradient(135deg, #96ceb4 0%, #ffecd2 100%);
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
         }
 
         .lottery-ball.special {
@@ -403,18 +405,18 @@
             display: inline-flex;
             align-items: center;
             margin: 5px;
-            flex-direction: column;
+            flex-direction: row;
         }
 
         .zodiac-label {
-            margin-top: 5px;
+            margin-left: 5px;
             color: #495057;
             font-weight: 600;
             font-size: 0.85rem;
             background: rgba(255, 255, 255, 0.9);
             padding: 2px 8px;
             border-radius: 12px;
-            border: 1px solid #dee2e6;
+            border: 1px solid rgba(255, 255, 255, 0.3);
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
@@ -439,12 +441,14 @@
         }
 
         .chart-card {
-            background: white;
+            background: rgba(255, 255, 255, 0.7);
             border-radius: 12px;
             padding: 20px;
-            border: 1px solid #dee2e6;
+            border: 1px solid rgba(255, 255, 255, 0.3);
             transition: all 0.3s ease;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
 
         .chart-card:hover {
@@ -918,16 +922,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const createLotteryBallElement = (num, isSpecial = false, zodiac = '') => {
         const wrapper = document.createElement('div');
         wrapper.className = 'ball-wrapper';
+        wrapper.style.display = 'flex';
+        wrapper.style.alignItems = 'center';
+        
         const ball = document.createElement('div');
         ball.className = `lottery-ball ${getBallColorClass(num)}`;
         if (isSpecial) ball.classList.add('special');
         ball.textContent = num;
         
         wrapper.appendChild(ball);
+        
         if (isSpecial && zodiac) {
             const zodiacLabel = document.createElement('span');
             zodiacLabel.className = 'zodiac-label';
             zodiacLabel.textContent = zodiac;
+            zodiacLabel.style.marginLeft = '5px';
             wrapper.appendChild(zodiacLabel);
         }
         return wrapper;
