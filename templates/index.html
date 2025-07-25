@@ -333,35 +333,79 @@
             border-spacing: 0;
             background: rgba(255, 255, 255, 0);
             border-radius: 10px;
-            overflow: hidden;
+            overflow-x: auto;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
         .modern-table th {
-            background: rgba(255, 255, 255, 0);
+            background: rgba(255, 255, 255, 0.1);
             color: #495057;
-            padding: 14px 12px;
+            padding: 14px 8px;
             text-align: center;
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
+            border-bottom: 1px solid #dee2e6;
+            border-right: 1px solid #dee2e6;
+            white-space: nowrap;
+        }
+        
+        .modern-table th:last-child {
+            border-right: none;
+        }
+        
+        .modern-table thead tr:first-child th {
+            border-bottom: 1px solid #dee2e6;
+            font-weight: 700;
+        }
+        
+        .modern-table thead tr:last-child th {
             border-bottom: 2px solid #dee2e6;
         }
 
         .modern-table td {
-            padding: 12px;
+            padding: 10px 8px;
             text-align: center;
             border-bottom: 1px solid #dee2e6;
             color: #495057;
             transition: all 0.3s ease;
+            vertical-align: middle;
+        }
+
+        .modern-table tbody tr:nth-child(even) {
+            background: rgba(248, 249, 250, 0.3);
         }
 
         .modern-table tbody tr:hover {
-            background: #f8f9fa;
+            background: rgba(248, 249, 250, 0.7);
         }
 
         .modern-table tbody tr:last-child td {
             border-bottom: none;
+        }
+        
+        /* 表格容器，使表格可以水平滚动 */
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+            margin-bottom: 20px;
+            border-radius: 10px;
+        }
+        
+        /* 数据分析文本样式 */
+        .data-text-red {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        
+        .data-text-blue {
+            color: #3498db;
+            font-weight: bold;
+        }
+        
+        .data-text-green {
+            color: #2ecc71;
+            font-weight: bold;
         }
 
         /* 彩球样式升级 */
@@ -788,17 +832,32 @@
                 </button>
             </div>
 
-            <table id="recentDrawsTable" class="modern-table">
-                <thead>
-                    <tr>
-                        <th><i class="fas fa-hashtag"></i> 期号</th>
-                        <th><i class="fas fa-calendar"></i> 日期</th>
-                        <th><i class="fas fa-dice"></i> 开奖号码</th>
-                        <th><i class="fas fa-info"></i> 详情</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+            <div class="table-container">
+                <table id="recentDrawsTable" class="modern-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="2"><i class="fas fa-calendar"></i> 日期/期数</th>
+                            <th rowspan="2"><i class="fas fa-dice"></i> 正码</th>
+                            <th rowspan="2"><i class="fas fa-star"></i> 特码</th>
+                            <th colspan="3" style="background-color: rgba(255, 248, 220, 0.3);">总和</th>
+                            <th colspan="6" style="background-color: rgba(230, 230, 250, 0.3);">特码</th>
+                            <th rowspan="2"><i class="fas fa-info"></i> 详情</th>
+                        </tr>
+                        <tr>
+                            <th>总数</th>
+                            <th>单双</th>
+                            <th>大小</th>
+                            <th>七色波</th>
+                            <th>单双</th>
+                            <th>大小</th>
+                            <th>合单双</th>
+                            <th>合大小</th>
+                            <th>尾大小</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
 
         <!-- 频率分析图表 -->
@@ -1010,7 +1069,7 @@ document.addEventListener('DOMContentLoaded', () => {
         allDrawData = data;
         
         if (!data || data.length === 0) { 
-            recentDrawsTableBody.innerHTML = '<tr><td colspan="4" style="padding: 30px; color: rgba(255,255,255,0.7);"><i class="fas fa-exclamation-circle"></i> 没有找到数据</td></tr>'; 
+            recentDrawsTableBody.innerHTML = '<tr><td colspan="13" style="padding: 30px; color: rgba(255,255,255,0.7);"><i class="fas fa-exclamation-circle"></i> 没有找到数据</td></tr>'; 
             return; 
         }
         
@@ -1019,32 +1078,129 @@ document.addEventListener('DOMContentLoaded', () => {
             row.style.animationDelay = (index * 0.1) + 's';
             row.classList.add('count-up');
             
-            row.insertCell().innerHTML = `<strong>${draw.id || ''}</strong>`;
-            row.insertCell().textContent = draw.date ? draw.date.split(' ')[0] : '';
+            // 日期/期数
+            row.insertCell().innerHTML = `${draw.date ? draw.date.split(' ')[0] : ''}<br><strong>${draw.id || ''}</strong>期`;
             
-            const numbersCell = row.insertCell();
-            const numbersContainer = document.createElement('div');
-            numbersContainer.style.cssText = 'display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap: 5px;';
+            // 正码
+            const normalNumbersCell = row.insertCell();
+            const normalNumbersContainer = document.createElement('div');
+            normalNumbersContainer.style.cssText = 'display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap: 5px;';
             
             if (Array.isArray(draw.no)) {
-                draw.no.forEach(num => numbersContainer.appendChild(createLotteryBallElement(num)));
+                draw.no.forEach(num => {
+                    const numElement = createLotteryBallElement(num);
+                    // 添加生肖标签
+                    const zodiac = getZodiacForNumber(num);
+                    if (zodiac) {
+                        const zodiacSpan = document.createElement('span');
+                        zodiacSpan.textContent = zodiac;
+                        zodiacSpan.style.fontSize = '0.8em';
+                        zodiacSpan.style.display = 'block';
+                        zodiacSpan.style.textAlign = 'center';
+                        numElement.appendChild(zodiacSpan);
+                    }
+                    normalNumbersContainer.appendChild(numElement);
+                });
             }
-            if (draw.sno) {
-                numbersContainer.appendChild(createLotteryBallElement(draw.sno, true, draw.sno_zodiac));
-            }
-            numbersCell.appendChild(numbersContainer);
+            normalNumbersCell.appendChild(normalNumbersContainer);
             
+            // 特码
+            const specialNumberCell = row.insertCell();
+            if (draw.sno) {
+                specialNumberCell.appendChild(createLotteryBallElement(draw.sno, true, draw.sno_zodiac));
+            }
+            
+            // 计算总和
+            const numbers = Array.isArray(draw.no) ? [...draw.no] : [];
+            if (draw.sno) numbers.push(draw.sno);
+            const sum = numbers.reduce((acc, curr) => acc + parseInt(curr), 0);
+            row.insertCell().textContent = sum;
+            
+            // 单双 (总和)
+            row.insertCell().innerHTML = `<span style="color: ${sum % 2 === 0 ? 'blue' : 'red'}; font-weight: bold;">${sum % 2 === 0 ? '双' : '单'}</span>`;
+            
+            // 大小 (总和)
+            const isBig = sum > 175;
+            row.insertCell().innerHTML = `<span style="color: ${isBig ? 'red' : 'blue'}; font-weight: bold;">${isBig ? '大' : '小'}</span>`;
+            
+            // 七色波 (特码)
+            let waveColor = '';
+            if (draw.sno) {
+                const specialNum = parseInt(draw.sno);
+                if (RED_BALLS.includes(specialNum)) waveColor = '<span style="color: red; font-weight: bold;">红</span>';
+                else if (BLUE_BALLS.includes(specialNum)) waveColor = '<span style="color: blue; font-weight: bold;">蓝</span>';
+                else if (GREEN_BALLS.includes(specialNum)) waveColor = '<span style="color: green; font-weight: bold;">绿</span>';
+            }
+            row.insertCell().innerHTML = waveColor;
+            
+            // 单双 (特码)
+            let specialEvenOdd = '';
+            if (draw.sno) {
+                const specialNum = parseInt(draw.sno);
+                specialEvenOdd = `<span style="color: ${specialNum % 2 === 0 ? 'blue' : 'red'}; font-weight: bold;">${specialNum % 2 === 0 ? '双' : '单'}</span>`;
+            }
+            row.insertCell().innerHTML = specialEvenOdd;
+            
+            // 大小 (特码)
+            let specialBigSmall = '';
+            if (draw.sno) {
+                const specialNum = parseInt(draw.sno);
+                const isSpecialBig = specialNum > 24;
+                specialBigSmall = `<span style="color: ${isSpecialBig ? 'red' : 'blue'}; font-weight: bold;">${isSpecialBig ? '大' : '小'}</span>`;
+            }
+            row.insertCell().innerHTML = specialBigSmall;
+            
+            // 合单双 (特码)
+            let specialSumEvenOdd = '';
+            if (draw.sno) {
+                const specialNum = parseInt(draw.sno);
+                const digitSum = String(specialNum).split('').reduce((acc, digit) => acc + parseInt(digit), 0);
+                specialSumEvenOdd = `<span style="color: ${digitSum % 2 === 0 ? 'blue' : 'red'}; font-weight: bold;">合${digitSum % 2 === 0 ? '双' : '单'}</span>`;
+            }
+            row.insertCell().innerHTML = specialSumEvenOdd;
+            
+            // 合大小 (特码)
+            let specialSumBigSmall = '';
+            if (draw.sno) {
+                const specialNum = parseInt(draw.sno);
+                const digitSum = String(specialNum).split('').reduce((acc, digit) => acc + parseInt(digit), 0);
+                const isSumBig = digitSum > 6;
+                specialSumBigSmall = `<span style="color: ${isSumBig ? 'red' : 'blue'}; font-weight: bold;">合${isSumBig ? '大' : '小'}</span>`;
+            }
+            row.insertCell().innerHTML = specialSumBigSmall;
+            
+            // 尾大小 (特码)
+            let specialTailBigSmall = '';
+            if (draw.sno) {
+                const specialNum = parseInt(draw.sno);
+                const tail = specialNum % 10;
+                const isTailBig = tail >= 5;
+                specialTailBigSmall = `<span style="color: ${isTailBig ? 'red' : 'blue'}; font-weight: bold;">尾${isTailBig ? '大' : '小'}</span>`;
+            }
+            row.insertCell().innerHTML = specialTailBigSmall;
+            
+            // 详情按钮
             const detailsCell = row.insertCell();
             const detailsButton = document.createElement('button');
-            detailsButton.innerHTML = '<i class="fas fa-eye"></i> 查看详情';
+            detailsButton.innerHTML = '<i class="fas fa-eye"></i> 详情';
             detailsButton.className = 'modern-btn btn-secondary';
-            detailsButton.style.padding = '8px 16px';
-            detailsButton.style.fontSize = '0.85rem';
             detailsButton.style.padding = '8px 16px';
             detailsButton.style.fontSize = '0.85rem';
             detailsButton.onclick = () => openDetailsModal(draw.id);
             detailsCell.appendChild(detailsButton);
         });
+    }
+    
+    // 根据号码获取生肖
+    function getZodiacForNumber(number) {
+        const ZODIAC_MAPPING_SEQUENCE = ["虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马"];
+        try {
+            const num = parseInt(number);
+            if (!num || num < 1 || num > 49) return "";
+            return ZODIAC_MAPPING_SEQUENCE[(num - 1) % 12];
+        } catch {
+            return "";
+        }
     }
 
     function updateUIForRegion() {
