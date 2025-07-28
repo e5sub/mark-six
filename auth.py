@@ -51,18 +51,24 @@ def register():
         # 处理邀请码
         invite_success = False
         if invite_code:
-            invite_record = InviteCode.query.filter_by(code=invite_code).first()
-            if invite_record:
-                success, message = invite_record.use_invite_code(user)
-                if success:
-                    invite_success = True
-                    flash(f'注册成功！{message}，您已获得1天有效期。', 'success')
+            try:
+                invite_record = InviteCode.query.filter_by(code=invite_code).first()
+                if invite_record:
+                    success, message = invite_record.use_invite_code(user)
+                    if success:
+                        invite_success = True
+                        flash(f'注册成功！{message}，您已获得1天有效期。', 'success')
+                    else:
+                        flash(f'邀请码错误：{message}', 'error')
+                        db.session.rollback()
+                        return render_template('auth/register.html')
                 else:
-                    flash(f'邀请码错误：{message}', 'error')
+                    flash('邀请码无效', 'error')
                     db.session.rollback()
                     return render_template('auth/register.html')
-            else:
-                flash('邀请码无效', 'error')
+            except Exception as e:
+                print(f"邀请码处理错误: {e}")
+                flash('邀请码处理时出现错误，请稍后重试', 'error')
                 db.session.rollback()
                 return render_template('auth/register.html')
         
