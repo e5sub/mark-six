@@ -800,19 +800,10 @@
     <nav class="navbar">
         <div class="navbar-content" style="justify-content: center; gap: 30px;">
             <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 数据分析
-            </a>
-            <a href="{{ url_for('user.predictions') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-history"></i> 预测记录
+                <i class="fas fa-home"></i> 开奖记录
             </a>
             <a href="{{ url_for('user.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
                 <i class="fas fa-tachometer-alt"></i> 用户中心
-            </a>
-            <a href="{{ url_for('user.profile') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-user"></i> 个人资料
-            </a>
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 返回首页
             </a>
             {% if session.get('is_admin') %}
             <a href="{{ url_for('admin.dashboard') }}" class="nav-link" style="font-size: 1.2rem; background: rgba(255,215,0,0.2);" onmouseover="this.style.background='rgba(255,215,0,0.4)'" onmouseout="this.style.background='rgba(255,215,0,0.2)'">
