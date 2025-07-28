@@ -43,7 +43,8 @@ CREATE TABLE user (
     password_hash VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT 0,
     is_admin BOOLEAN DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    activation_expires_at TIMESTAMP
 )
 ''')
 
@@ -53,13 +54,11 @@ CREATE TABLE activation_code (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     code VARCHAR(100) NOT NULL UNIQUE,
     is_used BOOLEAN DEFAULT 0,
-    used_by INTEGER,
+    used_by VARCHAR(80),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     used_at TIMESTAMP,
-    validity_type VARCHAR(10) DEFAULT 'permanent',
-    validity_days INTEGER DEFAULT 0,
-    expires_at TIMESTAMP,
-    FOREIGN KEY (used_by) REFERENCES user (id)
+    validity_type VARCHAR(20) DEFAULT 'permanent',
+    expires_at TIMESTAMP
 )
 ''')
 
@@ -91,6 +90,7 @@ CREATE TABLE system_config (
     key VARCHAR(100) NOT NULL UNIQUE,
     value TEXT,
     description VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 ''')

@@ -84,7 +84,6 @@
             margin-bottom: 25px;
             transition: all 0.3s ease;
         }
-        }
 
         @media (max-width: 768px) {
             .navbar-content {
@@ -225,7 +224,6 @@
         }
 
         .status-admin {
-        .status-admin {
             background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
             color: white;
         }
@@ -285,7 +283,6 @@
             color: white;
         }
 
-        @media (max-width: 768px) {
         @media (max-width: 768px) {
             .navbar-content {
                 flex-wrap: wrap;
@@ -363,7 +360,6 @@
                     <a href="{{ url_for('admin.export_users') }}" class="btn btn-success">
                         <i class="fas fa-file-csv"></i> 导出CSV
                     </a>
-                    <a href="{{ url_for('admin.export_users_json') }}" class="btn btn-warning">
                     <a href="{{ url_for('admin.export_users') }}" class="btn btn-warning">
                         <i class="fas fa-file-csv"></i> 导出CSV
                     </a>
@@ -388,7 +384,6 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for user in users.items %}
                         {% for user in users.items %}
                         <tr>
                             <td>{{ user.id }}</td>
@@ -428,7 +423,6 @@
                                 {% endif %}
                             </td>
                             <td>
-                            <td>
                                 <div style="display: flex; gap: 5px; justify-content: center;">
                                     <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-primary" style="padding: 5px 10px; font-size: 0.8rem;">
                                         <i class="fas fa-edit"></i> 编辑
@@ -444,14 +438,12 @@
                             </td>
                         </tr>
                         {% else %}
-                        {% else %}
                         <tr>
-                            <td colspan="7" style="text-align: center; padding: 40px; color: #6c757d;">
+                            <td colspan="8" style="text-align: center; padding: 40px; color: #6c757d;">
                                 <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;"></i>
                                 <br>暂无用户数据
                             </td>
                         </tr>
-                        {% endfor %}
                         {% endfor %}
                     </tbody>
                 </table>

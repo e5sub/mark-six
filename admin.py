@@ -163,8 +163,8 @@ def activation_codes():
         # 为激活码添加使用者用户名
         for code in codes.items:
             if code.used_by:
-                user = User.query.get(code.used_by)
-                code.used_by_username = user.username if user else '已删除用户'
+                # used_by现在存储的是用户名，不是用户ID
+                code.used_by_username = code.used_by
             else:
                 code.used_by_username = None
         
@@ -189,8 +189,13 @@ def generate_codes():
         
         generated_codes = []
         for _ in range(count):
-            code = ActivationCode.generate_code(validity_type)
+            code = ActivationCode()
+            code.code = ActivationCode.generate_code()
+            code.set_validity(validity_type)
+            db.session.add(code)
             generated_codes.append(code.code)
+        
+        db.session.commit()
         
         flash(f'成功生成 {count} 个激活码', 'success')
     except Exception as e:
