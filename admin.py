@@ -127,12 +127,13 @@ def activation_codes():
         )
         
         # 为每个激活码添加使用者用户名
-        for code in codes.items:
-            if code.used_by:
-                user = User.query.get(code.used_by)
-                code.used_by_username = user.username if user else '未知用户'
-            else:
-                code.used_by_username = None
+    # 为每个激活码添加用户名信息
+    for code in codes.items:
+        if code.used_by:
+            user = User.query.get(code.used_by)
+            code.used_by_username = user.username if user else '已删除用户'
+        else:
+            code.used_by_username = None
         
         return render_template('admin/activation_codes.html', codes=codes)
     except Exception as e:
@@ -244,11 +245,19 @@ def system_config():
                 for key, value in configs_to_update:
                     config = SystemConfig.query.filter_by(key=key).first()
                     if config:
-                        config.value = value
-                        config.updated_at = datetime.utcnow()
-                    else:
-                        config = SystemConfig(key=key, value=value)
-                        db.session.add(config)
+            if config:
+                config.value = value
+                # 如果字段存在则更新时间戳
+                if hasattr(config, 'updated_at'):
+                    config.updated_at = datetime.utcnow()
+            else:
+                config = SystemConfig(key=key, value=value)
+                # 如果字段存在则设置时间戳
+                if hasattr(config, 'created_at'):
+                    config.created_at = datetime.utcnow()
+                if hasattr(config, 'updated_at'):
+                    config.updated_at = datetime.utcnow()
+                db.session.add(config)
                 
                 db.session.commit()
                 flash('系统配置更新成功', 'success')
