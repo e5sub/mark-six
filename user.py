@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig
+from models import db, User, PredictionRecord, SystemConfig, InviteCode
 from datetime import datetime
 import json
 
@@ -235,7 +235,84 @@ def profile():
         # 验证当前密码
         if not user.check_password(current_password):
             flash('当前密码错误', 'error')
-            return render_template('user/profile.html', user=user)
+    return render_template('user/profile.html', user=user)
+
+@user_bp.route('/invite_codes')
+@login_required
+@active_required
+def invite_codes():
+    """用户邀请码管理"""
+    user = User.query.get(session['user_id'])
+    
+    # 获取用户创建的邀请码
+    page = request.args.get('page', 1, type=int)
+    codes = InviteCode.query.filter_by(created_by=user.username)\
+        .order_by(InviteCode.created_at.desc())\
+        .paginate(page=page, per_page=10, error_out=False)
+    
+    # 获取邀请统计
+    total_invites = InviteCode.query.filter_by(created_by=user.username, is_used=True).count()
+    active_invites = User.query.filter_by(invited_by=user.username, is_active=True).count()
+    
+    # 获取被邀请的用户列表
+    invited_users = User.query.filter_by(invited_by=user.username)\
+        .order_by(User.created_at.desc()).limit(10).all()
+    
+    stats = {
+        'total_invites': total_invites,
+        'active_invites': active_invites,
+        'success_rate': round(active_invites / total_invites * 100, 1) if total_invites > 0 else 0
+    }
+    
+    return render_template('user/invite_codes.html', 
+                          codes=codes, 
+                          stats=stats, 
+                          invited_users=invited_users)
+
+@user_bp.route('/generate_invite_code', methods=['POST'])
+@login_required
+@active_required
+def generate_invite_code():
+    """生成邀请码"""
+    try:
+        user = User.query.get(session['user_id'])
+        
+        # 检查用户是否有权限生成邀请码（可以根据需要添加限制）
+        # 例如：限制每个用户每天只能生成3个邀请码
+        today_codes = InviteCode.query.filter_by(created_by=user.username)\
+            .filter(InviteCode.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0))\
+            .count()
+        
+        if today_codes >= 3:
+            return jsonify({
+                'success': False,
+                'message': '每天最多只能生成3个邀请码'
+            })
+        
+        # 创建邀请码
+        invite_code = InviteCode()
+        invite_code.code = InviteCode.generate_code()
+        invite_code.created_by = user.username
+        
+        # 设置7天过期
+        from datetime import timedelta
+        invite_code.expires_at = datetime.utcnow() + timedelta(days=7)
+        
+        db.session.add(invite_code)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': '邀请码生成成功',
+            'code': invite_code.code
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'生成失败：{str(e)}'
+        })
         
         # 更新邮箱
         # 更新邮箱（仅管理员可修改）

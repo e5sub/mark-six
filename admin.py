@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from functools import wraps
-from models import db, User, ActivationCode, PredictionRecord, SystemConfig
+from models import db, User, ActivationCode, PredictionRecord, SystemConfig, InviteCode
 from datetime import datetime, timedelta
 import csv
 import json
@@ -468,3 +468,107 @@ def import_users():
             flash(f'导入用户失败: {str(e)}', 'error')
     
     return render_template('admin/import_users.html')
+
+# 邀请码管理路由
+@admin_bp.route('/invite_codes')
+@admin_required
+def invite_codes():
+    try:
+        page = request.args.get('page', 1, type=int)
+        codes = InviteCode.query.order_by(InviteCode.created_at.desc()).paginate(
+            page=page, per_page=20, error_out=False
+        )
+        return render_template('admin/invite_codes.html', codes=codes)
+    except Exception as e:
+        flash(f'加载邀请码数据失败: {str(e)}', 'error')
+        from flask_sqlalchemy import Pagination
+        empty_codes = Pagination(query=None, page=1, per_page=20, total=0, items=[])
+        return render_template('admin/invite_codes.html', codes=empty_codes)
+
+@admin_bp.route('/generate_invite_codes', methods=['POST'])
+@admin_required
+def generate_invite_codes():
+    try:
+        count = int(request.form.get('count', 1))
+        expires_days = request.form.get('expires_days', '')
+        
+        if count < 1 or count > 50:
+            flash('生成数量必须在1-50之间', 'error')
+            return redirect(url_for('admin.invite_codes'))
+        
+        # 获取当前管理员用户名
+        admin_user = User.query.get(session['user_id'])
+        admin_username = admin_user.username if admin_user else 'admin'
+        
+        generated_codes = []
+        for _ in range(count):
+            code = InviteCode()
+            code.code = InviteCode.generate_code()
+            code.created_by = admin_username
+            
+            # 设置过期时间
+            if expires_days and expires_days.isdigit():
+                days = int(expires_days)
+                if days > 0:
+                    code.expires_at = datetime.utcnow() + timedelta(days=days)
+            
+            db.session.add(code)
+            generated_codes.append(code.code)
+        
+        db.session.commit()
+        flash(f'成功生成 {count} 个邀请码', 'success')
+        
+    except Exception as e:
+        flash(f'生成邀请码失败: {str(e)}', 'error')
+    
+    return redirect(url_for('admin.invite_codes'))
+
+@admin_bp.route('/invite_code/<int:code_id>/delete', methods=['POST'])
+@admin_required
+def delete_invite_code(code_id):
+    try:
+        code = InviteCode.query.get_or_404(code_id)
+        db.session.delete(code)
+        db.session.commit()
+        flash('邀请码删除成功', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'删除邀请码失败: {str(e)}', 'error')
+    
+    return redirect(url_for('admin.invite_codes'))
+
+@admin_bp.route('/user_invites')
+@admin_required
+def user_invites():
+    """查看用户邀请关系"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        
+        # 查询所有通过邀请码注册的用户
+        invited_users = User.query.filter(User.invited_by.isnot(None)).order_by(User.created_at.desc()).paginate(
+            page=page, per_page=20, error_out=False
+        )
+        
+        # 统计邀请数据
+        invite_stats = {}
+        for user in User.query.filter(User.invited_by.isnot(None)).all():
+            inviter = user.invited_by
+            if inviter not in invite_stats:
+                invite_stats[inviter] = {
+                    'total_invites': 0,
+                    'active_invites': 0
+                }
+            invite_stats[inviter]['total_invites'] += 1
+            if user.is_active:
+                invite_stats[inviter]['active_invites'] += 1
+        
+        return render_template('admin/user_invites.html', 
+                             invited_users=invited_users, 
+                             invite_stats=invite_stats)
+    except Exception as e:
+        flash(f'加载邀请数据失败: {str(e)}', 'error')
+        from flask_sqlalchemy import Pagination
+        empty_users = Pagination(query=None, page=1, per_page=20, total=0, items=[])
+        return render_template('admin/user_invites.html', 
+                             invited_users=empty_users, 
+                             invite_stats={})

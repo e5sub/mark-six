@@ -15,6 +15,11 @@ class User(db.Model):
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
+    
+    # 邀请相关字段
+    invited_by = db.Column(db.String(80))  # 邀请人用户名
+    invite_code_used = db.Column(db.String(32))  # 使用的邀请码
+    invite_activated_at = db.Column(db.DateTime)  # 邀请激活时间
 
     def set_password(self, password):
         """设置密码"""
@@ -142,6 +147,80 @@ class PredictionRecord(db.Model):
 
     def __repr__(self):
         return f'<PredictionRecord {self.region}-{self.period}>'
+
+class InviteCode(db.Model):
+    """邀请码模型"""
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(32), unique=True, nullable=False)
+    created_by = db.Column(db.String(80), nullable=False)  # 创建者用户名
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_used = db.Column(db.Boolean, default=False)
+    used_by = db.Column(db.String(80))  # 使用者用户名
+    used_at = db.Column(db.DateTime)
+    expires_at = db.Column(db.DateTime)  # 邀请码过期时间
+    
+    @staticmethod
+    def generate_code():
+        """生成邀请码"""
+        return str(uuid.uuid4()).replace('-', '').upper()[:12]
+    
+    def is_expired(self):
+        """检查邀请码是否过期"""
+        if not self.expires_at:
+            return False
+        return datetime.utcnow() > self.expires_at
+    
+    def use_invite_code(self, user):
+        """使用邀请码进行邀请注册"""
+        if self.is_used:
+            return False, "邀请码已被使用"
+        
+        if self.is_expired():
+            return False, "邀请码已过期"
+        
+        if self.created_by == user.username:
+            return False, "不能使用自己创建的邀请码"
+        
+        # 检查用户是否已经使用过邀请码
+        if user.invite_code_used:
+            return False, "您已经使用过邀请码，每个用户只能使用一次"
+        
+        try:
+            # 标记邀请码为已使用
+            self.is_used = True
+            self.used_by = user.username
+            self.used_at = datetime.utcnow()
+            
+            # 更新被邀请人信息
+            user.invited_by = self.created_by
+            user.invite_code_used = self.code
+            user.invite_activated_at = datetime.utcnow()
+            
+            # 给被邀请人增加1天有效期
+            user.extend_activation(1)
+            user.is_active = True
+            
+            # 查找邀请人
+            inviter = User.query.filter_by(username=self.created_by).first()
+            if inviter:
+                # 给邀请人增加1天有效期
+                inviter.extend_activation(1)
+                
+                # 如果被邀请人首次激活且不是永久用户，邀请人获得被邀请人有效期的一半
+                if user.activation_expires_at and not inviter.activation_expires_at:
+                    # 计算被邀请人的剩余有效期天数
+                    remaining_days = (user.activation_expires_at - datetime.utcnow()).days
+                    if remaining_days > 0:
+                        bonus_days = max(1, remaining_days // 2)  # 至少1天
+                        inviter.extend_activation(bonus_days)
+            
+            return True, "邀请码使用成功"
+            
+        except Exception as e:
+            return False, f"使用邀请码时出错: {str(e)}"
+    
+    def __repr__(self):
+        return f'<InviteCode {self.code}>'
 
 class SystemConfig(db.Model):
     __tablename__ = 'system_config'

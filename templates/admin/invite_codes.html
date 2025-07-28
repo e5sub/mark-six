@@ -1,0 +1,192 @@
+{% extends "admin/base.html" %}
+
+{% block title %}邀请码管理{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="card-title">邀请码管理</h3>
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateModal">
+                        <i class="fas fa-plus"></i> 生成邀请码
+                    </button>
+                </div>
+                
+                <div class="card-body">
+                    {% if codes.items %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>邀请码</th>
+                                    <th>创建者</th>
+                                    <th>创建时间</th>
+                                    <th>过期时间</th>
+                                    <th>状态</th>
+                                    <th>使用者</th>
+                                    <th>使用时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for code in codes.items %}
+                                <tr>
+                                    <td>
+                                        <code>{{ code.code }}</code>
+                                        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyToClipboard('{{ code.code }}')">
+                                            <i class="fas fa-copy"></i>
+                                        </button>
+                                    </td>
+                                    <td>{{ code.created_by }}</td>
+                                    <td>{{ code.created_at.strftime('%Y-%m-%d %H:%M') if code.created_at else '-' }}</td>
+                                    <td>
+                                        {% if code.expires_at %}
+                                            {{ code.expires_at.strftime('%Y-%m-%d %H:%M') }}
+                                            {% if code.is_expired() %}
+                                                <span class="badge bg-danger ms-1">已过期</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">永不过期</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if code.is_used %}
+                                            <span class="badge bg-success">已使用</span>
+                                        {% elif code.is_expired() %}
+                                            <span class="badge bg-danger">已过期</span>
+                                        {% else %}
+                                            <span class="badge bg-primary">可使用</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ code.used_by if code.used_by else '-' }}</td>
+                                    <td>{{ code.used_at.strftime('%Y-%m-%d %H:%M') if code.used_at else '-' }}</td>
+                                    <td>
+                                        {% if not code.is_used %}
+                                        <form method="post" action="{{ url_for('admin.delete_invite_code', code_id=code.id) }}" 
+                                              style="display: inline;" 
+                                              onsubmit="return confirm('确定要删除这个邀请码吗？')">
+                                            <button type="submit" class="btn btn-sm btn-danger">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- 分页 -->
+                    {% if codes.pages > 1 %}
+                    <nav aria-label="邀请码分页">
+                        <ul class="pagination justify-content-center">
+                            {% if codes.has_prev %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('admin.invite_codes', page=codes.prev_num) }}">上一页</a>
+                                </li>
+                            {% endif %}
+                            
+                            {% for page_num in codes.iter_pages() %}
+                                {% if page_num %}
+                                    {% if page_num != codes.page %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="{{ url_for('admin.invite_codes', page=page_num) }}">{{ page_num }}</a>
+                                        </li>
+                                    {% else %}
+                                        <li class="page-item active">
+                                            <span class="page-link">{{ page_num }}</span>
+                                        </li>
+                                    {% endif %}
+                                {% else %}
+                                    <li class="page-item disabled">
+                                        <span class="page-link">…</span>
+                                    </li>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if codes.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('admin.invite_codes', page=codes.next_num) }}">下一页</a>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                    {% endif %}
+                    {% else %}
+                    <div class="text-center py-4">
+                        <p class="text-muted">暂无邀请码</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 生成邀请码模态框 -->
+<div class="modal fade" id="generateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">生成邀请码</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('admin.generate_invite_codes') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="count" class="form-label">生成数量</label>
+                        <input type="number" class="form-control" id="count" name="count" 
+                               value="1" min="1" max="50" required>
+                        <div class="form-text">最多可生成50个邀请码</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="expires_days" class="form-label">有效期（天）</label>
+                        <input type="number" class="form-control" id="expires_days" name="expires_days" 
+                               placeholder="留空表示永不过期" min="1">
+                        <div class="form-text">留空表示邀请码永不过期</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">生成</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(function() {
+        // 显示复制成功提示
+        const toast = document.createElement('div');
+        toast.className = 'toast align-items-center text-white bg-success border-0';
+        toast.style.position = 'fixed';
+        toast.style.top = '20px';
+        toast.style.right = '20px';
+        toast.style.zIndex = '9999';
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">
+                    邀请码已复制到剪贴板
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.parentElement.parentElement.remove()"></button>
+            </div>
+        `;
+        document.body.appendChild(toast);
+        
+        // 3秒后自动移除
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.parentElement.removeChild(toast);
+            }
+        }, 3000);
+    }).catch(function(err) {
+        alert('复制失败，请手动复制');
+    });
+}
+</script>
+{% endblock %}

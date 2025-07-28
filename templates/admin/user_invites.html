@@ -1,0 +1,164 @@
+{% extends "admin/base.html" %}
+
+{% block title %}用户邀请关系{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- 邀请统计 -->
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">邀请统计</h3>
+                </div>
+                <div class="card-body">
+                    {% if invite_stats %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>邀请人</th>
+                                    <th>总邀请数</th>
+                                    <th>激活邀请数</th>
+                                    <th>激活率</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for inviter, stats in invite_stats.items() %}
+                                <tr>
+                                    <td>{{ inviter }}</td>
+                                    <td>{{ stats.total_invites }}</td>
+                                    <td>{{ stats.active_invites }}</td>
+                                    <td>
+                                        {% set rate = (stats.active_invites / stats.total_invites * 100) if stats.total_invites > 0 else 0 %}
+                                        <span class="badge {% if rate >= 80 %}bg-success{% elif rate >= 50 %}bg-warning{% else %}bg-danger{% endif %}">
+                                            {{ "%.1f"|format(rate) }}%
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <p class="text-muted">暂无邀请数据</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- 被邀请用户列表 -->
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">被邀请用户列表</h3>
+                </div>
+                <div class="card-body">
+                    {% if invited_users.items %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>用户名</th>
+                                    <th>邮箱</th>
+                                    <th>邀请人</th>
+                                    <th>使用的邀请码</th>
+                                    <th>注册时间</th>
+                                    <th>邀请激活时间</th>
+                                    <th>当前状态</th>
+                                    <th>激活过期时间</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in invited_users.items %}
+                                <tr>
+                                    <td>{{ user.username }}</td>
+                                    <td>{{ user.email }}</td>
+                                    <td>
+                                        <span class="badge bg-info">{{ user.invited_by }}</span>
+                                    </td>
+                                    <td>
+                                        {% if user.invite_code_used %}
+                                            <code>{{ user.invite_code_used }}</code>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
+                                    <td>{{ user.invite_activated_at.strftime('%Y-%m-%d %H:%M') if user.invite_activated_at else '-' }}</td>
+                                    <td>
+                                        {% if user.is_active %}
+                                            {% if user.is_activation_expired() %}
+                                                <span class="badge bg-warning">已过期</span>
+                                            {% else %}
+                                                <span class="badge bg-success">已激活</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="badge bg-secondary">未激活</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if user.activation_expires_at %}
+                                            {{ user.activation_expires_at.strftime('%Y-%m-%d %H:%M') }}
+                                            {% if user.is_activation_expired() %}
+                                                <span class="badge bg-danger ms-1">已过期</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-success">永久</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- 分页 -->
+                    {% if invited_users.pages > 1 %}
+                    <nav aria-label="用户分页">
+                        <ul class="pagination justify-content-center">
+                            {% if invited_users.has_prev %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('admin.user_invites', page=invited_users.prev_num) }}">上一页</a>
+                                </li>
+                            {% endif %}
+                            
+                            {% for page_num in invited_users.iter_pages() %}
+                                {% if page_num %}
+                                    {% if page_num != invited_users.page %}
+                                        <li class="page-item">
+                                            <a class="page-link" href="{{ url_for('admin.user_invites', page=page_num) }}">{{ page_num }}</a>
+                                        </li>
+                                    {% else %}
+                                        <li class="page-item active">
+                                            <span class="page-link">{{ page_num }}</span>
+                                        </li>
+                                    {% endif %}
+                                {% else %}
+                                    <li class="page-item disabled">
+                                        <span class="page-link">…</span>
+                                    </li>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if invited_users.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link" href="{{ url_for('admin.user_invites', page=invited_users.next_num) }}">下一页</a>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                    {% endif %}
+                    {% else %}
+                    <div class="text-center py-4">
+                        <p class="text-muted">暂无被邀请用户</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -362,6 +362,12 @@
             <a href="{{ url_for('user.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
                 <i class="fas fa-tachometer-alt"></i> 用户中心
             </a>
+            <a href="{{ url_for('user.invite_codes') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-gift"></i> 我的邀请码
+            </a>
+            <a href="{{ url_for('user.profile') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-user"></i> 个人资料
+            </a>
             <a href="{{ url_for('user.profile') }}" class="nav-link" style="font-size: 1.2rem;">
                 <i class="fas fa-user"></i> 个人资料
             </a>
@@ -466,6 +472,9 @@
                 </a>
                 <a href="{{ url_for('user.predictions') }}" class="btn btn-success">
                     <i class="fas fa-history"></i> 查看预测记录
+                </a>
+                <a href="{{ url_for('user.invite_codes') }}" class="btn btn-warning">
+                    <i class="fas fa-gift"></i> 我的邀请码
                 </a>
                 <a href="{{ url_for('chat_page') }}" class="btn btn-warning">
                     <i class="fas fa-comments"></i> AI 智能聊天

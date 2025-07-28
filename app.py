@@ -9,7 +9,7 @@ from collections import Counter
 from datetime import datetime
 
 # 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig
+from models import db, User, PredictionRecord, SystemConfig, InviteCode
 from auth import auth_bp
 from admin import admin_bp
 from user import user_bp
@@ -680,6 +680,13 @@ def init_database():
     with app.app_context():
         db.create_all()
         
+        # 自动检查并更新数据库结构（邀请系统）
+        from auto_update_db import check_and_update_database
+        try:
+            check_and_update_database()
+        except Exception as e:
+            print(f"自动更新数据库结构时出错: {e}")
+        
         # 检查是否存在管理员账号，如果不存在则创建默认管理员
         admin = User.query.filter_by(is_admin=True).first()
         if not admin:
@@ -711,6 +718,22 @@ def init_database():
                 db.session.add(config)
         
         db.session.commit()
+        
+        # 为管理员创建示例邀请码
+        try:
+            existing_codes = InviteCode.query.filter_by(created_by='admin').count()
+            if existing_codes == 0:
+                from datetime import timedelta
+                for i in range(3):
+                    invite_code = InviteCode()
+                    invite_code.code = InviteCode.generate_code()
+                    invite_code.created_by = 'admin'
+                    invite_code.expires_at = datetime.utcnow() + timedelta(days=30)
+                    db.session.add(invite_code)
+                db.session.commit()
+                print("✅ 为管理员创建了3个示例邀请码")
+        except Exception as e:
+            print(f"创建示例邀请码时出错: {e}")
 
 if __name__ == '__main__':
     # 初始化数据库

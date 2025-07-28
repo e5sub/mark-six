@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, ActivationCode, SystemConfig
+from models import db, User, ActivationCode, SystemConfig, InviteCode
 from werkzeug.security import generate_password_hash
 import uuid
 import smtplib
@@ -17,6 +17,7 @@ def register():
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
+        invite_code = request.form.get('invite_code', '').strip()
         
         # 验证输入
         if not all([username, email, password, confirm_password]):
@@ -45,9 +46,30 @@ def register():
         user.set_password(password)
         
         db.session.add(user)
+        db.session.flush()  # 获取用户ID但不提交事务
+        
+        # 处理邀请码
+        invite_success = False
+        if invite_code:
+            invite_record = InviteCode.query.filter_by(code=invite_code).first()
+            if invite_record:
+                success, message = invite_record.use_invite_code(user)
+                if success:
+                    invite_success = True
+                    flash(f'注册成功！{message}，您已获得1天有效期。', 'success')
+                else:
+                    flash(f'邀请码错误：{message}', 'error')
+                    db.session.rollback()
+                    return render_template('auth/register.html')
+            else:
+                flash('邀请码无效', 'error')
+                db.session.rollback()
+                return render_template('auth/register.html')
+        
         db.session.commit()
         
-        flash('注册成功！请使用管理员提供的激活码激活您的账号。', 'success')
+        if not invite_success:
+            flash('注册成功！请使用管理员提供的激活码激活您的账号。', 'success')
         
         return redirect(url_for('auth.login'))
     

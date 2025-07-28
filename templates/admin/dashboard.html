@@ -218,6 +218,12 @@
             <a href="{{ url_for('admin.activation_codes') }}" class="nav-link">
                 <i class="fas fa-key"></i> 激活码管理
             </a>
+            <a href="{{ url_for('admin.invite_codes') }}" class="nav-link">
+                <i class="fas fa-gift"></i> 邀请码管理
+            </a>
+            <a href="{{ url_for('admin.user_invites') }}" class="nav-link">
+                <i class="fas fa-user-friends"></i> 邀请关系
+            </a>
             <a href="{{ url_for('admin.system_config') }}" class="nav-link">
                 <i class="fas fa-cog"></i> 系统配置
             </a>
@@ -321,6 +327,16 @@
                 <a href="{{ url_for('admin.activation_codes') }}" class="action-btn action-codes">
                     <i class="fas fa-key"></i>
                     激活码管理
+                </a>
+                
+                <a href="{{ url_for('admin.invite_codes') }}" class="action-btn action-codes">
+                    <i class="fas fa-gift"></i>
+                    邀请码管理
+                </a>
+                
+                <a href="{{ url_for('admin.user_invites') }}" class="action-btn action-users">
+                    <i class="fas fa-user-friends"></i>
+                    邀请关系
                 </a>
                 
                 <a href="{{ url_for('admin.system_config') }}" class="action-btn action-config">
