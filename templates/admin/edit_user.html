@@ -300,6 +300,7 @@
                 </div>
 
                 <div class="form-group">
+                <div class="form-group">
                     <div class="form-check">
                         <input type="checkbox" id="is_admin" name="is_admin" class="form-check-input" 
                                {{ 'checked' if user.is_admin else '' }}>
@@ -307,6 +308,19 @@
                             <i class="fas fa-crown"></i> 管理员权限
                         </label>
                     </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="activation_expires_at">
+                        <i class="fas fa-calendar-alt"></i> 激活过期时间
+                    </label>
+                    <input type="datetime-local" id="activation_expires_at" name="activation_expires_at" 
+                           class="form-control" 
+                           value="{% if user.activation_expires_at %}{{ user.activation_expires_at.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
+                           placeholder="留空表示永久激活">
+                    <small style="color: #6c757d; font-size: 0.9rem; margin-top: 5px; display: block;">
+                        <i class="fas fa-info-circle"></i> 留空表示永久激活，设置时间表示到期后用户将被停用
+                    </small>
                 </div>
 
                 <div class="button-group">

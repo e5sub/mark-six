@@ -391,11 +391,16 @@
                         {% for user in users.items %}
                         <tr>
                             <td>{{ user.id }}</td>
+                            <td>{{ user.id }}</td>
                             <td>{{ user.username }}</td>
                             <td>{{ user.email }}</td>
                             <td>
                                 {% if user.is_active %}
-                                    <span class="status-badge status-active">已激活</span>
+                                    {% if user.is_activation_expired and user.is_activation_expired() %}
+                                        <span class="status-badge status-expired">已过期</span>
+                                    {% else %}
+                                        <span class="status-badge status-active">已激活</span>
+                                    {% endif %}
                                 {% else %}
                                     <span class="status-badge status-inactive">未激活</span>
                                 {% endif %}
@@ -411,8 +416,15 @@
                             <td>
                                 {% if user.activation_expires_at %}
                                     {{ user.activation_expires_at.strftime('%Y-%m-%d %H:%M') }}
+                                    {% if user.is_activation_expired and user.is_activation_expired() %}
+                                        <small style="color: #dc3545;">(已过期)</small>
+                                    {% endif %}
                                 {% else %}
-                                    永久
+                                    {% if user.is_active %}
+                                        永久
+                                    {% else %}
+                                        未设置
+                                    {% endif %}
                                 {% endif %}
                             </td>
                             <td>
