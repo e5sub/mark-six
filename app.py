@@ -324,6 +324,9 @@ def predict_with_ai(data, region):
         sno_zodiac = ""
         if region == 'hk':
             sno_zodiac = _get_hk_number_zodiac(special_number)
+        else:
+            # 澳门也使用相同的生肖计算方法
+            sno_zodiac = _get_hk_number_zodiac(special_number)
         
         return {
             "recommendation_text": ai_response,
