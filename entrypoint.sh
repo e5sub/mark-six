@@ -4,7 +4,7 @@ export FLASK_APP=app
 # 确保数据目录存在并有正确的权限
 mkdir -p /app/data
 chmod 777 /app/data
-chown -R nobody:nogroup /app/data
+chown -R nobody:nogroup /app/data 2>/dev/null || echo "无法更改所有者，继续执行..."
 
 # 打印当前目录和数据目录内容
 echo "当前目录: $(pwd)"
@@ -32,7 +32,7 @@ else
     
     # 重置管理员密码以确保可以登录
     echo "重置管理员密码..."
-    python reset_admin.py
+    python reset_admin.py || echo "重置管理员密码失败，继续执行..."
 fi
 
 echo "正在启动 Gunicorn 服务器..."

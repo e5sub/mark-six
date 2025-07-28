@@ -22,19 +22,21 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 创建数据目录并设置权限
 RUN mkdir -p /app/data && \
-    chmod 777 /app/data && \
-    chown -R nobody:nogroup /app/data
+    chmod 777 /app/data
 
 # 复制项目文件
 COPY . .
+
+# 确保脚本可执行
+RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/create_db.py
+RUN chmod +x /app/reset_admin.py
 
 # 暴露端口
 EXPOSE 5000
 
 # 使用entrypoint.sh脚本启动
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # 启动命令
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app:app"]
