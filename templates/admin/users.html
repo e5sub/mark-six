@@ -224,7 +224,13 @@
         }
 
         .status-admin {
+        .status-admin {
             background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            color: white;
+        }
+
+        .status-expired {
+            background: #dc3545;
             color: white;
         }
 
@@ -390,7 +396,7 @@
                     <tbody>
                         {% for user in users.items %}
                         <tr>
-                            <td>{{ user.id }}</td>
+                        <tr>
                             <td>{{ user.id }}</td>
                             <td>{{ user.username }}</td>
                             <td>{{ user.email }}</td>
