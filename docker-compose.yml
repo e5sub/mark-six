@@ -4,9 +4,9 @@ services:
     container_name: mark-six
     environment:
       - TZ=Asia/Shanghai
+      - FLASK_ENV=production
     volumes: 
-      - ./app.py:/app/app.py
-      - ./instance:/app/instance
+      - /opt/mark-six:/app
     ports:
       - "5000:5000"
     restart: unless-stopped

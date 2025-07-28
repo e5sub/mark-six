@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统配置 - 管理员后台</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --glass-bg: rgba(255, 255, 255, 0.25);
+            --text-primary: #2d3748;
+            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: var(--text-primary);
+        }
+
+        .navbar {
+            background: var(--primary-gradient);
+            padding: 15px 0;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .navbar-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        .navbar-brand {
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .navbar-nav {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: var(--shadow-light);
+            padding: 30px;
+            margin-bottom: 25px;
+        }
+
+        .page-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .page-header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .config-section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: var(--text-primary);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.7);
+            color: var(--text-primary);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .form-text {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-primary { background: var(--primary-gradient); }
+        .btn-success { background: var(--success-gradient); }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .alert-success {
+            background: rgba(40, 167, 69, 0.1);
+            color: #155724;
+            border: 1px solid rgba(40, 167, 69, 0.3);
+        }
+
+        .alert-error {
+            background: rgba(220, 53, 69, 0.1);
+            color: #721c24;
+            border: 1px solid rgba(220, 53, 69, 0.3);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .navbar-content {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .navbar-nav {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .container {
+                padding: 20px 15px;
+            }
+
+            .glass-card {
+                padding: 20px;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-content" style="justify-content: center; gap: 30px;">
+            <a href="{{ url_for('admin.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-tachometer-alt"></i> 控制台
+            </a>
+            <a href="{{ url_for('admin.users') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-users"></i> 用户管理
+            </a>
+            <a href="{{ url_for('admin.activation_codes') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-key"></i> 激活码管理
+            </a>
+            <a href="{{ url_for('admin.system_config') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-cog"></i> 系统配置
+            </a>
+            <a href="{{ url_for('admin.predictions') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-chart-bar"></i> 预测记录
+            </a>
+            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-home"></i> 返回首页
+            </a>
+            <a href="{{ url_for('auth.logout') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-sign-out-alt"></i> 退出登录
+            </a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="glass-card">
+            <div class="page-header">
+                <h1><i class="fas fa-cog"></i> 系统配置</h1>
+                <p>配置AI接口和邮箱服务</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'error' if category == 'error' else 'success' }}">
+                            <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' }}"></i>
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <form method="POST" action="{{ url_for('admin.update_config') }}">
+                <div class="config-section">
+                    <h2 class="section-title">
+                        <i class="fas fa-brain"></i> AI 接口配置
+                    </h2>
+                    
+                    <div class="form-group">
+                        <label for="ai_api_key">
+                            <i class="fas fa-key"></i> AI API 密钥
+                        </label>
+                        <input type="password" id="ai_api_key" name="ai_api_key" class="form-control" 
+                               value="{{ configs.ai_api_key }}" placeholder="请输入AI API密钥">
+                        <div class="form-text">用于AI智能预测和聊天功能</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ai_api_url">
+                            <i class="fas fa-link"></i> AI API 地址
+                        </label>
+                        <input type="url" id="ai_api_url" name="ai_api_url" class="form-control" 
+                               value="{{ configs.ai_api_url }}" placeholder="https://api.example.com/v1/chat/completions">
+                        <div class="form-text">AI服务的API接口地址</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ai_model">
+                            <i class="fas fa-robot"></i> AI 模型
+                        </label>
+                        <input type="text" id="ai_model" name="ai_model" class="form-control" 
+                               value="{{ configs.ai_model }}" placeholder="gemini-2.0-flash">
+                        <div class="form-text">使用的AI模型名称</div>
+                    </div>
+                </div>
+
+                <div class="config-section">
+                    <h2 class="section-title">
+                        <i class="fas fa-envelope"></i> 邮箱服务配置
+                    </h2>
+                    
+                    <div class="form-group">
+                        <label for="smtp_server">
+                            <i class="fas fa-server"></i> SMTP 服务器
+                        </label>
+                        <input type="text" id="smtp_server" name="smtp_server" class="form-control" 
+                               value="{{ configs.smtp_server }}" placeholder="smtp.gmail.com">
+                        <div class="form-text">邮件服务器地址</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="smtp_port">
+                            <i class="fas fa-plug"></i> SMTP 端口
+                        </label>
+                        <input type="number" id="smtp_port" name="smtp_port" class="form-control" 
+                               value="{{ configs.smtp_port }}" placeholder="587">
+                        <div class="form-text">通常为587（TLS）或465（SSL）</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="smtp_username">
+                            <i class="fas fa-user"></i> SMTP 用户名
+                        </label>
+                        <input type="email" id="smtp_username" name="smtp_username" class="form-control" 
+                               value="{{ configs.smtp_username }}" placeholder="your-email@gmail.com">
+                        <div class="form-text">发送邮件的邮箱地址</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="smtp_password">
+                            <i class="fas fa-lock"></i> SMTP 密码
+                        </label>
+                        <input type="password" id="smtp_password" name="smtp_password" class="form-control" 
+                               value="{{ configs.smtp_password }}" placeholder="邮箱密码或应用专用密码">
+                        <div class="form-text">邮箱密码或应用专用密码</div>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-save"></i> 保存配置
+                    </button>
+                    <a href="{{ url_for('admin.dashboard') }}" class="btn btn-primary">
+                        <i class="fas fa-arrow-left"></i> 返回控制台
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

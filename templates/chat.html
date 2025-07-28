@@ -1,196 +1,540 @@
-{% extends "layout.html" %}
-
-{% block title %}AI 聊天室{% endblock %}
-
-{% block head_extra %}
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 聊天室</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #1a1a2e;
-            --surface-color: #16213e;
-            --primary-color: #0f3460;
-            --secondary-color: #e94560;
-            --text-color: #dcdcdc;
-            --text-muted: #8899a6;
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            --glass-bg: rgba(255, 255, 255, 0.25);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --text-primary: #2d3748;
+            --text-secondary: #4a5568;
+            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            --shadow-medium: 0 15px 35px rgba(0, 0, 0, 0.1);
+            --shadow-heavy: 0 20px 40px rgba(0, 0, 0, 0.15);
         }
-        body {
-            font-family: 'Noto Sans SC', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
+
+        * {
             margin: 0;
-            padding: 20px;
-            overflow: hidden;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: var(--text-primary);
+            padding-top: 60px; /* 为固定导航栏留出空间 */
+        }
+
+        .main-container {
             display: grid;
             grid-template-columns: 280px 1fr 280px;
             gap: 20px;
+            padding: 20px;
+            height: calc(100vh - 60px);
         }
-        * { box-sizing: border-box; }
+
+        /* 动态背景粒子效果 */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .particle {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(180deg); }
+        }
+
+        /* 玻璃拟态卡片 */
+        .glass-card {
+            background: rgba(255, 255, 255, 0);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+            margin-bottom: 25px;
+            transition: all 0.3s ease;
+            animation: slideInUp 0.6s ease-out;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* 侧边面板和聊天容器 */
         .side-panel, .chat-wrapper {
-            background-color: var(--surface-color);
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            background: rgba(255, 255, 255, 0);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            transition: all 0.3s ease;
             height: 100%;
         }
+
+        .side-panel:hover, .chat-wrapper:hover {
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+
         .panel-header {
             padding: 15px;
-            background-color: var(--primary-color);
+            background: var(--primary-gradient);
             text-align: center;
             font-size: 1.1rem;
             font-weight: 700;
-            border-bottom: 2px solid var(--secondary-color);
+            color: white;
             flex-shrink: 0;
-        }
-        .results-list { list-style: none; padding: 10px; margin: 0; overflow-y: auto; }
-        .result-item { background-color: rgba(255,255,255,0.05); margin-bottom: 8px; padding: 10px; border-radius: 6px; cursor: pointer; transition: background-color 0.2s ease; border: 1px solid transparent; }
-        .result-item:hover { background-color: rgba(255,255,255,0.1); border-color: var(--secondary-color); }
-        .result-item-header { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; }
-        .ball-container { display: flex; gap: 2px; flex-wrap: wrap; align-items: center; }
-        .ball-wrapper { display: inline-flex; align-items: center; margin: 2px; }
-        .ball { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; justify-content: center; align-items: center; font-size: 0.8rem; font-weight: 700; color: white; }
-        .ball.red { background-color: #e74c3c; } .ball.blue { background-color: #3498db; } .ball.green { background-color: #2ecc71; }
-        .special { border: 2px solid #f1c40f; }
-        .zodiac-label { font-size: 0.9rem; margin-left: 5px; color: var(--text-muted); font-weight: bold; }
-        
-        .chat-wrapper { grid-column: 2 / 3; }
-        
-        .integrated-nav {
-            background-color: var(--primary-color) !important;
-            flex-shrink: 0;
-            border-bottom: 2px solid var(--secondary-color);
-        }
-        .integrated-nav .navbar-brand {
-            font-weight: bold;
-        }
-        .integrated-nav .navbar-brand,
-        .integrated-nav .nav-link {
-            color: var(--text-color) !important;
-        }
-        .integrated-nav .nav-link:hover {
-            color: white !important;
-        }
-        /* 为居中标题添加样式 */
-        .navbar-brand-centered {
-            /* 使用绝对定位实现完美居中 */
-            position: absolute;
-            left: 50%;
-            transform: translateX(-50%);
         }
 
-        .chat-container { flex-grow: 1; overflow-y: auto; padding: 20px; }
-        .message { max-width: 80%; margin-bottom: 15px; padding: 12px 18px; border-radius: 20px; line-height: 1.6; animation: message-in 0.3s ease; }
-        .user-message { background: linear-gradient(45deg, var(--secondary-color), #c0392b); color: white; margin-left: auto; border-bottom-right-radius: 5px; }
-        .ai-message { background-color: #2c3e50; color: var(--text-color); margin-right: auto; border-bottom-left-radius: 5px; white-space: pre-wrap; }
-        .ai-message.error { background-color: #922b21; }
-        .typing-indicator { color: var(--text-muted); font-style: italic; }
-        .chat-form { display: flex; padding: 15px; background: var(--primary-color); flex-shrink: 0; }
-        #chat-input { flex-grow: 1; background: var(--surface-color); border: 1px solid #444; border-radius: 20px; padding: 12px 18px; font-size: 1rem; color: var(--text-color); }
-        #send-btn { background: var(--secondary-color); color: white; border: none; border-radius: 50%; width: 45px; height: 45px; margin-left: 10px; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s; flex-shrink: 0; }
-        #send-btn:hover:not(:disabled) { background: #e94560d0; }
-        #send-btn:disabled { background: #555; cursor: not-allowed; }
-        @keyframes message-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .results-list {
+            list-style: none;
+            padding: 10px;
+            margin: 0;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .result-item {
+            background: rgba(255, 255, 255, 0.7);
+            margin-bottom: 8px;
+            padding: 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: var(--text-primary);
+        }
+
+        .result-item:hover {
+            background: rgba(255, 255, 255, 0.9);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-medium);
+        }
+
+        .result-item-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        /* 彩球样式 */
+        .ball-container { 
+            display: flex; 
+            gap: 5px; 
+            flex-wrap: wrap; 
+            align-items: center; 
+            justify-content: center;
+        }
+        
+        .ball-wrapper { 
+            display: inline-flex; 
+            align-items: center; 
+            margin: 5px; 
+        }
+        
+        .ball { 
+            width: 35px; 
+            height: 35px; 
+            border-radius: 50%; 
+            display: inline-flex; 
+            justify-content: center; 
+            align-items: center; 
+            font-size: 0.9rem; 
+            font-weight: 700; 
+            color: white; 
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .ball:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .ball.red { 
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+        }
+        
+        .ball.blue { 
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+        }
+        
+        .ball.green { 
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        }
+        
+        .special { 
+            border: 3px solid #ffd700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+            animation: specialGlow 1.5s ease-in-out infinite alternate;
+        }
+        
+        @keyframes specialGlow {
+            from { box-shadow: 0 0 20px rgba(255, 215, 0, 0.5); }
+            to { box-shadow: 0 0 30px rgba(255, 215, 0, 0.8); }
+        }
+        
+        .zodiac-label { 
+            margin-left: 5px; 
+            color: #495057; 
+            font-weight: 600; 
+            font-size: 0.85rem; 
+            background: rgba(255, 255, 255, 0.9); 
+            padding: 2px 8px; 
+            border-radius: 12px; 
+            border: 1px solid rgba(255, 255, 255, 0.3); 
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 聊天区域样式 */
+        .chat-header {
+            text-align: center; 
+            padding: 15px;
+            background: var(--primary-gradient);
+            position: relative;
+            flex-shrink: 0;
+            color: white;
+        }
+        
+        .chat-header h1 { 
+            margin: 0; 
+            font-size: 1.2rem; 
+        }
+        
+        .chat-header a { 
+            position: absolute; 
+            left: 15px; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            background-color: rgba(255, 255, 255, 0.2); 
+            color: #ffffff; 
+            padding: 8px 16px; 
+            border-radius: 20px; 
+            text-decoration: none; 
+            font-weight: 700; 
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .chat-header a:hover { 
+            background-color: rgba(255, 255, 255, 0.3);
+            transform: translateY(-50%) scale(1.05);
+            box-shadow: var(--shadow-light);
+        }
+        
+        .chat-container { 
+            flex-grow: 1; 
+            overflow-y: auto; 
+            padding: 20px; 
+            background: rgba(255, 255, 255, 0.5);
+        }
+        
+        .message { 
+            max-width: 80%; 
+            margin-bottom: 15px; 
+            padding: 12px 18px; 
+            border-radius: 20px; 
+            line-height: 1.6; 
+            animation: message-in 0.3s ease;
+            box-shadow: var(--shadow-light);
+        }
+        
+        .user-message { 
+            background: var(--secondary-gradient);
+            color: white; 
+            margin-left: auto; 
+            border-bottom-right-radius: 5px;
+        }
+        
+        .ai-message { 
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--text-primary); 
+            margin-right: auto; 
+            border-bottom-left-radius: 5px; 
+            white-space: pre-wrap;
+        }
+        
+        .ai-message.error { 
+            background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 99%, #fad0c4 100%);
+            color: #922b21;
+        }
+        
+        .typing-indicator { 
+            color: var(--text-secondary);
+            font-style: italic;
+            background: rgba(255, 255, 255, 0.7);
+        }
+        
+        .chat-form { 
+            display: flex; 
+            padding: 15px; 
+            background: var(--primary-gradient);
+            flex-shrink: 0;
+        }
+        
+        #chat-input { 
+            flex-grow: 1; 
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px; 
+            padding: 12px 18px; 
+            font-size: 1rem; 
+            color: var(--text-primary);
+            box-shadow: var(--shadow-light);
+            transition: all 0.3s ease;
+        }
+        
+        #chat-input:focus {
+            outline: none;
+            box-shadow: var(--shadow-medium);
+            transform: translateY(-1px);
+        }
+        
+        #send-btn { 
+            background: var(--secondary-gradient);
+            color: white; 
+            border: none; 
+            border-radius: 50%; 
+            width: 45px; 
+            height: 45px; 
+            margin-left: 10px; 
+            font-size: 1.2rem; 
+            cursor: pointer; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+            box-shadow: var(--shadow-light);
+        }
+        
+        #send-btn:hover:not(:disabled) { 
+            transform: scale(1.1);
+            box-shadow: var(--shadow-medium);
+        }
+        
+        #send-btn:disabled { 
+            background: linear-gradient(135deg, #d1d8e0 0%, #a5b1c2 100%);
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        
+        @keyframes message-in { 
+            from { opacity: 0; transform: translateY(10px); } 
+            to { opacity: 1; transform: translateY(0); } 
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto;
+            }
+
+            .side-panel {
+                display: none;
+            }
+
+            .chat-wrapper {
+                grid-column: 1;
+                height: calc(100vh - 100px);
+            }
+        }
     </style>
-{% endblock %}
+</head>
+<body>
+    <!-- 动态背景粒子 -->
+    <div class="particles" id="particles"></div>
 
-{% block header %}{% endblock %}
-
-{% block main_content %}
-<aside class="side-panel">
-    <div class="panel-header">香港最近10期</div>
-    <ul class="results-list">
-        {% for result in hk_results %}
-        <li class="result-item clickable-result" data-region="香港" data-id="{{ result.id }}" data-numbers="{{ (result.no + [result.sno]) | join(',') }}" data-sno_zodiac="{{ result.sno_zodiac }}">
-            <div class="result-item-header">
-                <span>第 {{ result.id }} 期</span>
-                <span>{{ result.date.split(' ')[0] }}</span>
-            </div>
-            <div class="ball-container">
-                {% for num in result.no %}<div class="ball-wrapper"><div class="ball">{{ num }}</div></div>{% endfor %}
-                <div class="ball-wrapper">
-                    <div class="ball special">{{ result.sno }}</div>
-                    <span class="zodiac-label">({{ result.sno_zodiac }})</span>
-                </div>
-            </div>
-        </li>
-        {% else %}<li>暂无数据</li>{% endfor %}
-    </ul>
-</aside>
-
-<div class="chat-wrapper">
-    <nav class="navbar navbar-expand-lg navbar-dark integrated-nav position-relative">
-        <div class="container-fluid">
-            <ul class="navbar-nav">
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('index') }}">返回分析主页</a>
-                </li>
-            </ul>
-
-            <a class="navbar-brand navbar-brand-centered" href="#">AI 智能分析师</a>
-            
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            {{ current_user.username }}
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" aria-labelledby="navbarDropdown">
-                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">退出登录</a></li>
-                        </ul>
-                    </li>
-                </ul>
-            </div>
+    <!-- 用户导航栏 -->
+    {% if session.get('user_id') %}
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top" style="background-color: #6f42c1;">
+        <div class="container-fluid d-flex justify-content-center" style="gap: 30px;">
+            <a href="{{ url_for('index') }}" class="nav-link text-white" style="font-size: 1.2rem;">
+                <i class="fas fa-home"></i> 数据分析
+            </a>
+            <a href="{{ url_for('user.predictions') }}" class="nav-link text-white" style="font-size: 1.2rem;">
+                <i class="fas fa-history"></i> 预测记录
+            </a>
+            <a href="{{ url_for('user.dashboard') }}" class="nav-link text-white" style="font-size: 1.2rem;">
+                <i class="fas fa-tachometer-alt"></i> 用户中心
+            </a>
+            <a href="{{ url_for('user.profile') }}" class="nav-link text-white" style="font-size: 1.2rem;">
+                <i class="fas fa-user"></i> 个人资料
+            </a>
+            <a href="{{ url_for('index') }}" class="nav-link text-white" style="font-size: 1.2rem;">
+                <i class="fas fa-home"></i> 返回首页
+            </a>
+            {% if session.get('is_admin') %}
+            <a href="{{ url_for('admin.dashboard') }}" class="nav-link text-white" style="font-size: 1.2rem; background: rgba(255,215,0,0.2);" onmouseover="this.style.background='rgba(255,215,0,0.4)'" onmouseout="this.style.background='rgba(255,215,0,0.2)'">
+                <i class="fas fa-tachometer-alt"></i> 控制台
+            </a>
+            {% endif %}
+            <a href="{{ url_for('auth.logout') }}" class="nav-link text-white" style="font-size: 1.2rem;">
+                <i class="fas fa-sign-out-alt"></i> 退出登录
+            </a>
         </div>
     </nav>
-    <div class="chat-container" id="chat-container">
-        <div class="message ai-message">
-            你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门六合彩的历史、规则或数据规律，我会尽力为您解答。
-        </div>
-    </div>
-    <form class="chat-form" id="chat-form">
-        <input type="text" id="chat-input" placeholder="请输入您的问题..." autocomplete="off">
-        <button id="send-btn" type="submit" disabled>&#10148;</button>
-    </form>
-</div>
+    {% endif %}
 
-<aside class="side-panel">
-    <div class="panel-header">澳门最近10期</div>
-    <ul class="results-list">
-        {% for result in macau_results %}
-        <li class="result-item clickable-result" data-region="澳门" data-id="{{ result.id }}" data-numbers="{{ (result.no + [result.sno]) | join(',') }}" data-zodiacs="{{ result.raw_zodiac }}" data-waves="{{ result.raw_wave }}">
-            <div class="result-item-header">
-                 <span>第 {{ result.id }} 期</span>
-                 <span>{{ result.date.split(' ')[0] }}</span>
+    <div class="main-container">
+        <aside class="side-panel">
+            <div class="panel-header">
+                <i class="fas fa-history"></i> 香港最近10期开奖结果
             </div>
-             <div class="ball-container">
-                {% for num in result.no %}<div class="ball-wrapper"><div class="ball">{{ num }}</div></div>{% endfor %}
-                <div class="ball-wrapper">
-                    <div class="ball special">{{ result.sno }}</div>
-                    <span class="zodiac-label">({{ result.sno_zodiac }})</span>
+            <ul class="results-list">
+                {% for result in hk_results %}
+                <li class="result-item clickable-result" 
+                    data-region="香港" 
+                    data-id="{{ result.id }}" 
+                    data-numbers="{{ (result.no + [result.sno]) | join(',') }}" 
+                    data-sno_zodiac="{{ result.sno_zodiac }}">
+                    <div class="result-item-header">
+                        <span><i class="fas fa-hashtag"></i> 第 {{ result.id }} 期</span>
+                        <span><i class="fas fa-calendar"></i> {{ result.date.split(' ')[0] }}</span>
+                    </div>
+                    <div class="ball-container">
+                        {% for num in result.no %}
+                        <div class="ball-wrapper"><div class="ball">{{ num }}</div></div>
+                        {% endfor %}
+                        <div class="ball-wrapper">
+                            <div class="ball special">{{ result.sno }}</div>
+                            <span class="zodiac-label">({{ result.sno_zodiac }})</span>
+                        </div>
+                    </div>
+                </li>
+                {% else %}
+                <li>暂无数据</li>
+                {% endfor %}
+            </ul>
+        </aside>
+
+        <main class="chat-wrapper">
+            <div class="chat-header">
+                <a href="/"><i class="fas fa-arrow-left"></i> 返回</a>
+                <h1><i class="fas fa-robot"></i> AI 智能分析师</h1>
+            </div>
+            <div class="chat-container" id="chat-container">
+                <div class="message ai-message">
+                    你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门六合彩的历史、规则或数据规律，我会尽力为您解答。
                 </div>
             </div>
-        </li>
-        {% else %}<li>暂无数据</li>{% endfor %}
-    </ul>
-</aside>
-{% endblock %}
+            <form class="chat-form" id="chat-form">
+                <input type="text" id="chat-input" placeholder="请输入您的问题..." autocomplete="off">
+                <button id="send-btn" type="submit" disabled><i class="fas fa-paper-plane"></i></button>
+            </form>
+        </main>
+        
+        <aside class="side-panel">
+            <div class="panel-header">
+                <i class="fas fa-history"></i> 澳门最近10期开奖结果
+            </div>
+            <ul class="results-list">
+                {% for result in macau_results %}
+                <li class="result-item clickable-result" 
+                    data-region="澳门" 
+                    data-id="{{ result.id }}"
+                    data-numbers="{{ (result.no + [result.sno]) | join(',') }}" 
+                    data-zodiacs="{{ result.raw_zodiac }}"
+                    data-waves="{{ result.raw_wave }}">
+                    <div class="result-item-header">
+                         <span><i class="fas fa-hashtag"></i> 第 {{ result.id }} 期</span>
+                         <span><i class="fas fa-calendar"></i> {{ result.date.split(' ')[0] }}</span>
+                    </div>
+                     <div class="ball-container">
+                        {% for num in result.no %}
+                        <div class="ball-wrapper"><div class="ball">{{ num }}</div></div>
+                        {% endfor %}
+                        <div class="ball-wrapper">
+                            <div class="ball special">{{ result.sno }}</div>
+                            <span class="zodiac-label">({{ result.sno_zodiac }})</span>
+                        </div>
+                    </div>
+                </li>
+                {% else %}
+                <li>暂无数据</li>
+                {% endfor %}
+            </ul>
+        </aside>
+    </div>
 
-{% block scripts %}
 <script>
-// 此处的 JavaScript 代码与之前完全相同，无需改动
+// 接收来自后端的颜色定义
 const BALL_COLORS = JSON.parse('{{ ball_colors | safe }}');
+
 document.addEventListener('DOMContentLoaded', () => {
+    // 创建动态背景粒子
+    function createParticles() {
+        const particlesContainer = document.getElementById('particles');
+        const particleCount = 50;
+        
+        for (let i = 0; i < particleCount; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'particle';
+            particle.style.width = Math.random() * 4 + 2 + 'px';
+            particle.style.height = particle.style.width;
+            particle.style.left = Math.random() * 100 + '%';
+            particle.style.top = Math.random() * 100 + '%';
+            particle.style.animationDelay = Math.random() * 6 + 's';
+            particle.style.animationDuration = (Math.random() * 3 + 3) + 's';
+            particlesContainer.appendChild(particle);
+        }
+    }
+
+    // 创建背景粒子
+    createParticles();
+
     const chatContainer = document.getElementById('chat-container');
     const chatForm = document.getElementById('chat-form');
     const chatInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-btn');
+
+    // 为侧边栏的号码球上色
     const ballElements = document.querySelectorAll('.ball');
     ballElements.forEach(el => {
         const num = parseInt(el.textContent, 10);
@@ -198,15 +542,21 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (BALL_COLORS.blue.includes(num)) el.classList.add('blue');
         else if (BALL_COLORS.green.includes(num)) el.classList.add('green');
     });
+
+    // 启用/禁用发送按钮
     chatInput.addEventListener('input', () => {
         sendBtn.disabled = chatInput.value.trim() === '';
     });
+
+    // 提交表单事件
     chatForm.addEventListener('submit', (event) => {
         event.preventDefault();
         const userMessage = chatInput.value.trim();
         if (!userMessage) return;
         sendMessageToAI(userMessage);
     });
+
+    // 为所有可点击的开奖结果项添加事件监听
     const clickableResults = document.querySelectorAll('.clickable-result');
     clickableResults.forEach(item => {
         item.addEventListener('click', () => {
@@ -215,7 +565,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (data.region === '香港') {
                 prompt += `\n特码生肖: ${data.sno_zodiac}`;
-            } else {
+            } else { // 澳门
                 prompt += `\n生肖: ${data.zodiacs}\n波色: ${data.waves}`;
             }
             prompt += "\n请从号码大小、奇偶、波色、生肖等角度进行分析，并给出你的看法。";
@@ -223,11 +573,15 @@ document.addEventListener('DOMContentLoaded', () => {
             sendMessageToAI(prompt);
         });
     });
+    
+    // 将消息发送逻辑封装成一个函数
     function sendMessageToAI(messageText) {
         appendMessage(messageText, 'user');
         chatInput.value = '';
         sendBtn.disabled = true;
+
         const typingIndicator = appendMessage('AI正在思考中...', 'ai', true);
+
         fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -248,16 +602,32 @@ document.addEventListener('DOMContentLoaded', () => {
             appendMessage(`抱歉，出错了：${error.message}`, 'ai', false, true);
         });
     }
+
+    // 在聊天窗口中追加消息的函数
     function appendMessage(text, sender, isTyping = false, isError = false) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message`;
         if (isTyping) { messageDiv.classList.add('typing-indicator'); }
         if (isError) { messageDiv.classList.add('error'); }
         messageDiv.textContent = text;
+        
+        // 添加动画效果
+        messageDiv.style.opacity = '0';
+        messageDiv.style.transform = 'translateY(10px)';
+        
         chatContainer.appendChild(messageDiv);
         chatContainer.scrollTop = chatContainer.scrollHeight;
+        
+        // 触发动画
+        setTimeout(() => {
+            messageDiv.style.transition = 'all 0.3s ease';
+            messageDiv.style.opacity = '1';
+            messageDiv.style.transform = 'translateY(0)';
+        }, 10);
+        
         return messageDiv;
     }
 });
 </script>
-{% endblock %}
+</body>
+</html>

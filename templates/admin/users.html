@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理 - 管理员后台</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            --glass-bg: rgba(255, 255, 255, 0.25);
+            --text-primary: #2d3748;
+            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: var(--text-primary);
+        }
+
+        .navbar {
+            background: var(--primary-gradient);
+            padding: 15px 0;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .navbar-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+        }
+
+        .navbar-brand {
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .navbar-nav {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: var(--shadow-light);
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+
+        .page-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .page-header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: 10px;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .table th {
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--text-primary);
+            padding: 15px 10px;
+            text-align: center;
+            font-weight: 600;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .table td {
+            padding: 12px 10px;
+            text-align: center;
+            border-bottom: 1px solid #dee2e6;
+            color: var(--text-primary);
+        }
+
+        .table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: white;
+            margin: 2px;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn-primary { background: var(--primary-gradient); }
+        .btn-success { background: var(--success-gradient); }
+        .btn-danger { background: var(--danger-gradient); }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-admin {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        .pagination a, .pagination span {
+            padding: 8px 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .pagination a:hover {
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .pagination .current {
+            background: var(--primary-gradient);
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .navbar-content {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .navbar-nav {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .table th, .table td {
+                padding: 8px 5px;
+                font-size: 0.9rem;
+            }
+
+            .btn {
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-content" style="justify-content: center; gap: 30px;">
+            <a href="{{ url_for('admin.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-tachometer-alt"></i> 控制台
+            </a>
+            <a href="{{ url_for('admin.users') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-users"></i> 用户管理
+            </a>
+            <a href="{{ url_for('admin.activation_codes') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-key"></i> 激活码管理
+            </a>
+            <a href="{{ url_for('admin.system_config') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-cog"></i> 系统配置
+            </a>
+            <a href="{{ url_for('admin.predictions') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-chart-bar"></i> 预测记录
+            </a>
+            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-home"></i> 返回首页
+            </a>
+            <a href="{{ url_for('auth.logout') }}" class="nav-link" style="font-size: 1.2rem;">
+                <i class="fas fa-sign-out-alt"></i> 退出登录
+            </a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="glass-card">
+            <div class="page-header">
+                <h1><i class="fas fa-users"></i> 用户管理</h1>
+                <p>管理系统中的所有用户账号</p>
+            </div>
+
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>用户名</th>
+                            <th>邮箱</th>
+                            <th>状态</th>
+                            <th>权限</th>
+                            <th>注册时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users.items %}
+                        <tr>
+                            <td>{{ user.id }}</td>
+                            <td>{{ user.username }}</td>
+                            <td>{{ user.email }}</td>
+                            <td>
+                                <span class="status-badge {{ 'status-active' if user.is_active else 'status-inactive' }}">
+                                    {{ '已激活' if user.is_active else '未激活' }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if user.is_admin %}
+                                <span class="status-badge status-admin">管理员</span>
+                                {% else %}
+                                <span class="status-badge status-active">普通用户</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+                            <td>
+                                <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-primary">
+                                    <i class="fas fa-edit"></i> 编辑
+                                </a>
+                                {% if not user.is_admin or (user.is_admin and users.total > 1) %}
+                                <form method="POST" action="{{ url_for('admin.delete_user', user_id=user.id) }}" 
+                                      style="display: inline;" 
+                                      onsubmit="return confirm('确定要删除用户 {{ user.username }} 吗？此操作不可恢复！')">
+                                    <button type="submit" class="btn btn-danger">
+                                        <i class="fas fa-trash"></i> 删除
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 40px; color: #6c757d;">
+                                <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;"></i>
+                                <br>暂无用户数据
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 分页 -->
+            {% if users.pages > 1 %}
+            <div class="pagination">
+                {% if users.has_prev %}
+                <a href="{{ url_for('admin.users', page=users.prev_num) }}">
+                    <i class="fas fa-chevron-left"></i> 上一页
+                </a>
+                {% endif %}
+
+                {% for page_num in users.iter_pages() %}
+                    {% if page_num %}
+                        {% if page_num != users.page %}
+                        <a href="{{ url_for('admin.users', page=page_num) }}">{{ page_num }}</a>
+                        {% else %}
+                        <span class="current">{{ page_num }}</span>
+                        {% endif %}
+                    {% else %}
+                    <span>…</span>
+                    {% endif %}
+                {% endfor %}
+
+                {% if users.has_next %}
+                <a href="{{ url_for('admin.users', page=users.next_num) }}">
+                    下一页 <i class="fas fa-chevron-right"></i>
+                </a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
