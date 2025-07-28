@@ -82,7 +82,7 @@
             max-width: 1200px;
             margin: 0 auto;
             padding: 30px 20px;
-            margin-top: 80px; /* 为固定导航栏留出空间 */
+            margin-top: 80px;
         }
 
         .glass-card {
@@ -119,17 +119,10 @@
         }
 
         .stats-grid {
-        .stats-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 20px;
             margin-bottom: 30px;
-        }
-        
-        @media (max-width: 1200px) {
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
         }
 
         .stat-card {
@@ -243,6 +236,7 @@
             gap: 8px;
             align-items: center;
             flex-wrap: wrap;
+            margin-top: 10px;
         }
 
         .number-ball {
@@ -255,8 +249,10 @@
             color: white;
             font-weight: bold;
             font-size: 0.9rem;
-            background: var(--primary-gradient);
             position: relative;
+            flex-shrink: 0;
+            min-width: 35px;
+            min-height: 35px;
         }
         
         .ball-tooltip {
@@ -323,6 +319,12 @@
             border: 1px solid rgba(23, 162, 184, 0.3);
         }
 
+        @media (max-width: 1200px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
         @media (max-width: 768px) {
             .navbar-content {
                 flex-direction: column;
@@ -338,7 +340,6 @@
                 font-size: 2rem;
             }
 
-            .stats-grid {
             .stats-grid {
                 grid-template-columns: 1fr;
             }
@@ -402,7 +403,21 @@
             </div>
 
             <div class="stats-grid">
-            <div class="stats-grid">
+                <!-- 第一行 -->
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-{{ 'check-circle' if user.is_active else 'times-circle' }}"></i>
+                    </div>
+                    <div class="stat-number">
+                        {% if user.activation_expires_at %}
+                            {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
+                        {% else %}
+                            永久
+                        {% endif %}
+                    </div>
+                    <div class="stat-label">到期时间</div>
+                </div>
+
                 <div class="stat-card">
                     <div class="stat-icon">
                         <i class="fas fa-chart-bar"></i>
@@ -419,6 +434,7 @@
                     <div class="stat-label">平均准确率</div>
                 </div>
 
+                <!-- 第二行 -->
                 <div class="stat-card">
                     <div class="stat-icon">
                         <i class="fas fa-dice"></i>
@@ -441,14 +457,6 @@
                     </div>
                     <div class="stat-number">{{ stats.ai_accuracy }}%</div>
                     <div class="stat-label">AI智能预测准确率</div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-{{ 'check-circle' if user.is_active else 'times-circle' }}"></i>
-                    </div>
-                    <div class="stat-number">{{ '已激活' if user.is_active else '未激活' }}</div>
-                    <div class="stat-label">账号状态</div>
                 </div>
             </div>
 
@@ -497,26 +505,26 @@
                     {% for num in prediction.normal_numbers.split(',') %}
                     {% set color = get_number_color(num) %}
                     {% set zodiac = get_number_zodiac(num) %}
-                    <div class="number-ball" style="background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %}">
+                    <div class="number-ball" style="background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
                         {{ num }}
                         <div class="ball-tooltip">{{ zodiac }}</div>
                     </div>
                     {% endfor %}
                     
                     {% set special_color = get_number_color(prediction.special_number) %}
-                    <div class="number-ball special-ball" style="background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %}">
+                    <div class="number-ball special-ball" style="background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
                         {{ prediction.special_number }}
                         <div class="ball-tooltip">{{ prediction.special_zodiac }}</div>
                     </div>
-                    
-                    <span style="margin-left: 10px; color: #6c757d;">
-                        特码生肖: {{ prediction.special_zodiac }}
-                        {% if prediction.accuracy_score != None and prediction.accuracy_score != '' %}
-                        <span class="accuracy-badge {% if prediction.accuracy_score > 0 %}accuracy-hit{% else %}accuracy-miss{% endif %}">
-                            {{ "命中" if prediction.accuracy_score > 0 else "未中" }}
-                        </span>
-                        {% endif %}
+                </div>
+                
+                <div style="margin-top: 8px; color: #6c757d;">
+                    特码生肖: {{ prediction.special_zodiac }}
+                    {% if prediction.accuracy_score != None and prediction.accuracy_score != '' %}
+                    <span class="accuracy-badge {% if prediction.accuracy_score > 0 %}accuracy-hit{% else %}accuracy-miss{% endif %}">
+                        {{ "命中" if prediction.accuracy_score > 0 else "未中" }}
                     </span>
+                    {% endif %}
                 </div>
             </div>
             {% endfor %}
