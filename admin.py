@@ -92,6 +92,19 @@ def dashboard():
             else:
                 pred.username = '未知用户'
         
+        # 获取邀请统计数据
+        total_invite_codes = InviteCode.query.count()
+        used_invite_codes = InviteCode.query.filter_by(is_used=True).count()
+        unused_invite_codes = total_invite_codes - used_invite_codes
+        total_invites = User.query.filter(User.invited_by.isnot(None)).count()
+        
+        invite_stats = {
+            'total_invite_codes': total_invite_codes,
+            'used_invite_codes': used_invite_codes,
+            'unused_invite_codes': unused_invite_codes,
+            'total_invites': total_invites
+        }
+        
         stats = {
             'total_users': total_users,
             'active_users': active_users,
@@ -105,7 +118,8 @@ def dashboard():
             'balanced_accuracy': balanced_accuracy,
             'ai_accuracy': ai_accuracy,
             'recent_users': recent_users,
-            'recent_predictions': recent_predictions
+            'recent_predictions': recent_predictions,
+            'invite_stats': invite_stats
         }
         
         return render_template('admin/dashboard.html', stats=stats)
@@ -124,7 +138,13 @@ def dashboard():
             'balanced_accuracy': 0.0,
             'ai_accuracy': 0.0,
             'recent_users': [],
-            'recent_predictions': []
+            'recent_predictions': [],
+            'invite_stats': {
+                'total_invite_codes': 0,
+                'used_invite_codes': 0,
+                'unused_invite_codes': 0,
+                'total_invites': 0
+            }
         })
 
 @admin_bp.route('/users')
