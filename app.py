@@ -673,11 +673,15 @@ def check_user_activation():
     if 'user_id' in session:
         try:
             user = User.query.get(session['user_id'])
-            if user and hasattr(user, 'is_activation_expired') and user.is_activation_expired():
-                # 激活已过期，更新状态
-                user.is_active = False
-                db.session.commit()
-                session['is_active'] = False
+            if user:
+                # 检查用户激活状态是否过期
+                if user.activation_expires_at and datetime.utcnow() > user.activation_expires_at:
+                    # 激活已过期，更新状态
+                    user.is_active = False
+                    db.session.commit()
+                    session['is_active'] = False
+                    if not request.path.startswith('/auth/activate'):
+                        flash('您的账号激活已过期，请使用新的激活码重新激活。', 'warning')
         except Exception as e:
             print(f"检查用户激活状态时出错: {e}")
             # 如果出错，跳过检查

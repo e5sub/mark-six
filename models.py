@@ -58,6 +58,7 @@ class User(db.Model):
         """检查并更新激活状态，如果过期则设为未激活"""
         if self.is_activation_expired():
             self.is_active = False
+            db.session.commit()
             return False  # 已过期
         return True  # 仍然有效
 
