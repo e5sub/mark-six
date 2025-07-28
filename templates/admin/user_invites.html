@@ -1,164 +1,231 @@
 {% extends "admin/base.html" %}
 
-{% block title %}用户邀请关系{% endblock %}
+{% block page_title %}邀请关系管理{% endblock %}
 
 {% block content %}
-<div class="container-fluid">
-    <div class="row">
-        <!-- 邀请统计 -->
-        <div class="col-12 mb-4">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">邀请统计</h3>
-                </div>
-                <div class="card-body">
-                    {% if invite_stats %}
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>邀请人</th>
-                                    <th>总邀请数</th>
-                                    <th>激活邀请数</th>
-                                    <th>激活率</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for inviter, stats in invite_stats.items() %}
-                                <tr>
-                                    <td>{{ inviter }}</td>
-                                    <td>{{ stats.total_invites }}</td>
-                                    <td>{{ stats.active_invites }}</td>
-                                    <td>
-                                        {% set rate = (stats.active_invites / stats.total_invites * 100) if stats.total_invites > 0 else 0 %}
-                                        <span class="badge {% if rate >= 80 %}bg-success{% elif rate >= 50 %}bg-warning{% else %}bg-danger{% endif %}">
-                                            {{ "%.1f"|format(rate) }}%
-                                        </span>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% else %}
-                    <div class="text-center py-4">
-                        <p class="text-muted">暂无邀请数据</p>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🤝 邀请关系管理</h2>
+    </div>
+    
+    <!-- 统计信息 -->
+    <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 2rem;">
+        <div class="stat-card">
+            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">🎫</div>
+            <div class="stat-number">{{ stats.total_invites }}</div>
+            <div class="stat-label">总邀请数</div>
         </div>
         
-        <!-- 被邀请用户列表 -->
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">被邀请用户列表</h3>
-                </div>
-                <div class="card-body">
-                    {% if invited_users.items %}
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>用户名</th>
-                                    <th>邮箱</th>
-                                    <th>邀请人</th>
-                                    <th>使用的邀请码</th>
-                                    <th>注册时间</th>
-                                    <th>邀请激活时间</th>
-                                    <th>当前状态</th>
-                                    <th>激活过期时间</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for user in invited_users.items %}
-                                <tr>
-                                    <td>{{ user.username }}</td>
-                                    <td>{{ user.email }}</td>
-                                    <td>
-                                        <span class="badge bg-info">{{ user.invited_by }}</span>
-                                    </td>
-                                    <td>
-                                        {% if user.invite_code_used %}
-                                            <code>{{ user.invite_code_used }}</code>
-                                        {% else %}
-                                            -
-                                        {% endif %}
-                                    </td>
-                                    <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
-                                    <td>{{ user.invite_activated_at.strftime('%Y-%m-%d %H:%M') if user.invite_activated_at else '-' }}</td>
-                                    <td>
-                                        {% if user.is_active %}
-                                            {% if user.is_activation_expired() %}
-                                                <span class="badge bg-warning">已过期</span>
-                                            {% else %}
-                                                <span class="badge bg-success">已激活</span>
-                                            {% endif %}
-                                        {% else %}
-                                            <span class="badge bg-secondary">未激活</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if user.activation_expires_at %}
-                                            {{ user.activation_expires_at.strftime('%Y-%m-%d %H:%M') }}
-                                            {% if user.is_activation_expired() %}
-                                                <span class="badge bg-danger ms-1">已过期</span>
-                                            {% endif %}
-                                        {% else %}
-                                            <span class="text-success">永久</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <!-- 分页 -->
-                    {% if invited_users.pages > 1 %}
-                    <nav aria-label="用户分页">
-                        <ul class="pagination justify-content-center">
-                            {% if invited_users.has_prev %}
-                                <li class="page-item">
-                                    <a class="page-link" href="{{ url_for('admin.user_invites', page=invited_users.prev_num) }}">上一页</a>
-                                </li>
+        <div class="stat-card">
+            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
+            <div class="stat-number">{{ stats.successful_invites }}</div>
+            <div class="stat-label">成功邀请</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">👥</div>
+            <div class="stat-number">{{ stats.active_inviters }}</div>
+            <div class="stat-label">活跃邀请人</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">📊</div>
+            <div class="stat-number">{{ "%.1f"|format(stats.avg_invites_per_user) }}</div>
+            <div class="stat-label">平均邀请数</div>
+        </div>
+    </div>
+    
+    <!-- 邀请关系表格 -->
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>邀请人</th>
+                    <th>被邀请人</th>
+                    <th>邀请码</th>
+                    <th>邀请时间</th>
+                    <th>激活状态</th>
+                    <th>奖励状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for invite in invites %}
+                <tr>
+                    <td>
+                        <div style="font-weight: 600;">{{ invite.inviter_username }}</div>
+                        <div style="font-size: 0.8rem; color: #666;">{{ invite.inviter_email }}</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600;">{{ invite.invitee_username }}</div>
+                        <div style="font-size: 0.8rem; color: #666;">{{ invite.invitee_email }}</div>
+                    </td>
+                    <td>
+                        <div class="invite-code">{{ invite.invite_code }}</div>
+                    </td>
+                    <td>{{ invite.invite_time.strftime('%Y-%m-%d %H:%M') if invite.invite_time else '-' }}</td>
+                    <td>
+                        {% if invite.is_activated %}
+                            <span class="invite-status status-unused">已激活</span>
+                        {% else %}
+                            <span class="invite-status status-expired">未激活</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if invite.reward_given %}
+                            <span class="invite-status status-used">已发放</span>
+                        {% else %}
+                            <span class="invite-status status-expired">未发放</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-sm" onclick="viewInviteDetail({{ invite.id }})">详情</button>
+                            {% if not invite.reward_given and invite.is_activated %}
+                                <button class="btn btn-success btn-sm" onclick="giveReward({{ invite.id }})">发放奖励</button>
                             {% endif %}
-                            
-                            {% for page_num in invited_users.iter_pages() %}
-                                {% if page_num %}
-                                    {% if page_num != invited_users.page %}
-                                        <li class="page-item">
-                                            <a class="page-link" href="{{ url_for('admin.user_invites', page=page_num) }}">{{ page_num }}</a>
-                                        </li>
-                                    {% else %}
-                                        <li class="page-item active">
-                                            <span class="page-link">{{ page_num }}</span>
-                                        </li>
-                                    {% endif %}
-                                {% else %}
-                                    <li class="page-item disabled">
-                                        <span class="page-link">…</span>
-                                    </li>
-                                {% endif %}
-                            {% endfor %}
-                            
-                            {% if invited_users.has_next %}
-                                <li class="page-item">
-                                    <a class="page-link" href="{{ url_for('admin.user_invites', page=invited_users.next_num) }}">下一页</a>
-                                </li>
-                            {% endif %}
-                        </ul>
-                    </nav>
-                    {% endif %}
-                    {% else %}
-                    <div class="text-center py-4">
-                        <p class="text-muted">暂无被邀请用户</p>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    {% if not invites %}
+    <div style="text-align: center; padding: 3rem; color: #666;">
+        <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.3;">🤝</div>
+        <p>暂无邀请关系记录</p>
+        <p style="font-size: 0.9rem; margin-top: 0.5rem;">用户使用邀请码注册后将在这里显示</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 邀请详情模态框 -->
+<div id="inviteDetailModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 20px; width: 90%; max-width: 600px;">
+        <h3 style="margin-bottom: 1.5rem;">邀请详情</h3>
+        <div id="inviteDetailContent">
+            <!-- 详情内容将通过JavaScript填充 -->
+        </div>
+        <div style="text-align: center; margin-top: 2rem;">
+            <button class="btn btn-danger" onclick="hideInviteDetailModal()">关闭</button>
         </div>
     </div>
 </div>
+
+<script>
+function viewInviteDetail(inviteId) {
+    fetch(`/admin/user_invites/${inviteId}/detail`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const detail = data.detail;
+                document.getElementById('inviteDetailContent').innerHTML = `
+                    <div style="display: grid; gap: 1rem;">
+                        <div style="background: rgba(102, 126, 234, 0.05); padding: 1rem; border-radius: 8px;">
+                            <h4 style="margin-bottom: 0.5rem; color: #667eea;">邀请人信息</h4>
+                            <p><strong>用户名：</strong>${detail.inviter_username}</p>
+                            <p><strong>邮箱：</strong>${detail.inviter_email}</p>
+                            <p><strong>注册时间：</strong>${detail.inviter_created_at}</p>
+                        </div>
+                        
+                        <div style="background: rgba(40, 167, 69, 0.05); padding: 1rem; border-radius: 8px;">
+                            <h4 style="margin-bottom: 0.5rem; color: #28a745;">被邀请人信息</h4>
+                            <p><strong>用户名：</strong>${detail.invitee_username}</p>
+                            <p><strong>邮箱：</strong>${detail.invitee_email}</p>
+                            <p><strong>注册时间：</strong>${detail.invitee_created_at}</p>
+                            <p><strong>激活状态：</strong>${detail.is_activated ? '已激活' : '未激活'}</p>
+                        </div>
+                        
+                        <div style="background: rgba(255, 193, 7, 0.05); padding: 1rem; border-radius: 8px;">
+                            <h4 style="margin-bottom: 0.5rem; color: #ffc107;">邀请信息</h4>
+                            <p><strong>邀请码：</strong>${detail.invite_code}</p>
+                            <p><strong>邀请时间：</strong>${detail.invite_time}</p>
+                            <p><strong>奖励状态：</strong>${detail.reward_given ? '已发放' : '未发放'}</p>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('inviteDetailModal').style.display = 'block';
+            } else {
+                alert('获取详情失败：' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('获取详情失败：网络错误');
+        });
+}
+
+function hideInviteDetailModal() {
+    document.getElementById('inviteDetailModal').style.display = 'none';
+}
+
+function giveReward(inviteId) {
+    if (confirm('确定要为此邀请关系发放奖励吗？')) {
+        fetch(`/admin/user_invites/${inviteId}/give_reward`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('奖励发放成功！', 'success');
+                location.reload();
+            } else {
+                alert('奖励发放失败：' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('奖励发放失败：网络错误');
+        });
+    }
+}
+
+function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'success' ? '#28a745' : '#dc3545'};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        z-index: 9999;
+        font-size: 0.9rem;
+        max-width: 300px;
+        animation: slideIn 0.3s ease;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.parentElement.removeChild(toast);
+            }
+        }, 300);
+    }, 3000);
+}
+
+// 添加动画样式
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+`;
+document.head.appendChild(style);
+</script>
 {% endblock %}
