@@ -1,12 +1,12 @@
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import uuid
+import hashlib
 
 db = SQLAlchemy()
 
-class User(UserMixin, db.Model):
+class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
@@ -15,14 +15,13 @@ class User(UserMixin, db.Model):
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
-    
-    # 关联预测记录
-    predictions = db.relationship('PredictionRecord', backref='user', lazy=True)
-    
+
     def set_password(self, password):
+        """设置密码"""
         self.password_hash = generate_password_hash(password)
-    
+
     def check_password(self, password):
+        """检查密码"""
         return check_password_hash(self.password_hash, password)
     
     def is_activation_expired(self):
@@ -33,137 +32,127 @@ class User(UserMixin, db.Model):
     
     def extend_activation(self, days):
         """延长激活时间"""
-        if days == 0:  # 永久激活
-            self.activation_expires_at = None
+        if self.activation_expires_at and not self.is_activation_expired():
+            # 如果当前激活未过期，在现有时间基础上延长
+            self.activation_expires_at += timedelta(days=days)
         else:
-            if self.activation_expires_at and self.activation_expires_at > datetime.utcnow():
-                # 如果已有到期时间且未过期，在此基础上延长
-                self.activation_expires_at += timedelta(days=days)
-            else:
-                # 如果没有到期时间或已过期，从现在开始计算
-                self.activation_expires_at = datetime.utcnow() + timedelta(days=days)
-        
-        # 确保用户处于激活状态
-        self.is_active = True
+            # 如果已过期或首次激活，从当前时间开始计算
+            self.activation_expires_at = datetime.utcnow() + timedelta(days=days)
     
-    def check_and_update_activation_status(self):
-        """检查并更新激活状态"""
-        if self.is_activation_expired():
-            self.is_active = False
-            return False
-        return True
+    def set_permanent_activation(self):
+        """设置永久激活"""
+        self.activation_expires_at = None
+        self.is_active = True
+
+    def __repr__(self):
+        return f'<User {self.username}>'
 
 class ActivationCode(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(100), unique=True, nullable=False)
+    code = db.Column(db.String(64), unique=True, nullable=False)
     is_used = db.Column(db.Boolean, default=False)
-    used_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    used_by = db.Column(db.String(80))  # 存储用户名而不是ID
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    used_at = db.Column(db.DateTime, nullable=True)
-    # 新增有效期相关字段
-    validity_type = db.Column(db.String(10), default='permanent')  # 'day', 'month', 'quarter', 'year', 'permanent'
-    validity_days = db.Column(db.Integer, default=0)  # 有效天数
-    expires_at = db.Column(db.DateTime, nullable=True)  # 过期时间
-    
+    used_at = db.Column(db.DateTime)
+    validity_type = db.Column(db.String(20), default='permanent')  # permanent, day, month, quarter, year
+    expires_at = db.Column(db.DateTime)  # 激活码本身的过期时间
+
     @staticmethod
     def generate_code():
         """生成激活码"""
-        return str(uuid.uuid4()).replace('-', '')[:16].upper()
-    
-    def set_validity(self, validity_type='permanent'):
-        """设置有效期"""
+        return str(uuid.uuid4()).replace('-', '').upper()[:16]
+
+    def set_validity(self, validity_type):
+        """设置激活码有效期"""
+        self.validity_type = validity_type
         if validity_type == 'day':
-            self.validity_days = 1
             self.expires_at = datetime.utcnow() + timedelta(days=1)
         elif validity_type == 'month':
-            self.validity_days = 30
             self.expires_at = datetime.utcnow() + timedelta(days=30)
         elif validity_type == 'quarter':
-            self.validity_days = 90
             self.expires_at = datetime.utcnow() + timedelta(days=90)
         elif validity_type == 'year':
-            self.validity_days = 365
             self.expires_at = datetime.utcnow() + timedelta(days=365)
-        else:
-            self.validity_days = 0
+        else:  # permanent
             self.expires_at = None
-        
-        self.validity_type = validity_type
-    
+
     def is_expired(self):
-        """检查是否过期"""
-        if self.expires_at is None:
+        """检查激活码是否过期"""
+        if not self.expires_at:
             return False
         return datetime.utcnow() > self.expires_at
-    
-    def is_valid(self):
-        """检查激活码是否有效"""
-        return not self.is_used and not self.is_expired()
-    
-    def use_code(self, user_id):
-        """使用激活码并延长用户激活时间"""
-        if self.is_used:
-            return False, "激活码已被使用"
-        
-        if self.is_expired():
-            return False, "激活码已过期"
-        
-        # 获取用户
-        user = User.query.get(user_id)
-        if not user:
-            return False, "用户不存在"
+
+    def use_code(self, user):
+        """使用激活码"""
+        if self.is_used or self.is_expired():
+            if self.is_used:
+                return False, "激活码已被使用"
+            else:
+                return False, "激活码已过期"
         
         # 标记激活码为已使用
         self.is_used = True
-        self.used_by = user_id
+        self.used_by = user.username
         self.used_at = datetime.utcnow()
         
         # 根据激活码类型延长用户激活时间
         if self.validity_type == 'permanent':
-            user.extend_activation(0)  # 永久激活
-        elif self.validity_type == 'day':
-            user.extend_activation(1)
-        elif self.validity_type == 'month':
-            user.extend_activation(30)
-        elif self.validity_type == 'quarter':
-            user.extend_activation(90)
-        elif self.validity_type == 'year':
-            user.extend_activation(365)
+            user.set_permanent_activation()
+        else:
+            days_map = {
+                'day': 1,
+                'month': 30,
+                'quarter': 90,
+                'year': 365
+            }
+            days = days_map.get(self.validity_type, 0)
+            if days > 0:
+                user.extend_activation(days)
+                user.is_active = True
         
-        return True, "激活码使用成功，账号激活时间已延长"
+        return True, "激活成功"
+
+    def __repr__(self):
+        return f'<ActivationCode {self.code}>'
 
 class PredictionRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     region = db.Column(db.String(10), nullable=False)  # 'hk' 或 'macau'
     strategy = db.Column(db.String(20), nullable=False)  # 'random', 'balanced', 'ai'
-    period = db.Column(db.String(50), nullable=False)  # 期数
+    period = db.Column(db.String(20), nullable=False)  # 期数
     normal_numbers = db.Column(db.String(50), nullable=False)  # 正码，逗号分隔
     special_number = db.Column(db.String(10), nullable=False)  # 特码
-    special_zodiac = db.Column(db.String(10), nullable=True)  # 特码生肖
-    prediction_text = db.Column(db.Text, nullable=True)  # AI预测文本
+    special_zodiac = db.Column(db.String(10))  # 特码生肖
+    prediction_text = db.Column(db.Text)  # AI预测文本
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # 开奖结果（用于计算准确率）
-    actual_normal_numbers = db.Column(db.String(50), nullable=True)
-    actual_special_number = db.Column(db.String(10), nullable=True)
-    accuracy_score = db.Column(db.Float, nullable=True)  # 准确率分数
-    is_result_updated = db.Column(db.Boolean, default=False)
+    # 预测准确率相关字段
+    actual_normal_numbers = db.Column(db.String(50))  # 实际开奖正码
+    actual_special_number = db.Column(db.String(10))  # 实际开奖特码
+    accuracy_score = db.Column(db.Float)  # 准确率分数 (0-1)
+    is_result_updated = db.Column(db.Boolean, default=False)  # 是否已更新开奖结果
+
+    def __repr__(self):
+        return f'<PredictionRecord {self.region}-{self.period}>'
 
 class SystemConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(100), unique=True, nullable=False)
-    value = db.Column(db.Text, nullable=True)
-    description = db.Column(db.String(255), nullable=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+    value = db.Column(db.Text)
+    description = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
     @staticmethod
-    def get_config(key, default=None):
+    def get_config(key, default_value=''):
+        """获取配置值"""
         config = SystemConfig.query.filter_by(key=key).first()
-        return config.value if config else default
-    
+        return config.value if config else default_value
+
     @staticmethod
-    def set_config(key, value, description=None):
+    def set_config(key, value, description=''):
+        """设置配置值"""
         config = SystemConfig.query.filter_by(key=key).first()
         if config:
             config.value = value
@@ -174,4 +163,6 @@ class SystemConfig(db.Model):
             config = SystemConfig(key=key, value=value, description=description)
             db.session.add(config)
         db.session.commit()
-        return config
+
+    def __repr__(self):
+        return f'<SystemConfig {self.key}>'

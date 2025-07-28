@@ -8,7 +8,9 @@
     <style>
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
             --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
             --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
             --glass-bg: rgba(255, 255, 255, 0.25);
             --text-primary: #2d3748;
@@ -42,13 +44,6 @@
             justify-content: space-between;
             align-items: center;
             padding: 0 20px;
-        }
-
-        .navbar-brand {
-            color: white;
-            font-size: 1.5rem;
-            font-weight: 700;
-            text-decoration: none;
         }
 
         .navbar-nav {
@@ -87,6 +82,12 @@
             box-shadow: var(--shadow-light);
             padding: 25px;
             margin-bottom: 25px;
+            transition: all 0.3s ease;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
         }
 
         .page-header {
@@ -95,53 +96,36 @@
         }
 
         .page-header h1 {
-            font-size: 2.2rem;
+            font-size: 2.5rem;
             font-weight: 700;
             margin-bottom: 10px;
         }
 
-        .table-container {
-            overflow-x: auto;
-            border-radius: 10px;
+        .page-header p {
+            font-size: 1.1rem;
+            color: #6c757d;
         }
 
-        .table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            background: rgba(255, 255, 255, 0.7);
-            border-radius: 10px;
-            overflow: hidden;
-        }
-
-        .table th {
-            background: rgba(255, 255, 255, 0.9);
-            color: var(--text-primary);
-            padding: 15px 10px;
-            text-align: center;
+        .section-title {
+            font-size: 1.8rem;
             font-weight: 600;
-            border-bottom: 1px solid #dee2e6;
-        }
-
-        .table td {
-            padding: 12px 10px;
-            text-align: center;
-            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 20px;
             color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
 
-        .table tbody tr:hover {
-            background: rgba(255, 255, 255, 0.9);
-        }
-
-        .table tbody tr:last-child td {
-            border-bottom: none;
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .btn {
-            padding: 8px 16px;
+            padding: 10px 20px;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 0.9rem;
             font-weight: 600;
             cursor: pointer;
@@ -149,39 +133,121 @@
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 5px;
+            justify-content: center;
+            gap: 8px;
             color: white;
-            margin: 2px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
 
         .btn:hover {
-            transform: translateY(-1px);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
         }
 
-        .btn-primary { background: var(--primary-gradient); }
         .btn-success { background: var(--success-gradient); }
+        .btn-warning { background: var(--warning-gradient); }
+        .btn-primary { background: var(--primary-gradient); }
         .btn-danger { background: var(--danger-gradient); }
+        .btn-secondary { background: #6c757d; }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: 15px;
+            background: rgba(255, 255, 255, 0.8);
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: transparent;
+        }
+
+        .table th {
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--text-primary);
+            padding: 15px 12px;
+            text-align: center;
+            font-weight: 600;
+            border-bottom: 2px solid #dee2e6;
+            font-size: 0.95rem;
+        }
+
+        .table th:first-child {
+            border-top-left-radius: 15px;
+        }
+
+        .table th:last-child {
+            border-top-right-radius: 15px;
+        }
+
+        .table td {
+            padding: 12px;
+            text-align: center;
+            border-bottom: 1px solid #dee2e6;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.6);
+        }
+
+        .table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table tbody tr:last-child td:first-child {
+            border-bottom-left-radius: 15px;
+        }
+
+        .table tbody tr:last-child td:last-child {
+            border-bottom-right-radius: 15px;
+        }
 
         .status-badge {
-            padding: 4px 12px;
+            padding: 6px 12px;
             border-radius: 20px;
             font-size: 0.8rem;
             font-weight: 600;
+            display: inline-block;
         }
 
         .status-active {
-            background: #d4edda;
-            color: #155724;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
         }
 
         .status-inactive {
-            background: #f8d7da;
-            color: #721c24;
+            background: #6c757d;
+            color: white;
         }
 
         .status-admin {
-            background: #fff3cd;
-            color: #856404;
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            color: white;
+        }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .alert-success {
+            background: rgba(40, 167, 69, 0.1);
+            color: #155724;
+            border: 1px solid rgba(40, 167, 69, 0.3);
+        }
+
+        .alert-error {
+            background: rgba(220, 53, 69, 0.1);
+            color: #721c24;
+            border: 1px solid rgba(220, 53, 69, 0.3);
         }
 
         .pagination {
@@ -192,17 +258,19 @@
         }
 
         .pagination a, .pagination span {
-            padding: 8px 12px;
-            border-radius: 8px;
+            padding: 10px 15px;
+            border-radius: 10px;
             text-decoration: none;
             color: var(--text-primary);
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(255, 255, 255, 0.8);
             border: 1px solid rgba(255, 255, 255, 0.3);
             transition: all 0.3s ease;
+            font-weight: 500;
         }
 
         .pagination a:hover {
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 1);
+            transform: translateY(-2px);
         }
 
         .pagination .current {
@@ -221,13 +289,23 @@
                 justify-content: center;
             }
 
-            .table th, .table td {
-                padding: 8px 5px;
-                font-size: 0.9rem;
+            .page-header h1 {
+                font-size: 2rem;
             }
 
-            .btn {
-                padding: 6px 12px;
+            .section-title {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+
+            .action-buttons {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .table th, .table td {
+                padding: 8px 5px;
                 font-size: 0.8rem;
             }
         }
@@ -264,9 +342,37 @@
         <div class="glass-card">
             <div class="page-header">
                 <h1><i class="fas fa-users"></i> 用户管理</h1>
-                <p>管理系统中的所有用户账号</p>
+                <p>管理系统用户和权限</p>
             </div>
 
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'error' if category == 'error' else 'success' }}">
+                            <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' }}"></i>
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <div class="section-title">
+                <div>
+                    <i class="fas fa-list"></i> 用户列表
+                </div>
+                <div class="action-buttons">
+                    <a href="{{ url_for('admin.export_users') }}" class="btn btn-success">
+                        <i class="fas fa-file-csv"></i> 导出CSV
+                    </a>
+                    <a href="{{ url_for('admin.export_users_json') }}" class="btn btn-warning">
+                        <i class="fas fa-file-code"></i> 导出JSON
+                    </a>
+                    <a href="{{ url_for('admin.import_users') }}" class="btn btn-primary">
+                        <i class="fas fa-file-import"></i> 导入用户
+                    </a>
+                </div>
+            </div>
+            
             <div class="table-container">
                 <table class="table">
                     <thead>
@@ -275,8 +381,9 @@
                             <th>用户名</th>
                             <th>邮箱</th>
                             <th>状态</th>
-                            <th>权限</th>
+                            <th>角色</th>
                             <th>注册时间</th>
+                            <th>激活到期</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -287,36 +394,45 @@
                             <td>{{ user.username }}</td>
                             <td>{{ user.email }}</td>
                             <td>
-                                <span class="status-badge {{ 'status-active' if user.is_active else 'status-inactive' }}">
-                                    {{ '已激活' if user.is_active else '未激活' }}
-                                </span>
+                                {% if user.is_active %}
+                                    <span class="status-badge status-active">已激活</span>
+                                {% else %}
+                                    <span class="status-badge status-inactive">未激活</span>
+                                {% endif %}
                             </td>
                             <td>
                                 {% if user.is_admin %}
-                                <span class="status-badge status-admin">管理员</span>
+                                    <span class="status-badge status-admin">管理员</span>
                                 {% else %}
-                                <span class="status-badge status-active">普通用户</span>
+                                    普通用户
                                 {% endif %}
                             </td>
-                            <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+                            <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
                             <td>
-                                <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-primary">
-                                    <i class="fas fa-edit"></i> 编辑
-                                </a>
-                                {% if not user.is_admin or (user.is_admin and users.total > 1) %}
-                                <form method="POST" action="{{ url_for('admin.delete_user', user_id=user.id) }}" 
-                                      style="display: inline;" 
-                                      onsubmit="return confirm('确定要删除用户 {{ user.username }} 吗？此操作不可恢复！')">
-                                    <button type="submit" class="btn btn-danger">
-                                        <i class="fas fa-trash"></i> 删除
-                                    </button>
-                                </form>
+                                {% if user.activation_expires_at %}
+                                    {{ user.activation_expires_at.strftime('%Y-%m-%d %H:%M') }}
+                                {% else %}
+                                    永久
                                 {% endif %}
+                            </td>
+                            <td>
+                                <div style="display: flex; gap: 5px; justify-content: center;">
+                                    <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-primary" style="padding: 5px 10px; font-size: 0.8rem;">
+                                        <i class="fas fa-edit"></i> 编辑
+                                    </a>
+                                    {% if not user.is_admin or (user.is_admin and users.total > 1) %}
+                                    <form method="POST" action="{{ url_for('admin.delete_user', user_id=user.id) }}" style="display: inline;" onsubmit="return confirm('确定要删除用户 {{ user.username }} 吗？')">
+                                        <button type="submit" class="btn btn-danger" style="padding: 5px 10px; font-size: 0.8rem;">
+                                            <i class="fas fa-trash"></i> 删除
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                </div>
                             </td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="7" style="text-align: center; padding: 40px; color: #6c757d;">
+                            <td colspan="8" style="text-align: center; padding: 40px; color: #6c757d;">
                                 <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;"></i>
                                 <br>暂无用户数据
                             </td>

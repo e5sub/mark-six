@@ -1,7 +1,10 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, send_file, Response
 from models import db, User, ActivationCode, SystemConfig, PredictionRecord
 from werkzeug.security import generate_password_hash
 import uuid
+import csv
+import json
+import io
 from datetime import datetime
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -99,9 +102,7 @@ def activation_codes():
     codes = ActivationCode.query.order_by(ActivationCode.created_at.desc()).paginate(
         page=page, per_page=20, error_out=False
     )
-    
-    # 为模板提供User类，以便查询用户名
-    return render_template('admin/activation_codes.html', codes=codes, User=User)
+    return render_template('admin/activation_codes.html', codes=codes)
 
 @admin_bp.route('/generate-codes', methods=['POST'])
 @admin_required
@@ -242,3 +243,233 @@ def predictions():
                 db.session.rollback()
     
     return render_template('admin/predictions.html', predictions=predictions)
+
+# 导出用户信息为CSV
+@admin_bp.route('/export-users')
+@admin_required
+def export_users():
+    try:
+        # 创建CSV内容
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # 写入表头
+        writer.writerow([
+            'ID', '用户名', '邮箱', '激活状态', '管理员状态', 
+            '注册时间', '激活到期时间', '预测记录数'
+        ])
+        
+        # 写入用户数据
+        users = User.query.all()
+        for user in users:
+            prediction_count = PredictionRecord.query.filter_by(user_id=user.id).count()
+            writer.writerow([
+                user.id,
+                user.username,
+                user.email,
+                '是' if user.is_active else '否',
+                '是' if user.is_admin else '否',
+                user.created_at.strftime('%Y-%m-%d %H:%M:%S') if user.created_at else '',
+                user.activation_expires_at.strftime('%Y-%m-%d %H:%M:%S') if user.activation_expires_at else '永久',
+                prediction_count
+            ])
+        
+        # 创建响应
+        output.seek(0)
+        filename = f"users_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
+        
+    except Exception as e:
+        flash(f'导出失败：{str(e)}', 'error')
+        return redirect(url_for('admin.users'))
+
+# 导出用户信息为JSON
+@admin_bp.route('/export-users-json')
+@admin_required
+def export_users_json():
+    try:
+        users_data = []
+        users = User.query.all()
+        
+        for user in users:
+            # 获取用户的预测记录
+            predictions = PredictionRecord.query.filter_by(user_id=user.id).all()
+            predictions_data = []
+            
+            for pred in predictions:
+                predictions_data.append({
+                    'region': pred.region,
+                    'strategy': pred.strategy,
+                    'period': pred.period,
+                    'normal_numbers': pred.normal_numbers,
+                    'special_number': pred.special_number,
+                    'special_zodiac': pred.special_zodiac,
+                    'prediction_text': pred.prediction_text,
+                    'created_at': pred.created_at.isoformat() if pred.created_at else None,
+                    'accuracy_score': pred.accuracy_score
+                })
+            
+            user_data = {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'is_active': user.is_active,
+                'is_admin': user.is_admin,
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+                'activation_expires_at': user.activation_expires_at.isoformat() if user.activation_expires_at else None,
+                'predictions': predictions_data
+            }
+            users_data.append(user_data)
+        
+        # 创建JSON响应
+        filename = f"users_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        
+        return Response(
+            json.dumps(users_data, ensure_ascii=False, indent=2),
+            mimetype='application/json',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
+        
+    except Exception as e:
+        flash(f'导出失败：{str(e)}', 'error')
+        return redirect(url_for('admin.users'))
+
+# 导入用户页面
+@admin_bp.route('/import-users', methods=['GET', 'POST'])
+@admin_required
+def import_users():
+    if request.method == 'POST':
+        try:
+            if 'file' not in request.files:
+                flash('请选择文件', 'error')
+                return redirect(request.url)
+            
+            file = request.files['file']
+            if file.filename == '':
+                flash('请选择文件', 'error')
+                return redirect(request.url)
+            
+            # 检查文件类型
+            if not file.filename.lower().endswith(('.csv', '.json')):
+                flash('只支持CSV和JSON格式的文件', 'error')
+                return redirect(request.url)
+            
+            success_count = 0
+            error_count = 0
+            errors = []
+            
+            if file.filename.lower().endswith('.csv'):
+                # 处理CSV文件
+                content = file.read().decode('utf-8')
+                csv_reader = csv.DictReader(io.StringIO(content))
+                
+                for row in csv_reader:
+                    try:
+                        # 检查用户名和邮箱是否已存在
+                        if User.query.filter_by(username=row['用户名']).first():
+                            errors.append(f"用户名 {row['用户名']} 已存在")
+                            error_count += 1
+                            continue
+                        
+                        if User.query.filter_by(email=row['邮箱']).first():
+                            errors.append(f"邮箱 {row['邮箱']} 已存在")
+                            error_count += 1
+                            continue
+                        
+                        # 创建新用户
+                        user = User(
+                            username=row['用户名'],
+                            email=row['邮箱'],
+                            is_active=row.get('激活状态', '否') == '是',
+                            is_admin=row.get('管理员状态', '否') == '是'
+                        )
+                        user.set_password('123456')  # 默认密码
+                        
+                        db.session.add(user)
+                        success_count += 1
+                        
+                    except Exception as e:
+                        errors.append(f"导入用户 {row.get('用户名', 'Unknown')} 失败: {str(e)}")
+                        error_count += 1
+            
+            elif file.filename.lower().endswith('.json'):
+                # 处理JSON文件
+                content = file.read().decode('utf-8')
+                users_data = json.loads(content)
+                
+                for user_data in users_data:
+                    try:
+                        # 检查用户名和邮箱是否已存在
+                        if User.query.filter_by(username=user_data['username']).first():
+                            errors.append(f"用户名 {user_data['username']} 已存在")
+                            error_count += 1
+                            continue
+                        
+                        if User.query.filter_by(email=user_data['email']).first():
+                            errors.append(f"邮箱 {user_data['email']} 已存在")
+                            error_count += 1
+                            continue
+                        
+                        # 创建新用户
+                        user = User(
+                            username=user_data['username'],
+                            email=user_data['email'],
+                            is_active=user_data.get('is_active', False),
+                            is_admin=user_data.get('is_admin', False)
+                        )
+                        user.set_password('123456')  # 默认密码
+                        
+                        # 设置激活到期时间
+                        if user_data.get('activation_expires_at'):
+                            user.activation_expires_at = datetime.fromisoformat(user_data['activation_expires_at'])
+                        
+                        db.session.add(user)
+                        db.session.flush()  # 获取用户ID
+                        
+                        # 导入预测记录
+                        for pred_data in user_data.get('predictions', []):
+                            prediction = PredictionRecord(
+                                user_id=user.id,
+                                region=pred_data['region'],
+                                strategy=pred_data['strategy'],
+                                period=pred_data['period'],
+                                normal_numbers=pred_data['normal_numbers'],
+                                special_number=pred_data['special_number'],
+                                special_zodiac=pred_data.get('special_zodiac', ''),
+                                prediction_text=pred_data.get('prediction_text', ''),
+                                accuracy_score=pred_data.get('accuracy_score')
+                            )
+                            if pred_data.get('created_at'):
+                                prediction.created_at = datetime.fromisoformat(pred_data['created_at'])
+                            
+                            db.session.add(prediction)
+                        
+                        success_count += 1
+                        
+                    except Exception as e:
+                        errors.append(f"导入用户 {user_data.get('username', 'Unknown')} 失败: {str(e)}")
+                        error_count += 1
+            
+            # 提交数据库更改
+            db.session.commit()
+            
+            # 显示结果
+            if success_count > 0:
+                flash(f'成功导入 {success_count} 个用户', 'success')
+            if error_count > 0:
+                flash(f'导入失败 {error_count} 个用户', 'error')
+                for error in errors[:5]:  # 只显示前5个错误
+                    flash(error, 'error')
+            
+            return redirect(url_for('admin.users'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f'导入失败：{str(e)}', 'error')
+    
+    return render_template('admin/import_users.html')
