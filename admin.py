@@ -99,7 +99,9 @@ def activation_codes():
     codes = ActivationCode.query.order_by(ActivationCode.created_at.desc()).paginate(
         page=page, per_page=20, error_out=False
     )
-    return render_template('admin/activation_codes.html', codes=codes)
+    
+    # 为模板提供User类，以便查询用户名
+    return render_template('admin/activation_codes.html', codes=codes, User=User)
 
 @admin_bp.route('/generate-codes', methods=['POST'])
 @admin_required

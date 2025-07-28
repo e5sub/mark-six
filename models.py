@@ -1,11 +1,12 @@
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 db = SQLAlchemy()
 
-class User(db.Model):
+class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
@@ -13,6 +14,7 @@ class User(db.Model):
     is_active = db.Column(db.Boolean, default=False)
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
     
     # 关联预测记录
     predictions = db.relationship('PredictionRecord', backref='user', lazy=True)
@@ -22,6 +24,34 @@ class User(db.Model):
     
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+    
+    def is_activation_expired(self):
+        """检查激活是否过期"""
+        if not self.activation_expires_at:
+            return False  # 永久激活
+        return datetime.utcnow() > self.activation_expires_at
+    
+    def extend_activation(self, days):
+        """延长激活时间"""
+        if days == 0:  # 永久激活
+            self.activation_expires_at = None
+        else:
+            if self.activation_expires_at and self.activation_expires_at > datetime.utcnow():
+                # 如果已有到期时间且未过期，在此基础上延长
+                self.activation_expires_at += timedelta(days=days)
+            else:
+                # 如果没有到期时间或已过期，从现在开始计算
+                self.activation_expires_at = datetime.utcnow() + timedelta(days=days)
+        
+        # 确保用户处于激活状态
+        self.is_active = True
+    
+    def check_and_update_activation_status(self):
+        """检查并更新激活状态"""
+        if self.is_activation_expired():
+            self.is_active = False
+            return False
+        return True
 
 class ActivationCode(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -42,8 +72,6 @@ class ActivationCode(db.Model):
     
     def set_validity(self, validity_type='permanent'):
         """设置有效期"""
-        from datetime import timedelta
-        
         if validity_type == 'day':
             self.validity_days = 1
             self.expires_at = datetime.utcnow() + timedelta(days=1)
@@ -73,17 +101,36 @@ class ActivationCode(db.Model):
         return not self.is_used and not self.is_expired()
     
     def use_code(self, user_id):
-        """使用激活码"""
+        """使用激活码并延长用户激活时间"""
         if self.is_used:
             return False, "激活码已被使用"
         
         if self.is_expired():
             return False, "激活码已过期"
         
+        # 获取用户
+        user = User.query.get(user_id)
+        if not user:
+            return False, "用户不存在"
+        
+        # 标记激活码为已使用
         self.is_used = True
         self.used_by = user_id
         self.used_at = datetime.utcnow()
-        return True, "激活码使用成功"
+        
+        # 根据激活码类型延长用户激活时间
+        if self.validity_type == 'permanent':
+            user.extend_activation(0)  # 永久激活
+        elif self.validity_type == 'day':
+            user.extend_activation(1)
+        elif self.validity_type == 'month':
+            user.extend_activation(30)
+        elif self.validity_type == 'quarter':
+            user.extend_activation(90)
+        elif self.validity_type == 'year':
+            user.extend_activation(365)
+        
+        return True, "激活码使用成功，账号激活时间已延长"
 
 class PredictionRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)

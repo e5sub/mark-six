@@ -348,6 +348,14 @@ def index():
     
     # 检查用户是否激活，如果未激活则显示提示
     user = User.query.get(session['user_id'])
+    
+    # 检查激活状态是否过期
+    if user and user.is_activation_expired():
+        user.is_active = False
+        db.session.commit()
+        session['is_active'] = False
+        flash('您的账号激活已过期，请使用新的激活码重新激活。', 'warning')
+    
     if not user.is_active:
         flash('您的账号尚未激活，部分功能受限。请先激活账号。', 'warning')
     
@@ -631,6 +639,23 @@ def handle_chat():
     except Exception as e:
         print(f"Error calling AI chat API: {e}")
         return jsonify({"reply": f"抱歉，调用AI时遇到错误，请稍后再试。"}), 500
+
+# 全局请求前处理器，检查用户激活状态
+@app.before_request
+def check_user_activation():
+    # 跳过静态文件和认证相关路由
+    if request.endpoint and (request.endpoint.startswith('static') or 
+                           request.endpoint.startswith('auth.')):
+        return
+    
+    # 检查用户是否登录
+    if 'user_id' in session:
+        user = User.query.get(session['user_id'])
+        if user and user.is_activation_expired():
+            # 激活已过期，更新状态
+            user.is_active = False
+            db.session.commit()
+            session['is_active'] = False
 
 # 创建数据库表和初始管理员账号
 def init_database():
