@@ -3,6 +3,169 @@
 {% block page_title %}预测记录管理{% endblock %}
 
 {% block content %}
+<style>
+    /* 号码球样式 */
+    .number-ball {
+        display: inline-block;
+        width: 28px;
+        height: 28px;
+        line-height: 28px;
+        border-radius: 50%;
+        color: white;
+        font-weight: bold;
+        text-align: center;
+        font-size: 0.85rem;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        transition: transform 0.2s ease;
+    }
+    
+    .number-ball:hover {
+        transform: scale(1.15);
+    }
+    
+    .red-ball {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
+    }
+    
+    .blue-ball {
+        background: linear-gradient(135deg, #54a0ff 0%, #2e86de 100%);
+    }
+    
+    .green-ball {
+        background: linear-gradient(135deg, #1dd1a1 0%, #10ac84 100%);
+    }
+    
+    /* 特码球样式 */
+    .special-ball {
+        display: inline-block;
+        width: 36px;
+        height: 36px;
+        line-height: 32px;
+        border-radius: 50%;
+        color: white;
+        font-weight: bold;
+        text-align: center;
+        font-size: 1rem;
+        box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+        border: 2px solid #ffd700;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .special-ball:hover {
+        transform: scale(1.15);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    }
+    
+    .red-special {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
+    }
+    
+    .blue-special {
+        background: linear-gradient(135deg, #54a0ff 0%, #2e86de 100%);
+    }
+    
+    .green-special {
+        background: linear-gradient(135deg, #1dd1a1 0%, #10ac84 100%);
+    }
+    
+    /* 生肖标签样式 */
+    .zodiac-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);
+        color: white;
+        font-weight: 500;
+        font-size: 0.9rem;
+        box-shadow: 0 2px 5px rgba(108, 92, 231, 0.3);
+    }
+    
+    /* 准确率样式 */
+    .accuracy {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 0.9rem;
+    }
+    
+    .high-accuracy {
+        background-color: rgba(40, 167, 69, 0.15);
+        color: #28a745;
+    }
+    
+    .medium-accuracy {
+        background-color: rgba(255, 193, 7, 0.15);
+        color: #d39e00;
+    }
+    
+    .low-accuracy {
+        background-color: rgba(220, 53, 69, 0.15);
+        color: #dc3545;
+    }
+    
+    .pending-result {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 20px;
+        background-color: rgba(108, 117, 125, 0.15);
+        color: #6c757d;
+        font-size: 0.9rem;
+    }
+    
+    /* 时间标签样式 */
+    .time-badge {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.9rem;
+        color: #666;
+    }
+    
+    .time-icon {
+        font-size: 1rem;
+    }
+    
+    /* 操作按钮样式 */
+    .action-btn {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+    }
+    
+    .action-btn:hover {
+        transform: translateY(-2px);
+    }
+    
+    .delete-icon {
+        font-size: 1rem;
+    }
+    
+    /* 无数据样式 */
+    .no-data {
+        color: #aaa;
+        font-style: italic;
+    }
+    
+    /* 表格样式优化 */
+    .table th {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    
+    .table tr:nth-child(even) {
+        background-color: rgba(0,0,0,0.02);
+    }
+    
+    .table tr:hover {
+        background-color: rgba(102, 126, 234, 0.05);
+    }
+</style>
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">🎯 管理预测记录</h2>
@@ -66,45 +229,70 @@
                             </td>
                             <td>{{ prediction.period }}</td>
                             <td>
-                                <div style="display: flex; gap: 3px; flex-wrap: wrap; justify-content: center;">
+                                <div style="display: flex; gap: 5px; flex-wrap: wrap; justify-content: center;">
                                     {% if prediction.normal_numbers %}
                                         {% for num in prediction.normal_numbers.split(',') %}
-                                            <span style="background: #667eea; color: white; padding: 2px 6px; border-radius: 50%; font-size: 0.8rem; min-width: 24px; text-align: center;">{{ num }}</span>
+                                            {% set num_int = num|int %}
+                                            {% if num_int in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
+                                                <span class="number-ball red-ball">{{ num }}</span>
+                                            {% elif num_int in [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
+                                                <span class="number-ball blue-ball">{{ num }}</span>
+                                            {% else %}
+                                                <span class="number-ball green-ball">{{ num }}</span>
+                                            {% endif %}
                                         {% endfor %}
                                     {% else %}
-                                        -
+                                        <span class="no-data">-</span>
                                     {% endif %}
                                 </div>
                             </td>
                             <td>
                                 {% if prediction.special_number %}
-                                    <span style="background: #ff6b6b; color: white; padding: 4px 8px; border-radius: 50%; font-weight: bold; border: 2px solid #ffd700;">{{ prediction.special_number }}</span>
+                                    {% set special_num = prediction.special_number|int %}
+                                    {% if special_num in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
+                                        <span class="special-ball red-special">{{ prediction.special_number }}</span>
+                                    {% elif special_num in [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
+                                        <span class="special-ball blue-special">{{ prediction.special_number }}</span>
+                                    {% else %}
+                                        <span class="special-ball green-special">{{ prediction.special_number }}</span>
+                                    {% endif %}
                                 {% else %}
-                                    -
+                                    <span class="no-data">-</span>
                                 {% endif %}
                             </td>
-                            <td>{{ prediction.special_zodiac or '-' }}</td>
+                            <td>
+                                {% if prediction.special_zodiac %}
+                                    <span class="zodiac-badge">{{ prediction.special_zodiac }}</span>
+                                {% else %}
+                                    <span class="no-data">-</span>
+                                {% endif %}
+                            </td>
                             <td>
                                 {% if prediction.accuracy_score is not none %}
                                     {% set accuracy = (prediction.accuracy_score * 100) | round(1) %}
                                     {% if accuracy >= 70 %}
-                                        <span style="color: #28a745; font-weight: bold;">{{ accuracy }}%</span>
+                                        <span class="accuracy high-accuracy">{{ accuracy }}%</span>
                                     {% elif accuracy >= 40 %}
-                                        <span style="color: #ffc107; font-weight: bold;">{{ accuracy }}%</span>
+                                        <span class="accuracy medium-accuracy">{{ accuracy }}%</span>
                                     {% else %}
-                                        <span style="color: #dc3545; font-weight: bold;">{{ accuracy }}%</span>
+                                        <span class="accuracy low-accuracy">{{ accuracy }}%</span>
                                     {% endif %}
                                 {% else %}
-                                    <span style="color: #666;">待开奖</span>
+                                    <span class="pending-result">待开奖</span>
                                 {% endif %}
                             </td>
-                            <td>{{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '-' }}</td>
+                            <td>
+                                <span class="time-badge">
+                                    <i class="time-icon">🕒</i>
+                                    {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '-' }}
+                                </span>
+                            </td>
                             <td>
                                 <form method="POST" action="{{ url_for('admin.delete_prediction', prediction_id=prediction.id) }}" 
                                       style="display: inline;" 
                                       onsubmit="return confirm('确定要删除这条预测记录吗？')">
-                                    <button type="submit" class="btn btn-danger btn-sm">
-                                        删除
+                                    <button type="submit" class="btn btn-danger btn-sm action-btn">
+                                        <i class="delete-icon">🗑️</i> 删除
                                     </button>
                                 </form>
                             </td>

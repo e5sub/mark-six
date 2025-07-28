@@ -182,24 +182,38 @@ def edit_user(user_id):
         user = User.query.get_or_404(user_id)
         
         if request.method == 'POST':
-            user.username = request.form.get('username')
-            user.email = request.form.get('email')
-            user.is_active = 'is_active' in request.form
-            user.is_admin = 'is_admin' in request.form
+            # 获取表单数据
+            new_username = request.form.get('username')
+            new_email = request.form.get('email')
+            new_password = request.form.get('new_password')
+            is_active = 'is_active' in request.form
+            is_admin = 'is_admin' in request.form
             
-            # 处理激活时间延长
-            extend_type = request.form.get('extend_activation')
-            if extend_type and extend_type != 'none':
-                if extend_type == 'day':
-                    user.activation_expires_at = datetime.utcnow() + timedelta(days=1)
-                elif extend_type == 'month':
-                    user.activation_expires_at = datetime.utcnow() + timedelta(days=30)
-                elif extend_type == 'quarter':
-                    user.activation_expires_at = datetime.utcnow() + timedelta(days=90)
-                elif extend_type == 'year':
-                    user.activation_expires_at = datetime.utcnow() + timedelta(days=365)
-                elif extend_type == 'permanent':
-                    user.activation_expires_at = None
+            # 防止停用admin账号
+            if user.username == 'admin' and not is_active:
+                flash('不能停用admin账号', 'error')
+                return render_template('admin/edit_user.html', user=user)
+            
+            # 更新用户信息
+            user.username = new_username
+            user.email = new_email
+            user.is_active = is_active
+            user.is_admin = is_admin
+            
+            # 如果提供了新密码，则更新密码
+            if new_password:
+                user.set_password(new_password)
+            
+            # 处理激活过期时间
+            activation_expires_at = request.form.get('activation_expires_at')
+            if activation_expires_at:
+                try:
+                    user.activation_expires_at = datetime.strptime(activation_expires_at, '%Y-%m-%dT%H:%M')
+                except ValueError:
+                    flash('激活过期时间格式无效', 'error')
+                    return render_template('admin/edit_user.html', user=user)
+            else:
+                user.activation_expires_at = None
             
             try:
                 db.session.commit()
@@ -214,7 +228,36 @@ def edit_user(user_id):
         flash(f'编辑用户失败: {str(e)}', 'error')
         return redirect(url_for('admin.users'))
 
-@admin_bp.route('/user/<int:user_id>/delete', methods=['POST'])
+@admin_bp.route('/users/<int:user_id>/activate', methods=['POST'])
+@admin_required
+def activate_user(user_id):
+    try:
+        user = User.query.get_or_404(user_id)
+        user.is_active = True
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)})
+
+@admin_bp.route('/users/<int:user_id>/deactivate', methods=['POST'])
+@admin_required
+def deactivate_user(user_id):
+    try:
+        user = User.query.get_or_404(user_id)
+        
+        # 防止停用admin账号
+        if user.username == 'admin':
+            return jsonify({'success': False, 'message': '不能停用admin账号'})
+        
+        user.is_active = False
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)})
+
+@admin_bp.route('/users/<int:user_id>/delete', methods=['DELETE'])
 @admin_required
 def delete_user(user_id):
     try:
@@ -237,65 +280,15 @@ def delete_user(user_id):
 @admin_bp.route('/activation_codes')
 @admin_required
 def activation_codes():
+    """激活码管理页面 - 使用AJAX加载数据"""
     try:
-        page = request.args.get('page', 1, type=int)
-        codes = ActivationCode.query.order_by(ActivationCode.created_at.desc()).paginate(
-            page=page, per_page=20, error_out=False
-        )
-        
-        # 为激活码添加使用者用户名
-        for code in codes.items:
-            if code.used_by:
-                # used_by现在存储的是用户名，不是用户ID
-                code.used_by_username = code.used_by
-            else:
-                code.used_by_username = None
-        
-        return render_template('admin/activation_codes.html', codes=codes)
+        # 不再在这里加载数据，而是通过JavaScript从API获取
+        return render_template('admin/activation_codes.html', now=datetime.utcnow())
     except Exception as e:
-        flash(f'加载激活码数据失败: {str(e)}', 'error')
-        # 创建空的分页对象
-        class EmptyPagination:
-            def __init__(self):
-                self.items = []
-                self.page = 1
-                self.per_page = 20
-                self.total = 0
-                self.pages = 0
-                self.has_prev = False
-                self.has_next = False
-                self.prev_num = None
-                self.next_num = None
-        
-        empty_codes = EmptyPagination()
-        return render_template('admin/activation_codes.html', codes=empty_codes)
+        flash(f'加载激活码页面失败: {str(e)}', 'error')
+        return redirect(url_for('admin.dashboard'))
 
-@admin_bp.route('/generate_codes', methods=['POST'])
-@admin_required
-def generate_codes():
-    try:
-        count = int(request.form.get('count', 1))
-        validity_type = request.form.get('validity_type', 'permanent')
-        
-        if count < 1 or count > 100:
-            flash('生成数量必须在1-100之间', 'error')
-            return redirect(url_for('admin.activation_codes'))
-        
-        generated_codes = []
-        for _ in range(count):
-            code = ActivationCode()
-            code.code = ActivationCode.generate_code()
-            code.set_validity(validity_type)
-            db.session.add(code)
-            generated_codes.append(code.code)
-        
-        db.session.commit()
-        
-        flash(f'成功生成 {count} 个激活码', 'success')
-    except Exception as e:
-        flash(f'生成激活码失败: {str(e)}', 'error')
-    
-    return redirect(url_for('admin.activation_codes'))
+# 删除generate_codes函数，因为已经在activation_code_routes.py中实现
 
 @admin_bp.route('/system_config', methods=['GET', 'POST'])
 @admin_required

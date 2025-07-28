@@ -13,6 +13,7 @@ from models import db, User, PredictionRecord, SystemConfig, InviteCode
 from auth import auth_bp
 from admin import admin_bp
 from user import user_bp
+from activation_code_routes import activation_code_bp
 
 # --- 配置信息 ---
 app = Flask(__name__)
@@ -99,6 +100,7 @@ def load_user(user_id):
 app.register_blueprint(auth_bp, url_prefix='/auth')
 app.register_blueprint(admin_bp)
 app.register_blueprint(user_bp)
+app.register_blueprint(activation_code_bp)
 
 # 获取AI配置的函数
 def get_ai_config():

@@ -26,7 +26,7 @@
             </thead>
             <tbody>
                 {% for user in users %}
-                <tr>
+                <tr data-user-id="{{ user.id }}">
                     <td>{{ user.id }}</td>
                     <td>{{ user.username }}</td>
                     <td>{{ user.email }}</td>
@@ -60,7 +60,7 @@
                             {% else %}
                                 <button class="btn btn-success btn-sm" onclick="activateUser({{ user.id }})">激活</button>
                             {% endif %}
-                            <button class="btn btn-sm" onclick="editUser({{ user.id }})">编辑</button>
+            <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-sm">编辑</a>
                             {% if not user.is_admin %}
                                 <button class="btn btn-danger btn-sm" onclick="deleteUser({{ user.id }})">删除</button>
                             {% endif %}
@@ -132,6 +132,13 @@ function activateUser(userId) {
 }
 
 function deactivateUser(userId) {
+    // 检查是否是admin用户
+    const username = document.querySelector(`tr[data-user-id="${userId}"] td:nth-child(2)`).textContent.trim();
+    if (username === 'admin') {
+        alert('不能停用admin账号！');
+        return;
+    }
+    
     if (confirm('确定要停用此用户吗？')) {
         fetch(`/admin/users/${userId}/deactivate`, {
             method: 'POST',
