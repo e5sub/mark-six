@@ -214,7 +214,7 @@ def send_reset_email(email, username, token):
     smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
     smtp_username = SystemConfig.get_config('smtp_username')
     smtp_password = SystemConfig.get_config('smtp_password')
-    site_name = SystemConfig.get_config('site_name', '六合彩预测系统')
+    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
     
     if not all([smtp_server, smtp_username, smtp_password]):
         raise Exception('邮件服务未配置，请联系管理员')
