@@ -107,7 +107,41 @@
             font-weight: 600;
             margin-bottom: 20px;
             color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-warning { background: var(--warning-gradient); }
+        .btn-danger { background: var(--danger-gradient); }
 
         .table-container {
             overflow-x: auto;
@@ -205,24 +239,35 @@
             color: white;
         }
 
-        .numbers-display {
-            font-family: 'Courier New', monospace;
-            background: rgba(102, 126, 234, 0.1);
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            color: #667eea;
-            font-weight: 600;
+        /* 使用与用户页面相同的号码球样式 */
+        .prediction-numbers {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
         }
 
-        .special-number {
-            font-family: 'Courier New', monospace;
-            background: rgba(250, 112, 154, 0.1);
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            color: #fa709a;
-            font-weight: 600;
+        .number-ball {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.8rem;
+            position: relative;
+        }
+
+        .ball-red { background: #ff4b4b; }
+        .ball-blue { background: #4b83ff; }
+        .ball-green { background: #4bff91; }
+
+        .special-ball {
+            border: 2px solid #ffd700;
+            box-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
         }
 
         .accuracy-score {
@@ -261,6 +306,28 @@
             color: white;
         }
 
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .alert-success {
+            background: rgba(40, 167, 69, 0.1);
+            color: #155724;
+            border: 1px solid rgba(40, 167, 69, 0.3);
+        }
+
+        .alert-error {
+            background: rgba(220, 53, 69, 0.1);
+            color: #721c24;
+            border: 1px solid rgba(220, 53, 69, 0.3);
+        }
+
         @media (max-width: 768px) {
             .navbar-content {
                 flex-wrap: wrap;
@@ -271,13 +338,26 @@
                 font-size: 2rem;
             }
 
+            .section-title {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+
+            .action-buttons {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
             .table th, .table td {
                 padding: 8px 5px;
                 font-size: 0.8rem;
             }
 
-            .numbers-display, .special-number {
-                font-size: 0.75rem;
+            .number-ball {
+                width: 25px;
+                height: 25px;
+                font-size: 0.7rem;
             }
         }
     </style>
@@ -316,87 +396,146 @@
                 <p>查看所有用户的预测记录和准确率</p>
             </div>
 
-            <h2 class="section-title">
-                <i class="fas fa-list"></i> 预测记录列表
-            </h2>
-            
-            <div class="table-container">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>用户</th>
-                            <th>地区</th>
-                            <th>策略</th>
-                            <th>期数</th>
-                            <th>正码</th>
-                            <th>特码</th>
-                            <th>生肖</th>
-                            <th>准确率</th>
-                            <th>预测时间</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for prediction in predictions.items %}
-                        <tr>
-                            <td>{{ prediction.user.username if prediction.user else '未知用户' }}</td>
-                            <td>
-                                {% if prediction.region == 'hk' %}
-                                    <span class="region-badge region-hk">香港</span>
-                                {% elif prediction.region == 'macau' %}
-                                    <span class="region-badge region-macau">澳门</span>
-                                {% else %}
-                                    {{ prediction.region }}
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if prediction.strategy == 'ai' %}
-                                    <span class="strategy-badge strategy-ai">AI预测</span>
-                                {% elif prediction.strategy == 'balanced' %}
-                                    <span class="strategy-badge strategy-balanced">均衡预测</span>
-                                {% elif prediction.strategy == 'random' %}
-                                    <span class="strategy-badge strategy-random">随机预测</span>
-                                {% else %}
-                                    {{ prediction.strategy }}
-                                {% endif %}
-                            </td>
-                            <td>{{ prediction.period }}</td>
-                            <td>
-                                <div class="numbers-display">{{ prediction.normal_numbers }}</div>
-                            </td>
-                            <td>
-                                <div class="special-number">{{ prediction.special_number }}</div>
-                            </td>
-                            <td>{{ prediction.special_zodiac or '-' }}</td>
-                            <td>
-                                {% if prediction.accuracy_score is not none %}
-                                    {% set accuracy = (prediction.accuracy_score * 100) | round(1) %}
-                                    {% if accuracy >= 70 %}
-                                        <span class="accuracy-score accuracy-high">{{ accuracy }}%</span>
-                                    {% elif accuracy >= 40 %}
-                                        <span class="accuracy-score accuracy-medium">{{ accuracy }}%</span>
-                                    {% else %}
-                                        <span class="accuracy-score accuracy-low">{{ accuracy }}%</span>
-                                    {% endif %}
-                                {% else %}
-                                    <span class="accuracy-score">待开奖</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '-' }}</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="9" style="text-align: center; padding: 40px; color: #6c757d;">
-                                <i class="fas fa-chart-bar" style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;"></i>
-                                <br>暂无预测记录
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'error' if category == 'error' else 'success' }}">
+                            <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' }}"></i>
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <div class="section-title">
+                <div>
+                    <i class="fas fa-list"></i> 预测记录列表
+                </div>
+                <div class="action-buttons">
+                    <button type="button" class="btn btn-warning" onclick="deleteSelected()">
+                        <i class="fas fa-trash-alt"></i> 删除选中
+                    </button>
+                    <button type="button" class="btn btn-danger" onclick="clearAll()">
+                        <i class="fas fa-trash"></i> 清空所有
+                    </button>
+                </div>
             </div>
+            
+            <form id="batchDeleteForm" method="POST" action="{{ url_for('admin.delete_predictions_batch') }}">
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>
+                                    <input type="checkbox" id="selectAll" onchange="toggleAll()">
+                                </th>
+                                <th>用户</th>
+                                <th>地区</th>
+                                <th>策略</th>
+                                <th>期数</th>
+                                <th>平码</th>
+                                <th>特码</th>
+                                <th>生肖</th>
+                                <th>准确率</th>
+                                <th>预测时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if predictions %}
+                                {% for prediction in predictions.items %}
+                                <tr>
+                                    <td>
+                                        <input type="checkbox" name="prediction_ids" value="{{ prediction.id }}" class="prediction-checkbox">
+                                    </td>
+                                    <td>{{ prediction.username if prediction.username else '未知用户' }}</td>
+                                    <td>
+                                        {% if prediction.region == 'hk' %}
+                                            <span class="region-badge region-hk">香港</span>
+                                        {% elif prediction.region == 'macau' %}
+                                            <span class="region-badge region-macau">澳门</span>
+                                        {% else %}
+                                            {{ prediction.region }}
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if prediction.strategy == 'ai' %}
+                                            <span class="strategy-badge strategy-ai">AI预测</span>
+                                        {% elif prediction.strategy == 'balanced' %}
+                                            <span class="strategy-badge strategy-balanced">均衡预测</span>
+                                        {% elif prediction.strategy == 'random' %}
+                                            <span class="strategy-badge strategy-random">随机预测</span>
+                                        {% else %}
+                                            {{ prediction.strategy }}
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ prediction.period }}</td>
+                                    <td>
+                                        <div class="prediction-numbers">
+                                            {% for num in prediction.normal_numbers.split(',') %}
+                                                {% set num_int = num|int %}
+                                                {% if num_int in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
+                                                    <div class="number-ball ball-red">{{ num }}</div>
+                                                {% elif num_int in [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
+                                                    <div class="number-ball ball-blue">{{ num }}</div>
+                                                {% else %}
+                                                    <div class="number-ball ball-green">{{ num }}</div>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="prediction-numbers">
+                                            {% set special_int = prediction.special_number|int %}
+                                            {% if special_int in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
+                                                <div class="number-ball ball-red special-ball">{{ prediction.special_number }}</div>
+                                            {% elif special_int in [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
+                                                <div class="number-ball ball-blue special-ball">{{ prediction.special_number }}</div>
+                                            {% else %}
+                                                <div class="number-ball ball-green special-ball">{{ prediction.special_number }}</div>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>{{ prediction.special_zodiac or '-' }}</td>
+                                    <td>
+                                        {% if prediction.accuracy_score is not none %}
+                                            {% set accuracy = (prediction.accuracy_score * 100) | round(1) %}
+                                            {% if accuracy >= 70 %}
+                                                <span class="accuracy-score accuracy-high">{{ accuracy }}%</span>
+                                            {% elif accuracy >= 40 %}
+                                                <span class="accuracy-score accuracy-medium">{{ accuracy }}%</span>
+                                            {% else %}
+                                                <span class="accuracy-score accuracy-low">{{ accuracy }}%</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="accuracy-score">待开奖</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '-' }}</td>
+                                    <td>
+                                        <form method="POST" action="{{ url_for('admin.delete_prediction', prediction_id=prediction.id) }}" style="display: inline;" onsubmit="return confirm('确定要删除这条预测记录吗？')">
+                                            <button type="submit" class="btn btn-danger" style="padding: 5px 10px; font-size: 0.8rem;">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="11" style="text-align: center; padding: 40px; color: #6c757d;">
+                                        <i class="fas fa-chart-bar" style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;"></i>
+                                        <br>暂无预测记录
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </form>
 
             <!-- 分页 -->
-            {% if predictions.pages > 1 %}
+            {% if predictions and predictions.pages > 1 %}
             <div class="pagination">
                 {% if predictions.has_prev %}
                 <a href="{{ url_for('admin.predictions', page=predictions.prev_num) }}">
@@ -425,5 +564,37 @@
             {% endif %}
         </div>
     </div>
+
+    <script>
+        function toggleAll() {
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.prediction-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+        }
+
+        function deleteSelected() {
+            const checkboxes = document.querySelectorAll('.prediction-checkbox:checked');
+            if (checkboxes.length === 0) {
+                alert('请选择要删除的预测记录');
+                return;
+            }
+            
+            if (confirm(`确定要删除选中的 ${checkboxes.length} 条预测记录吗？`)) {
+                document.getElementById('batchDeleteForm').submit();
+            }
+        }
+
+        function clearAll() {
+            if (confirm('确定要清空所有预测记录吗？此操作不可恢复！')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '{{ url_for("admin.clear_all_predictions") }}';
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+    </script>
 </body>
 </html>
