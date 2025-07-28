@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}用户中心{% endblock %} - AI预测系统</title>
+    <title>{% block title %}用户中心{% endblock %} - AI数据分析预测系统</title>
     <style>
         * {
             margin: 0;
@@ -12,7 +12,7 @@
         }
         
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             color: #333;
@@ -20,10 +20,10 @@
         }
         
         .sidebar {
-            width: 250px;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            box-shadow: 2px 0 20px rgba(0, 0, 0, 0.1);
+            width: 260px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
             position: fixed;
             height: 100vh;
             left: 0;
@@ -34,13 +34,13 @@
         
         .sidebar-header {
             padding: 2rem 1.5rem;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
         
         .sidebar-brand {
             font-size: 1.5rem;
-            font-weight: bold;
-            color: #667eea;
+            font-weight: 600;
+            color: white;
             text-decoration: none;
         }
         
@@ -49,41 +49,48 @@
         }
         
         .sidebar-nav a {
-            display: block;
-            color: #333;
+            display: flex;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.8);
             text-decoration: none;
             padding: 1rem 1.5rem;
             transition: all 0.3s ease;
             border-left: 3px solid transparent;
+            font-size: 0.95rem;
         }
         
         .sidebar-nav a:hover {
-            background: rgba(102, 126, 234, 0.1);
-            color: #667eea;
-            border-left-color: #667eea;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border-left-color: white;
         }
         
         .sidebar-nav a.active {
-            background: rgba(102, 126, 234, 0.15);
-            color: #667eea;
-            border-left-color: #667eea;
-            font-weight: 600;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            border-left-color: white;
+            font-weight: 500;
+        }
+        
+        .sidebar-nav a i {
+            margin-right: 0.75rem;
+            width: 20px;
+            text-align: center;
         }
         
         .main-content {
-            margin-left: 250px;
+            margin-left: 260px;
             flex: 1;
             padding: 2rem;
-            width: calc(100% - 250px);
+            width: calc(100% - 260px);
         }
         
         .top-bar {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            padding: 1rem 2rem;
-            border-radius: 15px;
+            background: white;
+            padding: 1.5rem 2rem;
+            border-radius: 20px;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -91,7 +98,7 @@
         
         .page-title {
             font-size: 1.8rem;
-            font-weight: bold;
+            font-weight: 600;
             color: #333;
         }
         
@@ -99,16 +106,31 @@
             display: flex;
             align-items: center;
             gap: 1rem;
+            color: #666;
+            font-size: 0.95rem;
         }
         
         .card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
+            background: white;
             border-radius: 20px;
             padding: 2rem;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
             margin-bottom: 2rem;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .card-title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #333;
         }
         
         .btn {
@@ -116,17 +138,20 @@
             color: white;
             border: none;
             padding: 0.75rem 1.5rem;
-            border-radius: 10px;
+            border-radius: 12px;
             cursor: pointer;
             text-decoration: none;
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
             transition: all 0.3s ease;
-            font-size: 1rem;
+            font-size: 0.95rem;
+            font-weight: 500;
         }
         
         .btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
         }
         
         .btn-danger {
@@ -134,7 +159,7 @@
         }
         
         .btn-danger:hover {
-            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.3);
         }
         
         .btn-success {
@@ -142,70 +167,12 @@
         }
         
         .btn-success:hover {
-            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+            box-shadow: 0 8px 25px rgba(40, 167, 69, 0.3);
         }
         
-        .table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        
-        .table th,
-        .table td {
-            padding: 1rem;
-            text-align: left;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-        }
-        
-        .table th {
-            background: rgba(102, 126, 234, 0.1);
-            font-weight: 600;
-        }
-        
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-            color: #333;
-        }
-        
-        .form-control {
-            width: 100%;
-            padding: 0.75rem;
-            border: 2px solid rgba(102, 126, 234, 0.2);
-            border-radius: 10px;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            background: rgba(255, 255, 255, 0.8);
-        }
-        
-        .form-control:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-        
-        .alert {
-            padding: 1rem;
-            border-radius: 10px;
-            margin-bottom: 1rem;
-        }
-        
-        .alert-success {
-            background: rgba(40, 167, 69, 0.1);
-            color: #155724;
-            border: 1px solid rgba(40, 167, 69, 0.2);
-        }
-        
-        .alert-danger {
-            background: rgba(220, 53, 69, 0.1);
-            color: #721c24;
-            border: 1px solid rgba(220, 53, 69, 0.2);
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
         }
         
         .stats-grid {
@@ -216,16 +183,16 @@
         }
         
         .stat-card {
-            background: rgba(255, 255, 255, 0.9);
-            padding: 1.5rem;
-            border-radius: 15px;
+            background: white;
+            padding: 2rem;
+            border-radius: 16px;
             text-align: center;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
         }
         
         .stat-number {
-            font-size: 2rem;
-            font-weight: bold;
+            font-size: 2.5rem;
+            font-weight: 700;
             color: #667eea;
             margin-bottom: 0.5rem;
         }
@@ -233,14 +200,15 @@
         .stat-label {
             color: #666;
             font-size: 0.9rem;
+            font-weight: 500;
         }
         
         .invite-code-item {
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 15px;
+            background: white;
+            border-radius: 16px;
             padding: 1.5rem;
             margin-bottom: 1rem;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
             border-left: 4px solid #667eea;
         }
         
@@ -252,9 +220,9 @@
         }
         
         .invite-code {
-            font-family: 'Courier New', monospace;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             font-size: 1.2rem;
-            font-weight: bold;
+            font-weight: 600;
             color: #667eea;
             background: rgba(102, 126, 234, 0.1);
             padding: 0.5rem 1rem;
@@ -263,10 +231,10 @@
         }
         
         .invite-status {
-            padding: 0.25rem 0.75rem;
+            padding: 0.4rem 0.8rem;
             border-radius: 20px;
             font-size: 0.8rem;
-            font-weight: 600;
+            font-weight: 500;
         }
         
         .status-unused {
@@ -310,16 +278,36 @@
         .copy-btn {
             background: rgba(102, 126, 234, 0.1);
             color: #667eea;
-            border: 1px solid rgba(102, 126, 234, 0.3);
-            padding: 0.5rem 1rem;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            padding: 0.4rem 0.8rem;
             border-radius: 8px;
             cursor: pointer;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             transition: all 0.3s ease;
+            margin-left: 0.5rem;
         }
         
         .copy-btn:hover {
             background: rgba(102, 126, 234, 0.2);
+        }
+        
+        .alert {
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+        
+        .alert-success {
+            background: rgba(40, 167, 69, 0.1);
+            color: #155724;
+            border: 1px solid rgba(40, 167, 69, 0.2);
+        }
+        
+        .alert-danger {
+            background: rgba(220, 53, 69, 0.1);
+            color: #721c24;
+            border: 1px solid rgba(220, 53, 69, 0.2);
         }
         
         @media (max-width: 768px) {
@@ -335,6 +323,7 @@
             .main-content {
                 margin-left: 0;
                 width: 100%;
+                padding: 1rem;
             }
             
             .top-bar {
@@ -359,11 +348,11 @@
             <a href="{{ url_for('user.dashboard') }}" class="sidebar-brand">用户中心</a>
         </div>
         <nav class="sidebar-nav">
-            <a href="{{ url_for('user.dashboard') }}">📊 个人中心</a>
-            <a href="{{ url_for('main.predict') }}">🎯 开始预测</a>
-            <a href="{{ url_for('user.invite_codes') }}">🎫 我的邀请码</a>
-            <a href="{{ url_for('index') }}">🏠 返回首页</a>
-            <a href="{{ url_for('auth.logout') }}">🚪 退出登录</a>
+            <a href="{{ url_for('user.dashboard') }}"><i>📊</i> 个人中心</a>
+            <a href="{{ url_for('main.predict') }}"><i>🎯</i> 开始预测</a>
+            <a href="{{ url_for('user.invite_codes') }}"><i>🎫</i> 我的邀请码</a>
+            <a href="{{ url_for('index') }}"><i>🏠</i> 返回首页</a>
+            <a href="{{ url_for('auth.logout') }}"><i>🚪</i> 退出登录</a>
         </nav>
     </div>
 
@@ -371,7 +360,7 @@
         <div class="top-bar">
             <h1 class="page-title">{% block page_title %}用户中心{% endblock %}</h1>
             <div class="user-info">
-                <span>欢迎，{{ current_user.username }}</span>
+                <span>欢迎，{{ current_user.username if current_user.is_authenticated else '用户' }}</span>
             </div>
         </div>
 
@@ -392,7 +381,7 @@
         // 复制邀请码功能
         function copyInviteCode(code) {
             navigator.clipboard.writeText(code).then(function() {
-                alert('邀请码已复制到剪贴板: ' + code);
+                showToast('邀请码已复制到剪贴板: ' + code, 'success');
             }).catch(function(err) {
                 console.error('复制失败: ', err);
                 // 备用方法
@@ -402,9 +391,53 @@
                 textArea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
-                alert('邀请码已复制到剪贴板: ' + code);
+                showToast('邀请码已复制到剪贴板: ' + code, 'success');
             });
         }
+        
+        // 显示提示消息
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${type === 'success' ? '#28a745' : '#dc3545'};
+                color: white;
+                padding: 1rem 1.5rem;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                z-index: 9999;
+                font-size: 0.9rem;
+                max-width: 300px;
+                animation: slideIn 0.3s ease;
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => {
+                    if (toast.parentElement) {
+                        toast.parentElement.removeChild(toast);
+                    }
+                }, 300);
+            }, 3000);
+        }
+        
+        // 添加动画样式
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
     </script>
 </body>
 </html>
