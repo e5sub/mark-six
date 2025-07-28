@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, send_file, Response
-from models import db, User, ActivationCode, SystemConfig, Prediction
+from models import db, User, ActivationCode, SystemConfig, PredictionRecord
 from werkzeug.security import generate_password_hash
 import uuid
 import csv
@@ -27,7 +27,7 @@ def dashboard():
         total_users = User.query.count()
         active_users = User.query.filter_by(is_active=True).count()
         inactive_users = total_users - active_users
-        total_predictions = Prediction.query.count()
+        total_predictions = PredictionRecord.query.count()
         unused_codes = ActivationCode.query.filter_by(is_used=False).count()
         
         stats = {
@@ -104,7 +104,7 @@ def delete_user(user_id):
         
         try:
             # 删除用户的预测记录
-            Prediction.query.filter_by(user_id=user_id).delete()
+            PredictionRecord.query.filter_by(user_id=user_id).delete()
             db.session.delete(user)
             db.session.commit()
             flash('用户删除成功', 'success')
@@ -291,7 +291,7 @@ def system_config():
 def predictions():
     try:
         page = request.args.get('page', 1, type=int)
-        predictions = Prediction.query.order_by(Prediction.created_at.desc()).paginate(
+        predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).paginate(
             page=page, per_page=20, error_out=False
         )
         
@@ -318,7 +318,7 @@ def export_users():
         # 写入用户数据
         users = User.query.all()
         for user in users:
-            prediction_count = Prediction.query.filter_by(user_id=user.id).count()
+            prediction_count = PredictionRecord.query.filter_by(user_id=user.id).count()
             writer.writerow([
                 user.id,
                 user.username,
@@ -354,7 +354,7 @@ def export_users_json():
         
         for user in users:
             # 获取用户的预测记录
-            predictions = Prediction.query.filter_by(user_id=user.id).all()
+            predictions = PredictionRecord.query.filter_by(user_id=user.id).all()
             predictions_data = []
             
             for pred in predictions:
@@ -493,7 +493,7 @@ def import_users():
                         # 导入预测记录
                         for pred_data in user_data.get('predictions', []):
                             try:
-                                prediction = Prediction(
+                                prediction = PredictionRecord(
                                     user_id=user.id,
                                     region=pred_data['region'],
                                     strategy=pred_data['strategy'],
