@@ -2,3 +2,4 @@ Flask==2.3.3
 Flask-SQLAlchemy==3.0.5
 Werkzeug==2.3.7
 requests==2.31.0
+gunicorn==21.2.0
