@@ -1,10 +1,11 @@
 services:
   mark-six:
-    build: .
+    image: ghcr.io/e5sub/mark-six:dev
     container_name: mark-six
     environment:
       - TZ=Asia/Shanghai
       - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
     volumes: 
       - ./data:/app/data
     ports:
