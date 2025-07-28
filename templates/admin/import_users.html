@@ -8,8 +8,6 @@
     <style>
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
             --glass-bg: rgba(255, 255, 255, 0.25);
             --text-primary: #2d3748;
             --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
@@ -89,51 +87,25 @@
             margin-bottom: 10px;
         }
 
-        .page-header p {
-            font-size: 1.1rem;
-            color: #6c757d;
-        }
-
-        .upload-area {
-            border: 2px dashed rgba(102, 126, 234, 0.3);
-            border-radius: 15px;
-            padding: 40px;
-            text-align: center;
-            background: rgba(255, 255, 255, 0.1);
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .upload-area:hover {
-            border-color: rgba(102, 126, 234, 0.6);
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .upload-area.dragover {
-            border-color: #667eea;
-            background: rgba(102, 126, 234, 0.1);
-        }
-
-        .upload-icon {
-            font-size: 3rem;
-            color: #667eea;
-            margin-bottom: 15px;
-        }
-
-        .upload-text {
-            font-size: 1.2rem;
-            margin-bottom: 10px;
-            color: var(--text-primary);
-        }
-
-        .upload-hint {
-            font-size: 0.9rem;
-            color: #6c757d;
+        .form-group {
             margin-bottom: 20px;
         }
 
-        .file-input {
-            display: none;
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.7);
+            color: var(--text-primary);
+            font-size: 1rem;
         }
 
         .btn {
@@ -150,6 +122,7 @@
             gap: 8px;
             color: white;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin-right: 10px;
         }
 
         .btn:hover {
@@ -158,66 +131,7 @@
         }
 
         .btn-primary { background: var(--primary-gradient); }
-        .btn-success { background: var(--success-gradient); }
-        .btn-warning { background: var(--warning-gradient); }
-
-        .selected-file {
-            margin-top: 20px;
-            padding: 15px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-            display: none;
-        }
-
-        .file-info {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .file-icon {
-            font-size: 1.5rem;
-            color: #667eea;
-        }
-
-        .file-details {
-            flex: 1;
-        }
-
-        .file-name {
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
-
-        .file-size {
-            font-size: 0.9rem;
-            color: #6c757d;
-        }
-
-        .format-info {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
-        }
-
-        .format-title {
-            font-size: 1.2rem;
-            font-weight: 600;
-            margin-bottom: 15px;
-            color: var(--text-primary);
-        }
-
-        .format-example {
-            background: rgba(0, 0, 0, 0.1);
-            border-radius: 8px;
-            padding: 15px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9rem;
-            margin-bottom: 15px;
-            overflow-x: auto;
-        }
+        .btn-secondary { background: #6c757d; }
 
         .alert {
             padding: 15px 20px;
@@ -239,25 +153,6 @@
             background: rgba(220, 53, 69, 0.1);
             color: #721c24;
             border: 1px solid rgba(220, 53, 69, 0.3);
-        }
-
-        @media (max-width: 768px) {
-            .navbar-content {
-                flex-wrap: wrap;
-                gap: 15px;
-            }
-
-            .page-header h1 {
-                font-size: 2rem;
-            }
-
-            .upload-area {
-                padding: 30px 20px;
-            }
-
-            .upload-icon {
-                font-size: 2.5rem;
-            }
         }
     </style>
 </head>
@@ -291,8 +186,8 @@
     <div class="container">
         <div class="glass-card">
             <div class="page-header">
-                <h1><i class="fas fa-file-import"></i> 导入用户</h1>
-                <p>批量导入用户信息和数据</p>
+                <h1><i class="fas fa-upload"></i> 导入用户</h1>
+                <p>批量导入用户数据</p>
             </div>
 
             {% with messages = get_flashed_messages(with_categories=true) %}
@@ -306,140 +201,45 @@
                 {% endif %}
             {% endwith %}
 
-            <form method="POST" enctype="multipart/form-data" id="uploadForm">
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-icon">
-                        <i class="fas fa-cloud-upload-alt"></i>
-                    </div>
-                    <div class="upload-text">点击选择文件或拖拽文件到此处</div>
-                    <div class="upload-hint">支持 CSV 和 JSON 格式文件</div>
-                    <input type="file" name="file" id="fileInput" class="file-input" accept=".csv,.json" required>
-                    <button type="button" class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
-                        <i class="fas fa-folder-open"></i> 选择文件
-                    </button>
+            <form method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="file">选择文件</label>
+                    <input type="file" id="file" name="file" class="form-control" accept=".csv,.json" required>
+                    <small style="color: #6c757d; margin-top: 5px; display: block;">
+                        支持CSV和JSON格式文件
+                    </small>
                 </div>
 
-                <div class="selected-file" id="selectedFile">
-                    <div class="file-info">
-                        <div class="file-icon">
-                            <i class="fas fa-file"></i>
-                        </div>
-                        <div class="file-details">
-                            <div class="file-name" id="fileName"></div>
-                            <div class="file-size" id="fileSize"></div>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-success">
+                <div style="text-align: center; margin-top: 30px;">
+                    <button type="submit" class="btn btn-primary">
                         <i class="fas fa-upload"></i> 开始导入
                     </button>
+                    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> 返回用户管理
+                    </a>
                 </div>
             </form>
 
-            <div class="format-info">
-                <div class="format-title">
-                    <i class="fas fa-info-circle"></i> 文件格式说明
-                </div>
+            <div style="margin-top: 30px; padding: 20px; background: rgba(255, 255, 255, 0.5); border-radius: 10px;">
+                <h3 style="margin-bottom: 15px;">文件格式说明</h3>
                 
-                <h4>CSV 格式示例：</h4>
-                <div class="format-example">
-用户名,邮箱,激活状态,管理员状态
-user1,user1@example.com,是,否
-user2,user2@example.com,否,否
-                </div>
+                <h4>CSV格式:</h4>
+                <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">用户名,邮箱,密码
+admin,admin@example.com,password123
+user1,user1@example.com,password456</pre>
 
-                <h4>JSON 格式示例：</h4>
-                <div class="format-example">
-[
+                <h4 style="margin-top: 15px;">JSON格式:</h4>
+                <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">[
   {
-    "username": "user1",
-    "email": "user1@example.com",
+    "username": "admin",
+    "email": "admin@example.com",
+    "password": "password123",
     "is_active": true,
-    "is_admin": false,
-    "activation_expires_at": "2024-12-31T23:59:59",
-    "predictions": []
+    "is_admin": false
   }
-]
-                </div>
-
-                <p><strong>注意事项：</strong></p>
-                <ul style="margin-left: 20px; margin-top: 10px;">
-                    <li>导入的用户默认密码为：123456</li>
-                    <li>如果用户名或邮箱已存在，将跳过该用户</li>
-                    <li>JSON格式可以包含完整的用户数据和预测记录</li>
-                    <li>CSV格式只包含基本用户信息</li>
-                </ul>
-            </div>
-
-            <div style="text-align: center; margin-top: 30px;">
-                <a href="{{ url_for('admin.users') }}" class="btn btn-warning">
-                    <i class="fas fa-arrow-left"></i> 返回用户管理
-                </a>
+]</pre>
             </div>
         </div>
     </div>
-
-    <script>
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const selectedFile = document.getElementById('selectedFile');
-        const fileName = document.getElementById('fileName');
-        const fileSize = document.getElementById('fileSize');
-
-        // 点击上传区域触发文件选择
-        uploadArea.addEventListener('click', () => {
-            fileInput.click();
-        });
-
-        // 文件选择处理
-        fileInput.addEventListener('change', handleFileSelect);
-
-        // 拖拽处理
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                fileInput.files = files;
-                handleFileSelect();
-            }
-        });
-
-        function handleFileSelect() {
-            const file = fileInput.files[0];
-            if (file) {
-                fileName.textContent = file.name;
-                fileSize.textContent = formatFileSize(file.size);
-                selectedFile.style.display = 'block';
-                
-                // 更新文件图标
-                const fileIcon = selectedFile.querySelector('.file-icon i');
-                if (file.name.toLowerCase().endsWith('.csv')) {
-                    fileIcon.className = 'fas fa-file-csv';
-                } else if (file.name.toLowerCase().endsWith('.json')) {
-                    fileIcon.className = 'fas fa-file-code';
-                } else {
-                    fileIcon.className = 'fas fa-file';
-                }
-            }
-        }
-
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-    </script>
 </body>
 </html>

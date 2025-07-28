@@ -25,40 +25,53 @@ def admin_required(f):
     return decorated_function
 
 @admin_bp.route('/dashboard')
+@admin_bp.route('/dashboard')
 @admin_required
 def dashboard():
-    # 获取统计数据
-    total_users = User.query.count()
-    active_users = User.query.filter_by(is_active=True).count()
-    total_codes = ActivationCode.query.count()
-    used_codes = ActivationCode.query.filter_by(is_used=True).count()
-    total_predictions = PredictionRecord.query.count()
-    
-    # 最近注册的用户
-    recent_users = User.query.order_by(User.created_at.desc()).limit(5).all()
-    
-    # 最近的预测记录
-    recent_predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).limit(5).all()
-    
-    # 为预测记录添加用户名
-    for pred in recent_predictions:
-        if pred.user_id:
-            user = User.query.get(pred.user_id)
-            pred.username = user.username if user else '已删除用户'
-        else:
-            pred.username = '未知用户'
-    
-    stats = {
-        'total_users': total_users,
-        'active_users': active_users,
-        'total_codes': total_codes,
-        'used_codes': used_codes,
-        'total_predictions': total_predictions,
-        'recent_users': recent_users,
-        'recent_predictions': recent_predictions
-    }
-    
-    return render_template('admin/dashboard.html', stats=stats)
+    try:
+        # 获取统计数据
+        total_users = User.query.count()
+        active_users = User.query.filter_by(is_active=True).count()
+        total_codes = ActivationCode.query.count()
+        used_codes = ActivationCode.query.filter_by(is_used=True).count()
+        total_predictions = PredictionRecord.query.count()
+        
+        # 最近注册的用户
+        recent_users = User.query.order_by(User.created_at.desc()).limit(5).all()
+        
+        # 最近的预测记录
+        recent_predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).limit(5).all()
+        
+        # 为预测记录添加用户名
+        for pred in recent_predictions:
+            if pred.user_id:
+                user = User.query.get(pred.user_id)
+                pred.username = user.username if user else '已删除用户'
+            else:
+                pred.username = '未知用户'
+        
+        stats = {
+            'total_users': total_users,
+            'active_users': active_users,
+            'total_codes': total_codes,
+            'used_codes': used_codes,
+            'total_predictions': total_predictions,
+            'recent_users': recent_users,
+            'recent_predictions': recent_predictions
+        }
+        
+        return render_template('admin/dashboard.html', stats=stats)
+    except Exception as e:
+        flash(f'加载控制台数据失败: {str(e)}', 'error')
+        return render_template('admin/dashboard.html', stats={
+            'total_users': 0,
+            'active_users': 0,
+            'total_codes': 0,
+            'used_codes': 0,
+            'total_predictions': 0,
+            'recent_users': [],
+            'recent_predictions': []
+        })
 
 @admin_bp.route('/users')
 @admin_required
