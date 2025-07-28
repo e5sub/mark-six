@@ -159,8 +159,20 @@ def users():
     except Exception as e:
         flash(f'加载用户数据失败: {str(e)}', 'error')
         # 创建空的分页对象
-        from flask_sqlalchemy import Pagination
-        empty_users = Pagination(query=None, page=1, per_page=20, total=0, items=[])
+        # 创建空的分页对象
+        class EmptyPagination:
+            def __init__(self):
+                self.items = []
+                self.page = 1
+                self.per_page = 20
+                self.total = 0
+                self.pages = 0
+                self.has_prev = False
+                self.has_next = False
+                self.prev_num = None
+                self.next_num = None
+        
+        empty_users = EmptyPagination()
         return render_template('admin/users.html', users=empty_users)
 
 @admin_bp.route('/user/<int:user_id>/edit', methods=['GET', 'POST'])
@@ -243,8 +255,19 @@ def activation_codes():
     except Exception as e:
         flash(f'加载激活码数据失败: {str(e)}', 'error')
         # 创建空的分页对象
-        from flask_sqlalchemy import Pagination
-        empty_codes = Pagination(query=None, page=1, per_page=20, total=0, items=[])
+        class EmptyPagination:
+            def __init__(self):
+                self.items = []
+                self.page = 1
+                self.per_page = 20
+                self.total = 0
+                self.pages = 0
+                self.has_prev = False
+                self.has_next = False
+                self.prev_num = None
+                self.next_num = None
+        
+        empty_codes = EmptyPagination()
         return render_template('admin/activation_codes.html', codes=empty_codes)
 
 @admin_bp.route('/generate_codes', methods=['POST'])
@@ -290,6 +313,12 @@ def system_config():
                 'smtp_password': request.form.get('smtp_password', ''),
                 'site_name': request.form.get('site_name', '六合彩预测系统'),
                 'site_description': request.form.get('site_description', ''),
+                'invite_daily_limit': request.form.get('invite_daily_limit', '3'),
+                'invite_code_validity_days': request.form.get('invite_code_validity_days', '7'),
+                'system_name': request.form.get('system_name', '六合彩预测系统'),
+                'system_description': request.form.get('system_description', ''),
+                'allow_registration': request.form.get('allow_registration', 'false'),
+                'require_email_verification': request.form.get('require_email_verification', 'false'),
             }
             
             try:
@@ -327,7 +356,30 @@ def system_config():
             'smtp_password': '',
             'site_name': '六合彩预测系统',
             'site_description': '',
+            'invite_daily_limit': '3',
+            'invite_code_validity_days': '7',
+            'system_name': '六合彩预测系统',
+            'system_description': '',
+            'allow_registration': 'true',
+            'require_email_verification': 'false',
         })
+
+@admin_bp.route('/system_config/save', methods=['POST'])
+@admin_required
+def save_system_config():
+    try:
+        # 获取JSON数据
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': '无效的数据格式'})
+        
+        # 保存配置
+        for key, value in data.items():
+            SystemConfig.set_config(key, value)
+        
+        return jsonify({'success': True, 'message': '配置保存成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
 
 @admin_bp.route('/predictions')
 @admin_required
@@ -350,8 +402,19 @@ def predictions():
     except Exception as e:
         flash(f'加载预测记录失败: {str(e)}', 'error')
         # 创建空的分页对象
-        from flask_sqlalchemy import Pagination
-        empty_predictions = Pagination(query=None, page=1, per_page=20, total=0, items=[])
+        class EmptyPagination:
+            def __init__(self):
+                self.items = []
+                self.page = 1
+                self.per_page = 20
+                self.total = 0
+                self.pages = 0
+                self.has_prev = False
+                self.has_next = False
+                self.prev_num = None
+                self.next_num = None
+        
+        empty_predictions = EmptyPagination()
         return render_template('admin/predictions.html', predictions=empty_predictions)
 
 @admin_bp.route('/prediction/<int:prediction_id>/delete', methods=['POST'])
@@ -501,8 +564,19 @@ def invite_codes():
         return render_template('admin/invite_codes.html', codes=codes)
     except Exception as e:
         flash(f'加载邀请码数据失败: {str(e)}', 'error')
-        from flask_sqlalchemy import Pagination
-        empty_codes = Pagination(query=None, page=1, per_page=20, total=0, items=[])
+        class EmptyPagination:
+            def __init__(self):
+                self.items = []
+                self.page = 1
+                self.per_page = 20
+                self.total = 0
+                self.pages = 0
+                self.has_prev = False
+                self.has_next = False
+                self.prev_num = None
+                self.next_num = None
+        
+        empty_codes = EmptyPagination()
         return render_template('admin/invite_codes.html', codes=empty_codes)
 
 @admin_bp.route('/generate_invite_codes', methods=['POST'])
@@ -584,11 +658,24 @@ def user_invites():
         
         return render_template('admin/user_invites.html', 
                              invited_users=invited_users, 
-                             invite_stats=invite_stats)
+                             invite_stats=invite_stats,
+                             stats={'invite_stats': invite_stats})
     except Exception as e:
         flash(f'加载邀请数据失败: {str(e)}', 'error')
-        from flask_sqlalchemy import Pagination
-        empty_users = Pagination(query=None, page=1, per_page=20, total=0, items=[])
+        class EmptyPagination:
+            def __init__(self):
+                self.items = []
+                self.page = 1
+                self.per_page = 20
+                self.total = 0
+                self.pages = 0
+                self.has_prev = False
+                self.has_next = False
+                self.prev_num = None
+                self.next_num = None
+        
+        empty_users = EmptyPagination()
         return render_template('admin/user_invites.html', 
                              invited_users=empty_users, 
-                             invite_stats={})
+                             invite_stats={},
+                             stats={'invite_stats': {}})

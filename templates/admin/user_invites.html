@@ -5,32 +5,32 @@
 {% block content %}
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">🤝 邀请关系管理</h2>
+        <h2 class="card-title">🤝 查看邀请关系</h2>
     </div>
     
     <!-- 统计信息 -->
     <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 2rem;">
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">🎫</div>
-            <div class="stat-number">{{ stats.total_invites }}</div>
+            <div class="stat-number">{{ invited_users.total if invited_users else 0 }}</div>
             <div class="stat-label">总邀请数</div>
         </div>
         
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
-            <div class="stat-number">{{ stats.successful_invites }}</div>
+            <div class="stat-number">{{ invite_stats.values() | sum if invite_stats else 0 }}</div>
             <div class="stat-label">成功邀请</div>
         </div>
         
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">👥</div>
-            <div class="stat-number">{{ stats.active_inviters }}</div>
+            <div class="stat-number">{{ invite_stats.keys() | length if invite_stats else 0 }}</div>
             <div class="stat-label">活跃邀请人</div>
         </div>
         
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">📊</div>
-            <div class="stat-number">{{ "%.1f"|format(stats.avg_invites_per_user) }}</div>
+            <div class="stat-number">{{ "%.1f"|format((invite_stats.values() | sum / invite_stats.keys() | length) if invite_stats and invite_stats.keys() | length > 0 else 0) }}</div>
             <div class="stat-label">平均邀请数</div>
         </div>
     </div>
@@ -50,29 +50,29 @@
                 </tr>
             </thead>
             <tbody>
-                {% for invite in invites %}
+                {% for user in invited_users.items %}
                 <tr>
                     <td>
-                        <div style="font-weight: 600;">{{ invite.inviter_username }}</div>
-                        <div style="font-size: 0.8rem; color: #666;">{{ invite.inviter_email }}</div>
+                        <div style="font-weight: 600;">{{ user.invited_by }}</div>
+                        <div style="font-size: 0.8rem; color: #666;">邀请人</div>
                     </td>
                     <td>
-                        <div style="font-weight: 600;">{{ invite.invitee_username }}</div>
-                        <div style="font-size: 0.8rem; color: #666;">{{ invite.invitee_email }}</div>
+                        <div style="font-weight: 600;">{{ user.username }}</div>
+                        <div style="font-size: 0.8rem; color: #666;">{{ user.email }}</div>
                     </td>
                     <td>
-                        <div class="invite-code">{{ invite.invite_code }}</div>
+                        <div class="invite-code">{{ user.invite_code_used or '-' }}</div>
                     </td>
-                    <td>{{ invite.invite_time.strftime('%Y-%m-%d %H:%M') if invite.invite_time else '-' }}</td>
+                    <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
                     <td>
-                        {% if invite.is_activated %}
+                        {% if user.is_active %}
                             <span class="invite-status status-unused">已激活</span>
                         {% else %}
                             <span class="invite-status status-expired">未激活</span>
                         {% endif %}
                     </td>
                     <td>
-                        {% if invite.reward_given %}
+                        {% if user.invite_activated_at %}
                             <span class="invite-status status-used">已发放</span>
                         {% else %}
                             <span class="invite-status status-expired">未发放</span>
@@ -80,10 +80,7 @@
                     </td>
                     <td>
                         <div style="display: flex; gap: 0.5rem;">
-                            <button class="btn btn-sm" onclick="viewInviteDetail({{ invite.id }})">详情</button>
-                            {% if not invite.reward_given and invite.is_activated %}
-                                <button class="btn btn-success btn-sm" onclick="giveReward({{ invite.id }})">发放奖励</button>
-                            {% endif %}
+                            <button class="btn btn-sm" onclick="viewUserDetail({{ user.id }})">详情</button>
                         </div>
                     </td>
                 </tr>
@@ -92,7 +89,7 @@
         </table>
     </div>
     
-    {% if not invites %}
+    {% if not invited_users.items %}
     <div style="text-align: center; padding: 3rem; color: #666;">
         <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.3;">🤝</div>
         <p>暂无邀请关系记录</p>

@@ -11,9 +11,9 @@
     
     <div class="stats-grid">
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem; color: #667eea;">👥</div>
-            <div class="stat-number">{{ stats.total_users }}</div>
-            <div class="stat-label">总用户数</div>
+            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">🎫</div>
+            <div class="stat-number">{{ stats.invite_stats.total_invite_codes if stats.invite_stats else 0 }}</div>
+            <div class="stat-label">邀请码总数</div>
         </div>
         
         <div class="stat-card">
@@ -68,37 +68,37 @@
     <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">🎫</div>
-            <div class="stat-number">{{ invite_stats.total_codes }}</div>
+            <div class="stat-number">{{ stats.invite_stats.total_invite_codes if stats.invite_stats else 0 }}</div>
             <div class="stat-label">总邀请码数</div>
         </div>
         
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
-            <div class="stat-number">{{ invite_stats.used_codes }}</div>
+            <div class="stat-number">{{ stats.invite_stats.used_invite_codes if stats.invite_stats else 0 }}</div>
             <div class="stat-label">已使用邀请码</div>
         </div>
         
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">⏳</div>
-            <div class="stat-number">{{ invite_stats.unused_codes }}</div>
+            <div class="stat-number">{{ stats.invite_stats.unused_invite_codes if stats.invite_stats else 0 }}</div>
             <div class="stat-label">未使用邀请码</div>
         </div>
         
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">⏰</div>
-            <div class="stat-number">{{ invite_stats.expired_codes }}</div>
+            <div class="stat-number">0</div>
             <div class="stat-label">已过期邀请码</div>
         </div>
         
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">👥</div>
-            <div class="stat-number">{{ invite_stats.invited_users }}</div>
+            <div class="stat-number">{{ stats.invite_stats.total_invites if stats.invite_stats else 0 }}</div>
             <div class="stat-label">被邀请用户数</div>
         </div>
         
         <div class="stat-card">
             <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #6f42c1;">📊</div>
-            <div class="stat-number">{{ "%.1f"|format(invite_stats.usage_rate) }}%</div>
+            <div class="stat-number">{{ "%.1f"|format((stats.invite_stats.used_invite_codes / stats.invite_stats.total_invite_codes * 100) if stats.invite_stats and stats.invite_stats.total_invite_codes > 0 else 0) }}%</div>
             <div class="stat-label">邀请码使用率</div>
         </div>
     </div>
