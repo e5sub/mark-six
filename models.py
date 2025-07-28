@@ -40,9 +40,17 @@ class User(db.Model):
             self.activation_expires_at = datetime.utcnow() + timedelta(days=days)
     
     def set_permanent_activation(self):
+    def set_permanent_activation(self):
         """设置永久激活"""
         self.activation_expires_at = None
         self.is_active = True
+    
+    def check_and_update_activation_status(self):
+        """检查并更新激活状态，如果过期则设为未激活"""
+        if self.is_activation_expired():
+            self.is_active = False
+            return False  # 已过期
+        return True  # 仍然有效
 
     def __repr__(self):
         return f'<User {self.username}>'
@@ -137,12 +145,14 @@ class PredictionRecord(db.Model):
         return f'<PredictionRecord {self.region}-{self.period}>'
 
 class SystemConfig(db.Model):
+class SystemConfig(db.Model):
+    __tablename__ = 'system_config'
+    
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(100), unique=True, nullable=False)
     value = db.Column(db.Text)
-    description = db.Column(db.String(200))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    description = db.Column(db.String(255))
+    # 移除时间戳字段，因为数据库中不存在这些字段
 
     @staticmethod
     def get_config(key, default_value=''):
@@ -156,7 +166,6 @@ class SystemConfig(db.Model):
         config = SystemConfig.query.filter_by(key=key).first()
         if config:
             config.value = value
-            config.updated_at = datetime.utcnow()
             if description:
                 config.description = description
         else:
