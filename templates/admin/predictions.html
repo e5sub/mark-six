@@ -165,6 +165,53 @@
     .table tr:hover {
         background-color: rgba(102, 126, 234, 0.05);
     }
+    
+    /* 防止单元格内容换行 */
+    .nowrap-cell {
+        white-space: nowrap;
+    }
+    
+    /* 地区标签样式 */
+    .region-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        color: white;
+        font-weight: 500;
+        font-size: 0.85rem;
+        white-space: nowrap;
+    }
+    
+    .hk-badge {
+        background: linear-gradient(135deg, #54a0ff 0%, #2e86de 100%);
+    }
+    
+    .macau-badge {
+        background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);
+    }
+    
+    /* 策略标签样式 */
+    .strategy-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        color: white;
+        font-weight: 500;
+        font-size: 0.85rem;
+        white-space: nowrap;
+    }
+    
+    .ai-badge {
+        background: linear-gradient(135deg, #ff9ff3 0%, #f368e0 100%);
+    }
+    
+    .balanced-badge {
+        background: linear-gradient(135deg, #1dd1a1 0%, #10ac84 100%);
+    }
+    
+    .random-badge {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
+    }
 </style>
 <div class="card">
     <div class="card-header">
@@ -207,22 +254,22 @@
                                 <input type="checkbox" name="prediction_ids" value="{{ prediction.id }}" class="prediction-checkbox">
                             </td>
                             <td>{{ prediction.username if prediction.username else '未知用户' }}</td>
-                            <td>
+                            <td class="nowrap-cell">
                                 {% if prediction.region == 'hk' %}
-                                    <span class="badge badge-primary">香港</span>
+                                    <span class="region-badge hk-badge">香港</span>
                                 {% elif prediction.region == 'macau' %}
-                                    <span class="badge badge-secondary">澳门</span>
+                                    <span class="region-badge macau-badge">澳门</span>
                                 {% else %}
                                     {{ prediction.region }}
                                 {% endif %}
                             </td>
-                            <td>
+                            <td class="nowrap-cell">
                                 {% if prediction.strategy == 'ai' %}
-                                    <span class="badge badge-primary">AI预测</span>
+                                    <span class="strategy-badge ai-badge">AI预测</span>
                                 {% elif prediction.strategy == 'balanced' %}
-                                    <span class="badge badge-success">均衡预测</span>
+                                    <span class="strategy-badge balanced-badge">均衡预测</span>
                                 {% elif prediction.strategy == 'random' %}
-                                    <span class="badge badge-secondary">随机预测</span>
+                                    <span class="strategy-badge random-badge">随机预测</span>
                                 {% else %}
                                     {{ prediction.strategy }}
                                 {% endif %}
@@ -267,7 +314,7 @@
                                     <span class="no-data">-</span>
                                 {% endif %}
                             </td>
-                            <td>
+                            <td class="nowrap-cell">
                                 {% if prediction.accuracy_score is not none %}
                                     {% set accuracy = (prediction.accuracy_score * 100) | round(1) %}
                                     {% if accuracy >= 70 %}
