@@ -112,10 +112,20 @@ def generate_codes():
         return redirect(url_for('admin.activation_codes'))
     
     try:
+        generated_codes = []
         for _ in range(count):
-            code = ActivationCode(code=ActivationCode.generate_code())
+            # 生成唯一的激活码
+            while True:
+                new_code = ActivationCode.generate_code()
+                # 检查是否已存在
+                existing = ActivationCode.query.filter_by(code=new_code).first()
+                if not existing:
+                    break
+            
+            code = ActivationCode(code=new_code)
             code.set_validity(validity_type)
             db.session.add(code)
+            generated_codes.append(new_code)
         
         db.session.commit()
         
@@ -131,6 +141,7 @@ def generate_codes():
     except Exception as e:
         db.session.rollback()
         flash(f'生成失败：{str(e)}', 'error')
+        print(f"生成激活码时出错: {e}")  # 添加调试信息
     
     return redirect(url_for('admin.activation_codes'))
 
@@ -176,4 +187,18 @@ def predictions():
     predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).paginate(
         page=page, per_page=20, error_out=False
     )
+    
+    # 为澳门预测记录补充生肖信息
+    from app import _get_hk_number_zodiac
+    
+    for prediction in predictions.items:
+        if prediction.region == 'macau' and not prediction.special_zodiac and prediction.special_number:
+            # 为澳门预测记录计算生肖
+            prediction.special_zodiac = _get_hk_number_zodiac(prediction.special_number)
+            try:
+                db.session.commit()
+            except Exception as e:
+                print(f"更新澳门预测记录生肖失败: {e}")
+                db.session.rollback()
+    
     return render_template('admin/predictions.html', predictions=predictions)
