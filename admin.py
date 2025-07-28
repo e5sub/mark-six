@@ -287,6 +287,7 @@ def system_config():
         return redirect(url_for('admin.dashboard'))
 
 @admin_bp.route('/predictions')
+@admin_bp.route('/predictions')
 @admin_required
 def predictions():
     try:
@@ -294,6 +295,11 @@ def predictions():
         predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).paginate(
             page=page, per_page=20, error_out=False
         )
+        
+        # 为每个预测记录添加用户信息
+        for prediction in predictions.items:
+            user = User.query.get(prediction.user_id)
+            prediction.user = user
         
         return render_template('admin/predictions.html', predictions=predictions)
     except Exception as e:

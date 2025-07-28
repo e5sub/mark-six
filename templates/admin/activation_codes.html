@@ -485,13 +485,11 @@
                                 {% endif %}
                             </td>
                             <td>
-                                {% if code.used_by %}
-                                    {% set user = User.query.get(code.used_by) %}
-                                    {% if user %}
-                                        {{ user.username }}
-                                    {% else %}
-                                        已删除用户
-                                    {% endif %}
+                            <td>
+                                {% if code.used_by_username %}
+                                    {{ code.used_by_username }}
+                                {% elif code.used_by %}
+                                    用户ID: {{ code.used_by }}
                                 {% else %}
                                     -
                                 {% endif %}
