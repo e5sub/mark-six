@@ -345,11 +345,17 @@
                 </h3>
 
                 <div class="form-group">
+                <div class="form-group">
                     <label for="email">
-                        <i class="fas fa-envelope"></i> 新邮箱地址
+                        <i class="fas fa-envelope"></i> 邮箱地址
+                        {% if not user.is_admin %}
+                        <small style="color: #6c757d; font-weight: normal;">（仅管理员可修改）</small>
+                        {% endif %}
                     </label>
                     <input type="email" id="email" name="email" class="form-control" 
-                           value="{{ user.email }}" placeholder="输入新的邮箱地址">
+                           value="{{ user.email }}" 
+                           placeholder="{% if user.is_admin %}输入新的邮箱地址{% else %}邮箱地址仅管理员可修改{% endif %}"
+                           {% if not user.is_admin %}disabled{% endif %}>
                 </div>
 
                 <div class="form-group">

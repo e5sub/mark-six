@@ -238,7 +238,11 @@ def profile():
             return render_template('user/profile.html', user=user)
         
         # 更新邮箱
+        # 更新邮箱（仅管理员可修改）
         if new_email and new_email != user.email:
+            if not user.is_admin:
+                flash('普通用户无权修改邮箱地址，如需修改请联系管理员', 'error')
+                return render_template('user/profile.html', user=user)
             if User.query.filter_by(email=new_email).first():
                 flash('邮箱已被其他用户使用', 'error')
                 return render_template('user/profile.html', user=user)

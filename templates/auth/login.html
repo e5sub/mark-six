@@ -240,11 +240,17 @@
             </button>
 
             <a href="{{ url_for('auth.register') }}" class="btn btn-secondary">
+            <a href="{{ url_for('auth.register') }}" class="btn btn-secondary">
                 <i class="fas fa-user-plus"></i> 注册新账号
             </a>
         </form>
 
         <div class="text-center">
+            <p class="text-muted" style="margin-bottom: 15px;">
+                <a href="{{ url_for('auth.forgot_password') }}">
+                    <i class="fas fa-key"></i> 忘记密码？
+                </a>
+            </p>
             <p class="text-muted">
                 <a href="{{ url_for('index') }}">
                     <i class="fas fa-arrow-left"></i> 返回首页
