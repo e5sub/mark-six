@@ -196,13 +196,10 @@ class InviteCode(db.Model):
             self.used_by = user.username
             self.used_at = datetime.utcnow()
             
-            # 更新被邀请人信息
-            if hasattr(user, 'invited_by'):
-                user.invited_by = self.created_by
-            if hasattr(user, 'invite_code_used'):
-                user.invite_code_used = self.code
-            if hasattr(user, 'invite_activated_at'):
-                user.invite_activated_at = datetime.utcnow()
+            # 更新被邀请人信息（这些字段在User模型中已定义）
+            user.invited_by = self.created_by
+            user.invite_code_used = self.code
+            user.invite_activated_at = datetime.utcnow()
             
             # 给被邀请人增加1天有效期并激活
             user.extend_activation(1)
@@ -215,8 +212,7 @@ class InviteCode(db.Model):
                 inviter.extend_activation(1)
                 
                 # 如果被邀请人有有效期且邀请人不是永久用户，给予额外奖励
-                if (hasattr(user, 'activation_expires_at') and user.activation_expires_at and 
-                    hasattr(inviter, 'activation_expires_at') and inviter.activation_expires_at):
+                if user.activation_expires_at and inviter.activation_expires_at:
                     # 计算被邀请人的剩余有效期天数
                     remaining_days = (user.activation_expires_at - datetime.utcnow()).days
                     if remaining_days > 0:
