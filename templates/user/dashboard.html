@@ -119,10 +119,17 @@
         }
 
         .stats-grid {
+        .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 20px;
             margin-bottom: 30px;
+        }
+        
+        @media (max-width: 1200px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
 
         .stat-card {
@@ -332,6 +339,7 @@
             }
 
             .stats-grid {
+            .stats-grid {
                 grid-template-columns: 1fr;
             }
 
@@ -394,6 +402,7 @@
             </div>
 
             <div class="stats-grid">
+            <div class="stats-grid">
                 <div class="stat-card">
                     <div class="stat-icon">
                         <i class="fas fa-chart-bar"></i>
@@ -406,8 +415,32 @@
                     <div class="stat-icon">
                         <i class="fas fa-bullseye"></i>
                     </div>
-                    <div class="stat-number">{{ stats.accuracy_rate }}%</div>
-                    <div class="stat-label">预测准确率</div>
+                    <div class="stat-number">{{ stats.avg_accuracy }}%</div>
+                    <div class="stat-label">平均准确率</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-dice"></i>
+                    </div>
+                    <div class="stat-number">{{ stats.random_accuracy }}%</div>
+                    <div class="stat-label">随机预测准确率</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-balance-scale"></i>
+                    </div>
+                    <div class="stat-number">{{ stats.balanced_accuracy }}%</div>
+                    <div class="stat-label">均衡预测准确率</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-brain"></i>
+                    </div>
+                    <div class="stat-number">{{ stats.ai_accuracy }}%</div>
+                    <div class="stat-label">AI智能预测准确率</div>
                 </div>
 
                 <div class="stat-card">

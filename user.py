@@ -26,6 +26,7 @@ def active_required(f):
     return decorated_function
 
 @user_bp.route('/dashboard')
+@user_bp.route('/dashboard')
 @login_required
 def dashboard():
     user = User.query.get(session['user_id'])
@@ -35,15 +36,39 @@ def dashboard():
     recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
         .order_by(PredictionRecord.created_at.desc()).limit(5).all()
     
-    # 计算准确率
-    accurate_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
-        .filter(PredictionRecord.accuracy_score != None)\
-        .filter(PredictionRecord.accuracy_score > 0).count()
-    accuracy_rate = (accurate_predictions / total_predictions * 100) if total_predictions > 0 else 0
+    # 计算不同策略的准确率（只对比特码）
+    def calculate_user_accuracy(strategy=None):
+        query = PredictionRecord.query.filter_by(user_id=user.id, is_result_updated=True)
+        if strategy:
+            query = query.filter_by(strategy=strategy)
+        
+        predictions = query.all()
+        if not predictions:
+            return 0.0
+        
+        correct_count = 0
+        total_count = 0
+        
+        for pred in predictions:
+            if pred.actual_special_number and pred.special_number:
+                total_count += 1
+                if pred.special_number == pred.actual_special_number:
+                    correct_count += 1
+        
+        return round(correct_count / total_count * 100, 1) if total_count > 0 else 0.0
+    
+    # 计算各种准确率
+    avg_accuracy = calculate_user_accuracy()
+    random_accuracy = calculate_user_accuracy('random')
+    balanced_accuracy = calculate_user_accuracy('balanced')
+    ai_accuracy = calculate_user_accuracy('ai')
     
     stats = {
         'total_predictions': total_predictions,
-        'accuracy_rate': round(accuracy_rate, 2),
+        'avg_accuracy': avg_accuracy,
+        'random_accuracy': random_accuracy,
+        'balanced_accuracy': balanced_accuracy,
+        'ai_accuracy': ai_accuracy,
         'recent_predictions': recent_predictions
     }
     

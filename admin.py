@@ -261,13 +261,15 @@ def system_config():
     try:
         if request.method == 'POST':
             # 更新配置
+            # 更新配置
             configs = {
                 'ai_api_key': request.form.get('ai_api_key', ''),
-                'ai_model': request.form.get('ai_model', 'gpt-3.5-turbo'),
-                'email_host': request.form.get('email_host', ''),
-                'email_port': request.form.get('email_port', '587'),
-                'email_username': request.form.get('email_username', ''),
-                'email_password': request.form.get('email_password', ''),
+                'ai_api_url': request.form.get('ai_api_url', 'https://api.deepseek.com/v1/chat/completions'),
+                'ai_model': request.form.get('ai_model', 'deepseek-chat'),
+                'smtp_server': request.form.get('smtp_server', ''),
+                'smtp_port': request.form.get('smtp_port', '587'),
+                'smtp_username': request.form.get('smtp_username', ''),
+                'smtp_password': request.form.get('smtp_password', ''),
                 'site_name': request.form.get('site_name', '六合彩预测系统'),
                 'site_description': request.form.get('site_description', ''),
             }
@@ -282,13 +284,15 @@ def system_config():
             return redirect(url_for('admin.system_config'))
         
         # 获取当前配置
+        # 获取当前配置
         configs = {
             'ai_api_key': SystemConfig.get_config('ai_api_key', ''),
-            'ai_model': SystemConfig.get_config('ai_model', 'gpt-3.5-turbo'),
-            'email_host': SystemConfig.get_config('email_host', ''),
-            'email_port': SystemConfig.get_config('email_port', '587'),
-            'email_username': SystemConfig.get_config('email_username', ''),
-            'email_password': SystemConfig.get_config('email_password', ''),
+            'ai_api_url': SystemConfig.get_config('ai_api_url', 'https://api.deepseek.com/v1/chat/completions'),
+            'ai_model': SystemConfig.get_config('ai_model', 'deepseek-chat'),
+            'smtp_server': SystemConfig.get_config('smtp_server', ''),
+            'smtp_port': SystemConfig.get_config('smtp_port', '587'),
+            'smtp_username': SystemConfig.get_config('smtp_username', ''),
+            'smtp_password': SystemConfig.get_config('smtp_password', ''),
             'site_name': SystemConfig.get_config('site_name', '六合彩预测系统'),
             'site_description': SystemConfig.get_config('site_description', ''),
         }
@@ -297,15 +301,178 @@ def system_config():
     except Exception as e:
         flash(f'加载系统配置失败: {str(e)}', 'error')
         return render_template('admin/system_config.html', configs={
+        return render_template('admin/system_config.html', configs={
+        return render_template('admin/system_config.html', configs={
             'ai_api_key': '',
-            'ai_model': 'gpt-3.5-turbo',
-            'email_host': '',
-            'email_port': '587',
-            'email_username': '',
-            'email_password': '',
+            'ai_api_url': 'https://api.deepseek.com/v1/chat/completions',
+            'ai_model': 'deepseek-chat',
+            'smtp_server': '',
+            'smtp_port': '587',
+            'smtp_username': '',
+            'smtp_password': '',
             'site_name': '六合彩预测系统',
             'site_description': '',
         })
+
+@admin_bp.route('/predictions')
+@admin_required
+def predictions():
+    try:
+        page = request.args.get('page', 1, type=int)
+        predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).paginate(
+            page=page, per_page=20, error_out=False
+        )
+        
+        # 为预测记录添加用户名
+        for pred in predictions.items:
+            if pred.user_id:
+                user = User.query.get(pred.user_id)
+                pred.username = user.username if user else '已删除用户'
+            else:
+                pred.username = '未知用户'
+        
+        return render_template('admin/predictions.html', predictions=predictions)
+    except Exception as e:
+        flash(f'加载预测记录失败: {str(e)}', 'error')
+        # 创建空的分页对象
+        from flask_sqlalchemy import Pagination
+        empty_predictions = Pagination(query=None, page=1, per_page=20, total=0, items=[])
+        return render_template('admin/predictions.html', predictions=empty_predictions)
+
+@admin_bp.route('/prediction/<int:prediction_id>/delete', methods=['POST'])
+@admin_required
+def delete_prediction(prediction_id):
+    try:
+        prediction = PredictionRecord.query.get_or_404(prediction_id)
+        db.session.delete(prediction)
+        db.session.commit()
+        flash('预测记录删除成功', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'删除预测记录失败: {str(e)}', 'error')
+    
+    return redirect(url_for('admin.predictions'))
+
+@admin_bp.route('/predictions/delete_batch', methods=['POST'])
+@admin_required
+def delete_predictions_batch():
+    try:
+        prediction_ids = request.form.getlist('prediction_ids')
+        if not prediction_ids:
+            flash('请选择要删除的预测记录', 'error')
+            return redirect(url_for('admin.predictions'))
+        
+        deleted_count = 0
+        for pred_id in prediction_ids:
+            prediction = PredictionRecord.query.get(int(pred_id))
+            if prediction:
+                db.session.delete(prediction)
+                deleted_count += 1
+        
+        db.session.commit()
+        flash(f'成功删除 {deleted_count} 条预测记录', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'批量删除失败: {str(e)}', 'error')
+    
+    return redirect(url_for('admin.predictions'))
+
+@admin_bp.route('/predictions/clear_all', methods=['POST'])
+@admin_required
+def clear_all_predictions():
+    try:
+        count = PredictionRecord.query.count()
+        PredictionRecord.query.delete()
+        db.session.commit()
+        flash(f'成功清空所有预测记录，共删除 {count} 条记录', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'清空预测记录失败: {str(e)}', 'error')
+    
+    return redirect(url_for('admin.predictions'))
+
+@admin_bp.route('/export_users')
+@admin_required
+def export_users():
+    try:
+        users = User.query.all()
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # 写入标题行
+        writer.writerow(['ID', '用户名', '邮箱', '是否激活', '是否管理员', '注册时间', '激活过期时间'])
+        
+        # 写入数据行
+        for user in users:
+            writer.writerow([
+                user.id,
+                user.username,
+                user.email,
+                '是' if user.is_active else '否',
+                '是' if user.is_admin else '否',
+                user.created_at.strftime('%Y-%m-%d %H:%M:%S') if user.created_at else '',
+                user.activation_expires_at.strftime('%Y-%m-%d %H:%M:%S') if user.activation_expires_at else '永久'
+            ])
+        
+        output.seek(0)
+        
+        from flask import Response
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=users.csv'}
+        )
+    except Exception as e:
+        flash(f'导出用户数据失败: {str(e)}', 'error')
+        return redirect(url_for('admin.users'))
+
+@admin_bp.route('/import_users', methods=['GET', 'POST'])
+@admin_required
+def import_users():
+    if request.method == 'POST':
+        try:
+            if 'file' not in request.files:
+                flash('请选择文件', 'error')
+                return redirect(url_for('admin.import_users'))
+            
+            file = request.files['file']
+            if file.filename == '':
+                flash('请选择文件', 'error')
+                return redirect(url_for('admin.import_users'))
+            
+            if not file.filename.endswith('.csv'):
+                flash('请上传CSV文件', 'error')
+                return redirect(url_for('admin.import_users'))
+            
+            # 读取CSV文件
+            stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+            csv_input = csv.reader(stream)
+            
+            # 跳过标题行
+            next(csv_input)
+            
+            imported_count = 0
+            for row in csv_input:
+                if len(row) >= 3:  # 至少需要用户名、邮箱、密码
+                    username, email, password = row[0], row[1], row[2]
+                    
+                    # 检查用户是否已存在
+                    if not User.query.filter_by(username=username).first():
+                        user = User(username=username, email=email)
+                        user.set_password(password)
+                        db.session.add(user)
+                        imported_count += 1
+            
+            db.session.commit()
+            flash(f'成功导入 {imported_count} 个用户', 'success')
+            return redirect(url_for('admin.users'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f'导入用户失败: {str(e)}', 'error')
+    
+    return render_template('admin/import_users.html')
 
 @admin_bp.route('/predictions')
 @admin_required
