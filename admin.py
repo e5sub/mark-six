@@ -198,7 +198,12 @@ def edit_user(user_id):
             user.username = new_username
             user.email = new_email
             user.is_active = is_active
-            user.is_admin = is_admin
+            
+            # 如果是admin账号，保持管理员权限
+            if user.username == 'admin':
+                user.is_admin = True
+            else:
+                user.is_admin = is_admin
             
             # 如果提供了新密码，则更新密码
             if new_password:
