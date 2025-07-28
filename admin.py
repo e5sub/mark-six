@@ -35,9 +35,49 @@ def dashboard():
         # 获取统计数据
         total_users = User.query.count()
         active_users = User.query.filter_by(is_active=True).count()
+        inactive_users = total_users - active_users
         total_codes = ActivationCode.query.count()
         used_codes = ActivationCode.query.filter_by(is_used=True).count()
+        unused_codes = total_codes - used_codes
         total_predictions = PredictionRecord.query.count()
+        
+        # 计算不同策略的准确率
+        # 计算不同策略的准确率（只对比特码）
+        def calculate_accuracy(strategy):
+            predictions = PredictionRecord.query.filter_by(strategy=strategy, is_result_updated=True).all()
+            if not predictions:
+                return 0.0
+            
+            correct_count = 0
+            total_count = 0
+            
+            for pred in predictions:
+                if pred.actual_special_number and pred.special_number:
+                    total_count += 1
+                    if pred.special_number == pred.actual_special_number:
+                        correct_count += 1
+            
+            return round(correct_count / total_count * 100, 1) if total_count > 0 else 0.0
+        
+        # 计算平均准确率（只对比特码）
+        all_predictions = PredictionRecord.query.filter_by(is_result_updated=True).all()
+        if all_predictions:
+            correct_count = 0
+            total_count = 0
+            
+            for pred in all_predictions:
+                if pred.actual_special_number and pred.special_number:
+                    total_count += 1
+                    if pred.special_number == pred.actual_special_number:
+                        correct_count += 1
+            
+            avg_accuracy = round(correct_count / total_count * 100, 1) if total_count > 0 else 0.0
+        else:
+            avg_accuracy = 0.0
+        
+        random_accuracy = calculate_accuracy('random')
+        balanced_accuracy = calculate_accuracy('balanced')
+        ai_accuracy = calculate_accuracy('ai')
         
         # 最近注册的用户
         recent_users = User.query.order_by(User.created_at.desc()).limit(5).all()
@@ -56,9 +96,15 @@ def dashboard():
         stats = {
             'total_users': total_users,
             'active_users': active_users,
+            'inactive_users': inactive_users,
             'total_codes': total_codes,
             'used_codes': used_codes,
+            'unused_codes': unused_codes,
             'total_predictions': total_predictions,
+            'avg_accuracy': avg_accuracy,
+            'random_accuracy': random_accuracy,
+            'balanced_accuracy': balanced_accuracy,
+            'ai_accuracy': ai_accuracy,
             'recent_users': recent_users,
             'recent_predictions': recent_predictions
         }
@@ -69,9 +115,15 @@ def dashboard():
         return render_template('admin/dashboard.html', stats={
             'total_users': 0,
             'active_users': 0,
+            'inactive_users': 0,
             'total_codes': 0,
             'used_codes': 0,
+            'unused_codes': 0,
             'total_predictions': 0,
+            'avg_accuracy': 0.0,
+            'random_accuracy': 0.0,
+            'balanced_accuracy': 0.0,
+            'ai_accuracy': 0.0,
             'recent_users': [],
             'recent_predictions': []
         })
