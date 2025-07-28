@@ -3,209 +3,215 @@
 {% block page_title %}我的邀请码{% endblock %}
 
 {% block content %}
-<!-- 统计信息 -->
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">🎫</div>
-        <div class="stat-number">{{ stats.total_codes }}</div>
-        <div class="stat-label">我的邀请码</div>
-    </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
-        <div class="stat-number">{{ stats.used_codes }}</div>
-        <div class="stat-label">已使用</div>
-    </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">⏳</div>
-        <div class="stat-number">{{ stats.unused_codes }}</div>
-        <div class="stat-label">未使用</div>
-    </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">👥</div>
-        <div class="stat-number">{{ stats.invited_users }}</div>
-        <div class="stat-label">成功邀请</div>
-    </div>
-</div>
-
-<!-- 生成邀请码 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">🎫 生成邀请码</h2>
-    </div>
-    
-    <form id="generateForm" style="display: grid; gap: 1.5rem;">
-        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
-            <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem;">📝 生成设置</h3>
-            
-            <div class="form-group">
-                <label>生成数量</label>
-                <input type="number" id="generateCount" class="form-control" value="1" min="1" max="{{ daily_limit - today_generated }}" required>
-                <small style="color: #666;">
-                    今日已生成 {{ today_generated }} 个，还可生成 {{ daily_limit - today_generated }} 个
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <label>有效期（天）</label>
-                <input type="number" id="validityDays" class="form-control" value="{{ default_validity }}" min="1" max="365" required>
-                <small style="color: #666;">留空表示永不过期</small>
-            </div>
-        </div>
-        
-        <div style="text-align: center;">
-            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem;">
-                🎫 生成邀请码
-            </button>
-        </div>
-    </form>
-</div>
-
-<!-- 我的邀请码列表 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📋 我的邀请码</h2>
-    </div>
-    
-    {% if invite_codes %}
-        <div style="display: grid; gap: 1rem;">
-            {% for code in invite_codes %}
-            <div class="invite-code-item">
-                <div class="invite-code-header">
-                    <div>
-                        <div class="invite-code">{{ code.code }}</div>
-                        <button class="copy-btn" onclick="copyInviteCode('{{ code.code }}')">复制</button>
-                    </div>
-                    <div>
-                        {% if code.is_used %}
-                            <span class="invite-status status-used">已使用</span>
-                        {% elif code.is_expired() %}
-                            <span class="invite-status status-expired">已过期</span>
-                        {% else %}
-                            <span class="invite-status status-unused">可使用</span>
-                        {% endif %}
-                    </div>
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">🎫 我的邀请码</h4>
+                    <button type="button" class="btn btn-primary" onclick="generateInviteCode()">
+                        生成新邀请码
+                    </button>
                 </div>
-                
-                <div class="invite-details">
-                    <div class="invite-detail">
-                        <div class="invite-detail-label">创建时间</div>
-                        <div class="invite-detail-value">{{ code.created_at.strftime('%Y-%m-%d %H:%M') if code.created_at else '-' }}</div>
-                    </div>
-                    
-                    <div class="invite-detail">
-                        <div class="invite-detail-label">过期时间</div>
-                        <div class="invite-detail-value">
-                            {% if code.expires_at %}
-                                {{ code.expires_at.strftime('%Y-%m-%d %H:%M') }}
-                            {% else %}
-                                永不过期
-                            {% endif %}
+                <div class="card-body">
+                    <!-- 统计信息 -->
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ stats.total_invites }}</h3>
+                                    <p class="mb-0">总邀请数</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card bg-success text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ stats.active_invites }}</h3>
+                                    <p class="mb-0">成功激活</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card bg-info text-white">
+                                <div class="card-body text-center">
+                                    <h3>{{ stats.success_rate }}%</h3>
+                                    <p class="mb-0">成功率</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    
-                    <div class="invite-detail">
-                        <div class="invite-detail-label">使用者</div>
-                        <div class="invite-detail-value">{{ code.used_by or '-' }}</div>
-                    </div>
-                    
-                    <div class="invite-detail">
-                        <div class="invite-detail-label">使用时间</div>
-                        <div class="invite-detail-value">{{ code.used_at.strftime('%Y-%m-%d %H:%M') if code.used_at else '-' }}</div>
-                    </div>
+
+                    <!-- 邀请码列表 -->
+                    <h5>我的邀请码</h5>
+                    {% if codes.items %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>邀请码</th>
+                                        <th>状态</th>
+                                        <th>创建时间</th>
+                                        <th>过期时间</th>
+                                        <th>使用者</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for code in codes.items %}
+                                    <tr>
+                                        <td>
+                                            <code class="invite-code">{{ code.code }}</code>
+                                            <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyCode('{{ code.code }}')">
+                                                复制
+                                            </button>
+                                        </td>
+                                        <td>
+                                            {% if code.is_used %}
+                                                <span class="badge bg-success">已使用</span>
+                        {% elif code.is_expired() %}
+                                                <span class="badge bg-danger">已过期</span>
+                                            {% else %}
+                                                <span class="badge bg-primary">可用</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ code.created_at.strftime('%Y-%m-%d %H:%M') if code.created_at else '-' }}</td>
+                                        <td>{{ code.expires_at.strftime('%Y-%m-%d %H:%M') if code.expires_at else '永久' }}</td>
+                                        <td>{{ code.used_by or '-' }}</td>
+                                        <td>
+                                            {% if not code.is_used %}
+                                                <button class="btn btn-sm btn-outline-primary" onclick="shareCode('{{ code.code }}')">
+                                                    分享
+                                                </button>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 分页 -->
+                        {% if codes.pages > 1 %}
+                        <nav aria-label="邀请码分页">
+                            <ul class="pagination justify-content-center">
+                                {% if codes.has_prev %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('user.invite_codes', page=codes.prev_num) }}">上一页</a>
+                                    </li>
+                                {% endif %}
+                                
+                                {% for page_num in codes.iter_pages() %}
+                                    {% if page_num %}
+                                        {% if page_num != codes.page %}
+                                            <li class="page-item">
+                                                <a class="page-link" href="{{ url_for('user.invite_codes', page=page_num) }}">{{ page_num }}</a>
+                                            </li>
+                                        {% else %}
+                                            <li class="page-item active">
+                                                <span class="page-link">{{ page_num }}</span>
+                                            </li>
+                                        {% endif %}
+                                    {% else %}
+                                        <li class="page-item disabled">
+                                            <span class="page-link">…</span>
+                                        </li>
+                                    {% endif %}
+                                {% endfor %}
+                                
+                                {% if codes.has_next %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('user.invite_codes', page=codes.next_num) }}">下一页</a>
+                                    </li>
+                                {% endif %}
+                            </ul>
+                        </nav>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center py-4">
+                            <p class="text-muted">您还没有创建任何邀请码</p>
+                            <button type="button" class="btn btn-primary" onclick="generateInviteCode()">
+                                生成第一个邀请码
+                            </button>
+                        </div>
+                    {% endif %}
                 </div>
-                
-                {% if not code.is_used and not code.is_expired() %}
-                <div style="margin-top: 1rem; text-align: right;">
-                    <button class="btn btn-danger btn-sm" onclick="deleteInviteCode('{{ code.code }}')">删除</button>
-                </div>
-                {% endif %}
             </div>
-            {% endfor %}
         </div>
-    {% else %}
-        <div style="text-align: center; padding: 3rem; color: #666;">
-            <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.3;">🎫</div>
-            <p>您还没有生成任何邀请码</p>
-            <p style="font-size: 0.9rem; margin-top: 0.5rem;">点击上方按钮生成您的第一个邀请码</p>
+    </div>
+
+    <!-- 被邀请用户列表 -->
+    {% if invited_users %}
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">👥 我邀请的用户</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>用户名</th>
+                                    <th>邮箱</th>
+                                    <th>注册时间</th>
+                                    <th>激活状态</th>
+                                    <th>使用的邀请码</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in invited_users %}
+                                <tr>
+                                    <td>{{ user.username }}</td>
+                                    <td>{{ user.email }}</td>
+                                    <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
+                                    <td>
+                                        {% if user.is_active %}
+                                            <span class="badge bg-success">已激活</span>
+                                        {% else %}
+                                            <span class="badge bg-warning">未激活</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ user.invite_code_used or '-' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
+    </div>
     {% endif %}
 </div>
 
-<!-- 邀请奖励说明 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">🎁 邀请奖励说明</h2>
-    </div>
-    
-    <div style="display: grid; gap: 1rem;">
-        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">✅ 基础奖励</h3>
-            <p style="margin: 0; color: #666;">好友使用您的邀请码注册成功后，您和好友都将获得 <strong>1天</strong> 的使用时间。</p>
-        </div>
-        
-        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">🎯 额外奖励</h3>
-            <p style="margin: 0; color: #666;">好友首次激活使用时，您还将额外获得好友有效期 <strong>一半</strong> 的使用时间（仅限一次）。</p>
-        </div>
-        
-        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">📋 使用规则</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
-                <li>每天最多可生成 {{ daily_limit }} 个邀请码</li>
-                <li>邀请码默认有效期为 {{ default_validity }} 天</li>
-                <li>每个邀请码只能使用一次</li>
-                <li>不能使用自己生成的邀请码</li>
-            </ul>
-        </div>
-    </div>
-</div>
+<style>
+.invite-code {
+    background-color: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    color: #495057;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    border: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+}
+</style>
 
 <script>
-document.getElementById('generateForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const count = parseInt(document.getElementById('generateCount').value);
-    const validityDays = parseInt(document.getElementById('validityDays').value);
-    
-    if (count > {{ daily_limit - today_generated }}) {
-        alert('超出今日生成限制！');
-        return;
-    }
-    
-    fetch('/user/invite_codes/generate', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            count: count,
-            validity_days: validityDays
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showToast(`成功生成 ${count} 个邀请码！`, 'success');
-            setTimeout(() => {
-                location.reload();
-            }, 1500);
-        } else {
-            alert('生成失败：' + data.message);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('生成失败：网络错误');
-    });
-});
-
-function deleteInviteCode(code) {
-    if (confirm('确定要删除此邀请码吗？')) {
-        fetch(`/user/invite_codes/${code}/delete`, {
-            method: 'DELETE',
+function generateInviteCode() {
+    if (confirm('确定要生成新的邀请码吗？每天最多只能生成3个邀请码。')) {
+        fetch('{{ url_for("user.generate_invite_code") }}', {
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             }
@@ -213,46 +219,52 @@ function deleteInviteCode(code) {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                showToast('邀请码删除成功！', 'success');
+                alert('邀请码生成成功：' + data.code);
                 location.reload();
             } else {
-                alert('删除失败：' + data.message);
+                alert('生成失败：' + data.message);
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('删除失败：网络错误');
+            alert('生成失败，请稍后重试');
         });
     }
 }
 
-function showToast(message, type = 'success') {
-    const toast = document.createElement('div');
-    toast.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: ${type === 'success' ? '#28a745' : '#dc3545'};
-        color: white;
-        padding: 1rem 1.5rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-        z-index: 9999;
-        font-size: 0.9rem;
-        max-width: 300px;
-        animation: slideIn 0.3s ease;
-    `;
-    toast.textContent = message;
-    document.body.appendChild(toast);
+function copyCode(code) {
+    navigator.clipboard.writeText(code).then(function() {
+        alert('邀请码已复制到剪贴板：' + code);
+    }, function(err) {
+        console.error('复制失败: ', err);
+        // 备用复制方法
+        const textArea = document.createElement('textarea');
+        textArea.value = code;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        alert('邀请码已复制到剪贴板：' + code);
+    });
+}
+
+function shareCode(code) {
+    const shareText = `邀请您注册六合彩预测系统！\n邀请码：${code}\n注册链接：${window.location.origin}/auth/register`;
     
-    setTimeout(() => {
-        toast.style.animation = 'slideOut 0.3s ease';
-        setTimeout(() => {
-            if (toast.parentElement) {
-                toast.parentElement.removeChild(toast);
-            }
-        }, 300);
-    }, 3000);
+    if (navigator.share) {
+        navigator.share({
+            title: '邀请注册',
+            text: shareText
+        });
+    } else {
+        // 复制分享文本到剪贴板
+        navigator.clipboard.writeText(shareText).then(function() {
+            alert('分享内容已复制到剪贴板，您可以粘贴发送给朋友！');
+        }, function(err) {
+            console.error('复制失败: ', err);
+            alert('分享内容：\n' + shareText);
+        });
+    }
 }
 </script>
 {% endblock %}

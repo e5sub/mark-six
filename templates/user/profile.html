@@ -1,397 +1,253 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>个人资料 - 六合彩数据分析系统</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <style>
-        :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            --glass-bg: rgba(255, 255, 255, 0.25);
-            --text-primary: #2d3748;
-            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        }
+{% extends "user/base.html" %}
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+{% block page_title %}个人资料{% endblock %}
 
-        body {
-            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
-            background-attachment: fixed;
-            min-height: 100vh;
-            color: var(--text-primary);
-        }
-
-        .navbar {
-            background: var(--primary-gradient);
-            padding: 15px 0;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }
-
-        .navbar-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 20px;
-        }
-
-        .navbar-brand {
-            color: white;
-            font-size: 1.5rem;
-            font-weight: 700;
-            text-decoration: none;
-        }
-
-        .navbar-nav {
-            display: flex;
-            gap: 20px;
-            align-items: center;
-        }
-
-        .nav-link {
-            color: white;
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 20px;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 30px 20px;
-        }
-
-        .glass-card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: var(--shadow-light);
-            padding: 30px;
-            margin-bottom: 25px;
-        }
-
-        .page-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        .page-header h1 {
-            font-size: 2.2rem;
-            font-weight: 700;
-            margin-bottom: 10px;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            color: var(--text-primary);
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .form-control {
-            width: 100%;
-            padding: 12px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.7);
-            color: var(--text-primary);
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(5px);
-        }
-
-        .form-control:focus {
-            outline: none;
-            border-color: #007bff;
-            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-            background: rgba(255, 255, 255, 0.9);
-        }
-
-        .form-control:disabled {
-            background: rgba(255, 255, 255, 0.5);
-            color: #6c757d;
-        }
-
-        .btn {
-            padding: 12px 25px;
-            border: none;
-            border-radius: 10px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            color: white;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            margin-right: 10px;
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        .btn-primary { background: var(--primary-gradient); }
-        .btn-success { background: var(--success-gradient); }
-        .btn-secondary { background: var(--secondary-gradient); }
-
-        .alert {
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .alert-success {
-            background: rgba(40, 167, 69, 0.1);
-            color: #155724;
-            border: 1px solid rgba(40, 167, 69, 0.3);
-        }
-
-        .alert-error {
-            background: rgba(220, 53, 69, 0.1);
-            color: #721c24;
-            border: 1px solid rgba(220, 53, 69, 0.3);
-        }
-
-        .user-info {
-            background: rgba(255, 255, 255, 0.5);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 30px;
-        }
-
-        .info-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-        }
-
-        .info-item:last-child {
-            border-bottom: none;
-        }
-
-        .info-label {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .info-value {
-            color: #6c757d;
-        }
-
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 600;
-        }
-
-        .status-active {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-inactive {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .button-group {
-            text-align: center;
-            margin-top: 30px;
-        }
-
-        @media (max-width: 768px) {
-            .navbar-content {
-                flex-direction: column;
-                gap: 15px;
-            }
-
-            .navbar-nav {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-
-            .container {
-                padding: 20px 15px;
-            }
-
-            .glass-card {
-                padding: 20px;
-            }
-
-            .info-item {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 5px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <nav class="navbar">
-        <div class="navbar-content" style="justify-content: center; gap: 30px;">
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 数据分析
-            </a>
-            <a href="{{ url_for('user.predictions') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-history"></i> 预测记录
-            </a>
-            <a href="{{ url_for('user.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-tachometer-alt"></i> 用户中心
-            </a>
-            <a href="{{ url_for('user.profile') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-user"></i> 个人资料
-            </a>
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 返回首页
-            </a>
-            <a href="{{ url_for('auth.logout') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-sign-out-alt"></i> 退出登录
-            </a>
+{% block content %}
+<!-- 账户信息 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">👤</div>
+        <div class="stat-number">{{ user.username }}</div>
+        <div class="stat-label">用户名</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">📧</div>
+        <div class="stat-number" style="font-size: 1.2rem;">{{ user.email }}</div>
+        <div class="stat-label">邮箱地址</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">
+            {% if user.is_active %}✅{% else %}❌{% endif %}
         </div>
-    </nav>
+        <div class="stat-number">{{ "已激活" if user.is_active else "未激活" }}</div>
+        <div class="stat-label">账户状态</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">⏰</div>
+        <div class="stat-number" style="font-size: 1.2rem;">
+            {% if user.valid_until %}
+                {{ user.valid_until.strftime('%Y-%m-%d') }}
+            {% else %}
+                永久
+            {% endif %}
+        </div>
+        <div class="stat-label">有效期至</div>
+    </div>
+</div>
 
-    <div class="container">
-        <div class="glass-card">
-            <div class="page-header">
-                <h1><i class="fas fa-user-cog"></i> 个人资料</h1>
-                <p>管理您的账号信息和设置</p>
+<!-- 修改个人信息 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">✏️ 修改个人信息</h2>
+    </div>
+    
+    <form method="POST" action="{{ url_for('user.profile') }}" style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+            <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem;">📝 基本信息</h3>
+            
+            <div style="display: grid; gap: 1rem;">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" name="username" class="form-control" value="{{ user.username }}" required>
+                    <small style="color: #666;">用户名用于登录和显示</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>邮箱地址</label>
+                    <input type="email" name="email" class="form-control" value="{{ user.email }}" required>
+                    <small style="color: #666;">邮箱用于接收重要通知</small>
+                </div>
             </div>
+        </div>
+        
+        <div style="text-align: center;">
+            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem;">
+                💾 保存修改
+            </button>
+        </div>
+    </form>
+</div>
 
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="alert alert-{{ 'error' if category == 'error' else 'success' }}">
-                            <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' }}"></i>
-                            {{ message }}
-                        </div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
-
-            <div class="user-info">
-                <div class="info-item">
-                    <span class="info-label">
-                        <i class="fas fa-user"></i> 用户名
-                    </span>
-                    <span class="info-value">{{ user.username }}</span>
+<!-- 修改密码 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🔒 修改密码</h2>
+    </div>
+    
+    <form method="POST" action="{{ url_for('user.profile') }}" style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+            <h3 style="margin: 0 0 1rem 0; color: #ffc107; font-size: 1.1rem;">🔐 密码设置</h3>
+            
+            <div style="display: grid; gap: 1rem;">
+                <div class="form-group">
+                    <label>当前密码</label>
+                    <input type="password" name="current_password" class="form-control" required>
+                    <small style="color: #666;">请输入您的当前密码</small>
                 </div>
-                <div class="info-item">
-                    <span class="info-label">
-                        <i class="fas fa-envelope"></i> 邮箱地址
-                    </span>
-                    <span class="info-value">{{ user.email }}</span>
+                
+                <div class="form-group">
+                    <label>新密码</label>
+                    <input type="password" name="new_password" class="form-control" required minlength="6">
+                    <small style="color: #666;">密码长度至少6位</small>
                 </div>
-                <div class="info-item">
-                    <span class="info-label">
-                        <i class="fas fa-calendar"></i> 注册时间
-                    </span>
-                    <span class="info-value">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                
+                <div class="form-group">
+                    <label>确认新密码</label>
+                    <input type="password" name="confirm_password" class="form-control" required minlength="6">
+                    <small style="color: #666;">请再次输入新密码</small>
                 </div>
-                <div class="info-item">
-                    <span class="info-label">
-                        <i class="fas fa-shield-alt"></i> 账号状态
-                    </span>
-                    <span class="status-badge {{ 'status-active' if user.is_active else 'status-inactive' }}">
-                        {{ '已激活' if user.is_active else '未激活' }}
-                    </span>
-                </div>
-                {% if user.is_admin %}
-                <div class="info-item">
-                    <span class="info-label">
-                        <i class="fas fa-crown"></i> 权限级别
-                    </span>
-                    <span class="status-badge status-active">管理员</span>
-                </div>
-                {% endif %}
             </div>
+        </div>
+        
+        <div style="text-align: center;">
+            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem; background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+                🔒 修改密码
+            </button>
+        </div>
+    </form>
+</div>
 
-            <form method="POST">
-                <h3 style="margin-bottom: 20px; color: var(--text-primary);">
-                    <i class="fas fa-edit"></i> 修改信息
-                </h3>
-
-                <div class="form-group">
-                <div class="form-group">
-                    <label for="email">
-                        <i class="fas fa-envelope"></i> 邮箱地址
-                        {% if not user.is_admin %}
-                        <small style="color: #6c757d; font-weight: normal;">（仅管理员可修改）</small>
-                        {% endif %}
-                    </label>
-                    <input type="email" id="email" name="email" class="form-control" 
-                           value="{{ user.email }}" 
-                           placeholder="{% if user.is_admin %}输入新的邮箱地址{% else %}邮箱地址仅管理员可修改{% endif %}"
-                           {% if not user.is_admin %}disabled{% endif %}>
+<!-- 账户统计 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📊 账户统计</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">📅 注册时间</h3>
+                    <p style="margin: 0; color: #666;">您的账户创建时间</p>
                 </div>
-
-                <div class="form-group">
-                    <label for="current_password">
-                        <i class="fas fa-lock"></i> 当前密码 *
-                    </label>
-                    <input type="password" id="current_password" name="current_password" class="form-control" 
-                           placeholder="请输入当前密码以确认身份" required>
+                <div style="text-align: right;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">
+                        {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '-' }}
+                    </div>
                 </div>
-
-                <div class="form-group">
-                    <label for="new_password">
-                        <i class="fas fa-key"></i> 新密码
-                    </label>
-                    <input type="password" id="new_password" name="new_password" class="form-control" 
-                           placeholder="留空则不修改密码">
+            </div>
+        </div>
+        
+        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">🔐 最后登录</h3>
+                    <p style="margin: 0; color: #666;">您的最后登录时间</p>
                 </div>
-
-                <div class="form-group">
-                    <label for="confirm_password">
-                        <i class="fas fa-key"></i> 确认新密码
-                    </label>
-                    <input type="password" id="confirm_password" name="confirm_password" class="form-control" 
-                           placeholder="再次输入新密码">
+                <div style="text-align: right;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #17a2b8;">
+                        {{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else '首次登录' }}
+                    </div>
                 </div>
-
-                <div class="button-group">
-                    <button type="submit" class="btn btn-success">
-                        <i class="fas fa-save"></i> 保存修改
-                    </button>
-                    <a href="{{ url_for('user.dashboard') }}" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left"></i> 返回用户中心
-                    </a>
+            </div>
+        </div>
+        
+        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1.1rem;">🔢 登录次数</h3>
+                    <p style="margin: 0; color: #666;">您的累计登录次数</p>
                 </div>
-            </form>
+                <div style="text-align: right;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">
+                        {{ user.login_count or 0 }} 次
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-</body>
-</html>
+</div>
+
+<!-- 账户操作 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">⚙️ 账户操作</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        {% if not user.is_active %}
+        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">⚠️ 账户未激活</h3>
+            <p style="margin: 0 0 1rem 0; color: #666;">您的账号尚未激活，请先激活账号才能使用预测功能。</p>
+            <a href="{{ url_for('auth.activate') }}" class="btn" style="background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+                🔑 立即激活
+            </a>
+        </div>
+        {% endif %}
+        
+        <div style="background: rgba(220, 53, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #dc3545;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #dc3545; font-size: 1.1rem;">🚪 退出登录</h3>
+            <p style="margin: 0 0 1rem 0; color: #666;">安全退出当前账户</p>
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-danger">
+                🚪 退出登录
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- 安全提示 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🛡️ 安全提示</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">🔒 密码安全</h3>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
+                <li>定期更换密码，建议每3个月更换一次</li>
+                <li>使用强密码，包含字母、数字和特殊字符</li>
+                <li>不要在多个网站使用相同密码</li>
+                <li>不要将密码告诉他人</li>
+            </ul>
+        </div>
+        
+        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">📧 邮箱安全</h3>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
+                <li>确保邮箱地址正确，用于接收重要通知</li>
+                <li>定期检查邮箱，及时处理系统通知</li>
+                <li>不要使用临时邮箱或他人邮箱</li>
+                <li>保护好邮箱密码，避免被他人盗用</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<style>
+.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    transition: border-color 0.3s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group label {
+    font-weight: 500;
+    color: #333;
+    font-size: 0.9rem;
+}
+
+.form-group small {
+    font-size: 0.8rem;
+    color: #666;
+}
+</style>
+{% endblock %}

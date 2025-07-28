@@ -1,550 +1,211 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>用户中心 - 六合彩数据分析系统</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <style>
-        :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-            --glass-bg: rgba(255, 255, 255, 0.25);
-            --text-primary: #2d3748;
-            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        }
+{% extends "user/base.html" %}
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+{% block page_title %}个人中心{% endblock %}
 
-        body {
-            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
-            background-attachment: fixed;
-            min-height: 100vh;
-            color: var(--text-primary);
-        }
-
-        .navbar {
-            background: var(--primary-gradient);
-            padding: 15px 0;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            z-index: 1000;
-        }
-
-        .navbar-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 20px;
-        }
-
-        .navbar-brand {
-            color: white;
-            font-size: 1.5rem;
-            font-weight: 700;
-            text-decoration: none;
-        }
-
-        .navbar-nav {
-            display: flex;
-            gap: 20px;
-            align-items: center;
-        }
-
-        .nav-link {
-            color: white;
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 20px;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 30px 20px;
-            margin-top: 80px;
-        }
-
-        .glass-card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: var(--shadow-light);
-            padding: 25px;
-            margin-bottom: 25px;
-            transition: all 0.3s ease;
-        }
-
-        .glass-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-        }
-
-        .welcome-section {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        .welcome-section h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 10px;
-        }
-
-        .welcome-section p {
-            font-size: 1.1rem;
-            color: #6c757d;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .stat-card {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 25px;
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            transition: all 0.3s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: var(--shadow-light);
-        }
-
-        .stat-icon {
-            font-size: 3rem;
-            margin-bottom: 15px;
-            background: var(--primary-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .stat-number {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 5px;
-        }
-
-        .stat-label {
-            color: #6c757d;
-            font-weight: 600;
-        }
-
-        .action-buttons {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-
-        .btn {
-            padding: 15px 25px;
-            border: none;
-            border-radius: 15px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            color: white;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-        }
-
-        .btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        .btn-primary { background: var(--primary-gradient); }
-        .btn-success { background: var(--success-gradient); }
-        .btn-warning { background: var(--warning-gradient); }
-        .btn-secondary { background: var(--secondary-gradient); }
-
-        .recent-predictions {
-            margin-top: 30px;
-        }
-
-        .section-title {
-            font-size: 1.8rem;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: var(--text-primary);
-        }
-
-        .prediction-item {
-            background: rgba(255, 255, 255, 0.7);
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            transition: all 0.3s ease;
-        }
-
-        .prediction-item:hover {
-            background: rgba(255, 255, 255, 0.9);
-            transform: translateY(-2px);
-        }
-
-        .prediction-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .prediction-meta {
-            font-size: 0.9rem;
-            color: #6c757d;
-        }
-
-        .prediction-numbers {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex-wrap: wrap;
-            margin-top: 10px;
-        }
-
-        .number-ball {
-            width: 35px;
-            height: 35px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 0.9rem;
-            position: relative;
-            flex-shrink: 0;
-            min-width: 35px;
-            min-height: 35px;
-        }
-        
-        .ball-tooltip {
-            display: none;
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            white-space: nowrap;
-            z-index: 10;
-        }
-        
-        .number-ball:hover .ball-tooltip {
-            display: block;
-        }
-        
-        .accuracy-badge {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            margin-left: 5px;
-        }
-        
-        .accuracy-hit {
-            background-color: #28a745;
-            color: white;
-        }
-        
-        .accuracy-miss {
-            background-color: #dc3545;
-            color: white;
-        }
-
-        .special-ball {
-            border: 2px solid #ffd700;
-            box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
-        }
-
-        .alert {
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .alert-warning {
-            background: rgba(255, 193, 7, 0.1);
-            color: #856404;
-            border: 1px solid rgba(255, 193, 7, 0.3);
-        }
-
-        .alert-info {
-            background: rgba(23, 162, 184, 0.1);
-            color: #0c5460;
-            border: 1px solid rgba(23, 162, 184, 0.3);
-        }
-
-        @media (max-width: 1200px) {
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        @media (max-width: 768px) {
-            .navbar-content {
-                flex-direction: column;
-                gap: 15px;
-            }
-
-            .navbar-nav {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-
-            .welcome-section h1 {
-                font-size: 2rem;
-            }
-
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .action-buttons {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-</head>
-<body>
-    <nav class="navbar">
-        <div class="navbar-content" style="justify-content: center; gap: 30px;">
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 数据分析
-            </a>
-            <a href="{{ url_for('user.predictions') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-history"></i> 预测记录
-            </a>
-            <a href="{{ url_for('user.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-tachometer-alt"></i> 用户中心
-            </a>
-            <a href="{{ url_for('user.invite_codes') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-gift"></i> 我的邀请码
-            </a>
-            <a href="{{ url_for('user.profile') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-user"></i> 个人资料
-            </a>
-            <a href="{{ url_for('user.profile') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-user"></i> 个人资料
-            </a>
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 返回首页
-            </a>
-            <a href="{{ url_for('auth.logout') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-sign-out-alt"></i> 退出登录
-            </a>
-        </div>
-    </nav>
-
-    <div class="container">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ 'warning' if category == 'warning' else 'info' }}">
-                        <i class="fas fa-{{ 'exclamation-triangle' if category == 'warning' else 'info-circle' }}"></i>
-                        {{ message }}
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-
-        {% if not user.is_active %}
-        <div class="alert alert-warning">
-            <i class="fas fa-exclamation-triangle"></i>
-            您的账号尚未激活，请先激活账号才能使用预测功能。
-            <a href="{{ url_for('auth.activate') }}" style="margin-left: 10px; color: #856404; text-decoration: underline;">
-                立即激活
-            </a>
-        </div>
-        {% endif %}
-
-        <div class="glass-card">
-            <div class="welcome-section">
-                <h1>欢迎回来，{{ user.username }}！</h1>
-                <p>您的专属六合彩数据分析中心</p>
-            </div>
-
-            <div class="stats-grid">
-                <!-- 第一行 -->
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-{{ 'check-circle' if user.is_active else 'times-circle' }}"></i>
-                    </div>
-                    <div class="stat-number">
-                        {% if user.activation_expires_at %}
-                            {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
-                        {% else %}
-                            永久
-                        {% endif %}
-                    </div>
-                    <div class="stat-label">到期时间</div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-chart-bar"></i>
-                    </div>
-                    <div class="stat-number">{{ stats.total_predictions }}</div>
-                    <div class="stat-label">总预测次数</div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-bullseye"></i>
-                    </div>
-                    <div class="stat-number">{{ stats.avg_accuracy }}%</div>
-                    <div class="stat-label">平均准确率</div>
-                </div>
-
-                <!-- 第二行 -->
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-dice"></i>
-                    </div>
-                    <div class="stat-number">{{ stats.random_accuracy }}%</div>
-                    <div class="stat-label">随机预测准确率</div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-balance-scale"></i>
-                    </div>
-                    <div class="stat-number">{{ stats.balanced_accuracy }}%</div>
-                    <div class="stat-label">均衡预测准确率</div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-brain"></i>
-                    </div>
-                    <div class="stat-number">{{ stats.ai_accuracy }}%</div>
-                    <div class="stat-label">AI智能预测准确率</div>
-                </div>
-            </div>
-
-            <div class="action-buttons">
-                <a href="{{ url_for('index') }}" class="btn btn-primary">
-                    <i class="fas fa-chart-line"></i> 开始分析预测
-                </a>
-                <a href="{{ url_for('user.predictions') }}" class="btn btn-success">
-                    <i class="fas fa-history"></i> 查看预测记录
-                </a>
-                <a href="{{ url_for('user.invite_codes') }}" class="btn btn-warning">
-                    <i class="fas fa-gift"></i> 我的邀请码
-                </a>
-                <a href="{{ url_for('chat_page') }}" class="btn btn-warning">
-                    <i class="fas fa-comments"></i> AI 智能聊天
-                </a>
-                <a href="{{ url_for('user.profile') }}" class="btn btn-secondary">
-                    <i class="fas fa-user-cog"></i> 个人设置
-                </a>
-            </div>
-        </div>
-
-        {% if stats.recent_predictions %}
-        <div class="glass-card">
-            <h2 class="section-title">
-                <i class="fas fa-clock"></i> 最近预测记录
-            </h2>
-            
-            {% for prediction in stats.recent_predictions %}
-            <div class="prediction-item">
-                <div class="prediction-header">
-                    <div>
-                        <strong>{{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩</strong>
-                        - 第{{ prediction.period }}期
-                        {% if prediction.strategy == 'random' %}
-                        <span style="color: #28a745;">[随机预测]</span>
-                        {% elif prediction.strategy == 'balanced' %}
-                        <span style="color: #ffc107;">[均衡预测]</span>
-                        {% else %}
-                        <span style="color: #dc3545;">[AI预测]</span>
-                        {% endif %}
-                    </div>
-                    <div class="prediction-meta">
-                        {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
-                    </div>
-                </div>
-                
-                <div class="prediction-numbers">
-                    {% for num in prediction.normal_numbers.split(',') %}
-                    {% set color = get_number_color(num) %}
-                    {% set zodiac = get_number_zodiac(num) %}
-                    <div class="number-ball" style="background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
-                        {{ num }}
-                        <div class="ball-tooltip">{{ zodiac }}</div>
-                    </div>
-                    {% endfor %}
-                    
-                    {% set special_color = get_number_color(prediction.special_number) %}
-                    <div class="number-ball special-ball" style="background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
-                        {{ prediction.special_number }}
-                        <div class="ball-tooltip">{{ prediction.special_zodiac }}</div>
-                    </div>
-                </div>
-                
-                <div style="margin-top: 8px; color: #6c757d;">
-                    特码生肖: {{ prediction.special_zodiac }}
-                    {% if prediction.accuracy_score != None and prediction.accuracy_score != '' %}
-                    <span class="accuracy-badge {% if prediction.accuracy_score > 0 %}accuracy-hit{% else %}accuracy-miss{% endif %}">
-                        {{ "命中" if prediction.accuracy_score > 0 else "未中" }}
-                    </span>
-                    {% endif %}
-                </div>
-            </div>
-            {% endfor %}
-            
-            <div style="text-align: center; margin-top: 20px;">
-                <a href="{{ url_for('user.predictions') }}" class="btn btn-primary">
-                    <i class="fas fa-list"></i> 查看全部记录
-                </a>
-            </div>
-        </div>
-        {% endif %}
+{% block content %}
+<!-- 统计信息 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
+        <div class="stat-number">{{ stats.total_predictions }}</div>
+        <div class="stat-label">总预测次数</div>
     </div>
-</body>
-</html>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">🎯</div>
+        <div class="stat-number">{{ stats.avg_accuracy }}%</div>
+        <div class="stat-label">平均准确率</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">⏰</div>
+        <div class="stat-number">
+            {% if user.valid_until %}
+                {{ user.valid_until.strftime('%Y-%m-%d') }}
+            {% else %}
+                永久
+            {% endif %}
+        </div>
+        <div class="stat-label">有效期至</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">
+            {% if user.is_active %}✅{% else %}❌{% endif %}
+        </div>
+        <div class="stat-number">{{ "已激活" if user.is_active else "未激活" }}</div>
+        <div class="stat-label">账户状态</div>
+    </div>
+</div>
+
+<!-- 快速操作 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🚀 快速操作</h2>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+        <a href="{{ url_for('index') }}" class="btn" style="display: flex; align-items: center; justify-content: center; text-align: center;">
+            🎯 开始预测
+        </a>
+        
+        <a href="{{ url_for('user.predictions') }}" class="btn btn-success" style="display: flex; align-items: center; justify-content: center; text-align: center;">
+            📊 预测记录
+        </a>
+        
+        <a href="{{ url_for('user.profile') }}" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; text-align: center; background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+            ⚙️ 个人设置
+        </a>
+    </div>
+</div>
+
+<!-- 预测策略准确率 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📈 预测策略准确率</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">🎲 随机预测</h3>
+                    <p style="margin: 0; color: #666; font-size: 0.9rem;">基于随机算法的预测策略</p>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #28a745;">{{ stats.random_accuracy }}%</div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">⚖️ 均衡预测</h3>
+                    <p style="margin: 0; color: #666; font-size: 0.9rem;">基于历史数据均衡分析的预测策略</p>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #ffc107;">{{ stats.balanced_accuracy }}%</div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">🤖 AI智能预测</h3>
+                    <p style="margin: 0; color: #666; font-size: 0.9rem;">基于人工智能算法的预测策略</p>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 2rem; font-weight: 700; color: #17a2b8;">{{ stats.ai_accuracy }}%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 最近预测记录 -->
+{% if stats.recent_predictions %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📋 最近预测记录</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        {% for prediction in stats.recent_predictions %}
+        <div style="background: white; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); border-left: 4px solid #667eea;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <div>
+                    <h3 style="margin: 0; color: #333; font-size: 1.1rem;">
+                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
+                    </h3>
+                    <p style="margin: 0.25rem 0 0 0; color: #666; font-size: 0.9rem;">
+                        {% if prediction.strategy == 'random' %}
+                        🎲 随机预测
+                        {% elif prediction.strategy == 'balanced' %}
+                        ⚖️ 均衡预测
+                        {% else %}
+                        🤖 AI预测
+                        {% endif %}
+                    </p>
+                </div>
+                <div style="text-align: right; color: #666; font-size: 0.9rem;">
+                    {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
+                {% for num in prediction.normal_numbers.split(',') %}
+                {% set color = get_number_color(num) %}
+                <div style="width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem; background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
+                    {{ num }}
+                </div>
+                {% endfor %}
+                
+                {% set special_color = get_number_color(prediction.special_number) %}
+                <div style="width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem; background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %}; border: 2px solid #ffd700; box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);">
+                    {{ prediction.special_number }}
+                </div>
+            </div>
+            
+            <div style="color: #666; font-size: 0.9rem;">
+                特码生肖: {{ prediction.special_zodiac }}
+                {% if prediction.accuracy_score != None and prediction.accuracy_score != '' %}
+                <span style="margin-left: 0.5rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
+                    {{ "命中" if prediction.accuracy_score > 0 else "未中" }}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <div style="text-align: center; margin-top: 1.5rem;">
+            <a href="{{ url_for('index') }}" class="btn">
+            📊 查看全部记录
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- 账户提醒 -->
+{% if not user.is_active %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">⚠️ 账户提醒</h2>
+    </div>
+    
+    <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+        <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">账户未激活</h3>
+        <p style="margin: 0 0 1rem 0; color: #666;">您的账号尚未激活，请先激活账号才能使用预测功能。</p>
+        <a href="{{ url_for('auth.activate') }}" class="btn" style="background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+            🔑 立即激活
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- 使用说明 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📖 使用说明</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1.1rem;">🎯 预测功能</h3>
+            <p style="margin: 0; color: #666;">支持香港和澳门六合彩预测，提供三种预测策略：随机预测、均衡预测和AI智能预测。</p>
+        </div>
+        
+        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">📊 记录管理</h3>
+            <p style="margin: 0; color: #666;">自动保存您的预测记录，支持查看历史预测和准确率统计分析。</p>
+        </div>
+        
+        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">⚙️ 个人设置</h3>
+            <p style="margin: 0; color: #666;">可以修改个人信息、密码，查看账户状态和有效期信息。</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,265 @@
+{% extends "user/base.html" %}
+
+{% block page_title %}数据分析{% endblock %}
+
+{% block content %}
+<!-- 总体统计 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
+        <div class="stat-number">{{ total_predictions or 0 }}</div>
+        <div class="stat-label">总预测次数</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
+        <div class="stat-number">{{ correct_predictions or 0 }}</div>
+        <div class="stat-label">预测正确</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">❌</div>
+        <div class="stat-number">{{ wrong_predictions or 0 }}</div>
+        <div class="stat-label">预测错误</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">📈</div>
+        <div class="stat-number">{{ accuracy or 0 }}%</div>
+        <div class="stat-label">总体准确率</div>
+    </div>
+</div>
+
+<!-- 策略分析 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🎯 预测策略分析</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; color: #667eea; font-size: 1.2rem;">🎲 随机预测策略</h3>
+                <span style="background: #667eea; color: white; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem; font-weight: 500;">
+                    {{ random_accuracy or 0 }}% 准确率
+                </span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">{{ random_total or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">总次数</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">{{ random_correct or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">正确次数</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc3545;">{{ random_wrong or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">错误次数</div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; color: #28a745; font-size: 1.2rem;">⚖️ 均衡预测策略</h3>
+                <span style="background: #28a745; color: white; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem; font-weight: 500;">
+                    {{ balanced_accuracy or 0 }}% 准确率
+                </span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">{{ balanced_total or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">总次数</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">{{ balanced_correct or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">正确次数</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc3545;">{{ balanced_wrong or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">错误次数</div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; color: #ffc107; font-size: 1.2rem;">🤖 AI智能预测</h3>
+                <span style="background: #ffc107; color: white; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem; font-weight: 500;">
+                    {{ ai_accuracy or 0 }}% 准确率
+                </span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #ffc107;">{{ ai_total or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">总次数</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">{{ ai_correct or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">正确次数</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc3545;">{{ ai_wrong or 0 }}</div>
+                    <div style="font-size: 0.8rem; color: #666;">错误次数</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 时间趋势分析 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📈 预测趋势分析</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
+            <h3 style="margin: 0 0 1rem 0; color: #17a2b8; font-size: 1.1rem;">📅 最近7天预测情况</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 1rem;">
+                {% for day in recent_days %}
+                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
+                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">{{ day.date }}</div>
+                    <div style="font-size: 1.2rem; font-weight: 700; color: #17a2b8;">{{ day.count }}</div>
+                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+            <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem;">🕐 预测时间分布</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
+                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">上午 (6-12点)</div>
+                    <div style="font-size: 1.2rem; font-weight: 700; color: #667eea;">{{ morning_predictions or 0 }}</div>
+                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
+                </div>
+                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
+                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">下午 (12-18点)</div>
+                    <div style="font-size: 1.2rem; font-weight: 700; color: #28a745;">{{ afternoon_predictions or 0 }}</div>
+                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
+                </div>
+                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
+                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">晚上 (18-24点)</div>
+                    <div style="font-size: 1.2rem; font-weight: 700; color: #ffc107;">{{ evening_predictions or 0 }}</div>
+                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
+                </div>
+                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
+                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">深夜 (0-6点)</div>
+                    <div style="font-size: 1.2rem; font-weight: 700; color: #6c757d;">{{ night_predictions or 0 }}</div>
+                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 号码分析 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🔢 号码分析</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(220, 53, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #dc3545;">
+            <h3 style="margin: 0 0 1rem 0; color: #dc3545; font-size: 1.1rem;">🎯 最常预测的号码</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                {% for num in most_predicted_numbers %}
+                <div style="display: flex; align-items: center; gap: 0.5rem; background: white; padding: 0.5rem 1rem; border-radius: 20px;">
+                    <span style="background: #dc3545; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.8rem;">
+                        {{ num.number }}
+                    </span>
+                    <span style="font-size: 0.8rem; color: #666;">{{ num.count }}次</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+            <h3 style="margin: 0 0 1rem 0; color: #28a745; font-size: 1.1rem;">⭐ 最常预测的特码</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                {% for num in most_predicted_specials %}
+                <div style="display: flex; align-items: center; gap: 0.5rem; background: white; padding: 0.5rem 1rem; border-radius: 20px;">
+                    <span style="background: #28a745; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.9rem;">
+                        {{ num.number }}
+                    </span>
+                    <span style="font-size: 0.8rem; color: #666;">{{ num.count }}次</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 建议和提示 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">💡 智能建议</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        {% if accuracy < 30 %}
+        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">⚠️ 准确率提升建议</h3>
+            <p style="margin: 0; color: #666;">您的预测准确率较低，建议尝试不同的预测策略，或者分析历史数据寻找规律。</p>
+        </div>
+        {% elif accuracy > 70 %}
+        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">🎉 预测表现优秀</h3>
+            <p style="margin: 0; color: #666;">您的预测准确率很高！继续保持当前的预测策略，并可以尝试更具挑战性的预测。</p>
+        </div>
+        {% endif %}
+        
+        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">📊 数据分析提示</h3>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
+                <li>定期查看预测趋势，了解自己的预测习惯</li>
+                <li>比较不同策略的效果，选择最适合的方法</li>
+                <li>关注号码出现频率，但不要过度依赖历史数据</li>
+                <li>保持理性预测，避免情绪化决策</li>
+            </ul>
+        </div>
+        
+        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1.1rem;">🎯 预测技巧</h3>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
+                <li><strong>随机策略</strong>：适合新手，无需复杂分析</li>
+                <li><strong>均衡策略</strong>：基于统计学原理，相对稳定</li>
+                <li><strong>AI智能</strong>：利用机器学习，适合有经验的用户</li>
+                <li><strong>组合使用</strong>：可以结合多种策略提高准确率</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- 快速操作 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">⚡ 快速操作</h2>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+        <a href="{{ url_for('index') }}" class="btn" style="padding: 1.5rem; text-align: center; flex-direction: column; gap: 0.5rem;">
+            <div style="font-size: 2rem;">🎯</div>
+            <div>开始新预测</div>
+        </a>
+        
+        <a href="{{ url_for('user.predictions') }}" class="btn" style="padding: 1.5rem; text-align: center; flex-direction: column; gap: 0.5rem; background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
+            <div style="font-size: 2rem;">📋</div>
+            <div>查看预测记录</div>
+        </a>
+        
+        <a href="{{ url_for('user.profile') }}" class="btn" style="padding: 1.5rem; text-align: center; flex-direction: column; gap: 0.5rem; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
+            <div style="font-size: 2rem;">👤</div>
+            <div>个人设置</div>
+        </a>
+        
+        <a href="{{ url_for('user.invite_codes') }}" class="btn" style="padding: 1.5rem; text-align: center; flex-direction: column; gap: 0.5rem; background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+            <div style="font-size: 2rem;">🎫</div>
+            <div>邀请码管理</div>
+        </a>
+    </div>
+</div>
+{% endblock %}
