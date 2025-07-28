@@ -285,27 +285,19 @@
         }
 
         @media (max-width: 768px) {
+        @media (max-width: 768px) {
             .navbar-content {
-                flex-direction: column;
-                gap: 15px;
-            }
-
-            .navbar-nav {
                 flex-wrap: wrap;
-                justify-content: center;
+                gap: 15px;
             }
 
             .page-header h1 {
                 font-size: 2rem;
             }
 
-            .section-title {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 15px;
-            }
-
             .action-buttons {
+                flex-direction: column;
+                align-items: stretch;
                 width: 100%;
                 justify-content: flex-start;
             }
@@ -371,7 +363,8 @@
                         <i class="fas fa-file-csv"></i> 导出CSV
                     </a>
                     <a href="{{ url_for('admin.export_users_json') }}" class="btn btn-warning">
-                        <i class="fas fa-file-code"></i> 导出JSON
+                    <a href="{{ url_for('admin.export_users') }}" class="btn btn-warning">
+                        <i class="fas fa-file-csv"></i> 导出CSV
                     </a>
                     <a href="{{ url_for('admin.import_users') }}" class="btn btn-primary">
                         <i class="fas fa-file-import"></i> 导入用户
@@ -395,7 +388,7 @@
                     </thead>
                     <tbody>
                         {% for user in users.items %}
-                        <tr>
+                        {% for user in users.items %}
                         <tr>
                             <td>{{ user.id }}</td>
                             <td>{{ user.username }}</td>
@@ -434,11 +427,12 @@
                                 {% endif %}
                             </td>
                             <td>
+                            <td>
                                 <div style="display: flex; gap: 5px; justify-content: center;">
                                     <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-primary" style="padding: 5px 10px; font-size: 0.8rem;">
                                         <i class="fas fa-edit"></i> 编辑
                                     </a>
-                                    {% if not user.is_admin or (user.is_admin and users.total > 1) %}
+                                    {% if not user.is_admin %}
                                     <form method="POST" action="{{ url_for('admin.delete_user', user_id=user.id) }}" style="display: inline;" onsubmit="return confirm('确定要删除用户 {{ user.username }} 吗？')">
                                         <button type="submit" class="btn btn-danger" style="padding: 5px 10px; font-size: 0.8rem;">
                                             <i class="fas fa-trash"></i> 删除
