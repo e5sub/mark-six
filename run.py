@@ -20,14 +20,8 @@ def main():
         init_database()
         print("✓ 数据库初始化完成")
         
-        # 检查数据文件
-        if not os.path.exists('data/hk.json'):
-            print("正在下载香港六合彩数据...")
-            from app import update_hk_data_from_source
-            if update_hk_data_from_source():
-                print("✓ 数据下载完成")
-            else:
-                print("⚠ 数据下载失败，将在首次访问时重试")
+        # 香港六合彩数据将在首次访问时自动从API获取
+        print("✓ 数据将在首次访问时自动获取")
         
         print("\n系统信息:")
         print("- 默认管理员账号: admin")

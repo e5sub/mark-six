@@ -36,7 +36,7 @@ def dashboard():
     recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
         .order_by(PredictionRecord.created_at.desc()).limit(5).all()
     
-    # 计算不同策略的准确率（只对比特码）
+    # 计算不同策略的准确率（对比特码和生肖）
     def calculate_user_accuracy(strategy=None):
         query = PredictionRecord.query.filter_by(user_id=user.id, is_result_updated=True)
         if strategy:
@@ -46,16 +46,27 @@ def dashboard():
         if not predictions:
             return 0.0
         
-        correct_count = 0
+        total_score = 0.0
         total_count = 0
         
         for pred in predictions:
             if pred.actual_special_number and pred.special_number:
                 total_count += 1
-                if pred.special_number == pred.actual_special_number:
-                    correct_count += 1
+                
+                # 特码号码是否命中
+                special_hit = 1 if pred.special_number == pred.actual_special_number else 0
+                
+                # 特码生肖是否命中
+                zodiac_hit = 0
+                if hasattr(pred, 'special_zodiac') and hasattr(pred, 'actual_special_zodiac') and pred.special_zodiac and pred.actual_special_zodiac:
+                    zodiac_hit = 1 if pred.special_zodiac == pred.actual_special_zodiac else 0
+                
+                # 计算该预测的准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
+                accuracy = (special_hit * 0.7) + (zodiac_hit * 0.3)
+                total_score += accuracy
         
-        return round(correct_count / total_count * 100, 1) if total_count > 0 else 0.0
+        # 返回平均准确率
+        return round((total_score / total_count) * 100, 1) if total_count > 0 else 0.0
     
     # 计算各种准确率
     avg_accuracy = calculate_user_accuracy()

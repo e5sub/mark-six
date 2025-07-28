@@ -411,7 +411,7 @@ def draws_api():
     return jsonify(data[:20])
 
 def update_prediction_accuracy(data, region):
-    """更新预测准确率"""
+    """更新预测准确率 - 只比较特码和生肖"""
     try:
         # 获取所有该地区的预测记录
         predictions = PredictionRecord.query.filter_by(region=region).all()
@@ -423,13 +423,18 @@ def update_prediction_accuracy(data, region):
             if not period:
                 continue
             
-            normal_numbers = [str(n) for n in draw.get('no', [])]
             special_number = str(draw.get('sno', ''))
+            # 获取特码生肖
+            special_zodiac = ""
+            if region == 'hk':
+                special_zodiac = _get_hk_number_zodiac(special_number)
+            else:
+                special_zodiac = draw.get('sno_zodiac', '') or _get_hk_number_zodiac(special_number)
             
-            if normal_numbers and special_number:
+            if special_number:
                 draw_results[period] = {
-                    'normal': normal_numbers,
-                    'special': special_number
+                    'special': special_number,
+                    'special_zodiac': special_zodiac
                 }
         
         # 更新每条预测记录的准确率
@@ -443,22 +448,23 @@ def update_prediction_accuracy(data, region):
             if not result:
                 continue
                 
-            # 计算准确率
-            pred_normal = pred.normal_numbers.split(',')
+            # 获取预测特码和生肖
             pred_special = pred.special_number
+            pred_zodiac = pred.special_zodiac
             
-            # 计算正码命中数
-            normal_hits = len(set(pred_normal) & set(result['normal']))
-            
-            # 特码是否命中
+            # 特码号码是否命中
             special_hit = 1 if pred_special == result['special'] else 0
             
-            # 计算总准确率 (正码命中数 / 6 * 0.7 + 特码命中 * 0.3)
-            accuracy = (normal_hits / 6 * 0.7) + (special_hit * 0.3)
+            # 特码生肖是否命中
+            zodiac_hit = 1 if pred_zodiac and pred_zodiac == result['special_zodiac'] else 0
+            
+            # 计算总准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
+            accuracy = (special_hit * 0.7) + (zodiac_hit * 0.3)
             
             # 更新预测记录
-            pred.actual_normal_numbers = ','.join(result['normal'])
+            pred.actual_normal_numbers = ''  # 不再需要保存正码
             pred.actual_special_number = result['special']
+            pred.actual_special_zodiac = result['special_zodiac']
             pred.accuracy_score = accuracy
             pred.is_result_updated = True
         

@@ -147,6 +147,7 @@ class PredictionRecord(db.Model):
     # 预测准确率相关字段
     actual_normal_numbers = db.Column(db.String(50))  # 实际开奖正码
     actual_special_number = db.Column(db.String(10))  # 实际开奖特码
+    actual_special_zodiac = db.Column(db.String(10))  # 实际开奖特码生肖
     accuracy_score = db.Column(db.Float)  # 准确率分数 (0-1)
     is_result_updated = db.Column(db.Boolean, default=False)  # 是否已更新开奖结果
 

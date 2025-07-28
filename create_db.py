@@ -80,6 +80,7 @@ CREATE TABLE prediction_record (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     actual_normal_numbers VARCHAR(50),
     actual_special_number VARCHAR(10),
+    actual_special_zodiac VARCHAR(10),
     accuracy_score FLOAT,
     is_result_updated BOOLEAN DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES user (id)

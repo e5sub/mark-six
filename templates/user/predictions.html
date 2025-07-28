@@ -94,11 +94,15 @@
                 <div>
                     <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
                         <h3 style="margin: 0; color: #667eea; font-size: 1.1rem;">
-                            📅 {% if prediction.created_at %}{{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}未知时间{% endif %}
+                            {% if prediction.region == 'hk' %}香港{% else %}澳门{% endif %}六合彩 - 第{{ prediction.period }}期
                         </h3>
                         <span style="background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.8rem;">
                             {{ prediction.strategy or '未知策略' }}
                         </span>
+                    </div>
+                    
+                    <div style="margin-bottom: 0.5rem; color: #666; font-size: 0.9rem;">
+                        📅 {% if prediction.created_at %}{{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}未知时间{% endif %}
                     </div>
                     
                     <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">

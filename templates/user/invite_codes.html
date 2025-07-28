@@ -15,30 +15,18 @@
                 </div>
                 <div class="card-body">
                     <!-- 统计信息 -->
-                    <div class="row mb-4">
-                        <div class="col-md-4">
-                            <div class="card bg-primary text-white">
-                                <div class="card-body text-center">
-                                    <h3>{{ stats.total_invites }}</h3>
-                                    <p class="mb-0">总邀请数</p>
-                                </div>
-                            </div>
+                    <div class="stats-container mb-4">
+                        <div class="stat-item">
+                            <div class="stat-number text-primary">{{ stats.total_invites }}</div>
+                            <div class="stat-label">总邀请数</div>
                         </div>
-                        <div class="col-md-4">
-                            <div class="card bg-success text-white">
-                                <div class="card-body text-center">
-                                    <h3>{{ stats.active_invites }}</h3>
-                                    <p class="mb-0">成功激活</p>
-                                </div>
-                            </div>
+                        <div class="stat-item">
+                            <div class="stat-number text-success">{{ stats.active_invites }}</div>
+                            <div class="stat-label">成功激活</div>
                         </div>
-                        <div class="col-md-4">
-                            <div class="card bg-info text-white">
-                                <div class="card-body text-center">
-                                    <h3>{{ stats.success_rate }}%</h3>
-                                    <p class="mb-0">成功率</p>
-                                </div>
-                            </div>
+                        <div class="stat-item">
+                            <div class="stat-number text-info">{{ stats.success_rate }}%</div>
+                            <div class="stat-label">成功率</div>
                         </div>
                     </div>
 
@@ -204,6 +192,34 @@
 .card-header {
     background-color: #f8f9fa;
     border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+/* 统计信息样式 */
+.stats-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 30px;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 0 15px;
+}
+
+.stat-number {
+    font-size: 2.5rem;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-top: 5px;
 }
 </style>
 
