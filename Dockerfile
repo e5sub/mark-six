@@ -25,9 +25,6 @@ RUN mkdir -p /app/data && chmod 777 /app/data
 # 复制项目文件
 COPY . .
 
-# 初始化数据库
-RUN python -c "from app import app, init_database; app.app_context().push(); init_database()"
-
 # 暴露端口
 EXPOSE 5000
 
