@@ -104,30 +104,59 @@ def activation_codes():
 @admin_bp.route('/generate-codes', methods=['POST'])
 @admin_required
 def generate_codes():
-    count = request.form.get('count', 1, type=int)
-    validity_type = request.form.get('validity_type', 'permanent')
-    
-    if count < 1 or count > 100:
-        flash('生成数量必须在1-100之间', 'error')
-        return redirect(url_for('admin.activation_codes'))
-    
     try:
-        generated_codes = []
-        for _ in range(count):
-            # 生成唯一的激活码
-            while True:
-                new_code = ActivationCode.generate_code()
-                # 检查是否已存在
-                existing = ActivationCode.query.filter_by(code=new_code).first()
-                if not existing:
-                    break
-            
-            code = ActivationCode(code=new_code)
-            code.set_validity(validity_type)
-            db.session.add(code)
-            generated_codes.append(new_code)
+        count = request.form.get('count', 1, type=int)
+        validity_type = request.form.get('validity_type', 'permanent')
         
+        print(f"接收到的参数: count={count}, validity_type={validity_type}")  # 调试信息
+        
+        if count < 1 or count > 100:
+            flash('生成数量必须在1-100之间', 'error')
+            return redirect(url_for('admin.activation_codes'))
+        
+        generated_codes = []
+        for i in range(count):
+            print(f"正在生成第 {i+1} 个激活码...")  # 调试信息
+            
+            # 生成唯一的激活码
+            max_attempts = 10
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    new_code = ActivationCode.generate_code()
+                    print(f"生成的激活码: {new_code}")  # 调试信息
+                    
+                    # 检查是否已存在
+                    existing = ActivationCode.query.filter_by(code=new_code).first()
+                    if not existing:
+                        break
+                    attempts += 1
+                except Exception as e:
+                    print(f"生成激活码时出错: {e}")
+                    attempts += 1
+            
+            if attempts >= max_attempts:
+                raise Exception("无法生成唯一的激活码，请稍后重试")
+            
+            # 创建激活码对象
+            try:
+                code = ActivationCode(code=new_code)
+                print(f"创建激活码对象成功: {new_code}")  # 调试信息
+                
+                code.set_validity(validity_type)
+                print(f"设置有效期成功: {validity_type}")  # 调试信息
+                
+                db.session.add(code)
+                generated_codes.append(new_code)
+                print(f"添加到数据库会话成功")  # 调试信息
+            except Exception as e:
+                print(f"创建激活码对象时出错: {e}")
+                raise e
+        
+        # 提交到数据库
+        print("正在提交到数据库...")  # 调试信息
         db.session.commit()
+        print("数据库提交成功")  # 调试信息
         
         validity_text = {
             'day': '1天',
@@ -138,10 +167,19 @@ def generate_codes():
         }.get(validity_type, '永久')
         
         flash(f'成功生成 {count} 个激活码（有效期：{validity_text}）', 'success')
+        
     except Exception as e:
-        db.session.rollback()
+        print(f"生成激活码过程中出现错误: {e}")  # 详细错误信息
+        import traceback
+        print(f"错误堆栈: {traceback.format_exc()}")  # 打印完整错误堆栈
+        
+        try:
+            db.session.rollback()
+            print("数据库回滚成功")
+        except Exception as rollback_error:
+            print(f"数据库回滚失败: {rollback_error}")
+        
         flash(f'生成失败：{str(e)}', 'error')
-        print(f"生成激活码时出错: {e}")  # 添加调试信息
     
     return redirect(url_for('admin.activation_codes'))
 
