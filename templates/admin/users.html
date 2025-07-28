@@ -84,36 +84,37 @@
             margin-bottom: 25px;
             transition: all 0.3s ease;
         }
-
-        .glass-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
         }
 
-        .page-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
+        @media (max-width: 768px) {
+            .navbar-content {
+                flex-direction: column;
+                gap: 15px;
+            }
 
-        .page-header h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 10px;
-        }
+            .navbar-nav {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
 
-        .page-header p {
-            font-size: 1.1rem;
-            color: #6c757d;
-        }
+            .page-header h1 {
+                font-size: 2rem;
+            }
 
-        .section-title {
-            font-size: 1.8rem;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            .action-buttons {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .table th, .table td {
+                padding: 8px 5px;
+                font-size: 0.8rem;
+            }
+
+            .btn {
+                padding: 8px 12px;
+                font-size: 0.8rem;
+            }
         }
 
         .action-buttons {
@@ -443,12 +444,14 @@
                             </td>
                         </tr>
                         {% else %}
+                        {% else %}
                         <tr>
-                            <td colspan="8" style="text-align: center; padding: 40px; color: #6c757d;">
+                            <td colspan="7" style="text-align: center; padding: 40px; color: #6c757d;">
                                 <i class="fas fa-users" style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;"></i>
                                 <br>暂无用户数据
                             </td>
                         </tr>
+                        {% endfor %}
                         {% endfor %}
                     </tbody>
                 </table>
