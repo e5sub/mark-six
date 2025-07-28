@@ -1,4 +1,6 @@
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask_login import LoginManager, current_user
 import json
 import os
 import random
@@ -80,7 +82,18 @@ print(f"数据库路径: {db_path}")
 print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
 
 # 初始化数据库
+# 初始化数据库
 db.init_app(app)
+
+# 初始化Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'auth.login'
+login_manager.login_message = '请先登录以访问此页面。'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 # 注册蓝图
 app.register_blueprint(auth_bp, url_prefix='/auth')
