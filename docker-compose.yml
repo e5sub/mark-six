@@ -7,7 +7,7 @@ services:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
     volumes: 
-      - /opt/mark-six:/app
+      - /opt/mark-six/data:/app/data
     ports:
       - "5000:5000"
     restart: unless-stopped

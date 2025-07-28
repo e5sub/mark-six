@@ -64,9 +64,18 @@ from user import user_bp
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this-in-production'  # 请在生产环境中更改此密钥
 
+# 确保数据目录存在
+import os
+data_dir = os.path.join(os.getcwd(), 'data')
+os.makedirs(data_dir, exist_ok=True)
+
 # 数据库配置
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///data/lottery_system.db'
+db_path = os.path.join(data_dir, 'lottery_system.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+print(f"数据库路径: {db_path}")
+print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
 
 # 初始化数据库
 db.init_app(app)
