@@ -36,12 +36,17 @@ class User(db.Model):
         return datetime.utcnow() > self.activation_expires_at
     
     def extend_activation(self, days):
-        """延长激活时间"""
-        if self.activation_expires_at and not self.is_activation_expired():
-            # 如果当前激活未过期，在现有时间基础上延长
-            self.activation_expires_at += timedelta(days=days)
-        else:
-            # 如果已过期或首次激活，从当前时间开始计算
+        """延长激活有效期"""
+        try:
+            if hasattr(self, 'activation_expires_at') and self.activation_expires_at:
+                # 如果已有有效期，在现有基础上延长
+                self.activation_expires_at += timedelta(days=days)
+            else:
+                # 如果没有有效期，从当前时间开始计算
+                self.activation_expires_at = datetime.utcnow() + timedelta(days=days)
+        except Exception as e:
+            print(f"延长激活有效期时出错: {e}")
+            # 如果出错，至少设置一个基本的有效期
             self.activation_expires_at = datetime.utcnow() + timedelta(days=days)
     
     def set_permanent_activation(self):
@@ -182,7 +187,7 @@ class InviteCode(db.Model):
             return False, "不能使用自己创建的邀请码"
         
         # 检查用户是否已经使用过邀请码
-        if user.invite_code_used:
+        if hasattr(user, 'invite_code_used') and user.invite_code_used:
             return False, "您已经使用过邀请码，每个用户只能使用一次"
         
         try:
@@ -192,31 +197,36 @@ class InviteCode(db.Model):
             self.used_at = datetime.utcnow()
             
             # 更新被邀请人信息
-            user.invited_by = self.created_by
-            user.invite_code_used = self.code
-            user.invite_activated_at = datetime.utcnow()
+            if hasattr(user, 'invited_by'):
+                user.invited_by = self.created_by
+            if hasattr(user, 'invite_code_used'):
+                user.invite_code_used = self.code
+            if hasattr(user, 'invite_activated_at'):
+                user.invite_activated_at = datetime.utcnow()
             
-            # 给被邀请人增加1天有效期
+            # 给被邀请人增加1天有效期并激活
             user.extend_activation(1)
             user.is_active = True
             
-            # 查找邀请人
+            # 查找邀请人并给予奖励
             inviter = User.query.filter_by(username=self.created_by).first()
             if inviter:
                 # 给邀请人增加1天有效期
                 inviter.extend_activation(1)
                 
-                # 如果被邀请人首次激活且不是永久用户，邀请人获得被邀请人有效期的一半
-                if user.activation_expires_at and not inviter.activation_expires_at:
+                # 如果被邀请人有有效期且邀请人不是永久用户，给予额外奖励
+                if (hasattr(user, 'activation_expires_at') and user.activation_expires_at and 
+                    hasattr(inviter, 'activation_expires_at') and inviter.activation_expires_at):
                     # 计算被邀请人的剩余有效期天数
                     remaining_days = (user.activation_expires_at - datetime.utcnow()).days
                     if remaining_days > 0:
                         bonus_days = max(1, remaining_days // 2)  # 至少1天
                         inviter.extend_activation(bonus_days)
             
-            return True, "邀请码使用成功"
+            return True, "邀请码使用成功，您和邀请人都获得了1天有效期"
             
         except Exception as e:
+            db.session.rollback()
             return False, f"使用邀请码时出错: {str(e)}"
     
     def __repr__(self):
