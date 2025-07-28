@@ -1,40 +1,57 @@
 {% extends "user/base.html" %}
 
-{% block page_title %}我的邀请码{% endblock %}
+{% block page_title %}邀请码管理{% endblock %}
 
 {% block content %}
+<!-- 添加Font Awesome图标库 -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 <div class="container mt-4">
     <div class="row">
         <div class="col-md-12">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h4 class="mb-0">🎫 我的邀请码</h4>
-                    <button type="button" class="btn btn-primary" onclick="generateInviteCode()">
-                        生成新邀请码
+            <!-- 页面标题和统计信息 -->
+            <div class="page-header-wrapper mb-4">
+                <div class="page-header d-flex justify-content-between align-items-center">
+                    <h2 class="mb-0">🎫 我的邀请码</h2>
+                    <button type="button" class="btn-generate" onclick="generateInviteCode()">
+                        <i class="fas fa-plus-circle me-2"></i>生成新邀请码
                     </button>
                 </div>
-                <div class="card-body">
-                    <!-- 统计信息 -->
-                    <div class="stats-container mb-4">
-                        <div class="stat-item">
-                            <div class="stat-number text-primary">{{ stats.total_invites }}</div>
+                
+                <!-- 统计信息卡片 -->
+                <div class="stats-cards mt-4">
+                    <div class="stat-card stat-total">
+                        <div class="stat-icon"><i class="fas fa-ticket-alt"></i></div>
+                        <div class="stat-content">
+                            <div class="stat-number">{{ stats.total_invites }}</div>
                             <div class="stat-label">总邀请数</div>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-number text-success">{{ stats.active_invites }}</div>
+                    </div>
+                    <div class="stat-card stat-active">
+                        <div class="stat-icon"><i class="fas fa-user-check"></i></div>
+                        <div class="stat-content">
+                            <div class="stat-number">{{ stats.active_invites }}</div>
                             <div class="stat-label">成功激活</div>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-number text-info">{{ stats.success_rate }}%</div>
+                    </div>
+                    <div class="stat-card stat-rate">
+                        <div class="stat-icon"><i class="fas fa-chart-line"></i></div>
+                        <div class="stat-content">
+                            <div class="stat-number">{{ stats.success_rate }}%</div>
                             <div class="stat-label">成功率</div>
                         </div>
                     </div>
+                </div>
+            </div>
 
-                    <!-- 邀请码列表 -->
-                    <h5>我的邀请码</h5>
+            <!-- 邀请码列表 -->
+            <div class="card invite-codes-card">
+                <div class="card-header">
+                    <h4 class="mb-0"><i class="fas fa-list me-2"></i>邀请码列表</h4>
+                </div>
+                <div class="card-body">
                     {% if codes.items %}
                         <div class="table-responsive">
-                            <table class="table table-striped">
+                            <table class="table invite-codes-table">
                                 <thead>
                                     <tr>
                                         <th>邀请码</th>
@@ -49,28 +66,56 @@
                                     {% for code in codes.items %}
                                     <tr>
                                         <td>
-                                            <code class="invite-code">{{ code.code }}</code>
-                                            <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyCode('{{ code.code }}')">
-                                                复制
-                                            </button>
+                                            <div class="code-display">
+                                                <span class="invite-code">{{ code.code }}</span>
+                                                <button class="btn-copy" onclick="copyCode('{{ code.code }}')">
+                                                    <i class="fas fa-copy"></i>
+                                                </button>
+                                            </div>
                                         </td>
                                         <td>
                                             {% if code.is_used %}
-                                                <span class="badge bg-success">已使用</span>
-                        {% elif code.is_expired() %}
-                                                <span class="badge bg-danger">已过期</span>
+                                                <span class="status-badge status-used">
+                                                    <i class="fas fa-check-circle me-1"></i>已使用
+                                                </span>
+                                            {% elif code.is_expired() %}
+                                                <span class="status-badge status-expired">
+                                                    <i class="fas fa-times-circle me-1"></i>已过期
+                                                </span>
                                             {% else %}
-                                                <span class="badge bg-primary">可用</span>
+                                                <span class="status-badge status-active">
+                                                    <i class="fas fa-check-circle me-1"></i>可用
+                                                </span>
                                             {% endif %}
                                         </td>
-                                        <td>{{ code.created_at.strftime('%Y-%m-%d %H:%M') if code.created_at else '-' }}</td>
-                                        <td>{{ code.expires_at.strftime('%Y-%m-%d %H:%M') if code.expires_at else '永久' }}</td>
-                                        <td>{{ code.used_by or '-' }}</td>
+                                        <td>
+                                            <div class="time-display">
+                                                <i class="far fa-calendar-alt me-1"></i>
+                                                {{ code.created_at.strftime('%Y-%m-%d %H:%M') if code.created_at else '-' }}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="time-display">
+                                                <i class="far fa-clock me-1"></i>
+                                                {{ code.expires_at.strftime('%Y-%m-%d %H:%M') if code.expires_at else '永久' }}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {% if code.used_by %}
+                                                <span class="user-badge">
+                                                    <i class="fas fa-user me-1"></i>{{ code.used_by }}
+                                                </span>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
                                         <td>
                                             {% if not code.is_used %}
-                                                <button class="btn btn-sm btn-outline-primary" onclick="shareCode('{{ code.code }}')">
-                                                    分享
+                                                <button class="btn-share" onclick="shareCode('{{ code.code }}')">
+                                                    <i class="fas fa-share-alt me-1"></i>分享
                                                 </button>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
                                             {% endif %}
                                         </td>
                                     </tr>
@@ -132,13 +177,13 @@
     {% if invited_users %}
     <div class="row mt-4">
         <div class="col-md-12">
-            <div class="card">
+            <div class="card invited-users-card">
                 <div class="card-header">
-                    <h5 class="mb-0">👥 我邀请的用户</h5>
+                    <h4 class="mb-0"><i class="fas fa-users me-2"></i>我邀请的用户</h4>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
-                        <table class="table table-striped">
+                        <table class="table invited-users-table">
                             <thead>
                                 <tr>
                                     <th>用户名</th>
@@ -151,17 +196,38 @@
                             <tbody>
                                 {% for user in invited_users %}
                                 <tr>
-                                    <td>{{ user.username }}</td>
-                                    <td>{{ user.email }}</td>
-                                    <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
+                                    <td>
+                                        <div class="user-info">
+                                            <i class="fas fa-user-circle me-2"></i>
+                                            {{ user.username }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="email-info">
+                                            <i class="fas fa-envelope me-2"></i>
+                                            {{ user.email }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="time-display">
+                                            <i class="far fa-calendar-alt me-1"></i>
+                                            {{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}
+                                        </div>
+                                    </td>
                                     <td>
                                         {% if user.is_active %}
-                                            <span class="badge bg-success">已激活</span>
+                                            <span class="status-badge status-active">
+                                                <i class="fas fa-check-circle me-1"></i>已激活
+                                            </span>
                                         {% else %}
-                                            <span class="badge bg-warning">未激活</span>
+                                            <span class="status-badge status-pending">
+                                                <i class="fas fa-clock me-1"></i>未激活
+                                            </span>
                                         {% endif %}
                                     </td>
-                                    <td>{{ user.invite_code_used or '-' }}</td>
+                                    <td>
+                                        <span class="code-used">{{ user.invite_code_used or '-' }}</span>
+                                    </td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -175,51 +241,245 @@
 </div>
 
 <style>
-.invite-code {
-    background-color: #f8f9fa;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-family: 'Courier New', monospace;
-    font-weight: bold;
-    color: #495057;
+/* 页面整体样式 */
+.page-header-wrapper {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    border-radius: 16px;
+    padding: 30px;
+    color: white;
+    box-shadow: 0 10px 25px rgba(99, 102, 241, 0.2);
 }
 
-.card {
-    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-    border: 1px solid rgba(0, 0, 0, 0.125);
+.page-header h2 {
+    font-weight: 700;
+    font-size: 1.8rem;
+    margin: 0;
 }
 
-.card-header {
-    background-color: #f8f9fa;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
-}
-
-/* 统计信息样式 */
-.stats-container {
+/* 生成按钮样式 */
+.btn-generate {
+    background: white;
+    color: #6366f1;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
     display: flex;
-    justify-content: center;
     align-items: center;
-    gap: 30px;
-    padding: 10px;
-    background-color: #f8f9fa;
-    border-radius: 8px;
 }
 
-.stat-item {
-    text-align: center;
-    padding: 0 15px;
+.btn-generate:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+}
+
+/* 统计卡片样式 */
+.stats-cards {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.stat-card {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 15px 20px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    transition: transform 0.3s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-5px);
+}
+
+.stat-icon {
+    font-size: 2rem;
+    margin-right: 15px;
+    opacity: 0.8;
+}
+
+.stat-content {
+    flex: 1;
 }
 
 .stat-number {
-    font-size: 2.5rem;
-    font-weight: bold;
+    font-size: 2.2rem;
+    font-weight: 700;
     line-height: 1;
+    margin-bottom: 5px;
 }
 
 .stat-label {
     font-size: 0.9rem;
-    color: #6c757d;
-    margin-top: 5px;
+    opacity: 0.8;
+}
+
+/* 邀请码卡片样式 */
+.invite-codes-card, .invited-users-card {
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    margin-bottom: 30px;
+}
+
+.card-header {
+    background: #f8f9fa;
+    padding: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.card-header h4 {
+    font-weight: 600;
+    color: #333;
+}
+
+/* 表格样式 */
+.invite-codes-table, .invited-users-table {
+    margin: 0;
+}
+
+.invite-codes-table th, .invited-users-table th {
+    font-weight: 600;
+    color: #555;
+    padding: 15px;
+    border-bottom: 2px solid #eee;
+}
+
+.invite-codes-table td, .invited-users-table td {
+    padding: 15px;
+    vertical-align: middle;
+}
+
+/* 邀请码显示样式 */
+.code-display {
+    display: flex;
+    align-items: center;
+}
+
+.invite-code {
+    background: linear-gradient(135deg, #f0f4ff 0%, #e6eeff 100%);
+    padding: 8px 15px;
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    color: #3b82f6;
+    letter-spacing: 1px;
+    margin-right: 10px;
+    border: 1px solid #d1deff;
+}
+
+.btn-copy, .btn-share {
+    background: none;
+    border: none;
+    color: #6366f1;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.btn-copy:hover, .btn-share:hover {
+    background: #f0f4ff;
+}
+
+.btn-share {
+    background: #f0f4ff;
+    color: #6366f1;
+    padding: 6px 15px;
+    border-radius: 20px;
+    font-weight: 500;
+    font-size: 0.85rem;
+    border: 1px solid #d1deff;
+}
+
+.btn-share:hover {
+    background: #e6eeff;
+}
+
+/* 状态标签样式 */
+.status-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+}
+
+.status-active {
+    background-color: #dcfce7;
+    color: #16a34a;
+}
+
+.status-used {
+    background-color: #dbeafe;
+    color: #2563eb;
+}
+
+.status-expired {
+    background-color: #fee2e2;
+    color: #dc2626;
+}
+
+.status-pending {
+    background-color: #fef3c7;
+    color: #d97706;
+}
+
+/* 时间显示样式 */
+.time-display {
+    color: #666;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+}
+
+/* 用户信息样式 */
+.user-info, .email-info {
+    display: flex;
+    align-items: center;
+}
+
+.user-badge {
+    background: #f0f4ff;
+    color: #3b82f6;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+}
+
+.code-used {
+    font-family: 'Courier New', monospace;
+    color: #6366f1;
+    font-weight: 500;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .stats-cards {
+        flex-direction: column;
+    }
+    
+    .page-header {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .btn-generate {
+        width: 100%;
+        justify-content: center;
+    }
 }
 </style>
 

@@ -89,85 +89,52 @@
     {% if predictions and predictions.items %}
     <div style="display: grid; gap: 1rem;">
         {% for prediction in predictions.items %}
-        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
-            <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: center;">
+        <div style="background: white; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); border-left: 4px solid #667eea;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                 <div>
-                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
-                        <h3 style="margin: 0; color: #667eea; font-size: 1.1rem;">
-                            {% if prediction.region == 'hk' %}香港{% else %}澳门{% endif %}六合彩 - 第{{ prediction.period }}期
-                        </h3>
-                        <span style="background: #667eea; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.8rem;">
-                            {{ prediction.strategy or '未知策略' }}
-                        </span>
-                    </div>
-                    
-                    <div style="margin-bottom: 0.5rem; color: #666; font-size: 0.9rem;">
-                        📅 {% if prediction.created_at %}{{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}未知时间{% endif %}
-                    </div>
-                    
-                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
-                        <div style="display: flex; gap: 0.5rem;">
-                            {% if prediction.numbers %}
-                                {% for num in prediction.numbers.split(',') %}
-                                <span style="background: #dc3545; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.9rem;">
-                                    {{ num }}
-                                </span>
-                                {% endfor %}
-                            {% endif %}
-                        </div>
-                        
-                        {% if prediction.special_number %}
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <span style="color: #666; font-size: 0.9rem;">特码:</span>
-                            <span style="background: #28a745; color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1rem;">
-                                {{ prediction.special_number }}
-                            </span>
-                        </div>
-                        {% endif %}
-                    </div>
-                    
-                    {% if prediction.actual_numbers %}
-                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eee;">
-                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
-                            <span style="color: #666; font-size: 0.9rem;">开奖结果:</span>
-                            <div style="display: flex; gap: 0.5rem;">
-                                {% for num in prediction.actual_numbers.split(',') %}
-                                <span style="background: #6c757d; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.9rem;">
-                                    {{ num }}
-                                </span>
-                                {% endfor %}
-                            </div>
-                            
-                            {% if prediction.actual_special %}
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <span style="color: #666; font-size: 0.9rem;">特码:</span>
-                                <span style="background: #17a2b8; color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1rem;">
-                                    {{ prediction.actual_special }}
-                                </span>
-                            </div>
-                            {% endif %}
-                        </div>
-                    </div>
-                    {% endif %}
-                </div>
-                
-                <div style="text-align: center;">
-                    {% if prediction.is_correct is not none %}
-                        {% if prediction.is_correct %}
-                        <div style="background: rgba(40, 167, 69, 0.1); color: #28a745; padding: 0.75rem 1.5rem; border-radius: 20px; font-weight: bold;">
-                            ✅ 预测正确
-                        </div>
+                    <h3 style="margin: 0; color: #333; font-size: 1.1rem;">
+                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
+                    </h3>
+                    <p style="margin: 0.25rem 0 0 0; color: #666; font-size: 0.9rem;">
+                        {% if prediction.strategy == 'random' %}
+                        🎲 随机预测
+                        {% elif prediction.strategy == 'balanced' %}
+                        ⚖️ 均衡预测
                         {% else %}
-                        <div style="background: rgba(220, 53, 69, 0.1); color: #dc3545; padding: 0.75rem 1.5rem; border-radius: 20px; font-weight: bold;">
-                            ❌ 预测错误
-                        </div>
+                        🤖 AI预测
                         {% endif %}
-                    {% else %}
-                    <div style="background: rgba(255, 193, 7, 0.1); color: #ffc107; padding: 0.75rem 1.5rem; border-radius: 20px; font-weight: bold;">
-                        ⏳ 待开奖
-                    </div>
-                    {% endif %}
+                    </p>
                 </div>
+                <div style="text-align: right; color: #666; font-size: 0.9rem;">
+                    {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
+                {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
+                {% set color = get_number_color(num) %}
+                <div style="width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem; background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
+                    {{ num }}
+                </div>
+                {% endfor %}
+                
+                {% set special_color = get_number_color(prediction.special_number) %}
+                <div style="width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem; background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %}; border: 2px solid #ffd700; box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);">
+                    {{ prediction.special_number }}
+                </div>
+            </div>
+            
+            <div style="color: #666; font-size: 0.9rem;">
+                特码生肖: {{ prediction.special_zodiac }}
+                {% if prediction.is_result_updated %}
+                <span style="margin-left: 0.5rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
+                    {{ "命中" if prediction.accuracy_score > 0 else "未中" }}
+                </span>
+                {% else %}
+                <span style="margin-left: 0.5rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #ffc107; color: white;">
+                    待开奖
+                </span>
+                {% endif %}
             </div>
         </div>
         {% endfor %}
