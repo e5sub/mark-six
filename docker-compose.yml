@@ -6,6 +6,7 @@ services:
       - TZ=Asia/Shanghai
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
+      - SECRET_KEY=your-secure-secret-key-change-this  # 设置安全密钥
     volumes: 
       - /opt/mark-six/data:/app/data
     ports:

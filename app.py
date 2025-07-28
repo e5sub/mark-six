@@ -14,10 +14,12 @@ from user import user_bp
 
 # --- 配置信息 ---
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'  # 请在生产环境中更改此密钥
+# 使用环境变量设置密钥，如果不存在则使用随机生成的密钥
+import os
+import secrets
+app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
 # 确保数据目录存在
-import os
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
