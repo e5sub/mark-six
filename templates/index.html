@@ -128,10 +128,6 @@
         }
 
         .control-group {
-
-
-
-
             display: flex;
             align-items: center;
             gap: 10px;
@@ -870,20 +866,37 @@
             <div style="background: rgba(255, 193, 7, 0.1); color: #856404; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(255, 193, 7, 0.3);">
                 <i class="fas fa-exclamation-triangle"></i> 您的账号尚未激活，请先激活账号才能使用预测功能。
                 <a href="{{ url_for('auth.activate') }}" style="color: #856404; text-decoration: underline; margin-left: 10px;">立即激活</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    <!-- 初始化背景粒子效果的JavaScript -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 创建背景粒子
+            const particlesContainer = document.getElementById('particles');
+            const particleCount = 20;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.classList.add('particle');
+                
+                // 随机大小
+                const size = Math.random() * 30 + 10;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                
+                // 随机位置
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                
+                // 随机动画延迟
+                particle.style.animationDelay = `${Math.random() * 5}s`;
+                
+                particlesContainer.appendChild(particle);
+            }
+        });
+    </script>
+</body>
+</html>
