@@ -44,7 +44,10 @@ CREATE TABLE user (
     is_active BOOLEAN DEFAULT 0,
     is_admin BOOLEAN DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    activation_expires_at TIMESTAMP
+    activation_expires_at TIMESTAMP,
+    invited_by VARCHAR(80),
+    invite_code_used VARCHAR(32),
+    invite_activated_at TIMESTAMP
 )
 ''')
 
@@ -80,6 +83,20 @@ CREATE TABLE prediction_record (
     accuracy_score FLOAT,
     is_result_updated BOOLEAN DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES user (id)
+)
+''')
+
+# 创建邀请码表
+cursor.execute('''
+CREATE TABLE invite_code (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    created_by VARCHAR(80) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_used BOOLEAN DEFAULT 0,
+    used_by VARCHAR(80),
+    used_at TIMESTAMP,
+    expires_at TIMESTAMP
 )
 ''')
 
@@ -123,6 +140,8 @@ configs = [
     ('smtp_port', '587', 'SMTP端口'),
     ('smtp_username', '', 'SMTP用户名'),
     ('smtp_password', '', 'SMTP密码'),
+    ('invite_daily_limit', '3', '每日邀请码生成限制'),
+    ('invite_code_validity_days', '7', '邀请码有效期（天）'),
 ]
 
 for key, value, description in configs:
@@ -141,3 +160,8 @@ print("- 默认管理员账号: admin")
 print("- 默认管理员密码: admin123")
 print("- 请在首次登录后修改管理员密码")
 print("- 请在管理后台配置AI API和邮箱服务")
+print("\n邀请系统:")
+print("- 已创建邀请码表和相关字段")
+print("- 管理员可在后台生成邀请码")
+print("- 用户可通过邀请码注册获得奖励")
+print("- 邀请人和被邀请人都将获得1天有效期")
