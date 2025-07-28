@@ -650,12 +650,17 @@ def check_user_activation():
     
     # 检查用户是否登录
     if 'user_id' in session:
-        user = User.query.get(session['user_id'])
-        if user and user.is_activation_expired():
-            # 激活已过期，更新状态
-            user.is_active = False
-            db.session.commit()
-            session['is_active'] = False
+        try:
+            user = User.query.get(session['user_id'])
+            if user and hasattr(user, 'is_activation_expired') and user.is_activation_expired():
+                # 激活已过期，更新状态
+                user.is_active = False
+                db.session.commit()
+                session['is_active'] = False
+        except Exception as e:
+            print(f"检查用户激活状态时出错: {e}")
+            # 如果出错，跳过检查
+            pass
 
 # 创建数据库表和初始管理员账号
 def init_database():

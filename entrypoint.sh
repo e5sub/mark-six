@@ -29,10 +29,6 @@ else
     echo "数据库文件已存在: $(ls -la /app/data/lottery_system.db)"
     # 确保现有数据库文件权限正确
     chmod 666 /app/data/lottery_system.db
-    
-    # 重置管理员密码以确保可以登录
-    echo "重置管理员密码..."
-    python reset_admin.py || echo "重置管理员密码失败，继续执行..."
 fi
 
 echo "正在启动 Gunicorn 服务器..."
