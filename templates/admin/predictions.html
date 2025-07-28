@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>预测记录管理 - 六合彩数据分析系统</title>
+    <title>预测记录 - 管理员后台</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
@@ -41,22 +41,10 @@
             max-width: 1200px;
             margin: 0 auto;
             display: flex;
-            justify-content: space-between;
+            justify-content: center;
             align-items: center;
             padding: 0 20px;
-        }
-
-        .navbar-brand {
-            color: white;
-            font-size: 1.5rem;
-            font-weight: 700;
-            text-decoration: none;
-        }
-
-        .navbar-nav {
-            display: flex;
-            gap: 20px;
-            align-items: center;
+            gap: 30px;
         }
 
         .nav-link {
@@ -68,6 +56,7 @@
             display: flex;
             align-items: center;
             gap: 5px;
+            font-size: 1.2rem;
         }
 
         .nav-link:hover {
@@ -75,7 +64,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 30px 20px;
         }
@@ -113,129 +102,208 @@
             color: #6c757d;
         }
 
+        .section-title {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+        }
+
         .table-container {
             overflow-x: auto;
+            border-radius: 15px;
+            background: rgba(255, 255, 255, 0.8);
         }
 
-        table {
+        .table {
             width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-            background: rgba(255, 255, 255, 0.7);
-            border-radius: 10px;
-            overflow: hidden;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: transparent;
         }
 
-        th, td {
-            padding: 15px;
-            text-align: left;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-        }
-
-        th {
-            background: var(--primary-gradient);
-            color: white;
+        .table th {
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--text-primary);
+            padding: 15px 12px;
+            text-align: center;
             font-weight: 600;
+            border-bottom: 2px solid #dee2e6;
+            font-size: 0.95rem;
         }
 
-        tr:hover {
-            background-color: rgba(255, 255, 255, 0.9);
+        .table th:first-child {
+            border-top-left-radius: 15px;
         }
 
-        .badge {
-            padding: 5px 10px;
-            border-radius: 20px;
+        .table th:last-child {
+            border-top-right-radius: 15px;
+        }
+
+        .table td {
+            padding: 12px;
+            text-align: center;
+            border-bottom: 1px solid #dee2e6;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.6);
+        }
+
+        .table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table tbody tr:last-child td:first-child {
+            border-bottom-left-radius: 15px;
+        }
+
+        .table tbody tr:last-child td:last-child {
+            border-bottom-right-radius: 15px;
+        }
+
+        .region-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
             font-size: 0.8rem;
             font-weight: 600;
-            color: white;
             display: inline-block;
         }
 
-        .bg-success {
-            background: var(--success-gradient);
+        .region-hk {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
         }
 
-        .bg-secondary {
-            background: linear-gradient(135deg, #a1a1a1 0%, #7a7a7a 100%);
+        .region-macau {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            color: white;
         }
+
+        .strategy-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .strategy-ai {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .strategy-balanced {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            color: white;
+        }
+
+        .strategy-random {
+            background: #6c757d;
+            color: white;
+        }
+
+        .numbers-display {
+            font-family: 'Courier New', monospace;
+            background: rgba(102, 126, 234, 0.1);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .special-number {
+            font-family: 'Courier New', monospace;
+            background: rgba(250, 112, 154, 0.1);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #fa709a;
+            font-weight: 600;
+        }
+
+        .accuracy-score {
+            font-weight: 600;
+        }
+
+        .accuracy-high { color: #28a745; }
+        .accuracy-medium { color: #ffc107; }
+        .accuracy-low { color: #dc3545; }
 
         .pagination {
             display: flex;
             justify-content: center;
-            list-style: none;
-            margin: 20px 0;
-            gap: 5px;
+            gap: 10px;
+            margin-top: 30px;
         }
 
-        .page-item {
-            display: inline-block;
-        }
-
-        .page-link {
-            display: block;
-            padding: 8px 16px;
+        .pagination a, .pagination span {
+            padding: 10px 15px;
+            border-radius: 10px;
             text-decoration: none;
-            background: rgba(255, 255, 255, 0.7);
-            border-radius: 5px;
             color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.3);
             transition: all 0.3s ease;
+            font-weight: 500;
         }
 
-        .page-item.active .page-link {
+        .pagination a:hover {
+            background: rgba(255, 255, 255, 1);
+            transform: translateY(-2px);
+        }
+
+        .pagination .current {
             background: var(--primary-gradient);
             color: white;
         }
 
-        .page-item.disabled .page-link {
-            color: #6c757d;
-            pointer-events: none;
-            background: rgba(255, 255, 255, 0.4);
-        }
-
-        .page-link:hover:not(.page-item.disabled .page-link) {
-            background: rgba(255, 255, 255, 0.9);
-            transform: translateY(-2px);
-        }
-
         @media (max-width: 768px) {
             .navbar-content {
-                flex-direction: column;
-                gap: 15px;
-            }
-
-            .navbar-nav {
                 flex-wrap: wrap;
-                justify-content: center;
+                gap: 15px;
             }
 
             .page-header h1 {
                 font-size: 2rem;
+            }
+
+            .table th, .table td {
+                padding: 8px 5px;
+                font-size: 0.8rem;
+            }
+
+            .numbers-display, .special-number {
+                font-size: 0.75rem;
             }
         }
     </style>
 </head>
 <body>
     <nav class="navbar">
-        <div class="navbar-content" style="justify-content: center; gap: 30px;">
-            <a href="{{ url_for('admin.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
+        <div class="navbar-content">
+            <a href="{{ url_for('admin.dashboard') }}" class="nav-link">
                 <i class="fas fa-tachometer-alt"></i> 控制台
             </a>
-            <a href="{{ url_for('admin.users') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('admin.users') }}" class="nav-link">
                 <i class="fas fa-users"></i> 用户管理
             </a>
-            <a href="{{ url_for('admin.activation_codes') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('admin.activation_codes') }}" class="nav-link">
                 <i class="fas fa-key"></i> 激活码管理
             </a>
-            <a href="{{ url_for('admin.system_config') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('admin.system_config') }}" class="nav-link">
                 <i class="fas fa-cog"></i> 系统配置
             </a>
-            <a href="{{ url_for('admin.predictions') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('admin.predictions') }}" class="nav-link">
                 <i class="fas fa-chart-bar"></i> 预测记录
             </a>
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('index') }}" class="nav-link">
                 <i class="fas fa-home"></i> 返回首页
             </a>
-            <a href="{{ url_for('auth.logout') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('auth.logout') }}" class="nav-link">
                 <i class="fas fa-sign-out-alt"></i> 退出登录
             </a>
         </div>
@@ -244,136 +312,116 @@
     <div class="container">
         <div class="glass-card">
             <div class="page-header">
-                <h1><i class="fas fa-chart-bar"></i> 预测记录管理</h1>
-                <p>查看所有用户的预测记录</p>
+                <h1><i class="fas fa-chart-bar"></i> 预测记录</h1>
+                <p>查看所有用户的预测记录和准确率</p>
             </div>
 
+            <h2 class="section-title">
+                <i class="fas fa-list"></i> 预测记录列表
+            </h2>
+            
             <div class="table-container">
-                <table>
+                <table class="table">
                     <thead>
                         <tr>
-                            <th>ID</th>
                             <th>用户</th>
                             <th>地区</th>
+                            <th>策略</th>
                             <th>期数</th>
-                            <th>预测号码</th>
+                            <th>正码</th>
                             <th>特码</th>
-                            <th>特码生肖</th>
-                            <th>预测策略</th>
-                            <th>创建时间</th>
+                            <th>生肖</th>
                             <th>准确率</th>
-                            <th>状态</th>
+                            <th>预测时间</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for prediction in predictions.items %}
                         <tr>
-                            <td>{{ prediction.id }}</td>
-                            <td>{{ prediction.user.username }}</td>
+                            <td>{{ prediction.user.username if prediction.user else '未知用户' }}</td>
                             <td>
                                 {% if prediction.region == 'hk' %}
-                                香港
+                                    <span class="region-badge region-hk">香港</span>
                                 {% elif prediction.region == 'macau' %}
-                                澳门
+                                    <span class="region-badge region-macau">澳门</span>
                                 {% else %}
-                                {{ prediction.region }}
+                                    {{ prediction.region }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if prediction.strategy == 'ai' %}
+                                    <span class="strategy-badge strategy-ai">AI预测</span>
+                                {% elif prediction.strategy == 'balanced' %}
+                                    <span class="strategy-badge strategy-balanced">均衡预测</span>
+                                {% elif prediction.strategy == 'random' %}
+                                    <span class="strategy-badge strategy-random">随机预测</span>
+                                {% else %}
+                                    {{ prediction.strategy }}
                                 {% endif %}
                             </td>
                             <td>{{ prediction.period }}</td>
-                            <td>{{ prediction.normal_numbers }}</td>
-                            <td>{{ prediction.special_number }}</td>
-                            <td>{{ prediction.special_zodiac }}</td>
                             <td>
-                                {% if prediction.strategy == 'random' %}
-                                随机预测
-                                {% elif prediction.strategy == 'balanced' %}
-                                平衡预测
-                                {% elif prediction.strategy == 'ai' %}
-                                AI预测
-                                {% else %}
-                                {{ prediction.strategy }}
-                                {% endif %}
+                                <div class="numbers-display">{{ prediction.normal_numbers }}</div>
                             </td>
-                            <td>{{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                <div class="special-number">{{ prediction.special_number }}</div>
+                            </td>
+                            <td>{{ prediction.special_zodiac or '-' }}</td>
                             <td>
                                 {% if prediction.accuracy_score is not none %}
-                                {{ "%.2f"|format(prediction.accuracy_score * 100) }}%
-                                {% else %}
-                                未开奖
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if prediction.is_result_updated %}
-                                    {% if prediction.accuracy_score > 0.5 %}
-                                    <span class="badge bg-success">中奖</span>
+                                    {% set accuracy = (prediction.accuracy_score * 100) | round(1) %}
+                                    {% if accuracy >= 70 %}
+                                        <span class="accuracy-score accuracy-high">{{ accuracy }}%</span>
+                                    {% elif accuracy >= 40 %}
+                                        <span class="accuracy-score accuracy-medium">{{ accuracy }}%</span>
                                     {% else %}
-                                    <span class="badge bg-secondary">未中奖</span>
+                                        <span class="accuracy-score accuracy-low">{{ accuracy }}%</span>
                                     {% endif %}
                                 {% else %}
-                                <span class="badge bg-secondary">未开奖</span>
+                                    <span class="accuracy-score">待开奖</span>
                                 {% endif %}
                             </td>
+                            <td>{{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '-' }}</td>
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="11" style="text-align: center;">暂无预测记录</td>
+                            <td colspan="9" style="text-align: center; padding: 40px; color: #6c757d;">
+                                <i class="fas fa-chart-bar" style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;"></i>
+                                <br>暂无预测记录
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            
+
             <!-- 分页 -->
             {% if predictions.pages > 1 %}
-            <nav aria-label="Page navigation">
-                <ul class="pagination">
-                    {% if predictions.has_prev %}
-                    <li class="page-item">
-                        <a class="page-link" href="{{ url_for('admin.predictions', page=predictions.prev_num) }}" aria-label="Previous">
-                            <span aria-hidden="true">&laquo;</span>
-                        </a>
-                    </li>
-                    {% else %}
-                    <li class="page-item disabled">
-                        <a class="page-link" href="#" aria-label="Previous">
-                            <span aria-hidden="true">&laquo;</span>
-                        </a>
-                    </li>
-                    {% endif %}
-                    
-                    {% for page_num in predictions.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-                        {% if page_num %}
-                            {% if page_num == predictions.page %}
-                            <li class="page-item active">
-                                <a class="page-link" href="{{ url_for('admin.predictions', page=page_num) }}">{{ page_num }}</a>
-                            </li>
-                            {% else %}
-                            <li class="page-item">
-                                <a class="page-link" href="{{ url_for('admin.predictions', page=page_num) }}">{{ page_num }}</a>
-                            </li>
-                            {% endif %}
+            <div class="pagination">
+                {% if predictions.has_prev %}
+                <a href="{{ url_for('admin.predictions', page=predictions.prev_num) }}">
+                    <i class="fas fa-chevron-left"></i> 上一页
+                </a>
+                {% endif %}
+
+                {% for page_num in predictions.iter_pages() %}
+                    {% if page_num %}
+                        {% if page_num != predictions.page %}
+                        <a href="{{ url_for('admin.predictions', page=page_num) }}">{{ page_num }}</a>
                         {% else %}
-                            <li class="page-item disabled">
-                                <a class="page-link" href="#">...</a>
-                            </li>
+                        <span class="current">{{ page_num }}</span>
                         {% endif %}
-                    {% endfor %}
-                    
-                    {% if predictions.has_next %}
-                    <li class="page-item">
-                        <a class="page-link" href="{{ url_for('admin.predictions', page=predictions.next_num) }}" aria-label="Next">
-                            <span aria-hidden="true">&raquo;</span>
-                        </a>
-                    </li>
                     {% else %}
-                    <li class="page-item disabled">
-                        <a class="page-link" href="#" aria-label="Next">
-                            <span aria-hidden="true">&raquo;</span>
-                        </a>
-                    </li>
+                    <span>…</span>
                     {% endif %}
-                </ul>
-            </nav>
+                {% endfor %}
+
+                {% if predictions.has_next %}
+                <a href="{{ url_for('admin.predictions', page=predictions.next_num) }}">
+                    下一页 <i class="fas fa-chevron-right"></i>
+                </a>
+                {% endif %}
+            </div>
             {% endif %}
         </div>
     </div>

@@ -187,8 +187,28 @@ def generate_codes():
     return redirect(url_for('admin.activation_codes'))
 
 @admin_bp.route('/system-config')
+@admin_bp.route('/system-config', methods=['GET', 'POST'])
+@admin_bp.route('/system_config', methods=['GET', 'POST'])
 @admin_required
 def system_config():
+    if request.method == 'POST':
+        try:
+            # AI配置
+            SystemConfig.set_config('ai_api_key', request.form.get('ai_api_key', ''), 'AI API密钥')
+            SystemConfig.set_config('ai_api_url', request.form.get('ai_api_url', ''), 'AI API地址')
+            SystemConfig.set_config('ai_model', request.form.get('ai_model', ''), 'AI模型')
+            
+            # 邮箱配置
+            SystemConfig.set_config('smtp_server', request.form.get('smtp_server', ''), 'SMTP服务器')
+            SystemConfig.set_config('smtp_port', request.form.get('smtp_port', '587'), 'SMTP端口')
+            SystemConfig.set_config('smtp_username', request.form.get('smtp_username', ''), 'SMTP用户名')
+            SystemConfig.set_config('smtp_password', request.form.get('smtp_password', ''), 'SMTP密码')
+            
+            flash('系统配置更新成功', 'success')
+            return redirect(url_for('admin.system_config'))
+        except Exception as e:
+            flash(f'配置更新失败：{str(e)}', 'error')
+    
     configs = {
         'ai_api_key': SystemConfig.get_config('ai_api_key', ''),
         'ai_api_url': SystemConfig.get_config('ai_api_url', 'https://api.deepseek.com/v1/chat/completions'),

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>管理员后台 - 六合彩数据分析系统</title>
+    <title>管理员控制台</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
@@ -41,22 +41,10 @@
             max-width: 1200px;
             margin: 0 auto;
             display: flex;
-            justify-content: space-between;
+            justify-content: center;
             align-items: center;
             padding: 0 20px;
-        }
-
-        .navbar-brand {
-            color: white;
-            font-size: 1.5rem;
-            font-weight: 700;
-            text-decoration: none;
-        }
-
-        .navbar-nav {
-            display: flex;
-            gap: 20px;
-            align-items: center;
+            gap: 30px;
         }
 
         .nav-link {
@@ -68,6 +56,7 @@
             display: flex;
             align-items: center;
             gap: 5px;
+            font-size: 1.2rem;
         }
 
         .nav-link:hover {
@@ -99,7 +88,7 @@
 
         .page-header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 40px;
         }
 
         .page-header h1 {
@@ -115,99 +104,80 @@
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 20px;
             margin-bottom: 30px;
         }
 
         .stat-card {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.2);
             border-radius: 15px;
             padding: 25px;
             text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.3);
             transition: all 0.3s ease;
         }
 
         .stat-card:hover {
             transform: translateY(-5px);
-            box-shadow: var(--shadow-light);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
         }
 
         .stat-icon {
-            font-size: 3rem;
+            font-size: 2.5rem;
             margin-bottom: 15px;
         }
 
-        .stat-icon.users { color: #3498db; }
-        .stat-icon.active { color: #2ecc71; }
-        .stat-icon.inactive { color: #e74c3c; }
-        .stat-icon.predictions { color: #f39c12; }
-        .stat-icon.codes { color: #9b59b6; }
-
         .stat-number {
-            font-size: 2.5rem;
+            font-size: 2rem;
             font-weight: 700;
-            color: var(--text-primary);
             margin-bottom: 5px;
         }
 
         .stat-label {
+            font-size: 1rem;
             color: #6c757d;
-            font-weight: 600;
         }
+
+        .stat-users { color: #667eea; }
+        .stat-active { color: #4facfe; }
+        .stat-inactive { color: #fa709a; }
+        .stat-predictions { color: #43e97b; }
+        .stat-codes { color: #f093fb; }
 
         .quick-actions {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
-            margin-bottom: 30px;
         }
 
-        .btn {
-            padding: 15px 25px;
-            border: none;
-            border-radius: 15px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-flex;
+        .action-btn {
+            display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 10px;
+            padding: 15px 20px;
+            border-radius: 12px;
+            text-decoration: none;
             color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
 
-        .btn:hover {
-            transform: translateY(-3px);
+        .action-btn:hover {
+            transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
         }
 
-        .btn-primary { background: var(--primary-gradient); }
-        .btn-success { background: var(--success-gradient); }
-        .btn-warning { background: var(--warning-gradient); }
-        .btn-danger { background: var(--danger-gradient); }
-        .btn-secondary { background: var(--secondary-gradient); }
-
-        .section-title {
-            font-size: 1.8rem;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: var(--text-primary);
-        }
+        .action-users { background: var(--primary-gradient); }
+        .action-codes { background: var(--success-gradient); }
+        .action-config { background: var(--warning-gradient); }
+        .action-predictions { background: var(--secondary-gradient); }
 
         @media (max-width: 768px) {
             .navbar-content {
-                flex-direction: column;
-                gap: 15px;
-            }
-
-            .navbar-nav {
                 flex-wrap: wrap;
-                justify-content: center;
+                gap: 15px;
             }
 
             .page-header h1 {
@@ -215,7 +185,7 @@
             }
 
             .stats-grid {
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             }
 
             .quick-actions {
@@ -226,26 +196,26 @@
 </head>
 <body>
     <nav class="navbar">
-        <div class="navbar-content" style="justify-content: center; gap: 30px;">
-            <a href="{{ url_for('admin.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
+        <div class="navbar-content">
+            <a href="{{ url_for('admin.dashboard') }}" class="nav-link">
                 <i class="fas fa-tachometer-alt"></i> 控制台
             </a>
-            <a href="{{ url_for('admin.users') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('admin.users') }}" class="nav-link">
                 <i class="fas fa-users"></i> 用户管理
             </a>
-            <a href="{{ url_for('admin.activation_codes') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('admin.activation_codes') }}" class="nav-link">
                 <i class="fas fa-key"></i> 激活码管理
             </a>
-            <a href="{{ url_for('admin.system_config') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('admin.system_config') }}" class="nav-link">
                 <i class="fas fa-cog"></i> 系统配置
             </a>
-            <a href="{{ url_for('admin.predictions') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('admin.predictions') }}" class="nav-link">
                 <i class="fas fa-chart-bar"></i> 预测记录
             </a>
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('index') }}" class="nav-link">
                 <i class="fas fa-home"></i> 返回首页
             </a>
-            <a href="{{ url_for('auth.logout') }}" class="nav-link" style="font-size: 1.2rem;">
+            <a href="{{ url_for('auth.logout') }}" class="nav-link">
                 <i class="fas fa-sign-out-alt"></i> 退出登录
             </a>
         </div>
@@ -254,13 +224,13 @@
     <div class="container">
         <div class="glass-card">
             <div class="page-header">
-                <h1><i class="fas fa-tachometer-alt"></i> 系统概览</h1>
-                <p>六合彩数据分析系统管理中心</p>
+                <h1><i class="fas fa-tachometer-alt"></i> 管理员控制台</h1>
+                <p>系统概览和快速操作</p>
             </div>
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-icon users">
+                    <div class="stat-icon stat-users">
                         <i class="fas fa-users"></i>
                     </div>
                     <div class="stat-number">{{ stats.total_users }}</div>
@@ -268,7 +238,7 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon active">
+                    <div class="stat-icon stat-active">
                         <i class="fas fa-user-check"></i>
                     </div>
                     <div class="stat-number">{{ stats.active_users }}</div>
@@ -276,7 +246,7 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon inactive">
+                    <div class="stat-icon stat-inactive">
                         <i class="fas fa-user-times"></i>
                     </div>
                     <div class="stat-number">{{ stats.inactive_users }}</div>
@@ -284,40 +254,47 @@
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon predictions">
+                    <div class="stat-icon stat-predictions">
                         <i class="fas fa-chart-line"></i>
                     </div>
                     <div class="stat-number">{{ stats.total_predictions }}</div>
-                    <div class="stat-label">总预测次数</div>
+                    <div class="stat-label">预测记录</div>
                 </div>
 
                 <div class="stat-card">
-                    <div class="stat-icon codes">
+                    <div class="stat-icon stat-codes">
                         <i class="fas fa-key"></i>
                     </div>
                     <div class="stat-number">{{ stats.unused_codes }}</div>
-                    <div class="stat-label">未使用激活码</div>
+                    <div class="stat-label">可用激活码</div>
                 </div>
             </div>
         </div>
 
         <div class="glass-card">
-            <h2 class="section-title">
+            <h2 style="text-align: center; margin-bottom: 25px; font-size: 1.8rem;">
                 <i class="fas fa-bolt"></i> 快速操作
             </h2>
             
             <div class="quick-actions">
-                <a href="{{ url_for('admin.users') }}" class="btn btn-primary">
-                    <i class="fas fa-users"></i> 管理用户
+                <a href="{{ url_for('admin.users') }}" class="action-btn action-users">
+                    <i class="fas fa-users"></i>
+                    管理用户
                 </a>
-                <a href="{{ url_for('admin.activation_codes') }}" class="btn btn-success">
-                    <i class="fas fa-key"></i> 生成激活码
+                
+                <a href="{{ url_for('admin.activation_codes') }}" class="action-btn action-codes">
+                    <i class="fas fa-key"></i>
+                    激活码管理
                 </a>
-                <a href="{{ url_for('admin.system_config') }}" class="btn btn-warning">
-                    <i class="fas fa-cog"></i> 系统配置
+                
+                <a href="{{ url_for('admin.system_config') }}" class="action-btn action-config">
+                    <i class="fas fa-cog"></i>
+                    系统配置
                 </a>
-                <a href="{{ url_for('admin.predictions') }}" class="btn btn-danger">
-                    <i class="fas fa-chart-bar"></i> 预测统计
+                
+                <a href="{{ url_for('admin.predictions') }}" class="action-btn action-predictions">
+                    <i class="fas fa-chart-bar"></i>
+                    预测记录
                 </a>
             </div>
         </div>
