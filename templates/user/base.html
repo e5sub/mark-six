@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}管理后台{% endblock %} - AI预测系统</title>
+    <title>{% block title %}用户中心{% endblock %} - AI预测系统</title>
     <style>
         * {
             margin: 0;
@@ -356,15 +356,12 @@
 <body>
     <div class="sidebar">
         <div class="sidebar-header">
-            <a href="{{ url_for('admin.dashboard') }}" class="sidebar-brand">管理后台</a>
+            <a href="{{ url_for('user.dashboard') }}" class="sidebar-brand">用户中心</a>
         </div>
         <nav class="sidebar-nav">
-            <a href="{{ url_for('admin.dashboard') }}">📊 仪表板</a>
-            <a href="{{ url_for('admin.users') }}">👥 用户管理</a>
-            <a href="{{ url_for('admin.activation_codes') }}">🔑 激活码管理</a>
-            <a href="{{ url_for('admin.invite_codes') }}">🎫 邀请码管理</a>
-            <a href="{{ url_for('admin.user_invites') }}">🤝 邀请关系</a>
-            <a href="{{ url_for('admin.system_config') }}">⚙️ 系统配置</a>
+            <a href="{{ url_for('user.dashboard') }}">📊 个人中心</a>
+            <a href="{{ url_for('main.predict') }}">🎯 开始预测</a>
+            <a href="{{ url_for('user.invite_codes') }}">🎫 我的邀请码</a>
             <a href="{{ url_for('main.index') }}">🏠 返回首页</a>
             <a href="{{ url_for('auth.logout') }}">🚪 退出登录</a>
         </nav>
@@ -372,9 +369,9 @@
 
     <div class="main-content">
         <div class="top-bar">
-            <h1 class="page-title">{% block page_title %}管理后台{% endblock %}</h1>
+            <h1 class="page-title">{% block page_title %}用户中心{% endblock %}</h1>
             <div class="user-info">
-                <span>欢迎，管理员</span>
+                <span>欢迎，{{ current_user.username }}</span>
             </div>
         </div>
 
