@@ -113,37 +113,37 @@
         <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
             <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem;">👥 用户管理</h3>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">管理系统用户和权限</p>
-            <a href="{{ url_for('admin.users') }}" class="btn btn-sm">查看用户</a>
+            <a href="{{ url_for('admin.users') }}" class="btn btn-primary btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">查看用户</a>
         </div>
         
         <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
             <h3 style="margin: 0 0 1rem 0; color: #28a745; font-size: 1.1rem;">🔑 激活码管理</h3>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">生成和管理激活码</p>
-            <a href="{{ url_for('admin.activation_codes') }}" class="btn btn-success btn-sm">管理激活码</a>
+            <a href="{{ url_for('admin.activation_codes') }}" class="btn btn-success btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">管理激活码</a>
         </div>
         
         <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
             <h3 style="margin: 0 0 1rem 0; color: #ffc107; font-size: 1.1rem;">🎫 邀请码管理</h3>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">生成和管理邀请码</p>
-            <a href="{{ url_for('admin.invite_codes') }}" class="btn" style="background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);" class="btn-sm">管理邀请码</a>
+            <a href="{{ url_for('admin.invite_codes') }}" class="btn btn-warning btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">管理邀请码</a>
         </div>
         
         <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
             <h3 style="margin: 0 0 1rem 0; color: #17a2b8; font-size: 1.1rem;">🤝 邀请关系</h3>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">查看用户邀请关系</p>
-            <a href="{{ url_for('admin.user_invites') }}" class="btn" style="background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);" class="btn-sm">查看关系</a>
+            <a href="{{ url_for('admin.user_invites') }}" class="btn btn-info btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">查看关系</a>
         </div>
         
         <div style="background: rgba(111, 66, 193, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #6f42c1;">
             <h3 style="margin: 0 0 1rem 0; color: #6f42c1; font-size: 1.1rem;">⚙️ 系统配置</h3>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">配置系统参数</p>
-            <a href="{{ url_for('admin.system_config') }}" class="btn" style="background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);" class="btn-sm">系统设置</a>
+            <a href="{{ url_for('admin.system_config') }}" class="btn btn-secondary btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">系统设置</a>
         </div>
         
         <div style="background: rgba(220, 53, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #dc3545;">
             <h3 style="margin: 0 0 1rem 0; color: #dc3545; font-size: 1.1rem;">📊 预测记录</h3>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">查看预测历史记录</p>
-            <a href="#" class="btn btn-danger btn-sm">查看记录</a>
+            <a href="{{ url_for('admin.predictions') }}" class="btn btn-danger btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">查看记录</a>
         </div>
     </div>
 </div>
