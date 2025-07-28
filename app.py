@@ -504,11 +504,23 @@ def unified_predict_api():
         
         if existing:
             # 返回已存在的预测结果
+            sno_zodiac = existing.special_zodiac
+            # 如果数据库中的生肖为空，重新计算
+            if not sno_zodiac and existing.special_number:
+                sno_zodiac = _get_hk_number_zodiac(existing.special_number)
+                # 更新数据库中的生肖信息
+                existing.special_zodiac = sno_zodiac
+                try:
+                    db.session.commit()
+                except Exception as e:
+                    print(f"更新生肖信息失败: {e}")
+                    db.session.rollback()
+            
             result = {
                 "normal": existing.normal_numbers.split(','),
                 "special": {
                     "number": existing.special_number,
-                    "sno_zodiac": existing.special_zodiac
+                    "sno_zodiac": sno_zodiac
                 }
             }
             if existing.prediction_text:
