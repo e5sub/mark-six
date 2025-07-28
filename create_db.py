@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AI数据分析系统 - 数据库创建脚本
+六合彩数据分析系统 - 数据库创建脚本
 此脚本用于创建一个完整的预初始化数据库文件
 """
 
@@ -12,11 +12,17 @@ from datetime import datetime
 import hashlib
 import uuid
 
+# 打印当前工作目录
+print(f"当前工作目录: {os.getcwd()}")
+
 # 确保数据目录存在
-os.makedirs('data', exist_ok=True)
+data_dir = os.path.join(os.getcwd(), 'data')
+os.makedirs(data_dir, exist_ok=True)
+print(f"数据目录已创建: {os.path.abspath(data_dir)}")
 
 # 数据库文件路径
-DB_PATH = 'data/lottery_system.db'
+DB_PATH = os.path.join(data_dir, 'lottery_system.db')
+print(f"数据库文件路径: {os.path.abspath(DB_PATH)}")
 
 # 如果数据库文件已存在，先删除它
 if os.path.exists(DB_PATH):
