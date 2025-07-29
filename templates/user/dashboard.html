@@ -5,21 +5,21 @@
 {% block content %}
 <!-- 统计信息 -->
 <div class="stats-grid">
-    <div class="stat-card">
+<div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
-        <div class="stat-number">{{ stats.total_predictions }}</div>
+        <div class="stat-number" style="font-size: 1.8rem;">{{ stats.total_predictions }}</div>
         <div class="stat-label">总预测次数</div>
     </div>
     
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">🎯</div>
-        <div class="stat-number">{{ stats.avg_accuracy }}%</div>
+        <div class="stat-number" style="font-size: 1.8rem;">{{ stats.avg_accuracy }}%</div>
         <div class="stat-label">平均准确率</div>
     </div>
     
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">⏰</div>
-        <div class="stat-number">
+        <div class="stat-number" style="font-size: 1.8rem;">
             {% if user.activation_expires_at %}
                 {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
             {% else %}
@@ -33,7 +33,7 @@
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">
             {% if user.is_active %}✅{% else %}❌{% endif %}
         </div>
-        <div class="stat-number">{{ "已激活" if user.is_active else "未激活" }}</div>
+        <div class="stat-number" style="font-size: 1.8rem;">{{ "已激活" if user.is_active else "未激活" }}</div>
         <div class="stat-label">账户状态</div>
     </div>
 </div>
