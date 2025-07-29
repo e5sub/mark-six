@@ -16,6 +16,10 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
     
+    # 登录相关字段
+    last_login = db.Column(db.DateTime)  # 最后登录时间
+    login_count = db.Column(db.Integer, default=0)  # 登录次数
+    
     # 邀请相关字段
     invited_by = db.Column(db.String(80))  # 邀请人用户名
     invite_code_used = db.Column(db.String(32))  # 使用的邀请码

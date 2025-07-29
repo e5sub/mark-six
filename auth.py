@@ -84,16 +84,23 @@ def register():
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
+        username_or_email = request.form.get('username')
         password = request.form.get('password')
         
-        if not username or not password:
-            flash('请输入用户名和密码', 'error')
+        if not username_or_email or not password:
+            flash('请输入用户名/邮箱和密码', 'error')
             return render_template('auth/login.html')
         
-        user = User.query.filter_by(username=username).first()
+        # 支持用户名或邮箱登录
+        user = User.query.filter((User.username == username_or_email) | 
+                                (User.email == username_or_email)).first()
         
         if user and user.check_password(password):
+            # 更新登录统计信息
+            user.last_login = datetime.utcnow()
+            user.login_count = (user.login_count or 0) + 1
+            db.session.commit()
+            
             session['user_id'] = user.id
             session['username'] = user.username
             session['is_admin'] = user.is_admin
@@ -104,7 +111,7 @@ def login():
             else:
                 return redirect(url_for('user.dashboard'))
         else:
-            flash('用户名或密码错误', 'error')
+            flash('用户名/邮箱或密码错误', 'error')
     
     return render_template('auth/login.html')
 

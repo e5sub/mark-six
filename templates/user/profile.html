@@ -7,13 +7,13 @@
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">👤</div>
-        <div class="stat-number">{{ user.username }}</div>
+        <div class="stat-number" style="font-size: 1.8rem;">{{ user.username }}</div>
         <div class="stat-label">用户名</div>
     </div>
     
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">📧</div>
-        <div class="stat-number" style="font-size: 1.2rem;">{{ user.email }}</div>
+        <div class="stat-number" style="font-size: 1.8rem;">{{ user.email }}</div>
         <div class="stat-label">邮箱地址</div>
     </div>
     
@@ -21,13 +21,13 @@
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">
             {% if user.is_active %}✅{% else %}❌{% endif %}
         </div>
-        <div class="stat-number">{{ "已激活" if user.is_active else "未激活" }}</div>
+        <div class="stat-number" style="font-size: 1.8rem;">{{ "已激活" if user.is_active else "未激活" }}</div>
         <div class="stat-label">账户状态</div>
     </div>
     
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">⏰</div>
-        <div class="stat-number" style="font-size: 1.2rem;">
+        <div class="stat-number" style="font-size: 1.8rem;">
             {% if user.activation_expires_at %}
                 {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
             {% else %}
@@ -57,8 +57,12 @@
                 
                 <div class="form-group">
                     <label>邮箱地址</label>
+                    {% if user.is_admin %}
                     <input type="email" name="email" class="form-control" value="{{ user.email }}" required>
-                    <small style="color: #666;">邮箱用于接收重要通知</small>
+                    {% else %}
+                    <input type="email" name="email" class="form-control" value="{{ user.email }}" readonly disabled>
+                    <small style="color: #666;">普通用户无法修改邮箱地址，如需修改请联系管理员</small>
+                    {% endif %}
                 </div>
             </div>
         </div>

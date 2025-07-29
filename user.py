@@ -353,33 +353,3 @@ def generate_invite_code():
             'success': False,
             'message': f'生成失败：{str(e)}'
         })
-        
-        # 更新邮箱
-        # 更新邮箱（仅管理员可修改）
-        if new_email and new_email != user.email:
-            if not user.is_admin:
-                flash('普通用户无权修改邮箱地址，如需修改请联系管理员', 'error')
-                return render_template('user/profile.html', user=user)
-            if User.query.filter_by(email=new_email).first():
-                flash('邮箱已被其他用户使用', 'error')
-                return render_template('user/profile.html', user=user)
-            user.email = new_email
-        
-        # 更新密码
-        if new_password:
-            if new_password != confirm_password:
-                flash('两次输入的新密码不一致', 'error')
-                return render_template('user/profile.html', user=user)
-            if len(new_password) < 6:
-                flash('新密码长度至少6位', 'error')
-                return render_template('user/profile.html', user=user)
-            user.set_password(new_password)
-        
-        try:
-            db.session.commit()
-            flash('个人信息更新成功', 'success')
-        except Exception as e:
-            db.session.rollback()
-            flash(f'更新失败：{str(e)}', 'error')
-    
-    return render_template('user/profile.html', user=user)
