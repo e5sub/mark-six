@@ -121,6 +121,10 @@ def predictions():
     region = request.args.get('region', '')
     period = request.args.get('period', '')
     zodiac = request.args.get('zodiac', '')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+    strategy = request.args.get('strategy', '')
+    result = request.args.get('result', '')
     
     query = PredictionRecord.query.filter_by(user_id=session['user_id'])
     
@@ -132,6 +136,38 @@ def predictions():
     if zodiac:
         query = query.filter(PredictionRecord.special_zodiac == zodiac)
     
+    # 添加日期范围筛选
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+            query = query.filter(PredictionRecord.created_at >= start_date_obj)
+        except ValueError:
+            flash('开始日期格式不正确', 'error')
+    
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+            # 设置为当天的结束时间
+            end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59)
+            query = query.filter(PredictionRecord.created_at <= end_date_obj)
+        except ValueError:
+            flash('结束日期格式不正确', 'error')
+    
+    # 添加预测策略筛选
+    if strategy:
+        query = query.filter_by(strategy=strategy)
+    
+    # 添加预测结果筛选
+    if result:
+        if result == 'correct':
+            query = query.filter(PredictionRecord.is_result_updated == True, 
+                                PredictionRecord.accuracy_score > 0)
+        elif result == 'wrong':
+            query = query.filter(PredictionRecord.is_result_updated == True, 
+                                PredictionRecord.accuracy_score <= 0)
+        elif result == 'pending':
+            query = query.filter(PredictionRecord.is_result_updated == False)
+    
     predictions = query.order_by(PredictionRecord.created_at.desc()).paginate(
         page=page, per_page=20, error_out=False
     )
@@ -141,6 +177,9 @@ def predictions():
     accurate_predictions = PredictionRecord.query.filter_by(user_id=session['user_id'])\
         .filter(PredictionRecord.accuracy_score != None)\
         .filter(PredictionRecord.accuracy_score > 0).count()
+    wrong_predictions = PredictionRecord.query.filter_by(user_id=session['user_id'])\
+        .filter(PredictionRecord.accuracy_score != None)\
+        .filter(PredictionRecord.accuracy_score <= 0).count()
     accuracy_rate = (accurate_predictions / total_predictions * 100) if total_predictions > 0 else 0
     
     return render_template('user/predictions.html', 
@@ -150,7 +189,9 @@ def predictions():
                           zodiac=zodiac,
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac,
-                          accuracy_rate=round(accuracy_rate, 2))
+                          correct_predictions=accurate_predictions,
+                          wrong_predictions=wrong_predictions,
+                          accuracy=round(accuracy_rate, 2))
 
 @user_bp.route('/save-prediction', methods=['POST'])
 @login_required
