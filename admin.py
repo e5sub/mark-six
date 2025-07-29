@@ -152,10 +152,25 @@ def dashboard():
 def users():
     try:
         page = request.args.get('page', 1, type=int)
-        users = User.query.paginate(
+        search_query = request.args.get('search', '')
+        
+        # 构建查询
+        query = User.query
+        
+        # 如果有搜索关键词，添加搜索条件
+        if search_query:
+            search_term = f"%{search_query}%"
+            query = query.filter(
+                (User.username.like(search_term)) | 
+                (User.email.like(search_term))
+            )
+        
+        # 分页
+        users = query.paginate(
             page=page, per_page=20, error_out=False
         )
-        return render_template('admin/users.html', users=users)
+        
+        return render_template('admin/users.html', users=users, search_query=search_query)
     except Exception as e:
         flash(f'加载用户数据失败: {str(e)}', 'error')
         # 创建空的分页对象

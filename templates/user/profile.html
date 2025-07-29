@@ -28,8 +28,8 @@
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">⏰</div>
         <div class="stat-number" style="font-size: 1.2rem;">
-            {% if user.valid_until %}
-                {{ user.valid_until.strftime('%Y-%m-%d') }}
+            {% if user.activation_expires_at %}
+                {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
             {% else %}
                 永久
             {% endif %}

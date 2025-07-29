@@ -6,7 +6,24 @@
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">👥 管理用户</h2>
-        <a href="#" class="btn" onclick="showAddUserModal()">+ 添加用户</a>
+        <div style="display: flex; gap: 1rem;">
+            <a href="#" class="btn" onclick="showAddUserModal()">+ 添加用户</a>
+        </div>
+    </div>
+    
+    <!-- 搜索表单 -->
+    <div style="padding: 1rem; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 1rem;">
+        <form method="GET" action="{{ url_for('admin.users') }}" style="display: flex; gap: 1rem; align-items: center;">
+            <div style="flex-grow: 1;">
+                <input type="text" name="search" class="form-control" placeholder="搜索用户名或邮箱..." value="{{ search_query or '' }}">
+            </div>
+            <div>
+                <button type="submit" class="btn">🔍 搜索</button>
+                {% if search_query %}
+                <a href="{{ url_for('admin.users') }}" class="btn btn-danger">清除</a>
+                {% endif %}
+            </div>
+        </form>
     </div>
     
     <div class="table-responsive">
