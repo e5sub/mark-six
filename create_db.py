@@ -47,7 +47,9 @@ CREATE TABLE user (
     activation_expires_at TIMESTAMP,
     invited_by VARCHAR(80),
     invite_code_used VARCHAR(32),
-    invite_activated_at TIMESTAMP
+    invite_activated_at TIMESTAMP,
+    last_login DATETIME,
+    login_count INTEGER DEFAULT 0
 )
 ''')
 

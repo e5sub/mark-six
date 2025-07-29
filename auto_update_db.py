@@ -76,6 +76,25 @@ def check_and_update_database():
             conn.commit()
             print(f"✅ 成功更新了 {len(records)} 条记录的actual_special_zodiac字段")
         
+        # 检查user表是否存在last_login和login_count字段
+        cursor.execute("PRAGMA table_info(user)")
+        columns = cursor.fetchall()
+        column_names = [column[1] for column in columns]
+        
+        # 如果不存在last_login字段，则添加
+        if 'last_login' not in column_names:
+            print("正在添加last_login字段到user表...")
+            cursor.execute("ALTER TABLE user ADD COLUMN last_login DATETIME")
+            conn.commit()
+            print("✅ 成功添加last_login字段")
+        
+        # 如果不存在login_count字段，则添加
+        if 'login_count' not in column_names:
+            print("正在添加login_count字段到user表...")
+            cursor.execute("ALTER TABLE user ADD COLUMN login_count INTEGER DEFAULT 0")
+            conn.commit()
+            print("✅ 成功添加login_count字段")
+        
         # 关闭数据库连接
         conn.close()
         
