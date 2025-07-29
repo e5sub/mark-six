@@ -233,7 +233,12 @@ def edit_user(user_id):
                     flash('激活过期时间格式无效', 'error')
                     return render_template('admin/edit_user.html', user=user)
             else:
-                user.activation_expires_at = None
+                # 如果用户是激活状态，则设置为永久有效期，否则不设置有效期
+                if user.is_active:
+                    user.activation_expires_at = None
+                else:
+                    # 未激活用户不应该有有效期
+                    user.activation_expires_at = None
             
             try:
                 db.session.commit()
