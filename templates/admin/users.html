@@ -77,7 +77,8 @@
                             {% else %}
                                 <button class="btn btn-success btn-sm" onclick="activateUser({{ user.id }})">激活</button>
                             {% endif %}
-            <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-sm">编辑</a>
+                            <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-primary btn-sm">编辑</a>
+                            <button class="btn btn-warning btn-sm" onclick="resetPassword({{ user.id }})">重置密码</button>
                             {% if not user.is_admin %}
                                 <button class="btn btn-danger btn-sm" onclick="deleteUser({{ user.id }})">删除</button>
                             {% endif %}
@@ -120,6 +121,29 @@
     </div>
 </div>
 
+<!-- 重置密码模态框 -->
+<div id="resetPasswordModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 20px; width: 90%; max-width: 500px;">
+        <h3 style="margin-bottom: 1.5rem;">重置密码</h3>
+        <p>您正在为用户 <strong id="resetUsername"></strong> 重置密码</p>
+        <form id="resetPasswordForm">
+            <input type="hidden" id="resetUserId" name="user_id">
+            <div class="form-group">
+                <label>新密码</label>
+                <input type="password" name="new_password" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>确认密码</label>
+                <input type="password" name="confirm_password" class="form-control" required>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-danger" onclick="hideResetPasswordModal()">取消</button>
+                <button type="submit" class="btn btn-primary">确认重置</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 function showAddUserModal() {
     document.getElementById('addUserModal').style.display = 'block';
@@ -127,6 +151,23 @@ function showAddUserModal() {
 
 function hideAddUserModal() {
     document.getElementById('addUserModal').style.display = 'none';
+}
+
+function showResetPasswordModal(userId, username) {
+    document.getElementById('resetUserId').value = userId;
+    document.getElementById('resetUsername').textContent = username;
+    document.getElementById('resetPasswordModal').style.display = 'block';
+}
+
+function hideResetPasswordModal() {
+    document.getElementById('resetPasswordModal').style.display = 'none';
+}
+
+function resetPassword(userId) {
+    // 获取用户名
+    const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+    const username = row ? row.querySelector('td:nth-child(2)').textContent.trim() : '';
+    showResetPasswordModal(userId, username);
 }
 
 function activateUser(userId) {
@@ -149,8 +190,10 @@ function activateUser(userId) {
 }
 
 function deactivateUser(userId) {
-    // 检查是否是admin用户
-    const username = document.querySelector(`tr[data-user-id="${userId}"] td:nth-child(2)`).textContent.trim();
+    // 获取用户名
+    const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+    const username = row ? row.querySelector('td:nth-child(2)').textContent.trim() : '';
+    
     if (username === 'admin') {
         alert('不能停用admin账号！');
         return;
@@ -219,5 +262,77 @@ document.getElementById('addUserForm').addEventListener('submit', function(e) {
         }
     });
 });
+
+document.getElementById('resetPasswordForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const userId = formData.get('user_id');
+    const newPassword = formData.get('new_password');
+    const confirmPassword = formData.get('confirm_password');
+    
+    if (newPassword !== confirmPassword) {
+        alert('两次输入的密码不一致');
+        return;
+    }
+    
+    const data = {
+        new_password: newPassword
+    };
+    
+    fetch(`/admin/users/${userId}/reset_password`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('密码重置成功');
+            hideResetPasswordModal();
+        } else {
+            alert('密码重置失败：' + data.message);
+        }
+    });
+});
 </script>
+
+<style>
+/* 状态标签样式 */
+.invite-status {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.status-used {
+    background-color: #e3f2fd;
+    color: #0d47a1;
+}
+
+.status-unused {
+    background-color: #e8f5e9;
+    color: #1b5e20;
+}
+
+.status-expired {
+    background-color: #ffebee;
+    color: #b71c1c;
+}
+
+/* 按钮统一样式 */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border-radius: 0.2rem;
+    white-space: nowrap;
+    min-width: 60px;
+    text-align: center;
+}
+</style>
 {% endblock %}

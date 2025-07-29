@@ -8,7 +8,7 @@ services:
       - PYTHONUNBUFFERED=1
       - SECRET_KEY=your-secure-secret-key-change-this  # 设置安全密钥
     volumes: 
-      - /opt/mark-six/data:/app/data
+      - ./data:/app/data
     ports:
       - "5000:5000"
     restart: unless-stopped

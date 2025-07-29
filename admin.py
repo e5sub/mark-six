@@ -277,6 +277,27 @@ def deactivate_user(user_id):
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)})
 
+@admin_bp.route('/users/<int:user_id>/reset_password', methods=['POST'])
+@admin_required
+def reset_user_password(user_id):
+    try:
+        user = User.query.get_or_404(user_id)
+        data = request.get_json()
+        
+        if not data or 'new_password' not in data:
+            return jsonify({'success': False, 'message': '缺少新密码参数'})
+        
+        new_password = data['new_password']
+        if not new_password or len(new_password) < 6:
+            return jsonify({'success': False, 'message': '密码长度不能少于6个字符'})
+        
+        user.set_password(new_password)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '密码重置成功'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)})
+
 @admin_bp.route('/users/<int:user_id>/delete', methods=['DELETE'])
 @admin_required
 def delete_user(user_id):
