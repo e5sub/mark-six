@@ -6,28 +6,28 @@
 <!-- 账户信息 -->
 <div class="stats-grid">
     <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">👤</div>
-        <div class="stat-number" style="font-size: 1.8rem;">{{ user.username }}</div>
+        <div class="stat-icon" style="color: #667eea;">👤</div>
+        <div class="stat-number">{{ user.username }}</div>
         <div class="stat-label">用户名</div>
     </div>
     
     <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">📧</div>
-        <div class="stat-number" style="font-size: 1.8rem;">{{ user.email }}</div>
+        <div class="stat-icon" style="color: #28a745;">📧</div>
+        <div class="stat-number">{{ user.email }}</div>
         <div class="stat-label">邮箱地址</div>
     </div>
     
     <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">
+        <div class="stat-icon" style="color: #ffc107;">
             {% if user.is_active %}✅{% else %}❌{% endif %}
         </div>
-        <div class="stat-number" style="font-size: 1.8rem;">{{ "已激活" if user.is_active else "未激活" }}</div>
+        <div class="stat-number">{{ "已激活" if user.is_active else "未激活" }}</div>
         <div class="stat-label">账户状态</div>
     </div>
     
     <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">⏰</div>
-        <div class="stat-number" style="font-size: 1.8rem;">
+        <div class="stat-icon" style="color: #17a2b8;">⏰</div>
+        <div class="stat-number">
             {% if user.activation_expires_at %}
                 {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
             {% else %}
@@ -120,46 +120,36 @@
         <h2 class="card-title">📊 账户统计</h2>
     </div>
     
-    <div style="display: grid; gap: 1rem;">
-        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">📅 注册时间</h3>
-                    <p style="margin: 0; color: #666;">您的账户创建时间</p>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">
-                        {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '-' }}
-                    </div>
-                </div>
+    <div class="stats-grid">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">📅</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">注册时间</h3>
+            <div class="stat-number" style="color: #28a745;">
+                {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '-' }}
             </div>
         </div>
         
-        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">🔐 最后登录</h3>
-                    <p style="margin: 0; color: #666;">您的最后登录时间</p>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #17a2b8;">
-                        {{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else '首次登录' }}
-                    </div>
-                </div>
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🔐</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">最后登录</h3>
+            <div class="stat-number" style="color: #17a2b8;">
+                {{ user.last_login.strftime('%Y-%m-%d') if user.last_login else '首次登录' }}
             </div>
         </div>
         
-        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1.1rem;">🔢 登录次数</h3>
-                    <p style="margin: 0; color: #666;">您的累计登录次数</p>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">
-                        {{ user.login_count or 0 }} 次
-                    </div>
-                </div>
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
+            <div class="stat-icon" style="color: #667eea;">🔢</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">登录次数</h3>
+            <div class="stat-number" style="color: #667eea;">
+                {{ user.login_count or 0 }} 次
+            </div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">🔑</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">账户类型</h3>
+            <div class="stat-number" style="color: #ffc107;">
+                {{ "管理员" if user.is_admin else "普通用户" }}
             </div>
         </div>
     </div>
@@ -171,22 +161,48 @@
         <h2 class="card-title">⚙️ 账户操作</h2>
     </div>
     
-    <div style="display: grid; gap: 1rem;">
+    <div class="stats-grid">
         {% if not user.is_active %}
-        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">⚠️ 账户未激活</h3>
-            <p style="margin: 0 0 1rem 0; color: #666;">您的账号尚未激活，请先激活账号才能使用预测功能。</p>
-            <a href="{{ url_for('auth.activate') }}" class="btn" style="background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">⚠️</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">账户未激活</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">请先激活账号</p>
+            <a href="{{ url_for('auth.activate') }}" class="btn btn-sm" style="background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
                 🔑 立即激活
             </a>
         </div>
+        {% else %}
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">✅</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">账户已激活</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">您的账号已激活</p>
+        </div>
         {% endif %}
         
-        <div style="background: rgba(220, 53, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #dc3545;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #dc3545; font-size: 1.1rem;">🚪 退出登录</h3>
-            <p style="margin: 0 0 1rem 0; color: #666;">安全退出当前账户</p>
-            <a href="{{ url_for('auth.logout') }}" class="btn btn-danger">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #dc3545; background: rgba(220, 53, 69, 0.05);">
+            <div class="stat-icon" style="color: #dc3545;">🚪</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #dc3545; font-size: 1rem;">退出登录</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">安全退出当前账户</p>
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-danger btn-sm">
                 🚪 退出登录
+            </a>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
+            <div class="stat-icon" style="color: #667eea;">🔄</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">刷新页面</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">刷新个人资料页面</p>
+            <a href="{{ url_for('user.profile') }}" class="btn btn-sm">
+                🔄 刷新页面
+            </a>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🏠</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">返回首页</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">返回网站首页</p>
+            <a href="{{ url_for('index') }}" class="btn btn-info btn-sm">
+                🏠 返回首页
             </a>
         </div>
     </div>
@@ -198,24 +214,44 @@
         <h2 class="card-title">🛡️ 安全提示</h2>
     </div>
     
-    <div style="display: grid; gap: 1rem;">
-        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">🔒 密码安全</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
-                <li>定期更换密码，建议每3个月更换一次</li>
-                <li>使用强密码，包含字母、数字和特殊字符</li>
-                <li>不要在多个网站使用相同密码</li>
-                <li>不要将密码告诉他人</li>
+    <div class="stats-grid">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🔒</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">密码安全</h3>
+            <ul style="margin: 0; padding-left: 1rem; color: #666; font-size: 0.8rem;">
+                <li>定期更换密码</li>
+                <li>使用强密码</li>
+                <li>不要共享密码</li>
             </ul>
         </div>
         
-        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">📧 邮箱安全</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
-                <li>确保邮箱地址正确，用于接收重要通知</li>
-                <li>定期检查邮箱，及时处理系统通知</li>
-                <li>不要使用临时邮箱或他人邮箱</li>
-                <li>保护好邮箱密码，避免被他人盗用</li>
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">📧</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">邮箱安全</h3>
+            <ul style="margin: 0; padding-left: 1rem; color: #666; font-size: 0.8rem;">
+                <li>确保邮箱正确</li>
+                <li>定期检查邮箱</li>
+                <li>保护邮箱密码</li>
+            </ul>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">🔐</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">账户安全</h3>
+            <ul style="margin: 0; padding-left: 1rem; color: #666; font-size: 0.8rem;">
+                <li>不共享账户</li>
+                <li>定期检查登录</li>
+                <li>安全退出登录</li>
+            </ul>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #dc3545; background: rgba(220, 53, 69, 0.05);">
+            <div class="stat-icon" style="color: #dc3545;">⚠️</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #dc3545; font-size: 1rem;">风险提示</h3>
+            <ul style="margin: 0; padding-left: 1rem; color: #666; font-size: 0.8rem;">
+                <li>警惕钓鱼网站</li>
+                <li>不点击可疑链接</li>
+                <li>保护个人信息</li>
             </ul>
         </div>
     </div>
