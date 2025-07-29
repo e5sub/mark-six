@@ -5,55 +5,54 @@
 {% block content %}
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">📊 系统概览和快速操作</h2>
-        <p style="color: #666; margin: 0; font-size: 0.95rem;">系统概览和快速操作</p>
+        <h2 class="card-title">📊 系统概览</h2>
     </div>
     
     <div class="stats-grid">
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">🎫</div>
+            <div class="stat-icon" style="color: #ffc107;">🎫</div>
             <div class="stat-number">{{ stats.invite_stats.total_invite_codes if stats.invite_stats else 0 }}</div>
             <div class="stat-label">邀请码总数</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem; color: #28a745;">✅</div>
+            <div class="stat-icon" style="color: #28a745;">✅</div>
             <div class="stat-number">{{ stats.active_users }}</div>
             <div class="stat-label">已激活用户</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem; color: #dc3545;">❌</div>
+            <div class="stat-icon" style="color: #dc3545;">❌</div>
             <div class="stat-number">{{ stats.inactive_users }}</div>
             <div class="stat-label">未激活用户</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem; color: #ffc107;">🔑</div>
+            <div class="stat-icon" style="color: #ffc107;">🔑</div>
             <div class="stat-number">{{ stats.unused_codes }}</div>
             <div class="stat-label">可用激活码</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem; color: #17a2b8;">📈</div>
+            <div class="stat-icon" style="color: #17a2b8;">📈</div>
             <div class="stat-number">{{ "%.1f"|format(stats.avg_accuracy) }}%</div>
             <div class="stat-label">平均准确率</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem; color: #6f42c1;">🎲</div>
+            <div class="stat-icon" style="color: #6f42c1;">🎲</div>
             <div class="stat-number">{{ "%.1f"|format(stats.random_accuracy) }}%</div>
             <div class="stat-label">随机预测准确率</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem; color: #fd7e14;">⚖️</div>
+            <div class="stat-icon" style="color: #fd7e14;">⚖️</div>
             <div class="stat-number">{{ "%.1f"|format(stats.balanced_accuracy) }}%</div>
             <div class="stat-label">均衡预测准确率</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem; color: #e83e8c;">🧠</div>
+            <div class="stat-icon" style="color: #e83e8c;">🧠</div>
             <div class="stat-number">{{ "%.1f"|format(stats.ai_accuracy) }}%</div>
             <div class="stat-label">AI智能预测准确率</div>
         </div>
@@ -65,39 +64,39 @@
         <h2 class="card-title">🎫 邀请系统统计</h2>
     </div>
     
-    <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+    <div class="stats-grid">
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">🎫</div>
+            <div class="stat-icon" style="color: #667eea;">🎫</div>
             <div class="stat-number">{{ stats.invite_stats.total_invite_codes if stats.invite_stats else 0 }}</div>
             <div class="stat-label">总邀请码数</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
+            <div class="stat-icon" style="color: #28a745;">✅</div>
             <div class="stat-number">{{ stats.invite_stats.used_invite_codes if stats.invite_stats else 0 }}</div>
             <div class="stat-label">已使用邀请码</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">⏳</div>
+            <div class="stat-icon" style="color: #ffc107;">⏳</div>
             <div class="stat-number">{{ stats.invite_stats.unused_invite_codes if stats.invite_stats else 0 }}</div>
             <div class="stat-label">未使用邀请码</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">⏰</div>
+            <div class="stat-icon" style="color: #dc3545;">⏰</div>
             <div class="stat-number">0</div>
             <div class="stat-label">已过期邀请码</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">👥</div>
+            <div class="stat-icon" style="color: #17a2b8;">👥</div>
             <div class="stat-number">{{ stats.invite_stats.total_invites if stats.invite_stats else 0 }}</div>
             <div class="stat-label">被邀请用户数</div>
         </div>
         
         <div class="stat-card">
-            <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #6f42c1;">📊</div>
+            <div class="stat-icon" style="color: #6f42c1;">📊</div>
             <div class="stat-number">{{ "%.1f"|format((stats.invite_stats.used_invite_codes / stats.invite_stats.total_invite_codes * 100) if stats.invite_stats and stats.invite_stats.total_invite_codes > 0 else 0) }}%</div>
             <div class="stat-label">邀请码使用率</div>
         </div>
@@ -109,41 +108,41 @@
         <h2 class="card-title">🚀 快速操作</h2>
     </div>
     
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
-        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
-            <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem;">👥 用户管理</h3>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">管理系统用户和权限</p>
-            <a href="{{ url_for('admin.users') }}" class="btn btn-primary btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">查看用户</a>
+    <div class="stats-grid">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">👥 用户管理</h3>
+            <p style="color: #666; font-size: 0.8rem; margin-bottom: 0.5rem;">管理系统用户和权限</p>
+            <a href="{{ url_for('admin.users') }}" class="btn btn-primary btn-sm" style="min-width: 100px; text-align: center; display: flex; align-items: center; justify-content: center;">查看用户</a>
         </div>
         
-        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-            <h3 style="margin: 0 0 1rem 0; color: #28a745; font-size: 1.1rem;">🔑 激活码管理</h3>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">生成和管理激活码</p>
-            <a href="{{ url_for('admin.activation_codes') }}" class="btn btn-success btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">管理激活码</a>
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">🔑 激活码管理</h3>
+            <p style="color: #666; font-size: 0.8rem; margin-bottom: 0.5rem;">生成和管理激活码</p>
+            <a href="{{ url_for('admin.activation_codes') }}" class="btn btn-success btn-sm" style="min-width: 100px; text-align: center; display: flex; align-items: center; justify-content: center;">管理激活码</a>
         </div>
         
-        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
-            <h3 style="margin: 0 0 1rem 0; color: #ffc107; font-size: 1.1rem;">🎫 邀请码管理</h3>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">生成和管理邀请码</p>
-            <a href="{{ url_for('admin.invite_codes') }}" class="btn btn-warning btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">管理邀请码</a>
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">🎫 邀请码管理</h3>
+            <p style="color: #666; font-size: 0.8rem; margin-bottom: 0.5rem;">生成和管理邀请码</p>
+            <a href="{{ url_for('admin.invite_codes') }}" class="btn btn-warning btn-sm" style="min-width: 100px; text-align: center; display: flex; align-items: center; justify-content: center;">管理邀请码</a>
         </div>
         
-        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
-            <h3 style="margin: 0 0 1rem 0; color: #17a2b8; font-size: 1.1rem;">🤝 邀请关系</h3>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">查看用户邀请关系</p>
-            <a href="{{ url_for('admin.user_invites') }}" class="btn btn-info btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">查看关系</a>
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">🤝 邀请关系</h3>
+            <p style="color: #666; font-size: 0.8rem; margin-bottom: 0.5rem;">查看用户邀请关系</p>
+            <a href="{{ url_for('admin.user_invites') }}" class="btn btn-info btn-sm" style="min-width: 100px; text-align: center; display: flex; align-items: center; justify-content: center;">查看关系</a>
         </div>
         
-        <div style="background: rgba(111, 66, 193, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #6f42c1;">
-            <h3 style="margin: 0 0 1rem 0; color: #6f42c1; font-size: 1.1rem;">⚙️ 系统配置</h3>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">配置系统参数</p>
-            <a href="{{ url_for('admin.system_config') }}" class="btn btn-secondary btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">系统设置</a>
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #6f42c1; background: rgba(111, 66, 193, 0.05);">
+            <h3 style="margin: 0 0 0.5rem 0; color: #6f42c1; font-size: 1rem;">⚙️ 系统配置</h3>
+            <p style="color: #666; font-size: 0.8rem; margin-bottom: 0.5rem;">配置系统参数</p>
+            <a href="{{ url_for('admin.system_config') }}" class="btn btn-secondary btn-sm" style="min-width: 100px; text-align: center; display: flex; align-items: center; justify-content: center;">系统设置</a>
         </div>
         
-        <div style="background: rgba(220, 53, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #dc3545;">
-            <h3 style="margin: 0 0 1rem 0; color: #dc3545; font-size: 1.1rem;">📊 预测记录</h3>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">查看预测历史记录</p>
-            <a href="{{ url_for('admin.predictions') }}" class="btn btn-danger btn-sm" style="min-width: 120px; text-align: center; display: flex; align-items: center; justify-content: center;">查看记录</a>
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #dc3545; background: rgba(220, 53, 69, 0.05);">
+            <h3 style="margin: 0 0 0.5rem 0; color: #dc3545; font-size: 1rem;">📊 预测记录</h3>
+            <p style="color: #666; font-size: 0.8rem; margin-bottom: 0.5rem;">查看预测历史记录</p>
+            <a href="{{ url_for('admin.predictions') }}" class="btn btn-danger btn-sm" style="min-width: 100px; text-align: center; display: flex; align-items: center; justify-content: center;">查看记录</a>
         </div>
     </div>
 </div>
@@ -153,8 +152,8 @@
         <h2 class="card-title">📈 最近活动</h2>
     </div>
     
-    <div style="color: #666; text-align: center; padding: 2rem;">
-        <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.3;">📊</div>
+    <div style="color: #666; text-align: center; padding: 1rem;">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.3;">📊</div>
         <p>暂无最近活动记录</p>
         <p style="font-size: 0.9rem; margin-top: 0.5rem;">用户操作和系统事件将在这里显示</p>
     </div>
