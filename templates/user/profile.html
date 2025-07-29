@@ -1,0 +1,293 @@
+{% extends "user/base.html" %}
+
+{% block page_title %}个人资料{% endblock %}
+
+{% block content %}
+<!-- 账户信息 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon" style="color: #667eea;">👤</div>
+        <div class="stat-number">{{ user.username }}</div>
+        <div class="stat-label">用户名</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="color: #28a745;">📧</div>
+        <div class="stat-number">{{ user.email }}</div>
+        <div class="stat-label">邮箱地址</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="color: #ffc107;">
+            {% if user.is_active %}✅{% else %}❌{% endif %}
+        </div>
+        <div class="stat-number">{{ "已激活" if user.is_active else "未激活" }}</div>
+        <div class="stat-label">账户状态</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="color: #17a2b8;">⏰</div>
+        <div class="stat-number">
+            {% if user.activation_expires_at %}
+                {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
+            {% else %}
+                永久
+            {% endif %}
+        </div>
+        <div class="stat-label">有效期至</div>
+    </div>
+</div>
+
+<!-- 修改个人信息 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">✏️ 修改个人信息</h2>
+    </div>
+    
+    <form method="POST" action="{{ url_for('user.profile') }}" style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+            <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem;">📝 基本信息</h3>
+            
+            <div style="display: grid; gap: 1rem;">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" name="username" class="form-control" value="{{ user.username }}" required>
+                    <small style="color: #666;">用户名用于登录和显示</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>邮箱地址</label>
+                    {% if user.is_admin %}
+                    <input type="email" name="email" class="form-control" value="{{ user.email }}" required>
+                    {% else %}
+                    <input type="email" name="email" class="form-control" value="{{ user.email }}" readonly disabled>
+                    <small style="color: #666;">普通用户无法修改邮箱地址，如需修改请联系管理员</small>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: center;">
+            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem;">
+                💾 保存修改
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- 修改密码 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🔒 修改密码</h2>
+    </div>
+    
+    <form method="POST" action="{{ url_for('user.profile') }}" style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+            <h3 style="margin: 0 0 1rem 0; color: #ffc107; font-size: 1.1rem;">🔐 密码设置</h3>
+            
+            <div style="display: grid; gap: 1rem;">
+                <div class="form-group">
+                    <label>当前密码</label>
+                    <input type="password" name="current_password" class="form-control" required>
+                    <small style="color: #666;">请输入您的当前密码</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>新密码</label>
+                    <input type="password" name="new_password" class="form-control" required minlength="6">
+                    <small style="color: #666;">密码长度至少6位</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>确认新密码</label>
+                    <input type="password" name="confirm_password" class="form-control" required minlength="6">
+                    <small style="color: #666;">请再次输入新密码</small>
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: center;">
+            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem; background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+                🔒 修改密码
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- 账户统计 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📊 账户统计</h2>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">📅</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">注册时间</h3>
+            <div class="stat-number" style="color: #28a745;">
+                {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '-' }}
+            </div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🔐</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">最后登录</h3>
+            <div class="stat-number" style="color: #17a2b8;">
+                {{ user.last_login.strftime('%Y-%m-%d') if user.last_login else '首次登录' }}
+            </div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
+            <div class="stat-icon" style="color: #667eea;">🔢</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">登录次数</h3>
+            <div class="stat-number" style="color: #667eea;">
+                {{ user.login_count or 0 }} 次
+            </div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">🔑</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">账户类型</h3>
+            <div class="stat-number" style="color: #ffc107;">
+                {{ "管理员" if user.is_admin else "普通用户" }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 账户操作 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">⚙️ 账户操作</h2>
+    </div>
+    
+    <div class="stats-grid">
+        {% if not user.is_active %}
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">⚠️</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">账户未激活</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">请先激活账号</p>
+            <a href="{{ url_for('auth.activate') }}" class="btn btn-sm" style="background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+                🔑 立即激活
+            </a>
+        </div>
+        {% else %}
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">✅</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">账户已激活</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">您的账号已激活</p>
+        </div>
+        {% endif %}
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #dc3545; background: rgba(220, 53, 69, 0.05);">
+            <div class="stat-icon" style="color: #dc3545;">🚪</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #dc3545; font-size: 1rem;">退出登录</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">安全退出当前账户</p>
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-danger btn-sm">
+                🚪 退出登录
+            </a>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
+            <div class="stat-icon" style="color: #667eea;">🔄</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">刷新页面</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">刷新个人资料页面</p>
+            <a href="{{ url_for('user.profile') }}" class="btn btn-sm">
+                🔄 刷新页面
+            </a>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🏠</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">返回首页</h3>
+            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">返回网站首页</p>
+            <a href="{{ url_for('index') }}" class="btn btn-info btn-sm">
+                🏠 返回首页
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- 安全提示 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🛡️ 安全提示</h2>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🔒</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">密码安全</h3>
+            <ul style="margin: 0; padding-left: 1rem; color: #666; font-size: 0.8rem;">
+                <li>定期更换密码</li>
+                <li>使用强密码</li>
+                <li>不要共享密码</li>
+            </ul>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">📧</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">邮箱安全</h3>
+            <ul style="margin: 0; padding-left: 1rem; color: #666; font-size: 0.8rem;">
+                <li>确保邮箱正确</li>
+                <li>定期检查邮箱</li>
+                <li>保护邮箱密码</li>
+            </ul>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">🔐</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">账户安全</h3>
+            <ul style="margin: 0; padding-left: 1rem; color: #666; font-size: 0.8rem;">
+                <li>不共享账户</li>
+                <li>定期检查登录</li>
+                <li>安全退出登录</li>
+            </ul>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #dc3545; background: rgba(220, 53, 69, 0.05);">
+            <div class="stat-icon" style="color: #dc3545;">⚠️</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #dc3545; font-size: 1rem;">风险提示</h3>
+            <ul style="margin: 0; padding-left: 1rem; color: #666; font-size: 0.8rem;">
+                <li>警惕钓鱼网站</li>
+                <li>不点击可疑链接</li>
+                <li>保护个人信息</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<style>
+.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    transition: border-color 0.3s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group label {
+    font-weight: 500;
+    color: #333;
+    font-size: 0.9rem;
+}
+
+.form-group small {
+    font-size: 0.8rem;
+    color: #666;
+}
+</style>
+{% endblock %}

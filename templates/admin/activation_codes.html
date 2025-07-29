@@ -1,0 +1,330 @@
+{% extends "admin/base.html" %}
+
+{% block page_title %}激活码管理{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🔑 管理激活码</h2>
+        <button class="btn" onclick="showGenerateModal()">+ 生成激活码</button>
+    </div>
+    
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>激活码</th>
+                    <th>类型</th>
+                    <th>状态</th>
+                    <th>使用者</th>
+                    <th>创建时间</th>
+                    <th>使用时间</th>
+                    <th>过期时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="activationCodesList">
+                <!-- 激活码列表将通过JavaScript动态加载 -->
+                <tr>
+                    <td colspan="8" class="text-center">加载中...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 生成激活码模态框 -->
+<div id="generateModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 20px; width: 90%; max-width: 500px;">
+        <h3 style="margin-bottom: 1.5rem;">生成激活码</h3>
+        <form id="generateForm">
+            <div class="form-group">
+                <label>生成数量</label>
+                <input type="number" name="count" class="form-control" value="1" min="1" max="100" required>
+            </div>
+            <div class="form-group">
+                <label>有效期类型</label>
+                <select name="validity_type" class="form-control">
+                    <option value="permanent">永久激活</option>
+                    <option value="day">1天</option>
+                    <option value="month">1个月</option>
+                    <option value="quarter">3个月</option>
+                    <option value="year">1年</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-danger" onclick="hideGenerateModal()">取消</button>
+                <button type="submit" class="btn">生成</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// 当前页码
+let currentPage = 1;
+const perPage = 10;
+
+// 页面加载完成后获取激活码列表
+document.addEventListener('DOMContentLoaded', function() {
+    loadActivationCodes(currentPage);
+});
+
+// 加载激活码列表
+function loadActivationCodes(page) {
+    fetch(`/admin/activation_codes/list?page=${page}&per_page=${perPage}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                renderActivationCodes(data.data);
+                renderPagination(data.pagination);
+            } else {
+                document.getElementById('activationCodesList').innerHTML = 
+                    `<tr><td colspan="8" class="text-center text-danger">加载激活码数据失败: ${data.message}</td></tr>`;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('activationCodesList').innerHTML = 
+                '<tr><td colspan="8" class="text-center text-danger">加载激活码数据失败，请刷新页面重试</td></tr>';
+        });
+}
+
+// 渲染激活码列表
+function renderActivationCodes(codes) {
+    const tbody = document.getElementById('activationCodesList');
+    if (!codes || codes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center">暂无激活码</td></tr>';
+        return;
+    }
+    
+    let html = '';
+    codes.forEach(code => {
+        const validityType = code.validity_type === 'permanent' ? '永久' : 
+                            code.validity_type === 'day' ? '1天' :
+                            code.validity_type === 'month' ? '1个月' :
+                            code.validity_type === 'quarter' ? '3个月' : '1年';
+        
+        const status = code.is_used ? '<span class="invite-status status-used">已使用</span>' :
+                      code.is_expired ? '<span class="invite-status status-expired">已过期</span>' :
+                      '<span class="invite-status status-unused">可使用</span>';
+        
+        html += `
+        <tr>
+            <td>
+                <div class="invite-code">${code.code}</div>
+                <button class="copy-btn" onclick="copyCode('${code.code}')">复制</button>
+            </td>
+            <td>
+                <span class="invite-status ${code.validity_type === 'permanent' ? 'status-unused' : 'status-used'}">${validityType}</span>
+            </td>
+            <td>${status}</td>
+            <td>${code.used_by || '-'}</td>
+            <td>${code.created_at || '-'}</td>
+            <td>${code.used_at || '-'}</td>
+            <td>${code.expires_at || '永不过期'}</td>
+            <td>
+                ${!code.is_used ? `<button class="btn btn-danger btn-sm" onclick="deleteCode('${code.code}')">删除</button>` : ''}
+            </td>
+        </tr>
+        `;
+    });
+    
+    tbody.innerHTML = html;
+}
+
+// 渲染分页
+function renderPagination(pagination) {
+    if (!pagination) return;
+    
+    const paginationContainer = document.createElement('div');
+    paginationContainer.className = 'pagination-container';
+    paginationContainer.style.cssText = 'display: flex; justify-content: center; margin-top: 1rem;';
+    
+    let html = '<div class="pagination">';
+    
+    // 上一页按钮
+    if (pagination.page > 1) {
+        html += `<button onclick="loadActivationCodes(${pagination.page - 1})" class="page-btn">&laquo; 上一页</button>`;
+    } else {
+        html += `<button disabled class="page-btn disabled">&laquo; 上一页</button>`;
+    }
+    
+    // 页码按钮
+    const startPage = Math.max(1, pagination.page - 2);
+    const endPage = Math.min(pagination.pages, pagination.page + 2);
+    
+    for (let i = startPage; i <= endPage; i++) {
+        if (i === pagination.page) {
+            html += `<button disabled class="page-btn active">${i}</button>`;
+        } else {
+            html += `<button onclick="loadActivationCodes(${i})" class="page-btn">${i}</button>`;
+        }
+    }
+    
+    // 下一页按钮
+    if (pagination.page < pagination.pages) {
+        html += `<button onclick="loadActivationCodes(${pagination.page + 1})" class="page-btn">下一页 &raquo;</button>`;
+    } else {
+        html += `<button disabled class="page-btn disabled">下一页 &raquo;</button>`;
+    }
+    
+    html += '</div>';
+    paginationContainer.innerHTML = html;
+    
+    // 查找表格容器并添加分页
+    const tableContainer = document.querySelector('.table-responsive');
+    const existingPagination = document.querySelector('.pagination-container');
+    
+    if (existingPagination) {
+        existingPagination.remove();
+    }
+    
+    tableContainer.after(paginationContainer);
+    
+    // 更新当前页码
+    currentPage = pagination.page;
+}
+
+function showGenerateModal() {
+    document.getElementById('generateModal').style.display = 'block';
+}
+
+function hideGenerateModal() {
+    document.getElementById('generateModal').style.display = 'none';
+}
+
+function copyCode(code) {
+    navigator.clipboard.writeText(code).then(function() {
+        showToast('激活码已复制到剪贴板: ' + code, 'success');
+    }).catch(function(err) {
+        console.error('复制失败: ', err);
+        const textArea = document.createElement('textarea');
+        textArea.value = code;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        showToast('激活码已复制到剪贴板: ' + code, 'success');
+    });
+}
+
+function deleteCode(code) {
+    if (confirm('确定要删除此激活码吗？')) {
+        fetch(`/admin/activation_codes/${code}/delete`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadActivationCodes(currentPage); // 重新加载当前页
+                showToast('激活码删除成功', 'success');
+            } else {
+                showToast('删除失败：' + data.message, 'error');
+            }
+        });
+    }
+}
+
+function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'success' ? '#28a745' : '#dc3545'};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        z-index: 9999;
+        font-size: 0.9rem;
+        max-width: 300px;
+        animation: slideIn 0.3s ease;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.parentElement.removeChild(toast);
+            }
+        }, 300);
+    }, 3000);
+}
+
+document.getElementById('generateForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const data = {
+        count: parseInt(formData.get('count')),
+        validity_type: formData.get('validity_type')
+    };
+    
+    fetch('/admin/activation_codes/generate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            hideGenerateModal();
+            loadActivationCodes(1); // 重新加载第一页
+            showToast(data.message, 'success');
+        } else {
+            showToast('生成失败：' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('生成失败，请稍后重试', 'error');
+    });
+});
+
+// 添加CSS样式
+document.head.insertAdjacentHTML('beforeend', `
+<style>
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(100%); opacity: 0; }
+}
+.pagination {
+    display: flex;
+    gap: 0.5rem;
+}
+.page-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.page-btn:hover:not(.disabled):not(.active) {
+    background: #f8f9fa;
+}
+.page-btn.active {
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+.page-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+</style>
+`);
+</script>
+{% endblock %}

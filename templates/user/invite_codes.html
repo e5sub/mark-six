@@ -1,0 +1,546 @@
+{% extends "user/base.html" %}
+
+{% block page_title %}邀请码管理{% endblock %}
+
+{% block content %}
+<!-- 添加Font Awesome图标库 -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <!-- 页面标题和统计信息 -->
+            <div class="page-header-wrapper mb-4">
+                <div class="page-header d-flex justify-content-between align-items-center">
+                    <h2 class="mb-0">🎫 我的邀请码</h2>
+                    <button type="button" class="btn-generate" onclick="generateInviteCode()">
+                        <i class="fas fa-plus-circle me-2"></i>生成新邀请码
+                    </button>
+                </div>
+                
+                <!-- 统计信息卡片 -->
+                <div class="stats-cards mt-4">
+                    <div class="stat-card stat-total">
+                        <div class="stat-icon"><i class="fas fa-ticket-alt"></i></div>
+                        <div class="stat-content">
+                            <div class="stat-number">{{ stats.total_invites }}</div>
+                            <div class="stat-label">总邀请数</div>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-active">
+                        <div class="stat-icon"><i class="fas fa-user-check"></i></div>
+                        <div class="stat-content">
+                            <div class="stat-number">{{ stats.active_invites }}</div>
+                            <div class="stat-label">成功激活</div>
+                        </div>
+                    </div>
+                    <div class="stat-card stat-rate">
+                        <div class="stat-icon"><i class="fas fa-chart-line"></i></div>
+                        <div class="stat-content">
+                            <div class="stat-number">{{ stats.success_rate }}%</div>
+                            <div class="stat-label">成功率</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 邀请码列表 -->
+            <div class="card invite-codes-card">
+                <div class="card-header">
+                    <h4 class="mb-0"><i class="fas fa-list me-2"></i>邀请码列表</h4>
+                </div>
+                <div class="card-body">
+                    {% if codes.items %}
+                        <div class="table-responsive">
+                            <table class="table invite-codes-table">
+                                <thead>
+                                    <tr>
+                                        <th>邀请码</th>
+                                        <th>状态</th>
+                                        <th>创建时间</th>
+                                        <th>过期时间</th>
+                                        <th>使用者</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for code in codes.items %}
+                                    <tr>
+                                        <td>
+                                            <div class="code-display">
+                                                <span class="invite-code">{{ code.code }}</span>
+                                                <button class="btn-copy" onclick="copyCode('{{ code.code }}')">
+                                                    <i class="fas fa-copy"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {% if code.is_used %}
+                                                <span class="status-badge status-used">
+                                                    <i class="fas fa-check-circle me-1"></i>已使用
+                                                </span>
+                                            {% elif code.is_expired() %}
+                                                <span class="status-badge status-expired">
+                                                    <i class="fas fa-times-circle me-1"></i>已过期
+                                                </span>
+                                            {% else %}
+                                                <span class="status-badge status-active">
+                                                    <i class="fas fa-check-circle me-1"></i>可用
+                                                </span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="time-display">
+                                                <i class="far fa-calendar-alt me-1"></i>
+                                                {{ code.created_at.strftime('%Y-%m-%d %H:%M') if code.created_at else '-' }}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="time-display">
+                                                <i class="far fa-clock me-1"></i>
+                                                {{ code.expires_at.strftime('%Y-%m-%d %H:%M') if code.expires_at else '永久' }}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {% if code.used_by %}
+                                                <span class="user-badge">
+                                                    <i class="fas fa-user me-1"></i>{{ code.used_by }}
+                                                </span>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if not code.is_used %}
+                                                <button class="btn-share" onclick="shareCode('{{ code.code }}')">
+                                                    <i class="fas fa-share-alt me-1"></i>分享
+                                                </button>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 分页 -->
+                        {% if codes.pages > 1 %}
+                        <nav aria-label="邀请码分页">
+                            <ul class="pagination justify-content-center">
+                                {% if codes.has_prev %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('user.invite_codes', page=codes.prev_num) }}">上一页</a>
+                                    </li>
+                                {% endif %}
+                                
+                                {% for page_num in codes.iter_pages() %}
+                                    {% if page_num %}
+                                        {% if page_num != codes.page %}
+                                            <li class="page-item">
+                                                <a class="page-link" href="{{ url_for('user.invite_codes', page=page_num) }}">{{ page_num }}</a>
+                                            </li>
+                                        {% else %}
+                                            <li class="page-item active">
+                                                <span class="page-link">{{ page_num }}</span>
+                                            </li>
+                                        {% endif %}
+                                    {% else %}
+                                        <li class="page-item disabled">
+                                            <span class="page-link">…</span>
+                                        </li>
+                                    {% endif %}
+                                {% endfor %}
+                                
+                                {% if codes.has_next %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('user.invite_codes', page=codes.next_num) }}">下一页</a>
+                                    </li>
+                                {% endif %}
+                            </ul>
+                        </nav>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center py-4">
+                            <p class="text-muted">您还没有创建任何邀请码</p>
+                            <button type="button" class="btn btn-primary" onclick="generateInviteCode()">
+                                生成第一个邀请码
+                            </button>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 被邀请用户列表 -->
+    {% if invited_users %}
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card invited-users-card">
+                <div class="card-header">
+                    <h4 class="mb-0"><i class="fas fa-users me-2"></i>我邀请的用户</h4>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table invited-users-table">
+                            <thead>
+                                <tr>
+                                    <th>用户名</th>
+                                    <th>邮箱</th>
+                                    <th>注册时间</th>
+                                    <th>激活状态</th>
+                                    <th>使用的邀请码</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in invited_users %}
+                                <tr>
+                                    <td>
+                                        <div class="user-info">
+                                            <i class="fas fa-user-circle me-2"></i>
+                                            {{ user.username }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="email-info">
+                                            <i class="fas fa-envelope me-2"></i>
+                                            {{ user.email }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="time-display">
+                                            <i class="far fa-calendar-alt me-1"></i>
+                                            {{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        {% if user.is_active %}
+                                            <span class="status-badge status-active">
+                                                <i class="fas fa-check-circle me-1"></i>已激活
+                                            </span>
+                                        {% else %}
+                                            <span class="status-badge status-pending">
+                                                <i class="fas fa-clock me-1"></i>未激活
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="code-used">{{ user.invite_code_used or '-' }}</span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+/* 页面整体样式 */
+.page-header-wrapper {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    border-radius: 16px;
+    padding: 30px;
+    color: white;
+    box-shadow: 0 10px 25px rgba(99, 102, 241, 0.2);
+}
+
+.page-header h2 {
+    font-weight: 700;
+    font-size: 1.8rem;
+    margin: 0;
+}
+
+/* 生成按钮样式 */
+.btn-generate {
+    background: white;
+    color: #6366f1;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+}
+
+.btn-generate:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+}
+
+/* 统计卡片样式 */
+.stats-cards {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.stat-card {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 15px 20px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    transition: transform 0.3s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-5px);
+}
+
+.stat-icon {
+    font-size: 2rem;
+    margin-right: 15px;
+    opacity: 0.8;
+}
+
+.stat-content {
+    flex: 1;
+}
+
+.stat-number {
+    font-size: 2.2rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 5px;
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+/* 邀请码卡片样式 */
+.invite-codes-card, .invited-users-card {
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    margin-bottom: 30px;
+}
+
+.card-header {
+    background: #f8f9fa;
+    padding: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.card-header h4 {
+    font-weight: 600;
+    color: #333;
+}
+
+/* 表格样式 */
+.invite-codes-table, .invited-users-table {
+    margin: 0;
+}
+
+.invite-codes-table th, .invited-users-table th {
+    font-weight: 600;
+    color: #555;
+    padding: 15px;
+    border-bottom: 2px solid #eee;
+}
+
+.invite-codes-table td, .invited-users-table td {
+    padding: 15px;
+    vertical-align: middle;
+}
+
+/* 邀请码显示样式 */
+.code-display {
+    display: flex;
+    align-items: center;
+}
+
+.invite-code {
+    background: linear-gradient(135deg, #f0f4ff 0%, #e6eeff 100%);
+    padding: 8px 15px;
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    color: #3b82f6;
+    letter-spacing: 1px;
+    margin-right: 10px;
+    border: 1px solid #d1deff;
+}
+
+.btn-copy, .btn-share {
+    background: none;
+    border: none;
+    color: #6366f1;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.btn-copy:hover, .btn-share:hover {
+    background: #f0f4ff;
+}
+
+.btn-share {
+    background: #f0f4ff;
+    color: #6366f1;
+    padding: 6px 15px;
+    border-radius: 20px;
+    font-weight: 500;
+    font-size: 0.85rem;
+    border: 1px solid #d1deff;
+}
+
+.btn-share:hover {
+    background: #e6eeff;
+}
+
+/* 状态标签样式 */
+.status-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+}
+
+.status-active {
+    background-color: #dcfce7;
+    color: #16a34a;
+}
+
+.status-used {
+    background-color: #dbeafe;
+    color: #2563eb;
+}
+
+.status-expired {
+    background-color: #fee2e2;
+    color: #dc2626;
+}
+
+.status-pending {
+    background-color: #fef3c7;
+    color: #d97706;
+}
+
+/* 时间显示样式 */
+.time-display {
+    color: #666;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+}
+
+/* 用户信息样式 */
+.user-info, .email-info {
+    display: flex;
+    align-items: center;
+}
+
+.user-badge {
+    background: #f0f4ff;
+    color: #3b82f6;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+}
+
+.code-used {
+    font-family: 'Courier New', monospace;
+    color: #6366f1;
+    font-weight: 500;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .stats-cards {
+        flex-direction: column;
+    }
+    
+    .page-header {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .btn-generate {
+        width: 100%;
+        justify-content: center;
+    }
+}
+</style>
+
+<script>
+function generateInviteCode() {
+    if (confirm('确定要生成新的邀请码吗？每天最多只能生成3个邀请码。')) {
+        fetch('{{ url_for("user.generate_invite_code") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('邀请码生成成功：' + data.code);
+                location.reload();
+            } else {
+                alert('生成失败：' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('生成失败，请稍后重试');
+        });
+    }
+}
+
+function copyCode(code) {
+    navigator.clipboard.writeText(code).then(function() {
+        alert('邀请码已复制到剪贴板：' + code);
+    }, function(err) {
+        console.error('复制失败: ', err);
+        // 备用复制方法
+        const textArea = document.createElement('textarea');
+        textArea.value = code;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        alert('邀请码已复制到剪贴板：' + code);
+    });
+}
+
+function shareCode(code) {
+    const shareText = `邀请您注册六合彩预测系统！\n邀请码：${code}\n注册链接：${window.location.origin}/auth/register`;
+    
+    if (navigator.share) {
+        navigator.share({
+            title: '邀请注册',
+            text: shareText
+        });
+    } else {
+        // 复制分享文本到剪贴板
+        navigator.clipboard.writeText(shareText).then(function() {
+            alert('分享内容已复制到剪贴板，您可以粘贴发送给朋友！');
+        }, function(err) {
+            console.error('复制失败: ', err);
+            alert('分享内容：\n' + shareText);
+        });
+    }
+}
+</script>
+{% endblock %}

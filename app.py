@@ -1,4 +1,6 @@
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask_login import LoginManager, current_user
 import json
 import os
 import random
@@ -6,13 +8,111 @@ import requests
 from collections import Counter
 from datetime import datetime
 
+# 导入用户系统模块
+from models import db, User, PredictionRecord, SystemConfig, InviteCode
+from auth import auth_bp
+from admin import admin_bp
+from user import user_bp
+from activation_code_routes import activation_code_bp
+
 # --- 配置信息 ---
-AI_API_KEY = "你的_AI_API_KEY"
-AI_API_URL = "https://api.deepseek.com/v1/chat/completions"
 app = Flask(__name__)
-HK_DATA_SOURCE_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/data/all.json"
-HK_DATA_FILE_PATH = "data/hk.json"
+# 使用环境变量设置密钥，如果不存在则使用随机生成的密钥
+import os
+import secrets
+app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
+
+# 确保数据目录存在
+data_dir = os.path.join(os.getcwd(), 'data')
+os.makedirs(data_dir, exist_ok=True)
+
+# 数据库配置
+db_path = os.path.join(data_dir, 'lottery_system.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+print(f"数据库路径: {db_path}")
+print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+import json
+import os
+import random
+import requests
+from collections import Counter
+from datetime import datetime
+
+# 导入用户系统模块
+from models import db, User, PredictionRecord, SystemConfig
+from auth import auth_bp
+from admin import admin_bp
+from user import user_bp
+
+# --- 配置信息 ---
+app = Flask(__name__)
+app.secret_key = 'your-secret-key-change-this-in-production'  # 请在生产环境中更改此密钥
+
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+import json
+import os
+import random
+import requests
+from collections import Counter
+from datetime import datetime
+
+# 导入用户系统模块
+from models import db, User, PredictionRecord, SystemConfig
+from auth import auth_bp
+from admin import admin_bp
+from user import user_bp
+
+# --- 配置信息 ---
+app = Flask(__name__)
+app.secret_key = 'your-secret-key-change-this-in-production'  # 请在生产环境中更改此密钥
+
+# 确保数据目录存在
+import os
+data_dir = os.path.join(os.getcwd(), 'data')
+os.makedirs(data_dir, exist_ok=True)
+
+# 数据库配置
+db_path = os.path.join(data_dir, 'lottery_system.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+print(f"数据库路径: {db_path}")
+print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+
+# 初始化数据库
+# 初始化数据库
+db.init_app(app)
+
+# 初始化Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'auth.login'
+login_manager.login_message = '请先登录以访问此页面。'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# 注册蓝图
+app.register_blueprint(auth_bp, url_prefix='/auth')
+app.register_blueprint(admin_bp)
+app.register_blueprint(user_bp)
+app.register_blueprint(activation_code_bp)
+
+# 获取AI配置的函数
+def get_ai_config():
+    return {
+        'api_key': SystemConfig.get_config('ai_api_key', '你的_AI_API_KEY'),
+        'api_url': SystemConfig.get_config('ai_api_url', 'https://api.deepseek.com/v1/chat/completions'),
+        'model': SystemConfig.get_config('ai_model', 'gemini-2.0-flash')
+    }
+# 澳门数据API
 MACAU_API_URL_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}"
+# 香港数据API
+HK_DATA_SOURCE_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/data/all.json"
 
 # --- 号码属性计算与映射 ---
 ZODIAC_MAPPING_SEQUENCE = ("虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马")
@@ -42,25 +142,14 @@ def _get_hk_number_color(number):
 
 # --- 数据加载与处理 ---
 def load_hk_data():
-    try:
-        with open(HK_DATA_FILE_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        if update_hk_data_from_source():
-            with open(HK_DATA_FILE_PATH, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return []
-
-def update_hk_data_from_source():
+    # 直接从URL获取数据
     try:
         response = requests.get(HK_DATA_SOURCE_URL, timeout=15)
         response.raise_for_status()
-        os.makedirs("data", exist_ok=True)
-        with open(HK_DATA_FILE_PATH, 'w', encoding='utf-8') as f:
-            json.dump(response.json(), f, ensure_ascii=False, indent=2)
-        return True
-    except:
-        return False
+        return response.json()
+    except Exception as e:
+        print(f"从URL获取香港数据失败: {e}")
+        return []
 
 def get_macau_data(year):
     url = MACAU_API_URL_TEMPLATE.format(year=year)
@@ -159,11 +248,14 @@ def get_local_recommendations(strategy, data, region):
     if region == 'hk':
         sno_zodiac_info = _get_hk_number_zodiac(special_num)
     else:
-        sno_zodiac_info = ""
+        # 为澳门预测也添加特码生肖
+        sno_zodiac_info = _get_hk_number_zodiac(special_num)
     return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": sno_zodiac_info}}
 
 def predict_with_ai(data, region):
-    if not AI_API_KEY or "你的" in AI_API_KEY: return {"error": "AI API Key 未配置"}
+    ai_config = get_ai_config()
+    if not ai_config['api_key'] or "你的" in ai_config['api_key']: 
+        return {"error": "AI API Key 未配置"}
     history_lines, prompt = [], ""
     recent_data = data[:10]
     if region == 'hk':
@@ -171,27 +263,118 @@ def predict_with_ai(data, region):
             zodiac = _get_hk_number_zodiac(d.get('sno'))
             history_lines.append(f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特别号码: {d.get('sno')}({zodiac})")
         recent_history = "\n".join(history_lines)
-        prompt = f"你是一位精通香港六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含号码和生肖），为下一期提供一份详细的分析和号码推荐。\n\n历史数据:\n{recent_history}\n\n你的任务是：\n1. 写一段简短的分析说明模式。\n2. 推荐一组号码（6平码1特码）。\n3. 请以友好、自然的语言风格进行回复。"
+        prompt = f"""你是一位精通香港六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含号码和生肖），为下一期提供一份详细的分析和号码推荐。
+
+历史数据:
+{recent_history}
+
+你的任务是：
+1. 写一段详细的分析说明，解释你的推荐依据和分析过程。
+2. 明确推荐一组号码（6平码1特码），格式为：
+   推荐号码：[平码1, 平码2, 平码3, 平码4, 平码5, 平码6] 特码: [特码]
+3. 请以友好、自然的语言风格进行回复。
+4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
     else:
         for d in recent_data:
             all_numbers = d.get('no', []) + ([d.get('sno')] if d.get('sno') else [])
             history_lines.append(f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}")
         recent_history = "\n".join(history_lines)
-        prompt = f"你是一位精通澳门六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含开奖号码、波色和生肖），为下一期提供一份详细的分析和号码推荐。\n\n历史数据:\n{recent_history}\n\n你的任务是：\n1. 写一段简短的分析说明模式。\n2. 推荐一组号码（6平码1特码）。\n3. 请以友好、自然的语言风格进行回复。"
+        prompt = f"""你是一位精通澳门六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含开奖号码、波色和生肖），为下一期提供一份详细的分析和号码推荐。
+
+历史数据:
+{recent_history}
+
+你的任务是：
+1. 写一段详细的分析说明，解释你的推荐依据和分析过程。
+2. 明确推荐一组号码（6平码1特码），格式为：
+   推荐号码：[平码1, 平码2, 平码3, 平码4, 平码5, 平码6] 特码: [特码]
+3. 请以友好、自然的语言风格进行回复。
+4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
     
-    payload = {"model": "gemini-2.0-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
-    headers = {"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
+    headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
-        response = requests.post(AI_API_URL, json=payload, headers=headers, timeout=30)
+        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=30)
         response.raise_for_status()
-        return {"recommendation_text": response.json()['choices'][0]['message']['content']}
+        ai_response = response.json()['choices'][0]['message']['content']
+        
+        # 从AI回复中提取号码
+        import re
+        normal_numbers = []
+        special_number = ""
+        
+        # 尝试匹配格式化的推荐号码
+        number_pattern = r'推荐号码：\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*特码:\s*\[(\d+)\]'
+        match = re.search(number_pattern, ai_response)
+        
+        if match:
+            normal_numbers = [int(match.group(i)) for i in range(1, 7)]
+            special_number = match.group(7)
+        else:
+            # 如果没有找到格式化的推荐，尝试从文本中提取数字
+            all_numbers = re.findall(r'\b\d{1,2}\b', ai_response)
+            valid_numbers = [int(n) for n in all_numbers if 1 <= int(n) <= 49]
+            
+            if len(valid_numbers) >= 7:
+                normal_numbers = sorted(valid_numbers[:6])
+                special_number = str(valid_numbers[6])
+            else:
+                # 如果无法从AI回复中提取有效号码，使用本地推荐
+                local_rec = get_local_recommendations('balanced', data, region)
+                normal_numbers = local_rec['normal']
+                special_number = local_rec['special']['number']
+        
+        # 确保所有号码都是有效的
+        normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
+        while len(normal_numbers) < 6:
+            new_num = random.randint(1, 49)
+            if new_num not in normal_numbers:
+                normal_numbers.append(new_num)
+        normal_numbers = sorted(normal_numbers)
+        
+        if not special_number or not (1 <= int(special_number) <= 49):
+            special_number = str(random.randint(1, 49))
+        
+        # 获取特码生肖
+        sno_zodiac = ""
+        if region == 'hk':
+            sno_zodiac = _get_hk_number_zodiac(special_number)
+        else:
+            # 澳门也使用相同的生肖计算方法
+            sno_zodiac = _get_hk_number_zodiac(special_number)
+        
+        return {
+            "recommendation_text": ai_response,
+            "normal": normal_numbers,
+            "special": {
+                "number": special_number,
+                "sno_zodiac": sno_zodiac
+            }
+        }
     except Exception as e:
         return {"error": f"调用AI API时出错: {e}"}
 
 # --- Flask 路由 ---
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # 检查用户登录状态，如果未登录则重定向到登录页面
+    if 'user_id' not in session:
+        return redirect(url_for('auth.login'))
+    
+    # 检查用户是否激活，如果未激活则显示提示
+    user = User.query.get(session['user_id'])
+    
+    # 检查激活状态是否过期
+    if user and user.is_activation_expired():
+        user.is_active = False
+        db.session.commit()
+        session['is_active'] = False
+        flash('您的账号激活已过期，请使用新的激活码重新激活。', 'warning')
+    
+    if not user.is_active:
+        flash('您的账号尚未激活，部分功能受限。请先激活账号。', 'warning')
+    
+    return render_template('index.html', user=user)
 
 def get_yearly_data(region, year):
     if region == 'hk':
@@ -220,20 +403,186 @@ def draws_api():
                 })
             record['details_breakdown'] = details_breakdown
         data = sorted(data, key=lambda x: x.get('date', ''), reverse=True)
+        
+        # 更新预测准确率
+        update_prediction_accuracy(data, 'hk')
+    else:
+        # 更新澳门预测准确率
+        update_prediction_accuracy(data, 'macau')
+        
     return jsonify(data[:20])
+
+def update_prediction_accuracy(data, region):
+    """更新预测准确率 - 只比较特码和生肖"""
+    try:
+        # 获取所有该地区的预测记录
+        predictions = PredictionRecord.query.filter_by(region=region).all()
+        
+        # 创建期数到开奖结果的映射
+        draw_results = {}
+        for draw in data:
+            period = draw.get('id')
+            if not period:
+                continue
+            
+            special_number = str(draw.get('sno', ''))
+            # 获取特码生肖
+            special_zodiac = ""
+            if region == 'hk':
+                special_zodiac = _get_hk_number_zodiac(special_number)
+            else:
+                special_zodiac = draw.get('sno_zodiac', '') or _get_hk_number_zodiac(special_number)
+            
+            if special_number:
+                draw_results[period] = {
+                    'special': special_number,
+                    'special_zodiac': special_zodiac
+                }
+        
+        # 更新每条预测记录的准确率
+        for pred in predictions:
+            # 检查是否已经更新过准确率
+            if pred.is_result_updated:
+                continue
+                
+            # 查找对应期数的开奖结果
+            result = draw_results.get(pred.period)
+            if not result:
+                continue
+                
+            # 获取预测特码和生肖
+            pred_special = pred.special_number
+            pred_zodiac = pred.special_zodiac
+            
+            # 特码号码是否命中
+            special_hit = 1 if pred_special == result['special'] else 0
+            
+            # 特码生肖是否命中
+            zodiac_hit = 1 if pred_zodiac and pred_zodiac == result['special_zodiac'] else 0
+            
+            # 计算总准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
+            accuracy = (special_hit * 0.7) + (zodiac_hit * 0.3)
+            
+            # 更新预测记录
+            pred.actual_normal_numbers = ''  # 不再需要保存正码
+            pred.actual_special_number = result['special']
+            pred.actual_special_zodiac = result['special_zodiac']
+            pred.accuracy_score = accuracy
+            pred.is_result_updated = True
+        
+        # 提交更改
+        db.session.commit()
+        
+    except Exception as e:
+        print(f"更新预测准确率时出错: {e}")
+        db.session.rollback()
 
 @app.route('/api/predict')
 def unified_predict_api():
     region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
     data = get_yearly_data(region, year)
     if not data: return jsonify({"error": f"无法加载{year}年的数据"}), 404
-    if strategy == 'ai': return jsonify(predict_with_ai(data, region))
-    return jsonify(get_local_recommendations(strategy, data, region))
+    
+    # 检查用户是否登录和激活（对于需要保存记录的功能）
+    user_id = session.get('user_id')
+    is_active = session.get('is_active', False)
+    
+    # 获取下一期期数（使用最近一期的下一期）
+    if data:
+        try:
+            if region == 'hk':
+                # 香港六合彩期数格式为"年份/期数"，如"25/075"
+                latest_period = data[0].get('id', '')
+                if latest_period and '/' in latest_period:
+                    year_part, num_part = latest_period.split('/')
+                    next_num = int(num_part) + 1
+                    # 如果期数超过120，年份加1，期数重置为1
+                    if next_num > 120:
+                        next_year = int(year_part) + 1
+                        next_period = f"{next_year:02d}/001"
+                    else:
+                        next_period = f"{year_part}/{next_num:03d}"
+                    current_period = next_period
+                else:
+                    current_year = datetime.now().strftime('%y')
+                    current_period = f"{current_year}/001"
+            else:
+                # 澳门六合彩期数格式
+                latest_period = data[0].get('id', '')
+                if latest_period and latest_period.isdigit():
+                    next_period = str(int(latest_period) + 1)
+                    current_period = next_period
+                else:
+                    current_period = datetime.now().strftime('%Y%m%d')
+        except (IndexError, ValueError) as e:
+            print(f"计算下一期期数时出错: {e}")
+            current_year = datetime.now().strftime('%y')
+            current_period = f"{current_year}/001"
+    else:
+        current_year = datetime.now().strftime('%y')
+        current_period = f"{current_year}/001"
+    
+    # 检查用户是否已经为当前期和当前策略生成过预测
+    if user_id and is_active:
+        existing = PredictionRecord.query.filter_by(
+            user_id=user_id,
+            region=region,
+            period=current_period,
+            strategy=strategy  # 添加策略作为过滤条件
+        ).first()
+        
+        if existing:
+            # 返回已存在的预测结果
+            sno_zodiac = existing.special_zodiac
+            # 如果数据库中的生肖为空，重新计算
+            if not sno_zodiac and existing.special_number:
+                sno_zodiac = _get_hk_number_zodiac(existing.special_number)
+                # 更新数据库中的生肖信息
+                existing.special_zodiac = sno_zodiac
+                try:
+                    db.session.commit()
+                except Exception as e:
+                    print(f"更新生肖信息失败: {e}")
+                    db.session.rollback()
+            
+            result = {
+                "normal": existing.normal_numbers.split(','),
+                "special": {
+                    "number": existing.special_number,
+                    "sno_zodiac": sno_zodiac
+                }
+            }
+            if existing.prediction_text:
+                result["recommendation_text"] = existing.prediction_text
+            return jsonify(result)
+    
+    # 生成新的预测
+    if strategy == 'ai': 
+        result = predict_with_ai(data, region)
+    else:
+        result = get_local_recommendations(strategy, data, region)
+    
+    # 保存预测记录（仅对已激活用户）
+    if user_id and is_active and not result.get('error'):
+        try:
+            prediction = PredictionRecord(
+                user_id=user_id,
+                region=region,
+                strategy=strategy,
+                period=current_period,
+                normal_numbers=','.join(map(str, result.get('normal', []))),
+                special_number=str(result.get('special', {}).get('number', '')),
+                special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+                prediction_text=result.get('recommendation_text', '')
+            )
+            db.session.add(prediction)
+            db.session.commit()
+        except Exception as e:
+            print(f"保存预测记录失败: {e}")
+    
+    return jsonify(result)
 
-@app.route('/api/update_data', methods=['POST'])
-def update_data_api():
-    if update_hk_data_from_source(): return jsonify({"message": "香港数据已成功更新！"})
-    return jsonify({"message": "香港数据更新失败。"}), 500
+# 移除更新数据API
 
 @app.route('/api/number_frequency')
 def number_frequency_api():
@@ -268,6 +617,9 @@ def search_draws_api():
 
 @app.route('/chat')
 def chat_page():
+    # 检查用户登录状态
+    if 'user_id' not in session:
+        return redirect(url_for('auth.login'))
     current_year = str(datetime.now().year)
     
     hk_all_yearly_data = get_yearly_data('hk', current_year)
@@ -291,16 +643,17 @@ def chat_page():
 
 @app.route('/api/chat', methods=['POST'])
 def handle_chat():
-    if not AI_API_KEY or "你的" in AI_API_KEY:
+    ai_config = get_ai_config()
+    if not ai_config['api_key'] or "你的" in ai_config['api_key']:
         return jsonify({"reply": "错误：管理员尚未配置AI API Key，无法使用聊天功能。"}), 400
     user_message = request.json.get("message")
     if not user_message:
         return jsonify({"reply": "错误：未能获取到您发送的消息。"}), 400
     system_prompt = "你是一个精通香港和澳门六合彩数据分析的AI助手，知识渊博，回答友好。请根据用户的提问，提供相关的历史知识、数据规律或普遍性建议。不要提供具体的投资建议。"
-    payload = {"model": "gemini-2.0-flash", "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "temperature": 0.7}
-    headers = {"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": ai_config['model'], "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "temperature": 0.7}
+    headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
-        response = requests.post(AI_API_URL, json=payload, headers=headers, timeout=30)
+        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=30)
         response.raise_for_status()
         ai_reply = response.json()['choices'][0]['message']['content']
         return jsonify({"reply": ai_reply})
@@ -308,7 +661,96 @@ def handle_chat():
         print(f"Error calling AI chat API: {e}")
         return jsonify({"reply": f"抱歉，调用AI时遇到错误，请稍后再试。"}), 500
 
+# 全局请求前处理器，检查用户激活状态
+@app.before_request
+def check_user_activation():
+    # 跳过静态文件和认证相关路由
+    if request.endpoint and (request.endpoint.startswith('static') or 
+                           request.endpoint.startswith('auth.')):
+        return
+    
+    # 检查用户是否登录
+    if 'user_id' in session:
+        try:
+            user = User.query.get(session['user_id'])
+            if user:
+                # 检查用户激活状态是否过期
+                if user.activation_expires_at and datetime.utcnow() > user.activation_expires_at:
+                    # 激活已过期，更新状态
+                    user.is_active = False
+                    db.session.commit()
+                    session['is_active'] = False
+                    if not request.path.startswith('/auth/activate'):
+                        flash('您的账号激活已过期，请使用新的激活码重新激活。', 'warning')
+        except Exception as e:
+            print(f"检查用户激活状态时出错: {e}")
+            # 如果出错，跳过检查
+            pass
+
+# 创建数据库表和初始管理员账号
+def init_database():
+    with app.app_context():
+        db.create_all()
+        
+        # 自动检查并更新数据库结构（邀请系统）
+        from auto_update_db import check_and_update_database
+        try:
+            check_and_update_database()
+        except Exception as e:
+            print(f"自动更新数据库结构时出错: {e}")
+        
+        # 检查是否存在管理员账号，如果不存在则创建默认管理员
+        admin = User.query.filter_by(is_admin=True).first()
+        if not admin:
+            admin = User(
+                username='admin',
+                email='admin@example.com',
+                is_active=True,
+                is_admin=True
+            )
+            admin.set_password('admin123')  # 默认密码，请在首次登录后修改
+            db.session.add(admin)
+            db.session.commit()
+            print("已创建默认管理员账号: admin / admin123")
+        
+        # 初始化系统配置
+        configs = [
+            ('ai_api_key', '', 'AI API密钥'),
+            ('ai_api_url', 'https://api.deepseek.com/v1/chat/completions', 'AI API地址'),
+            ('ai_model', 'gemini-2.0-flash', 'AI模型'),
+            ('smtp_server', '', 'SMTP服务器'),
+            ('smtp_port', '587', 'SMTP端口'),
+            ('smtp_username', '', 'SMTP用户名'),
+            ('smtp_password', '', 'SMTP密码'),
+        ]
+        
+        for key, value, description in configs:
+            if not SystemConfig.query.filter_by(key=key).first():
+                config = SystemConfig(key=key, value=value, description=description)
+                db.session.add(config)
+        
+        db.session.commit()
+        
+        # 为管理员创建示例邀请码
+        try:
+            existing_codes = InviteCode.query.filter_by(created_by='admin').count()
+            if existing_codes == 0:
+                from datetime import timedelta
+                for i in range(3):
+                    invite_code = InviteCode()
+                    invite_code.code = InviteCode.generate_code()
+                    invite_code.created_by = 'admin'
+                    invite_code.expires_at = datetime.utcnow() + timedelta(days=30)
+                    db.session.add(invite_code)
+                db.session.commit()
+                print("✅ 为管理员创建了3个示例邀请码")
+        except Exception as e:
+            print(f"创建示例邀请码时出错: {e}")
+
 if __name__ == '__main__':
-    if not os.path.exists(HK_DATA_FILE_PATH):
-        update_hk_data_from_source()
+    # 初始化数据库
+    init_database()
+    
+    # 不再需要检查本地数据文件
+    
     app.run(debug=True, port=5000)

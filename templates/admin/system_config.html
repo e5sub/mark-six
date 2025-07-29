@@ -1,0 +1,225 @@
+{% extends "admin/base.html" %}
+
+{% block page_title %}系统配置{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">⚙️ 配置管理</h2>
+        <button class="btn" onclick="saveAllConfigs()">保存所有配置</button>
+    </div>
+    
+    <form id="configForm">
+        <div style="display: grid; gap: 2rem;">
+            <!-- AI配置 -->
+            <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
+                <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.2rem;">🤖 AI配置</h3>
+                
+                <div class="form-group">
+                    <label>AI API密钥</label>
+                    <input type="password" name="ai_api_key" class="form-control" 
+                           value="{{ configs.get('ai_api_key', '') }}" 
+                           placeholder="请输入AI API密钥">
+                </div>
+                
+                <div class="form-group">
+                    <label>AI API地址</label>
+                    <input type="url" name="ai_api_url" class="form-control" 
+                           value="{{ configs.get('ai_api_url', 'https://api.deepseek.com/v1/chat/completions') }}" 
+                           placeholder="AI API地址">
+                </div>
+                
+                <div class="form-group">
+                    <label>AI模型</label>
+                    <input type="text" name="ai_model" class="form-control" 
+                           value="{{ configs.get('ai_model', 'gemini-2.0-flash') }}" 
+                           placeholder="AI模型名称">
+                </div>
+            </div>
+            
+            <!-- 邮箱配置 -->
+            <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+                <h3 style="margin: 0 0 1rem 0; color: #28a745; font-size: 1.2rem;">📧 邮箱配置</h3>
+                
+                <div class="form-group">
+                    <label>SMTP服务器</label>
+                    <input type="text" name="smtp_server" class="form-control" 
+                           value="{{ configs.get('smtp_server', '') }}" 
+                           placeholder="smtp.gmail.com">
+                </div>
+                
+                <div class="form-group">
+                    <label>SMTP端口</label>
+                    <input type="number" name="smtp_port" class="form-control" 
+                           value="{{ configs.get('smtp_port', '587') }}" 
+                           placeholder="587">
+                </div>
+                
+                <div class="form-group">
+                    <label>SMTP用户名</label>
+                    <input type="email" name="smtp_username" class="form-control" 
+                           value="{{ configs.get('smtp_username', '') }}" 
+                           placeholder="your-email@gmail.com">
+                </div>
+                
+                <div class="form-group">
+                    <label>SMTP密码</label>
+                    <input type="password" name="smtp_password" class="form-control" 
+                           value="{{ configs.get('smtp_password', '') }}" 
+                           placeholder="应用专用密码">
+                </div>
+            </div>
+            
+            <!-- 邀请系统配置 -->
+            <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+                <h3 style="margin: 0 0 1rem 0; color: #ffc107; font-size: 1.2rem;">🎫 邀请系统配置</h3>
+                
+                <div class="form-group">
+                    <label>每日邀请码生成限制</label>
+                    <input type="number" name="invite_daily_limit" class="form-control" 
+                           value="{{ configs.get('invite_daily_limit', '3') }}" 
+                           min="1" max="50" placeholder="3">
+                    <small style="color: #666;">每个用户每天最多可生成的邀请码数量</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>邀请码有效期（天）</label>
+                    <input type="number" name="invite_code_validity_days" class="form-control" 
+                           value="{{ configs.get('invite_code_validity_days', '7') }}" 
+                           min="1" max="365" placeholder="7">
+                    <small style="color: #666;">新生成的邀请码默认有效期</small>
+                </div>
+            </div>
+            
+            <!-- 系统设置 -->
+            <div style="background: rgba(220, 53, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #dc3545;">
+                <h3 style="margin: 0 0 1rem 0; color: #dc3545; font-size: 1.2rem;">🔧 系统设置</h3>
+                
+                <div class="form-group">
+                    <label>系统名称</label>
+                    <input type="text" name="system_name" class="form-control" 
+                           value="{{ configs.get('system_name', '六合彩预测系统') }}" 
+                           placeholder="六合彩预测系统">
+                </div>
+                
+                <div class="form-group">
+                    <label>系统描述</label>
+                    <textarea name="system_description" class="form-control" rows="3" 
+                              placeholder="系统描述">{{ configs.get('system_description', '') }}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="allow_registration" 
+                               {{ 'checked' if configs.get('allow_registration', 'true') == 'true' else '' }}>
+                        允许用户注册
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="require_email_verification" 
+                               {{ 'checked' if configs.get('require_email_verification', 'false') == 'true' else '' }}>
+                        需要邮箱验证
+                    </label>
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 2rem;">
+            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem;">💾 保存所有配置</button>
+        </div>
+    </form>
+</div>
+
+<script>
+function saveAllConfigs() {
+    document.getElementById('configForm').dispatchEvent(new Event('submit'));
+}
+
+document.getElementById('configForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const configs = {};
+    
+    for (let [key, value] of formData.entries()) {
+        if (key === 'allow_registration' || key === 'require_email_verification') {
+            configs[key] = 'true';
+        } else {
+            configs[key] = value;
+        }
+    }
+    
+    // 处理未选中的复选框
+    const checkboxes = ['allow_registration', 'require_email_verification'];
+    checkboxes.forEach(checkbox => {
+        if (!formData.has(checkbox)) {
+            configs[checkbox] = 'false';
+        }
+    });
+    
+    fetch('/admin/system_config/save', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(configs)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('配置保存成功！', 'success');
+        } else {
+            showToast('配置保存失败：' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('配置保存失败：网络错误', 'error');
+    });
+});
+
+function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'success' ? '#28a745' : '#dc3545'};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        z-index: 9999;
+        font-size: 0.9rem;
+        max-width: 300px;
+        animation: slideIn 0.3s ease;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.parentElement.removeChild(toast);
+            }
+        }, 300);
+    }, 3000);
+}
+
+// 添加动画样式
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}

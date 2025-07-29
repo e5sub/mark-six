@@ -1,0 +1,156 @@
+{% extends "admin/base.html" %}
+
+{% block title %}邀请码管理{% endblock %}
+{% block page_title %}邀请码管理{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">🎫 管理邀请码</h3>
+        <button type="button" class="btn" onclick="showGenerateModal()">
+            生成邀请码
+        </button>
+    </div>
+    
+    <div class="card-body">
+        {% if codes.items %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>邀请码</th>
+                        <th>创建者</th>
+                        <th>创建时间</th>
+                        <th>过期时间</th>
+                        <th>状态</th>
+                        <th>使用者</th>
+                        <th>使用时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for code in codes.items %}
+                    <tr>
+                        <td>
+                            <span class="invite-code">{{ code.code }}</span>
+                            <button class="copy-btn" onclick="copyInviteCode('{{ code.code }}')">
+                                复制
+                            </button>
+                        </td>
+                        <td>{{ code.created_by }}</td>
+                        <td>{{ code.created_at.strftime('%Y-%m-%d %H:%M') if code.created_at else '-' }}</td>
+                        <td>
+                            {% if code.expires_at %}
+                                {{ code.expires_at.strftime('%Y-%m-%d %H:%M') }}
+                                {% if code.is_expired() %}
+                                    <span class="badge badge-danger">已过期</span>
+                                {% endif %}
+                            {% else %}
+                                <span style="color: #666;">永不过期</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if code.is_used %}
+                                <span class="badge badge-success">已使用</span>
+                            {% elif code.is_expired() %}
+                                <span class="badge badge-danger">已过期</span>
+                            {% else %}
+                                <span class="badge badge-primary">可使用</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ code.used_by if code.used_by else '-' }}</td>
+                        <td>{{ code.used_at.strftime('%Y-%m-%d %H:%M') if code.used_at else '-' }}</td>
+                        <td>
+                            {% if not code.is_used %}
+                            <form method="post" action="{{ url_for('admin.delete_invite_code', code_id=code.id) }}" 
+                                  style="display: inline;" 
+                                  onsubmit="return confirm('确定要删除这个邀请码吗？')">
+                                <button type="submit" class="btn btn-danger btn-sm">
+                                    删除
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- 分页 -->
+        {% if codes.pages > 1 %}
+        <div class="pagination">
+            {% if codes.has_prev %}
+                <a href="{{ url_for('admin.invite_codes', page=codes.prev_num) }}">上一页</a>
+            {% endif %}
+            
+            {% for page_num in codes.iter_pages() %}
+                {% if page_num %}
+                    {% if page_num != codes.page %}
+                        <a href="{{ url_for('admin.invite_codes', page=page_num) }}">{{ page_num }}</a>
+                    {% else %}
+                        <span class="active">{{ page_num }}</span>
+                    {% endif %}
+                {% else %}
+                    <span>…</span>
+                {% endif %}
+            {% endfor %}
+            
+            {% if codes.has_next %}
+                <a href="{{ url_for('admin.invite_codes', page=codes.next_num) }}">下一页</a>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% else %}
+        <div style="text-align: center; padding: 3rem; color: #666;">
+            <p>暂无邀请码</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 生成邀请码模态框 -->
+<div id="generateModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: white; border-radius: 20px; padding: 2rem; width: 90%; max-width: 500px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #f0f0f0;">
+            <h3 style="margin: 0; color: #333; font-size: 1.4rem; font-weight: 600;">生成邀请码</h3>
+            <button onclick="hideGenerateModal()" style="background: none; border: none; font-size: 1.5rem; color: #999; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: all 0.3s ease;">×</button>
+        </div>
+        <form method="post" action="{{ url_for('admin.generate_invite_codes') }}">
+            <div class="form-group">
+                <label for="count">生成数量</label>
+                <input type="number" class="form-control" id="count" name="count" 
+                       value="1" min="1" max="50" required>
+                <div style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">最多可生成50个邀请码</div>
+            </div>
+            <div class="form-group">
+                <label for="expires_days">有效期（天）</label>
+                <input type="number" class="form-control" id="expires_days" name="expires_days" 
+                       placeholder="留空表示永不过期" min="1">
+                <div style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">留空表示邀请码永不过期</div>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+                <button type="button" onclick="hideGenerateModal()" style="background: #f8f9fa; color: #666; border: 1px solid #e9ecef; padding: 0.75rem 1.5rem; border-radius: 12px; cursor: pointer; font-size: 0.95rem; transition: all 0.3s ease;">取消</button>
+                <button type="submit" class="btn">生成</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showGenerateModal() {
+    document.getElementById('generateModal').style.display = 'flex';
+}
+
+function hideGenerateModal() {
+    document.getElementById('generateModal').style.display = 'none';
+}
+
+// 点击模态框外部关闭
+document.getElementById('generateModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideGenerateModal();
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,243 @@
+{% extends "user/base.html" %}
+
+{% block page_title %}预测记录{% endblock %}
+
+{% block content %}
+<!-- 统计信息 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
+        <div class="stat-number">{{ predictions.total if predictions else 0 }}</div>
+        <div class="stat-label">总预测次数</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
+        <div class="stat-number">{{ correct_predictions or 0 }}</div>
+        <div class="stat-label">预测正确</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">❌</div>
+        <div class="stat-number">{{ wrong_predictions or 0 }}</div>
+        <div class="stat-label">预测错误</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">📈</div>
+        <div class="stat-number">{{ accuracy or 0 }}%</div>
+        <div class="stat-label">准确率</div>
+    </div>
+</div>
+
+<!-- 筛选条件 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🔍 筛选条件</h2>
+    </div>
+    
+    <form method="GET" style="display: grid; gap: 1rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+            <div class="form-group">
+                <label>开始日期</label>
+                <input type="date" name="start_date" class="form-control" value="{{ request.args.get('start_date', '') }}">
+            </div>
+            
+            <div class="form-group">
+                <label>结束日期</label>
+                <input type="date" name="end_date" class="form-control" value="{{ request.args.get('end_date', '') }}">
+            </div>
+            
+            <div class="form-group">
+                <label>预测策略</label>
+                <select name="strategy" class="form-control">
+                    <option value="">全部策略</option>
+                    <option value="random" {% if request.args.get('strategy') == 'random' %}selected{% endif %}>随机预测</option>
+                    <option value="balanced" {% if request.args.get('strategy') == 'balanced' %}selected{% endif %}>均衡预测</option>
+                    <option value="ai" {% if request.args.get('strategy') == 'ai' %}selected{% endif %}>AI智能</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>预测结果</label>
+                <select name="result" class="form-control">
+                    <option value="">全部结果</option>
+                    <option value="correct" {% if request.args.get('result') == 'correct' %}selected{% endif %}>预测正确</option>
+                    <option value="wrong" {% if request.args.get('result') == 'wrong' %}selected{% endif %}>预测错误</option>
+                    <option value="pending" {% if request.args.get('result') == 'pending' %}selected{% endif %}>待开奖</option>
+                </select>
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 1rem; justify-content: center;">
+            <button type="submit" class="btn">
+                🔍 筛选
+            </button>
+            <a href="{{ url_for('user.predictions') }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+                🔄 重置
+            </a>
+        </div>
+    </form>
+</div>
+
+<!-- 预测记录列表 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📋 预测记录</h2>
+    </div>
+    
+    {% if predictions and predictions.items %}
+    <div style="display: grid; gap: 1rem;">
+        {% for prediction in predictions.items %}
+        <div style="background: white; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); border-left: 4px solid #667eea;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <div>
+                    <h3 style="margin: 0; color: #333; font-size: 1.1rem;">
+                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
+                    </h3>
+                    <p style="margin: 0.25rem 0 0 0; color: #666; font-size: 0.9rem;">
+                        {% if prediction.strategy == 'random' %}
+                        🎲 随机预测
+                        {% elif prediction.strategy == 'balanced' %}
+                        ⚖️ 均衡预测
+                        {% else %}
+                        🤖 AI预测
+                        {% endif %}
+                    </p>
+                </div>
+                <div style="text-align: right; color: #666; font-size: 0.9rem;">
+                    {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
+                {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
+                {% set color = get_number_color(num) %}
+                <div style="width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem; background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
+                    {{ num }}
+                </div>
+                {% endfor %}
+                
+                {% set special_color = get_number_color(prediction.special_number) %}
+                <div style="width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem; background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %}; border: 2px solid #ffd700; box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);">
+                    {{ prediction.special_number }}
+                </div>
+            </div>
+            
+            <div style="color: #666; font-size: 0.9rem;">
+                特码生肖: {{ prediction.special_zodiac }}
+                {% if prediction.is_result_updated %}
+                <span style="margin-left: 0.5rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
+                    {{ "命中" if prediction.accuracy_score > 0 else "未中" }}
+                </span>
+                {% else %}
+                <span style="margin-left: 0.5rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #ffc107; color: white;">
+                    待开奖
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div style="text-align: center; padding: 3rem; color: #666;">
+        <div style="font-size: 3rem; margin-bottom: 1rem;">📊</div>
+        <h3 style="margin: 0 0 0.5rem 0;">暂无预测记录</h3>
+        <p style="margin: 0;">开始您的第一次预测吧！</p>
+        <a href="{{ url_for('index') }}" class="btn" style="margin-top: 1rem;">
+            🎯 开始预测
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 分页导航 -->
+{% if pagination and pagination.pages > 1 %}
+<div class="card">
+    <div style="display: flex; justify-content: center; align-items: center; gap: 1rem;">
+        {% if pagination.has_prev %}
+        <a href="{{ url_for('user.predictions', page=pagination.prev_num, **request.args) }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+            ← 上一页
+        </a>
+        {% endif %}
+        
+        <span style="color: #666;">
+            第 {{ pagination.page }} 页，共 {{ pagination.pages }} 页
+        </span>
+        
+        {% if pagination.has_next %}
+        <a href="{{ url_for('user.predictions', page=pagination.next_num, **request.args) }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+            下一页 →
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- 操作说明 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📖 使用说明</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">🔍 筛选功能</h3>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
+                <li>可以按日期范围筛选预测记录</li>
+                <li>可以按预测策略筛选记录</li>
+                <li>可以按预测结果筛选记录</li>
+                <li>点击"重置"按钮清除所有筛选条件</li>
+            </ul>
+        </div>
+        
+        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">📊 记录说明</h3>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
+                <li>红色球代表普通号码</li>
+                <li>绿色球代表预测的特码</li>
+                <li>灰色球代表实际开奖号码</li>
+                <li>蓝色球代表实际开奖特码</li>
+            </ul>
+        </div>
+        
+        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">🎯 预测策略</h3>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
+                <li><strong>随机预测</strong>：完全随机生成号码</li>
+                <li><strong>均衡预测</strong>：基于历史数据的均衡算法</li>
+                <li><strong>AI智能</strong>：使用人工智能算法预测</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<style>
+.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    transition: border-color 0.3s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group label {
+    font-weight: 500;
+    color: #333;
+    font-size: 0.9rem;
+}
+</style>
+{% endblock %}

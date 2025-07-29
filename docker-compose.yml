@@ -4,8 +4,11 @@ services:
     container_name: mark-six
     environment:
       - TZ=Asia/Shanghai
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - SECRET_KEY=your-secure-secret-key-change-this  # 设置安全密钥
     volumes: 
-      - ./app.py:/app/app.py
+      - ./data:/app/data
     ports:
       - "5000:5000"
     restart: unless-stopped

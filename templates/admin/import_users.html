@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>导入用户 - 管理员后台</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --glass-bg: rgba(255, 255, 255, 0.25);
+            --text-primary: #2d3748;
+            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: var(--text-primary);
+        }
+
+        .navbar {
+            background: var(--primary-gradient);
+            padding: 15px 0;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .navbar-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0 20px;
+            gap: 30px;
+        }
+
+        .nav-link {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 1.2rem;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: var(--shadow-light);
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+
+        .page-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .page-header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.7);
+            color: var(--text-primary);
+            font-size: 1rem;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin-right: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-primary { background: var(--primary-gradient); }
+        .btn-secondary { background: #6c757d; }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .alert-success {
+            background: rgba(40, 167, 69, 0.1);
+            color: #155724;
+            border: 1px solid rgba(40, 167, 69, 0.3);
+        }
+
+        .alert-error {
+            background: rgba(220, 53, 69, 0.1);
+            color: #721c24;
+            border: 1px solid rgba(220, 53, 69, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-content">
+            <a href="{{ url_for('admin.dashboard') }}" class="nav-link">
+                <i class="fas fa-tachometer-alt"></i> 控制台
+            </a>
+            <a href="{{ url_for('admin.users') }}" class="nav-link">
+                <i class="fas fa-users"></i> 用户管理
+            </a>
+            <a href="{{ url_for('admin.activation_codes') }}" class="nav-link">
+                <i class="fas fa-key"></i> 激活码管理
+            </a>
+            <a href="{{ url_for('admin.system_config') }}" class="nav-link">
+                <i class="fas fa-cog"></i> 系统配置
+            </a>
+            <a href="{{ url_for('admin.predictions') }}" class="nav-link">
+                <i class="fas fa-chart-bar"></i> 预测记录
+            </a>
+            <a href="{{ url_for('index') }}" class="nav-link">
+                <i class="fas fa-home"></i> 返回首页
+            </a>
+            <a href="{{ url_for('auth.logout') }}" class="nav-link">
+                <i class="fas fa-sign-out-alt"></i> 退出登录
+            </a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="glass-card">
+            <div class="page-header">
+                <h1><i class="fas fa-upload"></i> 导入用户</h1>
+                <p>批量导入用户数据</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'error' if category == 'error' else 'success' }}">
+                            <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' }}"></i>
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <form method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="file">选择文件</label>
+                    <input type="file" id="file" name="file" class="form-control" accept=".csv,.json" required>
+                    <small style="color: #6c757d; margin-top: 5px; display: block;">
+                        支持CSV和JSON格式文件
+                    </small>
+                </div>
+
+                <div style="text-align: center; margin-top: 30px;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-upload"></i> 开始导入
+                    </button>
+                    <a href="{{ url_for('admin.users') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> 返回用户管理
+                    </a>
+                </div>
+            </form>
+
+            <div style="margin-top: 30px; padding: 20px; background: rgba(255, 255, 255, 0.5); border-radius: 10px;">
+                <h3 style="margin-bottom: 15px;">文件格式说明</h3>
+                
+                <h4>CSV格式:</h4>
+                <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">用户名,邮箱,密码
+admin,admin@example.com,password123
+user1,user1@example.com,password456</pre>
+
+                <h4 style="margin-top: 15px;">JSON格式:</h4>
+                <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">[
+  {
+    "username": "admin",
+    "email": "admin@example.com",
+    "password": "password123",
+    "is_active": true,
+    "is_admin": false
+  }
+]</pre>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

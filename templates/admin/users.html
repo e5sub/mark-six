@@ -1,0 +1,348 @@
+{% extends "admin/base.html" %}
+
+{% block page_title %}用户管理{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">👥 管理用户</h2>
+        <div style="display: flex; gap: 1rem;">
+            <a href="#" class="btn" onclick="showAddUserModal()">+ 添加用户</a>
+        </div>
+    </div>
+    
+    <!-- 搜索表单 -->
+    <div style="padding: 1rem; background-color: #f8f9fa; border-radius: 8px; margin-bottom: 1rem;">
+        <form method="GET" action="{{ url_for('admin.users') }}" style="display: flex; gap: 1rem; align-items: center;">
+            <div style="flex-grow: 1;">
+                <input type="text" name="search" class="form-control" placeholder="搜索用户名或邮箱..." value="{{ search_query or '' }}">
+            </div>
+            <div>
+                <button type="submit" class="btn">🔍 搜索</button>
+                {% if search_query %}
+                <a href="{{ url_for('admin.users') }}" class="btn btn-danger">清除</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+    
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>用户名</th>
+                    <th>邮箱</th>
+                    <th>状态</th>
+                    <th>管理员</th>
+                    <th>注册时间</th>
+                    <th>有效期至</th>
+                    <th>邀请人</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr data-user-id="{{ user.id }}">
+                    <td>{{ user.id }}</td>
+                    <td>{{ user.username }}</td>
+                    <td>{{ user.email }}</td>
+                    <td>
+                        {% if user.is_active %}
+                            <span class="invite-status status-unused">已激活</span>
+                        {% else %}
+                            <span class="invite-status status-expired">未激活</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.is_admin %}
+                            <span class="invite-status status-used">是</span>
+                        {% else %}
+                            <span class="invite-status status-unused">否</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
+                    <td>
+                        {% if user.activation_expires_at %}
+                            {{ user.activation_expires_at.strftime('%Y-%m-%d %H:%M') }}
+                        {% else %}
+                            <span class="invite-status status-unused">永久</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ user.invited_by or '-' }}</td>
+                    <td>
+                        <div style="display: flex; gap: 0.5rem;">
+                            {% if user.is_active %}
+                                <button class="btn btn-danger btn-sm" onclick="deactivateUser({{ user.id }})">停用</button>
+                            {% else %}
+                                <button class="btn btn-success btn-sm" onclick="activateUser({{ user.id }})">激活</button>
+                            {% endif %}
+                            <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-primary btn-sm">编辑</a>
+                            <button class="btn btn-warning btn-sm" onclick="resetPassword({{ user.id }})">重置密码</button>
+                            {% if not user.is_admin %}
+                                <button class="btn btn-danger btn-sm" onclick="deleteUser({{ user.id }})">删除</button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 添加用户模态框 -->
+<div id="addUserModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 20px; width: 90%; max-width: 500px;">
+        <h3 style="margin-bottom: 1.5rem;">添加新用户</h3>
+        <form id="addUserForm">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" name="username" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>邮箱</label>
+                <input type="email" name="email" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="password" name="password" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="is_admin"> 管理员权限
+                </label>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-danger" onclick="hideAddUserModal()">取消</button>
+                <button type="submit" class="btn">添加</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 重置密码模态框 -->
+<div id="resetPasswordModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 20px; width: 90%; max-width: 500px;">
+        <h3 style="margin-bottom: 1.5rem;">重置密码</h3>
+        <p>您正在为用户 <strong id="resetUsername"></strong> 重置密码</p>
+        <form id="resetPasswordForm">
+            <input type="hidden" id="resetUserId" name="user_id">
+            <div class="form-group">
+                <label>新密码</label>
+                <input type="password" name="new_password" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>确认密码</label>
+                <input type="password" name="confirm_password" class="form-control" required>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                <button type="button" class="btn btn-danger" onclick="hideResetPasswordModal()">取消</button>
+                <button type="submit" class="btn btn-primary">确认重置</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showAddUserModal() {
+    document.getElementById('addUserModal').style.display = 'block';
+}
+
+function hideAddUserModal() {
+    document.getElementById('addUserModal').style.display = 'none';
+}
+
+function showResetPasswordModal(userId, username) {
+    document.getElementById('resetUserId').value = userId;
+    document.getElementById('resetUsername').textContent = username;
+    document.getElementById('resetPasswordModal').style.display = 'block';
+}
+
+function hideResetPasswordModal() {
+    document.getElementById('resetPasswordModal').style.display = 'none';
+}
+
+function resetPassword(userId) {
+    // 获取用户名
+    const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+    const username = row ? row.querySelector('td:nth-child(2)').textContent.trim() : '';
+    showResetPasswordModal(userId, username);
+}
+
+function activateUser(userId) {
+    if (confirm('确定要激活此用户吗？')) {
+        fetch(`/admin/users/${userId}/activate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('操作失败：' + data.message);
+            }
+        });
+    }
+}
+
+function deactivateUser(userId) {
+    // 获取用户名
+    const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+    const username = row ? row.querySelector('td:nth-child(2)').textContent.trim() : '';
+    
+    if (username === 'admin') {
+        alert('不能停用admin账号！');
+        return;
+    }
+    
+    if (confirm('确定要停用此用户吗？')) {
+        fetch(`/admin/users/${userId}/deactivate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('操作失败：' + data.message);
+            }
+        });
+    }
+}
+
+function deleteUser(userId) {
+    if (confirm('确定要删除此用户吗？此操作不可恢复！')) {
+        fetch(`/admin/users/${userId}/delete`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('操作失败：' + data.message);
+            }
+        });
+    }
+}
+
+document.getElementById('addUserForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const data = {
+        username: formData.get('username'),
+        email: formData.get('email'),
+        password: formData.get('password'),
+        is_admin: formData.get('is_admin') ? true : false
+    };
+    
+    fetch('/admin/users/add', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('添加失败：' + data.message);
+        }
+    });
+});
+
+document.getElementById('resetPasswordForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const userId = formData.get('user_id');
+    const newPassword = formData.get('new_password');
+    const confirmPassword = formData.get('confirm_password');
+    
+    if (newPassword !== confirmPassword) {
+        alert('两次输入的密码不一致');
+        return;
+    }
+    
+    const data = {
+        new_password: newPassword
+    };
+    
+    fetch(`/admin/users/${userId}/reset_password`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('密码重置成功');
+            hideResetPasswordModal();
+        } else {
+            alert('密码重置失败：' + data.message);
+        }
+    });
+});
+</script>
+
+<style>
+/* 状态标签样式 */
+.invite-status {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.status-used {
+    background-color: #e3f2fd;
+    color: #0d47a1;
+}
+
+.status-unused {
+    background-color: #e8f5e9;
+    color: #1b5e20;
+}
+
+.status-expired {
+    background-color: #ffebee;
+    color: #b71c1c;
+}
+
+/* 按钮统一样式 */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border-radius: 0.2rem;
+    white-space: nowrap;
+    min-width: 60px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 操作按钮容器样式 */
+td > div {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+</style>
+{% endblock %}
