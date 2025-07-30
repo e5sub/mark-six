@@ -128,18 +128,166 @@
         <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; padding: 1rem; margin-bottom: 0.5rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                 <div>
-                    <h3 style="margin: 0; color: #333; font-size: 1rem;">
+                    <h3 style="margin: 0; color: #333; font-size: 1rem; display: flex; align-items: center; flex-wrap: wrap;">
                         {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
+                        <span style="margin-left: 10px; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; background-color: #f0f4ff; color: #4b6bfb; display: inline-flex; align-items: center;">
+                            {% if prediction.strategy == 'random' %}
+                            <span style="margin-right: 3px;">🎲</span> 随机预测
+                            {% elif prediction.strategy == 'balanced' %}
+                            <span style="margin-right: 3px;">⚖️</span> 均衡预测
+                            {% else %}
+                            <span style="margin-right: 3px;">🤖</span> AI预测
+                            {% endif %}
+                        </span>
                     </h3>
-                    <p style="margin: 0.25rem 0 0 0; color: #666; font-size: 0.8rem;">
-                        {% if prediction.strategy == 'random' %}
-                        🎲 随机预测
-                        {% elif prediction.strategy == 'balanced' %}
-                        ⚖️ 均衡预测
-                        {% else %}
-                        🤖 AI预测
-                        {% endif %}
-                    </p>
+                </div>
+                <div style="text-align: right; color: #666; font-size: 0.8rem;">
+                    {{ prediction.created_at.strftime('%Y-%m-%d') }}
+                </div>
+            </div>
+            
+{% extends "user/base.html" %}
+
+{% block page_title %}个人中心{% endblock %}
+
+{% block content %}
+<!-- 统计信息 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon" style="color: #667eea;">📊</div>
+        <div class="stat-number">{{ stats.total_predictions }}</div>
+        <div class="stat-label">总预测次数</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="color: #28a745;">🎯</div>
+        <div class="stat-number">{{ stats.avg_accuracy }}%</div>
+        <div class="stat-label">平均准确率</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="color: #ffc107;">⏰</div>
+        <div class="stat-number">
+            {% if user.activation_expires_at %}
+                {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
+            {% else %}
+                永久
+            {% endif %}
+        </div>
+        <div class="stat-label">有效期至</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="color: #17a2b8;">
+            {% if user.is_active %}✅{% else %}❌{% endif %}
+        </div>
+        <div class="stat-number">{{ "已激活" if user.is_active else "未激活" }}</div>
+        <div class="stat-label">账户状态</div>
+    </div>
+</div>
+
+<!-- 快速操作 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🚀 快速操作</h2>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-card" style="text-align: center; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
+            <div class="stat-icon" style="color: #667eea;">🎯</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">开始预测</h3>
+            <a href="{{ url_for('index') }}" class="btn btn-sm" style="display: inline-flex; align-items: center; justify-content: center;">
+                开始预测
+            </a>
+        </div>
+        
+        <div class="stat-card" style="text-align: center; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">📊</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">预测记录</h3>
+            <a href="{{ url_for('user.predictions') }}" class="btn btn-success btn-sm" style="display: inline-flex; align-items: center; justify-content: center;">
+                查看记录
+            </a>
+        </div>
+        
+        <div class="stat-card" style="text-align: center; border-left: 4px solid #6c757d; background: rgba(108, 117, 125, 0.05);">
+            <div class="stat-icon" style="color: #6c757d;">⚙️</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #6c757d; font-size: 1rem;">个人设置</h3>
+            <a href="{{ url_for('user.profile') }}" class="btn btn-sm" style="display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+                修改设置
+            </a>
+        </div>
+        
+        <div class="stat-card" style="text-align: center; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🏠</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">返回首页</h3>
+            <a href="{{ url_for('index') }}" class="btn btn-info btn-sm" style="display: inline-flex; align-items: center; justify-content: center;">
+                返回首页
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- 预测策略准确率 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📈 预测策略准确率</h2>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">🎲</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">随机预测</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">随机算法</p>
+            <div class="stat-number" style="color: #28a745;">{{ stats.random_accuracy }}%</div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">⚖️</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">均衡预测</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">历史数据分析</p>
+            <div class="stat-number" style="color: #ffc107;">{{ stats.balanced_accuracy }}%</div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🤖</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">AI智能预测</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">人工智能算法</p>
+            <div class="stat-number" style="color: #17a2b8;">{{ stats.ai_accuracy }}%</div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
+            <div class="stat-icon" style="color: #667eea;">📊</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">平均准确率</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">所有策略平均</p>
+            <div class="stat-number" style="color: #667eea;">{{ stats.avg_accuracy }}%</div>
+        </div>
+    </div>
+</div>
+
+<!-- 最近预测记录 -->
+{% if stats.recent_predictions %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📋 最近预测记录</h2>
+    </div>
+    
+    <div style="display: grid; gap: 1rem;">
+        {% for prediction in stats.recent_predictions %}
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; padding: 1rem; margin-bottom: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <div>
+                    <h3 style="margin: 0; color: #333; font-size: 1rem; display: flex; align-items: center; flex-wrap: wrap;">
+                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
+                        <span style="margin-left: 10px; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; background-color: #f0f4ff; color: #4b6bfb; display: inline-flex; align-items: center;">
+                            {% if prediction.strategy == 'random' %}
+                            <span style="margin-right: 3px;">🎲</span> 随机预测
+                            {% elif prediction.strategy == 'balanced' %}
+                            <span style="margin-right: 3px;">⚖️</span> 均衡预测
+                            {% else %}
+                            <span style="margin-right: 3px;">🤖</span> AI预测
+                            {% endif %}
+                        </span>
+                    </h3>
                 </div>
                 <div style="text-align: right; color: #666; font-size: 0.8rem;">
                     {{ prediction.created_at.strftime('%Y-%m-%d') }}
@@ -163,8 +311,8 @@
             <div style="color: #666; font-size: 0.8rem;">
                 特码生肖: {{ prediction.special_zodiac }}
                 {% if prediction.accuracy_score != None and prediction.accuracy_score != '' %}
-                <span style="margin-left: 0.5rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
-                    {{ "命中" if prediction.accuracy_score > 0 else "未中" }}
+                <span style="margin-left: 0.5rem; padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.9rem; font-weight: bold; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
+                    {{ "预测正确" if prediction.accuracy_score > 0 else "预测失败" }}
                 </span>
                 {% endif %}
             </div>
