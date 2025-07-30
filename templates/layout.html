@@ -18,7 +18,7 @@
     {% block header %}
     <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top border-bottom shadow-sm">
         <div class="container-fluid">
-            <a class="navbar-brand" href="{{ url_for('index') }}"><strong>数据分析平台</strong></a>
+            <a class="navbar-brand" href="{{ url_for('main.index') }}"><strong>数据分析平台</strong></a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -26,10 +26,10 @@
                 <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     {% if current_user.is_authenticated %}
                     <li class="nav-item">
-                        <a class="nav-link active" href="{{ url_for('index') }}">分析主页</a>
+                        <a class="nav-link active" href="{{ url_for('main.index') }}">分析主页</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('chat_page') }}">AI 聊天室</a>
+                        <a class="nav-link" href="{{ url_for('main.chat_page') }}">AI 聊天室</a>
                     </li>
                     {% endif %}
                 </ul>
@@ -40,15 +40,15 @@
                                 {{ current_user.username }}
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-                                <li><a class="dropdown-item" href="{{ url_for('logout') }}">退出登录</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">退出登录</a></li>
                             </ul>
                         </li>
                     {% else %}
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('login') }}">登录</a>
+                            <a class="nav-link" href="{{ url_for('auth.login') }}">登录</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('register') }}">注册</a>
+                            <a class="nav-link" href="{{ url_for('auth.register') }}">注册</a>
                         </li>
                     {% endif %}
                 </ul>
