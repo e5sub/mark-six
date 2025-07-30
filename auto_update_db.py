@@ -97,6 +97,10 @@ def update_database():
         if 'conn' in locals():
             conn.close()
 
+def check_and_update_database():
+    """检查并更新数据库（供app.py调用）"""
+    return update_database()
+
 def main():
     """主函数"""
     print("=== 数据库自动更新工具 ===")

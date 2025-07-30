@@ -38,6 +38,43 @@
     </div>
 </div>
 
+<!-- 预测策略准确率 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📈 预测策略准确率</h2>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
+            <div class="stat-icon" style="color: #28a745;">🎲</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">随机预测</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">随机算法</p>
+            <div class="stat-number" style="color: #28a745;">{{ stats.random_accuracy }}%</div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">⚖️</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">均衡预测</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">历史数据分析</p>
+            <div class="stat-number" style="color: #ffc107;">{{ stats.balanced_accuracy }}%</div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
+            <div class="stat-icon" style="color: #17a2b8;">🤖</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">AI智能预测</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">人工智能算法</p>
+            <div class="stat-number" style="color: #17a2b8;">{{ stats.ai_accuracy }}%</div>
+        </div>
+        
+        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
+            <div class="stat-icon" style="color: #667eea;">📊</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">平均准确率</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">所有策略平均</p>
+            <div class="stat-number" style="color: #667eea;">{{ stats.avg_accuracy }}%</div>
+        </div>
+    </div>
+</div>
+
 <!-- 个人信息管理 -->
 <div class="card">
     <div class="card-header">
@@ -226,7 +263,7 @@
         <div class="stat-card" style="text-align: center; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
             <div class="stat-icon" style="color: #ffc107;">👥</div>
             <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">邀请好友</h3>
-            <a href="{{ url_for('user.invite') }}" class="btn btn-sm" style="display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+            <a href="{{ url_for('user.invite_codes') }}" class="btn btn-sm" style="display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
                 邀请好友
             </a>
         </div>
@@ -241,42 +278,6 @@
     </div>
 </div>
 
-<!-- 预测策略准确率 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📈 预测策略准确率</h2>
-    </div>
-    
-    <div class="stats-grid">
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
-            <div class="stat-icon" style="color: #28a745;">🎲</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">随机预测</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">随机算法</p>
-            <div class="stat-number" style="color: #28a745;">{{ stats.random_accuracy }}%</div>
-        </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
-            <div class="stat-icon" style="color: #ffc107;">⚖️</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">均衡预测</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">历史数据分析</p>
-            <div class="stat-number" style="color: #ffc107;">{{ stats.balanced_accuracy }}%</div>
-        </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
-            <div class="stat-icon" style="color: #17a2b8;">🤖</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">AI智能预测</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">人工智能算法</p>
-            <div class="stat-number" style="color: #17a2b8;">{{ stats.ai_accuracy }}%</div>
-        </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
-            <div class="stat-icon" style="color: #667eea;">📊</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">平均准确率</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">所有策略平均</p>
-            <div class="stat-number" style="color: #667eea;">{{ stats.avg_accuracy }}%</div>
-        </div>
-    </div>
-</div>
 
 <!-- 账户提醒 -->
 {% if not user.is_active %}

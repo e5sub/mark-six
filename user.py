@@ -368,6 +368,13 @@ def save_prediction_settings():
     
     return redirect(url_for('user.profile'))
 
+@user_bp.route('/invite')
+@login_required
+@active_required
+def invite():
+    """邀请好友页面（重定向到invite_codes）"""
+    return redirect(url_for('user.invite_codes'))
+
 @user_bp.route('/invite_codes')
 @login_required
 @active_required
