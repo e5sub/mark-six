@@ -382,14 +382,15 @@ def invite_codes():
     """用户邀请码管理"""
     user = User.query.get(session['user_id'])
     
-    # 获取用户创建的邀请码
+    # 获取用户创建的未使用邀请码
     page = request.args.get('page', 1, type=int)
-    invite_codes = InviteCode.query.filter_by(created_by=user.username)\
+    invite_codes = InviteCode.query.filter_by(created_by=user.username, is_used=False)\
         .order_by(InviteCode.created_at.desc()).all()
     
     # 获取邀请统计
     total_invites = InviteCode.query.filter_by(created_by=user.username, is_used=True).count()
     active_invites = User.query.filter_by(invited_by=user.username, is_active=True).count()
+    total_generated = InviteCode.query.filter_by(created_by=user.username).count()
     
     # 获取被邀请的用户列表
     invited_users = User.query.filter_by(invited_by=user.username)\
@@ -398,6 +399,7 @@ def invite_codes():
     stats = {
         'total_invites': total_invites,
         'active_invites': active_invites,
+        'total_generated': total_generated,
         'success_rate': round(active_invites / total_invites * 100, 1) if total_invites > 0 else 0
     }
     

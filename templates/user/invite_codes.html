@@ -7,19 +7,19 @@
 <div class="stats-grid">
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #667eea;">👥</div>
-        <div class="stat-number">{{ invite_codes|length if invite_codes else 0 }}</div>
-        <div class="stat-label">总邀请码数</div>
+        <div class="stat-number">{{ stats.total_generated or 0 }}</div>
+        <div class="stat-label">总生成数</div>
     </div>
     
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #28a745;">✅</div>
-        <div class="stat-number">{{ invite_codes|selectattr('is_used')|list|length if invite_codes else 0 }}</div>
+        <div class="stat-number">{{ stats.total_invites or 0 }}</div>
         <div class="stat-label">已使用</div>
     </div>
     
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #ffc107;">⏳</div>
-        <div class="stat-number">{{ (invite_codes|length - invite_codes|selectattr('is_used')|list|length) if invite_codes else 0 }}</div>
+        <div class="stat-number">{{ invite_codes|length if invite_codes else 0 }}</div>
         <div class="stat-label">剩余可用</div>
     </div>
     
@@ -156,8 +156,14 @@
     {% else %}
     <div class="empty-state">
         <div class="empty-icon">📝</div>
-        <h3 class="empty-title">还没有邀请码</h3>
-        <p class="empty-text">点击上方按钮生成您的第一个邀请码吧！</p>
+        <h3 class="empty-title">没有可用的邀请码</h3>
+        <p class="empty-text">
+            {% if stats.total_generated > 0 %}
+            您的邀请码已全部使用，可以点击上方按钮生成新的邀请码！
+            {% else %}
+            点击上方按钮生成您的第一个邀请码吧！
+            {% endif %}
+        </p>
     </div>
     {% endif %}
 </div>
@@ -714,7 +720,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // 分享邀请码
 function shareInviteCode(code) {
-    const text = `🎯 邀请您加入AI数据分析预测系统！\n\n邀请码：${code}\n\n注册地址：${window.location.origin}/register\n\n使用邀请码注册，我们都能获得额外奖励哦！`;
+    // 使用当前部署的URL作为基础，确保链接可访问
+    const baseUrl = window.location.origin;
+    const text = `🎯 邀请您加入AI数据分析预测系统！\n\n邀请码：${code}\n\n注册地址：${baseUrl}/register\n\n使用邀请码注册，我们都能获得额外奖励哦！`;
     
     if (navigator.share) {
         navigator.share({
@@ -733,7 +741,9 @@ function shareInviteCode(code) {
 
 // 复制邀请链接
 function copyInviteLink(code) {
-    const link = `${window.location.origin}/register?invite_code=${code}`;
+    // 使用当前部署的URL作为基础，确保链接可访问
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}/register?invite_code=${code}`;
     copyToClipboard(link, null);
     showCopySuccess('邀请链接已复制到剪贴板');
 }
