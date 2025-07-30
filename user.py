@@ -444,3 +444,115 @@ def generate_invite_code():
             'success': False,
             'message': f'生成失败：{str(e)}'
         })
+
+@user_bp.route('/update_profile', methods=['POST'])
+@login_required
+@active_required
+def update_profile():
+    """更新个人基本信息"""
+    try:
+        user = User.query.get(session['user_id'])
+        
+        # 更新邮箱
+        new_email = request.form.get('email')
+        if new_email and new_email != user.email:
+            # 检查邮箱是否已被使用
+            existing_user = User.query.filter_by(email=new_email).first()
+            if existing_user and existing_user.id != user.id:
+                flash('该邮箱已被其他用户使用', 'error')
+                return redirect(url_for('user.dashboard'))
+            
+            user.email = new_email
+        
+        db.session.commit()
+        flash('个人信息更新成功', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'更新失败：{str(e)}', 'error')
+    
+    return redirect(url_for('user.dashboard'))
+
+@user_bp.route('/change_password', methods=['POST'])
+@login_required
+@active_required
+def change_password():
+    """修改密码"""
+    try:
+        user = User.query.get(session['user_id'])
+        
+        current_password = request.form.get('current_password')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        # 验证当前密码
+        if not user.check_password(current_password):
+            flash('当前密码错误', 'error')
+            return redirect(url_for('user.dashboard'))
+        
+        # 验证新密码
+        if new_password != confirm_password:
+            flash('两次输入的新密码不一致', 'error')
+            return redirect(url_for('user.dashboard'))
+        
+        if len(new_password) < 6:
+            flash('新密码长度至少6位', 'error')
+            return redirect(url_for('user.dashboard'))
+        
+        # 更新密码
+        user.set_password(new_password)
+        db.session.commit()
+        flash('密码修改成功', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'密码修改失败：{str(e)}', 'error')
+    
+    return redirect(url_for('user.dashboard'))
+
+@user_bp.route('/update_auto_prediction', methods=['POST'])
+@login_required
+@active_required
+def update_auto_prediction():
+    """更新自动预测设置"""
+    try:
+        user = User.query.get(session['user_id'])
+        
+        # 获取表单数据
+        auto_prediction_enabled = 'auto_prediction_enabled' in request.form
+        auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
+        auto_prediction_regions = request.form.getlist('auto_prediction_regions')
+        
+        # 验证策略是否有效
+        valid_strategies = []
+        for strategy in auto_prediction_strategies:
+            if strategy in ['random', 'balanced', 'ai']:
+                valid_strategies.append(strategy)
+        
+        # 如果没有选择任何有效策略，默认使用均衡策略
+        if not valid_strategies:
+            valid_strategies = ['balanced']
+        
+        # 验证地区是否有效
+        valid_regions = []
+        for region in auto_prediction_regions:
+            if region in ['hk', 'macau']:
+                valid_regions.append(region)
+        
+        # 如果没有选择任何有效地区，默认使用香港和澳门
+        if not valid_regions:
+            valid_regions = ['hk', 'macau']
+        
+        # 更新用户设置
+        user.auto_prediction_enabled = auto_prediction_enabled
+        user.auto_prediction_strategies = ','.join(valid_strategies)
+        user.auto_prediction_regions = ','.join(valid_regions)
+        
+        db.session.commit()
+        flash('自动预测设置保存成功', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'设置保存失败：{str(e)}', 'error')
+    
+    return redirect(url_for('user.dashboard'))

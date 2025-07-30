@@ -38,6 +38,168 @@
     </div>
 </div>
 
+<!-- 个人信息管理 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">👤 个人信息管理</h2>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+        <!-- 基本信息 -->
+        <div>
+            <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem; display: flex; align-items: center;">
+                <span style="margin-right: 0.5rem;">ℹ️</span> 基本信息
+            </h3>
+            
+            <form method="POST" action="{{ url_for('user.update_profile') }}" style="display: grid; gap: 1rem;">
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">用户名</label>
+                    <input type="text" name="username" value="{{ user.username }}" 
+                           style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" readonly>
+                    <small style="color: #666; font-size: 0.8rem;">用户名不可修改</small>
+                </div>
+                
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">邮箱地址</label>
+                    <input type="email" name="email" value="{{ user.email }}" 
+                           style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" required>
+                </div>
+                
+                <button type="submit" class="btn" style="justify-self: start; padding: 0.75rem 1.5rem;">
+                    💾 保存基本信息
+                </button>
+            </form>
+        </div>
+        
+        <!-- 密码修改 -->
+        <div>
+            <h3 style="margin: 0 0 1rem 0; color: #dc3545; font-size: 1.1rem; display: flex; align-items: center;">
+                <span style="margin-right: 0.5rem;">🔒</span> 密码修改
+            </h3>
+            
+            <form method="POST" action="{{ url_for('user.change_password') }}" style="display: grid; gap: 1rem;">
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">当前密码</label>
+                    <input type="password" name="current_password" 
+                           style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" required>
+                </div>
+                
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">新密码</label>
+                    <input type="password" name="new_password" 
+                           style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" required>
+                </div>
+                
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">确认新密码</label>
+                    <input type="password" name="confirm_password" 
+                           style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" required>
+                </div>
+                
+                <button type="submit" class="btn" style="justify-self: start; padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
+                    🔑 修改密码
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 自动预测设置 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🤖 自动预测设置</h2>
+    </div>
+    
+    <form method="POST" action="{{ url_for('user.update_auto_prediction') }}">
+        <div style="display: grid; gap: 2rem;">
+            <!-- 启用自动预测 -->
+            <div style="padding: 1.5rem; border: 2px solid #e1e5e9; border-radius: 12px; background: rgba(102, 126, 234, 0.05);">
+                <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1rem; display: flex; align-items: center;">
+                    <span style="margin-right: 0.5rem;">🎯</span> 自动预测功能
+                </h3>
+                
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
+                    <input type="checkbox" name="auto_prediction_enabled" value="1" 
+                           {{ 'checked' if user.auto_prediction_enabled else '' }}
+                           style="width: 18px; height: 18px;">
+                    <span style="color: #333;">启用自动预测功能</span>
+                </label>
+                <p style="margin: 0.5rem 0 0 0; color: #666; font-size: 0.9rem;">
+                    启用后，系统将为每期自动生成预测结果
+                </p>
+            </div>
+            
+            <!-- 预测策略选择 -->
+            <div style="padding: 1.5rem; border: 2px solid #e1e5e9; border-radius: 12px; background: rgba(40, 167, 69, 0.05);">
+                <h3 style="margin: 0 0 1rem 0; color: #28a745; font-size: 1rem;">自动预测策略（可多选）</h3>
+                
+                <div style="display: grid; gap: 0.8rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" name="auto_prediction_strategies" value="random" 
+                               {{ 'checked' if not user.auto_prediction_strategies or 'random' in user.auto_prediction_strategies.split(',') else '' }}
+                               style="width: 18px; height: 18px;">
+                        <span style="margin-right: 0.5rem;">🎲</span>
+                        <span style="color: #333;">随机预测</span>
+                    </label>
+                    
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" name="auto_prediction_strategies" value="balanced" 
+                               {{ 'checked' if not user.auto_prediction_strategies or 'balanced' in user.auto_prediction_strategies.split(',') else '' }}
+                               style="width: 18px; height: 18px;">
+                        <span style="margin-right: 0.5rem;">⚖️</span>
+                        <span style="color: #333;">均衡预测</span>
+                    </label>
+                    
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" name="auto_prediction_strategies" value="ai" 
+                               {{ 'checked' if not user.auto_prediction_strategies or 'ai' in user.auto_prediction_strategies.split(',') else '' }}
+                               style="width: 18px; height: 18px;">
+                        <span style="margin-right: 0.5rem;">🤖</span>
+                        <span style="color: #333;">AI智能预测</span>
+                    </label>
+                </div>
+                
+                <p style="margin: 1rem 0 0 0; color: #666; font-size: 0.9rem;">
+                    选择需要自动预测使用的策略（可多选）
+                </p>
+            </div>
+            
+            <!-- 预测地区选择 -->
+            <div style="padding: 1.5rem; border: 2px solid #e1e5e9; border-radius: 12px; background: rgba(23, 162, 184, 0.05);">
+                <h3 style="margin: 0 0 1rem 0; color: #17a2b8; font-size: 1rem;">自动预测地区（可多选）</h3>
+                
+                <div style="display: grid; gap: 0.8rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" name="auto_prediction_regions" value="hk" 
+                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'hk' in user.auto_prediction_regions.split(',')) else '' }}
+                               style="width: 18px; height: 18px;">
+                        <span style="margin-right: 0.5rem;">🇭🇰</span>
+                        <span style="color: #333;">香港六合彩</span>
+                    </label>
+                    
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" name="auto_prediction_regions" value="macau" 
+                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'macau' in user.auto_prediction_regions.split(',')) else '' }}
+                               style="width: 18px; height: 18px;">
+                        <span style="margin-right: 0.5rem;">🇲🇴</span>
+                        <span style="color: #333;">澳门六合彩</span>
+                    </label>
+                </div>
+                
+                <p style="margin: 1rem 0 0 0; color: #666; font-size: 0.9rem;">
+                    选择需要自动预测的地区（可多选）
+                </p>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 2rem;">
+            <button type="submit" class="btn" style="padding: 0.75rem 2rem; font-size: 1.1rem;">
+                💾 保存自动预测设置
+            </button>
+        </div>
+    </form>
+</div>
+
 <!-- 快速操作 -->
 <div class="card">
     <div class="card-header">
@@ -61,11 +223,11 @@
             </a>
         </div>
         
-        <div class="stat-card" style="text-align: center; border-left: 4px solid #6c757d; background: rgba(108, 117, 125, 0.05);">
-            <div class="stat-icon" style="color: #6c757d;">⚙️</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #6c757d; font-size: 1rem;">个人设置</h3>
-            <a href="{{ url_for('user.profile') }}" class="btn btn-sm" style="display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
-                修改设置
+        <div class="stat-card" style="text-align: center; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
+            <div class="stat-icon" style="color: #ffc107;">👥</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">邀请好友</h3>
+            <a href="{{ url_for('user.invite') }}" class="btn btn-sm" style="display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
+                邀请好友
             </a>
         </div>
         
@@ -116,70 +278,6 @@
     </div>
 </div>
 
-<!-- 最近预测记录 -->
-{% if stats.recent_predictions %}
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📋 最近预测记录</h2>
-    </div>
-    
-    <div style="display: grid; gap: 1rem;">
-        {% for prediction in stats.recent_predictions %}
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; padding: 1rem; margin-bottom: 0.5rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                <div>
-                    <h3 style="margin: 0; color: #333; font-size: 1rem; display: flex; align-items: center; flex-wrap: wrap;">
-                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
-                        <span style="margin-left: 10px; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; background-color: #f0f4ff; color: #4b6bfb; display: inline-flex; align-items: center;">
-                            {% if prediction.strategy == 'random' %}
-                            <span style="margin-right: 3px;">🎲</span> 随机预测
-                            {% elif prediction.strategy == 'balanced' %}
-                            <span style="margin-right: 3px;">⚖️</span> 均衡预测
-                            {% else %}
-                            <span style="margin-right: 3px;">🤖</span> AI预测
-                            {% endif %}
-                        </span>
-                    </h3>
-                </div>
-                <div style="text-align: right; color: #666; font-size: 0.8rem;">
-                    {{ prediction.created_at.strftime('%Y-%m-%d') }}
-                </div>
-            </div>
-            
-            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem;">
-                {% for num in prediction.normal_numbers.split(',') %}
-                {% set color = get_number_color(num) %}
-                <div style="width: 25px; height: 25px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.8rem; background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
-                    {{ num }}
-                </div>
-                {% endfor %}
-                
-                {% set special_color = get_number_color(prediction.special_number) %}
-                <div style="width: 25px; height: 25px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.8rem; background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %}; border: 2px solid #ffd700;">
-                    {{ prediction.special_number }}
-                </div>
-            </div>
-            
-            <div style="color: #666; font-size: 0.8rem;">
-                特码生肖: {{ prediction.special_zodiac }}
-                {% if prediction.accuracy_score != None and prediction.accuracy_score != '' %}
-                <span style="margin-left: 0.5rem; padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 0.9rem; font-weight: bold; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
-                    {{ "预测正确" if prediction.accuracy_score > 0 else "预测失败" }}
-                </span>
-                {% endif %}
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    
-    <div style="text-align: center; margin-top: 1rem;">
-        <a href="{{ url_for('user.predictions') }}" class="btn btn-sm">
-            📊 查看全部记录
-        </a>
-    </div>
-</div>
-{% endif %}
-
 <!-- 账户提醒 -->
 {% if not user.is_active %}
 <div class="card">
@@ -220,15 +318,15 @@
         </div>
         
         <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
-            <div class="stat-icon" style="color: #17a2b8;">⚙️</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">个人设置</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">修改个人信息、密码，查看账户状态和有效期</p>
+            <div class="stat-icon" style="color: #17a2b8;">🤖</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">自动预测</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">启用自动预测功能，系统将自动为每期生成预测结果</p>
         </div>
         
         <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
-            <div class="stat-icon" style="color: #ffc107;">🔔</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">系统通知</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">接收系统更新、开奖结果等重要通知</p>
+            <div class="stat-icon" style="color: #ffc107;">👥</div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">邀请系统</h3>
+            <p style="margin: 0; color: #666; font-size: 0.8rem;">邀请好友注册，双方都可获得额外有效期奖励</p>
         </div>
     </div>
 </div>
