@@ -251,8 +251,10 @@ class InviteCode(db.Model):
         if self.is_expired():
             return False, "邀请码已过期"
         
-        if self.created_by == user.username:
-            return False, "不能使用自己创建的邀请码"
+        # 注册时不需要检查是否是自己的邀请码，因为新用户不可能创建邀请码
+        # 只有在已有账号的用户使用邀请码时才需要检查
+        # if self.created_by == user.username:
+        #     return False, "不能使用自己创建的邀请码"
         
         # 检查用户是否已经使用过邀请码
         if hasattr(user, 'invite_code_used') and user.invite_code_used:
@@ -273,19 +275,28 @@ class InviteCode(db.Model):
             user.extend_activation(1)
             user.is_active = True
             
-            # 查找邀请人并给予奖励
-            inviter = User.query.filter_by(username=self.created_by).first()
-            if inviter:
-                # 给邀请人增加1天有效期
-                inviter.extend_activation(1)
-                
-                # 如果被邀请人有有效期且邀请人不是永久用户，给予额外奖励
-                if user.activation_expires_at and inviter.activation_expires_at:
-                    # 计算被邀请人的剩余有效期天数
-                    remaining_days = (user.activation_expires_at - datetime.now()).days
-                    if remaining_days > 0:
-                        bonus_days = max(1, remaining_days // 2)  # 至少1天
-                        inviter.extend_activation(bonus_days)
+            try:
+                # 查找邀请人并给予奖励
+                inviter = User.query.filter_by(username=self.created_by).first()
+                if inviter:
+                    # 给邀请人增加1天有效期
+                    inviter.extend_activation(1)
+                    
+                    # 如果被邀请人有有效期且邀请人不是永久用户，给予额外奖励
+                    if user.activation_expires_at and inviter.activation_expires_at:
+                        # 计算被邀请人的剩余有效期天数
+                        try:
+                            remaining_days = (user.activation_expires_at - datetime.now()).days
+                            if remaining_days > 0:
+                                bonus_days = max(1, remaining_days // 2)  # 至少1天
+                                inviter.extend_activation(bonus_days)
+                        except Exception as e:
+                            print(f"计算额外奖励天数时出错: {e}")
+                            # 出错时至少给邀请人1天奖励
+                            inviter.extend_activation(1)
+            except Exception as e:
+                print(f"处理邀请人奖励时出错: {e}")
+                # 即使处理邀请人奖励出错，也不影响被邀请人的注册
             
             return True, "邀请码使用成功，您和邀请人都获得了1天有效期"
             
