@@ -128,12 +128,14 @@
     
     /* 操作按钮样式 */
     .action-btn {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        gap: 5px;
-        padding: 6px 12px;
+        gap: 3px;
+        padding: 6px 10px;
         border-radius: 8px;
         transition: all 0.2s ease;
+        white-space: nowrap;
+        min-width: auto;
     }
     
     .action-btn:hover {
@@ -243,7 +245,7 @@
                         <th>生肖</th>
                         <th>准确率</th>
                         <th>预测时间</th>
-                        <th>操作</th>
+                        <th class="nowrap-cell">操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -334,12 +336,12 @@
                                     {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '-' }}
                                 </span>
                             </td>
-                            <td>
+                            <td class="nowrap-cell">
                                 <form method="POST" action="{{ url_for('admin.delete_prediction', prediction_id=prediction.id) }}" 
                                       style="display: inline;" 
                                       onsubmit="return confirm('确定要删除这条预测记录吗？')">
-                                    <button type="submit" class="btn btn-danger btn-sm action-btn">
-                                        <i class="delete-icon">🗑️</i> 删除
+                                    <button type="submit" class="btn btn-danger btn-sm action-btn" style="white-space: nowrap;">
+                                        <i class="delete-icon">🗑️</i>删除
                                     </button>
                                 </form>
                             </td>
