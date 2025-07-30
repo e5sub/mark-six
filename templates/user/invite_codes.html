@@ -743,7 +743,7 @@ function shareInviteCode(code) {
 function copyInviteLink(code) {
     // 使用当前部署的URL作为基础，确保链接可访问
     const baseUrl = window.location.origin;
-    const link = `${baseUrl}/register?invite_code=${code}`;
+    const link = `${baseUrl}/invite/${code}`;
     copyToClipboard(link, null);
     showCopySuccess('邀请链接已复制到剪贴板');
 }

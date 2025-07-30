@@ -279,21 +279,26 @@ class InviteCode(db.Model):
                 # 查找邀请人并给予奖励
                 inviter = User.query.filter_by(username=self.created_by).first()
                 if inviter:
-                    # 给邀请人增加1天有效期
-                    inviter.extend_activation(1)
-                    
-                    # 如果被邀请人有有效期且邀请人不是永久用户，给予额外奖励
-                    if user.activation_expires_at and inviter.activation_expires_at:
-                        # 计算被邀请人的剩余有效期天数
-                        try:
-                            remaining_days = (user.activation_expires_at - datetime.now()).days
-                            if remaining_days > 0:
-                                bonus_days = max(1, remaining_days // 2)  # 至少1天
-                                inviter.extend_activation(bonus_days)
-                        except Exception as e:
-                            print(f"计算额外奖励天数时出错: {e}")
-                            # 出错时至少给邀请人1天奖励
-                            inviter.extend_activation(1)
+                    # 检查邀请人是否是永久用户
+                    if inviter.activation_expires_at is None:
+                        # 永久用户保持永久状态，不做任何改变
+                        pass
+                    else:
+                        # 非永久用户，给邀请人增加1天有效期
+                        inviter.extend_activation(1)
+                        
+                        # 如果被邀请人有有效期，给予额外奖励
+                        if user.activation_expires_at:
+                            # 计算被邀请人的剩余有效期天数
+                            try:
+                                remaining_days = (user.activation_expires_at - datetime.now()).days
+                                if remaining_days > 0:
+                                    bonus_days = max(1, remaining_days // 2)  # 至少1天
+                                    inviter.extend_activation(bonus_days)
+                            except Exception as e:
+                                print(f"计算额外奖励天数时出错: {e}")
+                                # 出错时至少给邀请人1天奖励
+                                inviter.extend_activation(1)
             except Exception as e:
                 print(f"处理邀请人奖励时出错: {e}")
                 # 即使处理邀请人奖励出错，也不影响被邀请人的注册
