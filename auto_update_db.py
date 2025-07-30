@@ -2,122 +2,115 @@
 # -*- coding: utf-8 -*-
 """
 数据库自动更新脚本
+用于更新现有数据库结构和数据
 """
 
-import sqlite3
 import os
+import sqlite3
 from datetime import datetime
 
-def check_and_update_database():
-    """检查并更新数据库结构"""
-    print("正在检查数据库结构...")
+# 数据库文件路径
+DB_PATH = os.path.join(os.getcwd(), 'data', 'lottery_system.db')
+
+def check_database_exists():
+    """检查数据库是否存在"""
+    return os.path.exists(DB_PATH)
+
+def check_column_exists(cursor, table_name, column_name):
+    """检查表中是否存在指定列"""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns = [column[1] for column in cursor.fetchall()]
+    return column_name in columns
+
+def update_database():
+    """更新数据库结构和数据"""
+    if not check_database_exists():
+        print(f"数据库文件不存在: {DB_PATH}")
+        print("请先运行 create_db.py 创建数据库")
+        return False
     
-    # 确保数据目录存在
-    data_dir = os.path.join(os.getcwd(), 'data')
-    os.makedirs(data_dir, exist_ok=True)
-    
-    # 数据库路径
-    db_path = os.path.join(data_dir, 'lottery_system.db')
-    
-    # 如果数据库文件不存在，则不需要更新
-    if not os.path.exists(db_path):
-        print("数据库文件不存在，将创建新数据库")
-        return
+    print(f"正在更新数据库: {DB_PATH}")
     
     try:
-        # 连接数据库
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # 检查prediction_record表是否存在actual_special_zodiac字段
-        cursor.execute("PRAGMA table_info(prediction_record)")
-        columns = cursor.fetchall()
-        column_names = [column[1] for column in columns]
+        # 检查并添加 auto_prediction_regions 字段
+        if not check_column_exists(cursor, 'user', 'auto_prediction_regions'):
+            print("添加 auto_prediction_regions 字段...")
+            cursor.execute('''
+                ALTER TABLE user ADD COLUMN auto_prediction_regions TEXT DEFAULT 'hk,macau'
+            ''')
+            print("✓ auto_prediction_regions 字段添加成功")
+        else:
+            print("auto_prediction_regions 字段已存在")
         
-        # 如果不存在actual_special_zodiac字段，则添加
-        if 'actual_special_zodiac' not in column_names:
-            print("正在添加actual_special_zodiac字段到prediction_record表...")
-            cursor.execute("ALTER TABLE prediction_record ADD COLUMN actual_special_zodiac VARCHAR(10)")
-            conn.commit()
-            print("✅ 成功添加actual_special_zodiac字段")
-            
-            # 更新现有记录的actual_special_zodiac字段
-            print("正在更新现有记录的actual_special_zodiac字段...")
-            
-            # 获取所有已更新结果的预测记录
-            cursor.execute("""
-                SELECT id, actual_special_number, region
-                FROM prediction_record
-                WHERE is_result_updated = 1 AND actual_special_number IS NOT NULL
-            """)
-            records = cursor.fetchall()
-            
-            # 定义生肖映射函数
-            ZODIAC_MAPPING_SEQUENCE = ("虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马")
-            
-            def get_number_zodiac(number):
-                try:
-                    num = int(number)
-                    if not 1 <= num <= 49: return ""
-                    return ZODIAC_MAPPING_SEQUENCE[(num - 1) % 12]
-                except:
-                    return ""
-            
-            # 更新每条记录
-            for record in records:
-                record_id, special_number, region = record
-                if special_number:
-                    zodiac = get_number_zodiac(special_number)
-                    cursor.execute(
-                        "UPDATE prediction_record SET actual_special_zodiac = ? WHERE id = ?",
-                        (zodiac, record_id)
-                    )
-            
-            conn.commit()
-            print(f"✅ 成功更新了 {len(records)} 条记录的actual_special_zodiac字段")
+        # 更新现有用户的 auto_prediction_regions 字段
+        print("更新现有用户的自动预测地区设置...")
+        cursor.execute('''
+            UPDATE user 
+            SET auto_prediction_regions = 'hk,macau' 
+            WHERE auto_prediction_regions IS NULL 
+               OR auto_prediction_regions = '' 
+               OR auto_prediction_regions = 'NULL'
+        ''')
+        updated_users = cursor.rowcount
+        print(f"✓ 更新了 {updated_users} 个用户的自动预测地区设置")
         
-        # 检查user表是否存在last_login和login_count字段
-        cursor.execute("PRAGMA table_info(user)")
-        columns = cursor.fetchall()
-        column_names = [column[1] for column in columns]
+        # 更新现有用户的 auto_prediction_strategies 字段
+        print("更新现有用户的自动预测策略设置...")
+        cursor.execute('''
+            UPDATE user 
+            SET auto_prediction_strategies = 'balanced' 
+            WHERE auto_prediction_strategies IS NULL 
+               OR auto_prediction_strategies = '' 
+               OR auto_prediction_strategies = 'NULL'
+        ''')
+        updated_strategies = cursor.rowcount
+        print(f"✓ 更新了 {updated_strategies} 个用户的自动预测策略设置")
         
-        # 如果不存在last_login字段，则添加
-        if 'last_login' not in column_names:
-            print("正在添加last_login字段到user表...")
-            cursor.execute("ALTER TABLE user ADD COLUMN last_login DATETIME")
-            conn.commit()
-            print("✅ 成功添加last_login字段")
+        # 验证更新结果
+        print("\n验证更新结果:")
+        cursor.execute('''
+            SELECT username, auto_prediction_enabled, auto_prediction_strategies, auto_prediction_regions 
+            FROM user
+        ''')
+        users = cursor.fetchall()
         
-        # 如果不存在login_count字段，则添加
-        if 'login_count' not in column_names:
-            print("正在添加login_count字段到user表...")
-            cursor.execute("ALTER TABLE user ADD COLUMN login_count INTEGER DEFAULT 0")
-            conn.commit()
-            print("✅ 成功添加login_count字段")
+        for user in users:
+            username, enabled, strategies, regions = user
+            print(f"用户 {username}: 启用={enabled}, 策略='{strategies}', 地区='{regions}'")
         
-        # 如果不存在auto_prediction_enabled字段，则添加
-        if 'auto_prediction_enabled' not in column_names:
-            print("正在添加auto_prediction_enabled字段到user表...")
-            cursor.execute("ALTER TABLE user ADD COLUMN auto_prediction_enabled BOOLEAN DEFAULT 0")
-            conn.commit()
-            print("✅ 成功添加auto_prediction_enabled字段")
+        # 提交更改
+        conn.commit()
+        print(f"\n✓ 数据库更新完成！")
         
-        # 如果不存在auto_prediction_strategies字段，则添加
-        if 'auto_prediction_strategies' not in column_names:
-            print("正在添加auto_prediction_strategies字段到user表...")
-            cursor.execute("ALTER TABLE user ADD COLUMN auto_prediction_strategies TEXT")
-            conn.commit()
-            print("✅ 成功添加auto_prediction_strategies字段")
-        
-        # 关闭数据库连接
-        conn.close()
+        return True
         
     except Exception as e:
-        print(f"更新数据库结构时出错: {e}")
-        try:
+        print(f"数据库更新失败: {str(e)}")
+        if 'conn' in locals():
+            conn.rollback()
+        return False
+        
+    finally:
+        if 'conn' in locals():
             conn.close()
-        except:
-            pass
 
-if __name__ == "__main__":
-    check_and_update_database()
+def main():
+    """主函数"""
+    print("=== 数据库自动更新工具 ===")
+    print(f"当前工作目录: {os.getcwd()}")
+    
+    success = update_database()
+    
+    if success:
+        print("\n数据库更新成功！")
+        print("现在所有用户的自动预测设置都有正确的默认值：")
+        print("- 默认策略: balanced (均衡预测)")
+        print("- 默认地区: hk,macau (香港和澳门)")
+    else:
+        print("\n数据库更新失败！请检查错误信息并重试。")
+
+if __name__ == '__main__':
+    main()

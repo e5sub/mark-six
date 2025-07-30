@@ -202,12 +202,12 @@
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
                         <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal;">
                             <input type="checkbox" name="auto_prediction_regions" value="hk" 
-                                   {{ 'checked' if not user.auto_prediction_regions or 'hk' in user.auto_prediction_regions.split(',') else '' }}>
+                                   {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'hk' in user.auto_prediction_regions.split(',')) else '' }}>
                             香港六合彩
                         </label>
                         <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal;">
                             <input type="checkbox" name="auto_prediction_regions" value="macau" 
-                                   {{ 'checked' if user.auto_prediction_regions and 'macau' in user.auto_prediction_regions.split(',') else '' }}>
+                                   {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'macau' in user.auto_prediction_regions.split(',')) else '' }}>
                             澳门六合彩
                         </label>
                     </div>
