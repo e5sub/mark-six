@@ -33,129 +33,6 @@
 <!-- 筛选条件 -->
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">🔍 查询预测记录</h2>
-    </div>
-    
-    <form method="GET" style="display: grid; gap: 1rem;">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-            <div class="form-group">
-                <label>开始日期</label>
-                <input type="date" name="start_date" class="form-control" value="{{ request.args.get('start_date', '') }}">
-            </div>
-            
-            <div class="form-group">
-                <label>结束日期</label>
-                <input type="date" name="end_date" class="form-control" value="{{ request.args.get('end_date', '') }}">
-            </div>
-            
-            <div class="form-group">
-                <label>预测策略</label>
-                <select name="strategy" class="form-control">
-                    <option value="">全部策略</option>
-                    <option value="random" {% if request.args.get('strategy') == 'random' %}selected{% endif %}>随机预测</option>
-                    <option value="balanced" {% if request.args.get('strategy') == 'balanced' %}selected{% endif %}>均衡预测</option>
-                    <option value="ai" {% if request.args.get('strategy') == 'ai' %}selected{% endif %}>AI智能</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label>预测结果</label>
-                <select name="result" class="form-control">
-                    <option value="">全部结果</option>
-                    <option value="correct" {% if request.args.get('result') == 'correct' %}selected{% endif %}>预测正确</option>
-                    <option value="wrong" {% if request.args.get('result') == 'wrong' %}selected{% endif %}>预测错误</option>
-                    <option value="pending" {% if request.args.get('result') == 'pending' %}selected{% endif %}>待开奖</option>
-                </select>
-            </div>
-        </div>
-        
-        <div style="display: flex; gap: 1rem; justify-content: center;">
-            <button type="submit" class="btn">
-                🔍 查询
-            </button>
-            <a href="{{ url_for('user.predictions') }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
-                🔄 重置
-            </a>
-        </div>
-    </form>
-</div>
-
-<!-- 预测记录列表 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📋 预测记录</h2>
-    </div>
-    
-    {% if predictions and predictions.items %}
-    <div style="display: grid; gap: 1rem;">
-        {% for prediction in predictions.items %}
-        <div style="background: white; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); border-left: 4px solid #667eea;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <div>
-                    <h3 style="margin: 0; color: #333; font-size: 1.1rem; display: flex; align-items: center; flex-wrap: wrap;">
-                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
-                        <span style="margin-left: 10px; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; background-color: #f0f4ff; color: #4b6bfb; display: inline-flex; align-items: center;">
-                            {% if prediction.strategy == 'random' %}
-                            <span style="margin-right: 3px;">🎲</span> 随机预测
-                            {% elif prediction.strategy == 'balanced' %}
-                            <span style="margin-right: 3px;">⚖️</span> 均衡预测
-                            {% else %}
-                            <span style="margin-right: 3px;">🤖</span> AI预测
-                            {% endif %}
-                        </span>
-                    </h3>
-                </div>
-                <div style="text-align: right;">
-                    <div style="color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;">
-                        {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
-                    </div>
-                    {% if prediction.is_result_updated %}
-                    <span style="padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 1rem; font-weight: bold; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
-                        {{ "预测正确" if prediction.accuracy_score > 0 else "预测失败" }}
-                    </span>
-                    {% else %}
-                    <span style="padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 1rem; font-weight: bold; background-color: #ffc107; color: white;">
-                        待开奖
-                    </span>
-                    {% endif %}
-                </div>
-            </div>
-            
-{% extends "user/base.html" %}
-
-{% block page_title %}预测记录{% endblock %}
-
-{% block content %}
-<!-- 统计信息 -->
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
-        <div class="stat-number">{{ predictions.total if predictions else 0 }}</div>
-        <div class="stat-label">总预测次数</div>
-    </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
-        <div class="stat-number">{{ correct_predictions or 0 }}</div>
-        <div class="stat-label">预测正确</div>
-    </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">❌</div>
-        <div class="stat-number">{{ wrong_predictions or 0 }}</div>
-        <div class="stat-label">预测错误</div>
-    </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">📈</div>
-        <div class="stat-number">{{ accuracy or 0 }}%</div>
-        <div class="stat-label">准确率</div>
-    </div>
-</div>
-
-<!-- 筛选条件 -->
-<div class="card">
-    <div class="card-header">
         <h2 class="card-title">🔍 筛选条件</h2>
     </div>
     
@@ -260,7 +137,6 @@
             
             <div style="color: #666; font-size: 0.9rem;">
                 特码生肖: {{ prediction.special_zodiac }}
-                <!-- 状态标签已移至上方 -->
             </div>
         </div>
         {% endfor %}
@@ -278,21 +154,21 @@
 </div>
 
 <!-- 分页导航 -->
-{% if pagination and pagination.pages > 1 %}
+{% if predictions and predictions.pages > 1 %}
 <div class="card">
     <div style="display: flex; justify-content: center; align-items: center; gap: 1rem;">
-        {% if pagination.has_prev %}
-        <a href="{{ url_for('user.predictions', page=pagination.prev_num, **request.args) }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+        {% if predictions.has_prev %}
+        <a href="{{ url_for('user.predictions', page=predictions.prev_num, **request.args) }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
             ← 上一页
         </a>
         {% endif %}
         
         <span style="color: #666;">
-            第 {{ pagination.page }} 页，共 {{ pagination.pages }} 页
+            第 {{ predictions.page }} 页，共 {{ predictions.pages }} 页
         </span>
         
-        {% if pagination.has_next %}
-        <a href="{{ url_for('user.predictions', page=pagination.next_num, **request.args) }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+        {% if predictions.has_next %}
+        <a href="{{ url_for('user.predictions', page=predictions.next_num, **request.args) }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
             下一页 →
         </a>
         {% endif %}
@@ -320,10 +196,10 @@
         <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
             <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">📊 记录说明</h3>
             <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
-                <li>红色球代表普通号码</li>
-                <li>绿色球代表预测的特码</li>
-                <li>灰色球代表实际开奖号码</li>
-                <li>蓝色球代表实际开奖特码</li>
+                <li>红色球代表红波号码</li>
+                <li>蓝色球代表蓝波号码</li>
+                <li>绿色球代表绿波号码</li>
+                <li>金边球代表特码号码</li>
             </ul>
         </div>
         
