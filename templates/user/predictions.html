@@ -30,123 +30,97 @@
     </div>
 </div>
 
-<!-- 查询条件 -->
+<!-- 预测记录列表 -->
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">🔍 查询预测记录</h2>
-    </div>
-    
-    <form method="GET" style="display: grid; gap: 1rem;">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-            <div class="form-group">
-                <label>开始日期</label>
-                <input type="date" name="start_date" class="form-control" value="{{ request.args.get('start_date', '') }}">
-            </div>
-            
-            <div class="form-group">
-                <label>结束日期</label>
-                <input type="date" name="end_date" class="form-control" value="{{ request.args.get('end_date', '') }}">
-            </div>
-            
-            <div class="form-group">
-                <label>预测策略</label>
-                <select name="strategy" class="form-control">
+        <h2 class="card-title">📋 预测记录</h2>
+        <!-- 查询条件整合到标题栏 -->
+        <form method="GET" class="inline-search-form">
+            <div class="search-controls">
+                <input type="date" name="start_date" class="compact-input" placeholder="开始日期" value="{{ request.args.get('start_date', '') }}" title="开始日期">
+                <input type="date" name="end_date" class="compact-input" placeholder="结束日期" value="{{ request.args.get('end_date', '') }}" title="结束日期">
+                <select name="strategy" class="compact-select" title="预测策略">
                     <option value="">全部策略</option>
                     <option value="random" {% if request.args.get('strategy') == 'random' %}selected{% endif %}>随机预测</option>
                     <option value="balanced" {% if request.args.get('strategy') == 'balanced' %}selected{% endif %}>均衡预测</option>
                     <option value="ai" {% if request.args.get('strategy') == 'ai' %}selected{% endif %}>AI智能</option>
                 </select>
-            </div>
-            
-            <div class="form-group">
-                <label>预测结果</label>
-                <select name="result" class="form-control">
+                <select name="result" class="compact-select" title="预测结果">
                     <option value="">全部结果</option>
                     <option value="correct" {% if request.args.get('result') == 'correct' %}selected{% endif %}>预测正确</option>
                     <option value="wrong" {% if request.args.get('result') == 'wrong' %}selected{% endif %}>预测错误</option>
                     <option value="pending" {% if request.args.get('result') == 'pending' %}selected{% endif %}>待开奖</option>
                 </select>
+                <button type="submit" class="compact-btn btn-search" title="查询">🔍</button>
+                <a href="{{ url_for('user.predictions') }}" class="compact-btn btn-reset" title="重置">🔄</a>
             </div>
-        </div>
-        
-        <div style="display: flex; gap: 1rem; justify-content: center;">
-            <button type="submit" class="btn">
-                🔍 查询
-            </button>
-            <a href="{{ url_for('user.predictions') }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
-                🔄 重置
-            </a>
-        </div>
-    </form>
-</div>
-
-<!-- 预测记录列表 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📋 预测记录</h2>
+        </form>
     </div>
     
     {% if predictions and predictions.items %}
-    <div style="display: grid; gap: 1rem;">
+    <div class="predictions-list">
         {% for prediction in predictions.items %}
-        <div style="background: white; border-radius: 16px; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1); border-left: 4px solid #667eea;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <div>
-                    <h3 style="margin: 0; color: #333; font-size: 1.1rem; display: flex; align-items: center; flex-wrap: wrap;">
-                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
-                        <span style="margin-left: 10px; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; background-color: #f0f4ff; color: #4b6bfb; display: inline-flex; align-items: center;">
-                            {% if prediction.strategy == 'random' %}
-                            <span style="margin-right: 3px;">🎲</span> 随机预测
-                            {% elif prediction.strategy == 'balanced' %}
-                            <span style="margin-right: 3px;">⚖️</span> 均衡预测
-                            {% else %}
-                            <span style="margin-right: 3px;">🤖</span> AI预测
-                            {% endif %}
-                        </span>
-                    </h3>
+        <div class="prediction-card-compact">
+            <!-- 左侧：预测记录信息 -->
+            <div class="prediction-left">
+                <div class="prediction-title-compact">
+                    {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
+                    <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">
+                        {% if prediction.strategy == 'random' %}
+                        🎲 随机预测
+                        {% elif prediction.strategy == 'balanced' %}
+                        ⚖️ 均衡预测
+                        {% else %}
+                        🤖 AI预测
+                        {% endif %}
+                    </span>
                 </div>
-                <div style="text-align: right;">
-                    <div style="color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;">
-                        {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
+                <div class="prediction-numbers-compact">
+                    {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
+                    {% set color = get_number_color(num) %}
+                    <div class="number-ball-compact ball-{{ color }}">
+                        {{ num }}
                     </div>
-                    {% if prediction.is_result_updated %}
-                    <span style="padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 1rem; font-weight: bold; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
-                        {{ "预测正确" if prediction.accuracy_score > 0 else "预测失败" }}
-                    </span>
-                    {% else %}
-                    <span style="padding: 0.3rem 0.8rem; border-radius: 6px; font-size: 1rem; font-weight: bold; background-color: #ffc107; color: white;">
-                        待开奖
-                    </span>
-                    {% endif %}
+                    {% endfor %}
+                    
+                    {% set special_color = get_number_color(prediction.special_number) %}
+                    <div class="number-ball-compact ball-{{ special_color }} special-ball-compact">
+                        {{ prediction.special_number }}
+                    </div>
+                </div>
+                <div class="zodiac-info-compact">
+                    🐲 特码生肖: {{ prediction.special_zodiac }}
                 </div>
             </div>
             
-            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
-                {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
-                {% set color = get_number_color(num) %}
-                <div style="width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem; background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
-                    {{ num }}
+            <!-- 中间：预测结果 -->
+            <div class="prediction-center">
+                {% if prediction.is_result_updated %}
+                <div class="result-badge-compact result-{{ 'success' if prediction.accuracy_score > 0 else 'failed' }}">
+                    {{ "🎉 预测正确" if prediction.accuracy_score > 0 else "😔 预测失败" }}
                 </div>
-                {% endfor %}
-                
-                {% set special_color = get_number_color(prediction.special_number) %}
-                <div style="width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem; background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %}; border: 2px solid #ffd700; box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);">
-                    {{ prediction.special_number }}
+                {% else %}
+                <div class="result-badge-compact result-pending">
+                    ⏳ 待开奖
                 </div>
+                {% endif %}
             </div>
             
-            <div style="color: #666; font-size: 0.9rem;">
-                特码生肖: {{ prediction.special_zodiac }}
+            <!-- 右侧：时间 -->
+            <div class="prediction-right">
+                <div class="prediction-time-compact">
+                    🕐 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
+                </div>
             </div>
         </div>
         {% endfor %}
     </div>
     {% else %}
-    <div style="text-align: center; padding: 3rem; color: #666;">
-        <div style="font-size: 3rem; margin-bottom: 1rem;">📊</div>
-        <h3 style="margin: 0 0 0.5rem 0;">暂无预测记录</h3>
-        <p style="margin: 0;">开始您的第一次预测吧！</p>
-        <a href="{{ url_for('index') }}" class="btn" style="margin-top: 1rem;">
+    <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <h3>暂无预测记录</h3>
+        <p>开始您的第一次预测吧！</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary">
             🎯 开始预测
         </a>
     </div>
@@ -156,19 +130,19 @@
 <!-- 分页导航 -->
 {% if predictions and predictions.pages > 1 %}
 <div class="card">
-    <div style="display: flex; justify-content: center; align-items: center; gap: 1rem;">
+    <div class="pagination-wrapper">
         {% if predictions.has_prev %}
-        <a href="{{ url_for('user.predictions', page=predictions.prev_num, **request.args) }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+        <a href="{{ url_for('user.predictions', page=predictions.prev_num, **request.args) }}" class="btn btn-secondary">
             ← 上一页
         </a>
         {% endif %}
         
-        <span style="color: #666;">
+        <span class="pagination-info">
             第 {{ predictions.page }} 页，共 {{ predictions.pages }} 页
         </span>
         
         {% if predictions.has_next %}
-        <a href="{{ url_for('user.predictions', page=predictions.next_num, **request.args) }}" class="btn" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+        <a href="{{ url_for('user.predictions', page=predictions.next_num, **request.args) }}" class="btn btn-secondary">
             下一页 →
         </a>
         {% endif %}
@@ -182,10 +156,10 @@
         <h2 class="card-title">📖 使用说明</h2>
     </div>
     
-    <div style="display: grid; gap: 1rem;">
-        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">🔍 筛选功能</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
+    <div class="help-grid">
+        <div class="help-card help-search">
+            <h3>🔍 筛选功能</h3>
+            <ul>
                 <li>可以按日期范围筛选预测记录</li>
                 <li>可以按预测策略筛选记录</li>
                 <li>可以按预测结果筛选记录</li>
@@ -193,53 +167,522 @@
             </ul>
         </div>
         
-        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">📊 记录说明</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
-                <li>红色球代表红波号码</li>
-                <li>蓝色球代表蓝波号码</li>
-                <li>绿色球代表绿波号码</li>
-                <li>金边球代表特码号码</li>
+        <div class="help-card help-numbers">
+            <h3>📊 号码说明</h3>
+            <ul>
+                <li>🔴 红色球代表红波号码</li>
+                <li>🔵 蓝色球代表蓝波号码</li>
+                <li>🟢 绿色球代表绿波号码</li>
+                <li>✨ 金边球代表特码号码</li>
             </ul>
         </div>
         
-        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">🎯 预测策略</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
-                <li><strong>随机预测</strong>：完全随机生成号码</li>
-                <li><strong>均衡预测</strong>：基于历史数据的均衡算法</li>
-                <li><strong>AI智能</strong>：使用人工智能算法预测</li>
+        <div class="help-card help-strategy">
+            <h3>🎯 预测策略</h3>
+            <ul>
+                <li><strong>🎲 随机预测</strong>：完全随机生成号码</li>
+                <li><strong>⚖️ 均衡预测</strong>：基于历史数据的均衡算法</li>
+                <li><strong>🤖 AI智能</strong>：使用人工智能算法预测</li>
             </ul>
         </div>
     </div>
 </div>
 
 <style>
-.form-control {
-    width: 100%;
-    padding: 0.75rem;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    transition: border-color 0.3s ease;
+/* 紧凑型搜索表单样式 */
+.inline-search-form {
+    margin-left: auto;
 }
 
-.form-control:focus {
+.search-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.compact-input, .compact-select {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    background: #fff;
+    transition: all 0.2s ease;
+    min-width: 120px;
+}
+
+.compact-input:focus, .compact-select:focus {
     outline: none;
     border-color: #667eea;
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
 }
 
-.form-group {
+.compact-btn {
+    padding: 0.4rem 0.8rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+}
+
+.btn-search {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-search:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-reset {
+    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+    color: white;
+}
+
+.btn-reset:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+}
+
+/* 调整卡片标题栏布局 */
+.card-header {
     display: flex;
-    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+}
+
+.btn {
+    padding: 0.875rem 2rem;
+    border: none;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
     gap: 0.5rem;
 }
 
-.form-group label {
-    font-weight: 500;
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+    color: white;
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(108, 117, 125, 0.3);
+}
+
+/* 预测记录列表样式 - 三段式布局 */
+.predictions-list {
+    display: grid;
+    gap: 0.8rem;
+    padding: 1rem;
+}
+
+.prediction-card-compact {
+    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(102, 126, 234, 0.08);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 1.5rem;
+    min-height: 80px;
+}
+
+.prediction-card-compact::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+}
+
+.prediction-card-compact:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+}
+
+/* 左侧：预测记录信息 */
+.prediction-left {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    flex: 1;
+}
+
+.prediction-title-compact {
     color: #333;
+    font-size: 1rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 0.4rem;
+}
+
+.strategy-badge-compact {
+    padding: 0.25rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.strategy-random {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+}
+
+.strategy-balanced {
+    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+    color: white;
+}
+
+.strategy-ai {
+    background: linear-gradient(135deg, #17a2b8 0%, #6f42c1 100%);
+    color: white;
+}
+
+.prediction-numbers-compact {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.number-ball-compact {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 700;
     font-size: 0.9rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    transition: all 0.2s ease;
+}
+
+.number-ball-compact:hover {
+    transform: scale(1.05);
+}
+
+.ball-red {
+    background: linear-gradient(135deg, #ff4b4b 0%, #dc3545 100%);
+}
+
+.ball-blue {
+    background: linear-gradient(135deg, #4b83ff 0%, #007bff 100%);
+}
+
+.ball-green {
+    background: linear-gradient(135deg, #4bff91 0%, #28a745 100%);
+}
+
+.special-ball-compact {
+    border: 2px solid #ffd700;
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.12);
+    animation: glow-compact 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow-compact {
+    from {
+        box-shadow: 0 0 12px rgba(255, 215, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.12);
+    }
+    to {
+        box-shadow: 0 0 18px rgba(255, 215, 0, 0.7), 0 3px 8px rgba(0, 0, 0, 0.18);
+    }
+}
+
+.zodiac-info-compact {
+    color: #666;
+    font-size: 0.8rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+/* 中间：预测结果 */
+.prediction-center {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-width: 120px;
+}
+
+.result-badge-compact {
+    padding: 0.5rem 1rem;
+    border-radius: 16px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.12);
+    white-space: nowrap;
+    text-align: center;
+}
+
+.result-success {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+}
+
+.result-failed {
+    background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);
+    color: white;
+}
+
+.result-pending {
+    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+    color: white;
+}
+
+/* 右侧：时间 */
+.prediction-right {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    min-width: 140px;
+}
+
+.prediction-time-compact {
+    padding: 0.4rem 0.8rem;
+    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+    color: white;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+}
+
+/* 空状态样式 */
+.empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: #666;
+}
+
+.empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+}
+
+.empty-state h3 {
+    margin: 0 0 1rem 0;
+    font-size: 1.5rem;
+    color: #333;
+}
+
+.empty-state p {
+    margin: 0 0 2rem 0;
+    font-size: 1.1rem;
+}
+
+/* 分页样式 */
+.pagination-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 2rem;
+    padding: 1.5rem;
+}
+
+.pagination-info {
+    color: #666;
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+/* 帮助说明样式 */
+.help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    padding: 1.5rem;
+}
+
+.help-card {
+    padding: 2rem;
+    border-radius: 16px;
+    border-left: 4px solid;
+}
+
+.help-search {
+    background: rgba(23, 162, 184, 0.05);
+    border-left-color: #17a2b8;
+}
+
+.help-numbers {
+    background: rgba(40, 167, 69, 0.05);
+    border-left-color: #28a745;
+}
+
+.help-strategy {
+    background: rgba(255, 193, 7, 0.05);
+    border-left-color: #ffc107;
+}
+
+.help-card h3 {
+    margin: 0 0 1rem 0;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.help-search h3 {
+    color: #17a2b8;
+}
+
+.help-numbers h3 {
+    color: #28a745;
+}
+
+.help-strategy h3 {
+    color: #ffc107;
+}
+
+.help-card ul {
+    margin: 0;
+    padding-left: 1.5rem;
+    color: #666;
+    line-height: 1.6;
+}
+
+.help-card li {
+    margin-bottom: 0.5rem;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.8rem;
+    }
+    
+    .inline-search-form {
+        margin-left: 0;
+        width: 100%;
+    }
+    
+    .search-controls {
+        justify-content: flex-start;
+        gap: 0.4rem;
+    }
+    
+    .compact-input, .compact-select {
+        min-width: 100px;
+        font-size: 0.8rem;
+    }
+    
+    .prediction-card-compact {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+        text-align: center;
+    }
+    
+    .prediction-center, .prediction-right {
+        justify-content: center;
+        min-width: auto;
+    }
+    
+    .prediction-numbers-compact {
+        justify-content: center;
+    }
+    
+    .number-ball-compact {
+        width: 30px;
+        height: 30px;
+        font-size: 0.85rem;
+    }
+    
+    .help-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .pagination-wrapper {
+        flex-direction: column;
+        gap: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .search-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .compact-input, .compact-select {
+        min-width: auto;
+        width: 100%;
+    }
+    
+    .compact-btn {
+        width: 100%;
+    }
+    
+    .prediction-card-compact {
+        padding: 0.8rem;
+        min-height: auto;
+    }
+    
+    .prediction-title-compact {
+        font-size: 0.9rem;
+        text-align: center;
+    }
+    
+    .strategy-badge-compact {
+        font-size: 0.7rem;
+    }
+    
+    .result-badge-compact {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.8rem;
+    }
+    
+    .prediction-time-compact {
+        font-size: 0.75rem;
+    }
 }
 </style>
 {% endblock %}
