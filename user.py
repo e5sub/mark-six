@@ -384,9 +384,8 @@ def invite_codes():
     
     # 获取用户创建的邀请码
     page = request.args.get('page', 1, type=int)
-    codes = InviteCode.query.filter_by(created_by=user.username)\
-        .order_by(InviteCode.created_at.desc())\
-        .paginate(page=page, per_page=10, error_out=False)
+    invite_codes = InviteCode.query.filter_by(created_by=user.username)\
+        .order_by(InviteCode.created_at.desc()).all()
     
     # 获取邀请统计
     total_invites = InviteCode.query.filter_by(created_by=user.username, is_used=True).count()
@@ -403,7 +402,7 @@ def invite_codes():
     }
     
     return render_template('user/invite_codes.html', 
-                          codes=codes, 
+                          invite_codes=invite_codes, 
                           stats=stats, 
                           invited_users=invited_users)
 
@@ -416,15 +415,13 @@ def generate_invite_code():
         user = User.query.get(session['user_id'])
         
         # 检查用户是否有权限生成邀请码（可以根据需要添加限制）
-        # 例如：限制每个用户每天只能生成3个邀请码
-        today_codes = InviteCode.query.filter_by(created_by=user.username)\
-            .filter(InviteCode.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0))\
-            .count()
+        # 例如：限制每个用户最多只能生成10个邀请码
+        total_codes = InviteCode.query.filter_by(created_by=user.username).count()
         
-        if today_codes >= 3:
+        if total_codes >= 10:
             return jsonify({
                 'success': False,
-                'message': '每天最多只能生成3个邀请码'
+                'message': '您已达到邀请码生成上限（10个）'
             })
         
         # 创建邀请码
@@ -563,3 +560,100 @@ def update_auto_prediction():
         flash(f'设置保存失败：{str(e)}', 'error')
     
     return redirect(url_for('user.dashboard'))
+
+@user_bp.route('/analytics')
+@login_required
+@active_required
+def analytics():
+    """用户统计分析页面"""
+    user = User.query.get(session['user_id'])
+    
+    # 获取用户预测统计
+    total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
+    
+    # 计算不同策略的准确率
+    def calculate_strategy_stats(strategy=None):
+        query = PredictionRecord.query.filter_by(user_id=user.id)
+        if strategy:
+            query = query.filter_by(strategy=strategy)
+        
+        total = query.count()
+        updated = query.filter_by(is_result_updated=True).count()
+        correct = query.filter(PredictionRecord.is_result_updated == True, 
+                              PredictionRecord.accuracy_score > 0).count()
+        
+        accuracy = (correct / updated * 100) if updated > 0 else 0
+        
+        return {
+            'total': total,
+            'updated': updated,
+            'correct': correct,
+            'accuracy': round(accuracy, 1)
+        }
+    
+    # 计算不同地区的准确率
+    def calculate_region_stats(region):
+        query = PredictionRecord.query.filter_by(user_id=user.id, region=region)
+        
+        total = query.count()
+        updated = query.filter_by(is_result_updated=True).count()
+        correct = query.filter(PredictionRecord.is_result_updated == True, 
+                              PredictionRecord.accuracy_score > 0).count()
+        
+        accuracy = (correct / updated * 100) if updated > 0 else 0
+        
+        return {
+            'total': total,
+            'updated': updated,
+            'correct': correct,
+            'accuracy': round(accuracy, 1)
+        }
+    
+    # 计算总体统计
+    stats = calculate_strategy_stats()
+    
+    # 计算各策略统计
+    strategy_stats = {
+        'random': calculate_strategy_stats('random'),
+        'balanced': calculate_strategy_stats('balanced'),
+        'ai': calculate_strategy_stats('ai')
+    }
+    
+    # 计算各地区统计
+    region_stats = {
+        'hk': calculate_region_stats('hk'),
+        'macau': calculate_region_stats('macau')
+    }
+    
+    # 获取最近预测记录
+    recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
+        .order_by(PredictionRecord.created_at.desc()).limit(10).all()
+    
+    # 获取预测趋势数据（最近7天）
+    from datetime import timedelta
+    
+    trend_data = []
+    for i in range(6, -1, -1):
+        date = datetime.utcnow().date() - timedelta(days=i)
+        date_start = datetime.combine(date, datetime.min.time())
+        date_end = datetime.combine(date, datetime.max.time())
+        
+        day_predictions = PredictionRecord.query.filter(
+            PredictionRecord.user_id == user.id,
+            PredictionRecord.created_at >= date_start,
+            PredictionRecord.created_at <= date_end
+        ).count()
+        
+        trend_data.append({
+            'date': date.strftime('%m-%d'),
+            'count': day_predictions
+        })
+    
+    return render_template('user/analytics.html',
+                          user=user,
+                          stats=stats,
+                          strategy_stats=strategy_stats,
+                          region_stats=region_stats,
+                          recent_predictions=recent_predictions,
+                          trend_data=trend_data,
+                          get_number_color=get_number_color)
