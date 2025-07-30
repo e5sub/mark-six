@@ -13,7 +13,7 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     is_active = db.Column(db.Boolean, default=False)
     is_admin = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
     
     # 登录相关字段
@@ -37,7 +37,7 @@ class User(db.Model):
         """检查激活是否过期"""
         if not self.activation_expires_at:
             return False  # 永久激活
-        return datetime.utcnow() > self.activation_expires_at
+        return datetime.now() > self.activation_expires_at
     
     def extend_activation(self, days):
         """延长激活有效期"""
@@ -47,11 +47,11 @@ class User(db.Model):
                 self.activation_expires_at += timedelta(days=days)
             else:
                 # 如果没有有效期，从当前时间开始计算
-                self.activation_expires_at = datetime.utcnow() + timedelta(days=days)
+                self.activation_expires_at = datetime.now() + timedelta(days=days)
         except Exception as e:
             print(f"延长激活有效期时出错: {e}")
             # 如果出错，至少设置一个基本的有效期
-            self.activation_expires_at = datetime.utcnow() + timedelta(days=days)
+            self.activation_expires_at = datetime.now() + timedelta(days=days)
     
     def set_permanent_activation(self):
         """设置永久激活"""
@@ -74,7 +74,7 @@ class ActivationCode(db.Model):
     code = db.Column(db.String(64), unique=True, nullable=False)
     is_used = db.Column(db.Boolean, default=False)
     used_by = db.Column(db.String(80))  # 存储用户名而不是ID
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     used_at = db.Column(db.DateTime)
     validity_type = db.Column(db.String(20), default='permanent')  # permanent, day, month, quarter, year
     expires_at = db.Column(db.DateTime)  # 激活码本身的过期时间
@@ -88,13 +88,13 @@ class ActivationCode(db.Model):
         """设置激活码有效期"""
         self.validity_type = validity_type
         if validity_type == 'day':
-            self.expires_at = datetime.utcnow() + timedelta(days=1)
+            self.expires_at = datetime.now() + timedelta(days=1)
         elif validity_type == 'month':
-            self.expires_at = datetime.utcnow() + timedelta(days=30)
+            self.expires_at = datetime.now() + timedelta(days=30)
         elif validity_type == 'quarter':
-            self.expires_at = datetime.utcnow() + timedelta(days=90)
+            self.expires_at = datetime.now() + timedelta(days=90)
         elif validity_type == 'year':
-            self.expires_at = datetime.utcnow() + timedelta(days=365)
+            self.expires_at = datetime.now() + timedelta(days=365)
         else:  # permanent
             self.expires_at = None
 
@@ -102,7 +102,7 @@ class ActivationCode(db.Model):
         """检查激活码是否过期"""
         if not self.expires_at:
             return False
-        return datetime.utcnow() > self.expires_at
+        return datetime.now() > self.expires_at
 
     def use_code(self, user):
         """使用激活码"""
@@ -115,7 +115,7 @@ class ActivationCode(db.Model):
         # 标记激活码为已使用
         self.is_used = True
         self.used_by = user.username
-        self.used_at = datetime.utcnow()
+        self.used_at = datetime.now()
         
         # 根据激活码类型延长用户激活时间
         if self.validity_type == 'permanent':
@@ -147,7 +147,7 @@ class PredictionRecord(db.Model):
     special_number = db.Column(db.String(10), nullable=False)  # 特码
     special_zodiac = db.Column(db.String(10))  # 特码生肖
     prediction_text = db.Column(db.Text)  # AI预测文本
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     
     # 预测准确率相关字段
     actual_normal_numbers = db.Column(db.String(50))  # 实际开奖正码
@@ -164,7 +164,7 @@ class InviteCode(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(32), unique=True, nullable=False)
     created_by = db.Column(db.String(80), nullable=False)  # 创建者用户名
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
     is_used = db.Column(db.Boolean, default=False)
     used_by = db.Column(db.String(80))  # 使用者用户名
     used_at = db.Column(db.DateTime)
@@ -200,12 +200,12 @@ class InviteCode(db.Model):
             # 标记邀请码为已使用
             self.is_used = True
             self.used_by = user.username
-            self.used_at = datetime.utcnow()
+            self.used_at = datetime.now()
             
             # 更新被邀请人信息（这些字段在User模型中已定义）
             user.invited_by = self.created_by
             user.invite_code_used = self.code
-            user.invite_activated_at = datetime.utcnow()
+            user.invite_activated_at = datetime.now()
             
             # 给被邀请人增加1天有效期并激活
             user.extend_activation(1)
@@ -220,7 +220,7 @@ class InviteCode(db.Model):
                 # 如果被邀请人有有效期且邀请人不是永久用户，给予额外奖励
                 if user.activation_expires_at and inviter.activation_expires_at:
                     # 计算被邀请人的剩余有效期天数
-                    remaining_days = (user.activation_expires_at - datetime.utcnow()).days
+                    remaining_days = (user.activation_expires_at - datetime.now()).days
                     if remaining_days > 0:
                         bonus_days = max(1, remaining_days // 2)  # 至少1天
                         inviter.extend_activation(bonus_days)
@@ -241,8 +241,8 @@ class SystemConfig(db.Model):
     key = db.Column(db.String(100), unique=True, nullable=False)
     value = db.Column(db.Text)
     description = db.Column(db.String(255))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     @staticmethod
     def get_config(key, default_value=''):
