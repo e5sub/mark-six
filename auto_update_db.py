@@ -95,6 +95,20 @@ def check_and_update_database():
             conn.commit()
             print("✅ 成功添加login_count字段")
         
+        # 如果不存在auto_prediction_enabled字段，则添加
+        if 'auto_prediction_enabled' not in column_names:
+            print("正在添加auto_prediction_enabled字段到user表...")
+            cursor.execute("ALTER TABLE user ADD COLUMN auto_prediction_enabled BOOLEAN DEFAULT 0")
+            conn.commit()
+            print("✅ 成功添加auto_prediction_enabled字段")
+        
+        # 如果不存在auto_prediction_strategies字段，则添加
+        if 'auto_prediction_strategies' not in column_names:
+            print("正在添加auto_prediction_strategies字段到user表...")
+            cursor.execute("ALTER TABLE user ADD COLUMN auto_prediction_strategies TEXT")
+            conn.commit()
+            print("✅ 成功添加auto_prediction_strategies字段")
+        
         # 关闭数据库连接
         conn.close()
         

@@ -49,7 +49,9 @@ CREATE TABLE user (
     invite_code_used VARCHAR(32),
     invite_activated_at TIMESTAMP,
     last_login DATETIME,
-    login_count INTEGER DEFAULT 0
+    login_count INTEGER DEFAULT 0,
+    auto_prediction_enabled BOOLEAN DEFAULT 0,
+    auto_prediction_strategies TEXT
 )
 ''')
 
