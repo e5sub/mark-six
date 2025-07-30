@@ -359,7 +359,7 @@
             <a href="{{ url_for('user.dashboard') }}"><i>📊</i> 个人中心</a>
             <a href="{{ url_for('user.predictions') }}"><i>📋</i> 预测记录</a>
             <a href="{{ url_for('user.profile') }}"><i>👤</i> 个人资料</a>
-            <a href="{{ url_for('user.invite_codes') }}"><i>🎫</i> 我的邀请码</a>
+            <a href="{{ url_for('user.invite_codes') }}"><i>🎫</i> 邀请好友</a>
             <a href="{{ url_for('index') }}"><i>🎯</i> 开始预测</a>
             <a href="{{ url_for('index') }}"><i>🏠</i> 返回首页</a>
             <a href="{{ url_for('auth.logout') }}"><i>🚪</i> 退出登录</a>
@@ -388,10 +388,10 @@
     </div>
 
     <script>
-        // 复制邀请码功能
+        // 复制邀请链接功能
         function copyInviteCode(code) {
             navigator.clipboard.writeText(code).then(function() {
-                showToast('邀请码已复制到剪贴板: ' + code, 'success');
+                showToast('邀请链接已复制到剪贴板: ' + code, 'success');
             }).catch(function(err) {
                 console.error('复制失败: ', err);
                 // 备用方法
@@ -401,7 +401,7 @@
                 textArea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
-                showToast('邀请码已复制到剪贴板: ' + code, 'success');
+                showToast('邀请链接已复制到剪贴板: ' + code, 'success');
             });
         }
         

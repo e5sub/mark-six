@@ -1,6 +1,6 @@
 {% extends "user/base.html" %}
 
-{% block page_title %}邀请码管理{% endblock %}
+{% block page_title %}邀请好友{% endblock %}
 
 {% block content %}
 <!-- 添加Font Awesome图标库 -->
@@ -11,9 +11,9 @@
             <!-- 页面标题和统计信息 -->
             <div class="page-header-wrapper mb-4">
                 <div class="page-header d-flex justify-content-between align-items-center">
-                    <h2 class="mb-0">🎫 我的邀请码</h2>
+                    <h2 class="mb-0">🎫 邀请好友</h2>
                     <button type="button" class="btn-generate" onclick="generateInviteCode()">
-                        <i class="fas fa-plus-circle me-2"></i>生成新邀请码
+                        <i class="fas fa-plus-circle me-2"></i>生成邀请链接
                     </button>
                 </div>
                 
@@ -46,7 +46,7 @@
             <!-- 邀请码列表 -->
             <div class="card invite-codes-card">
                 <div class="card-header">
-                    <h4 class="mb-0"><i class="fas fa-list me-2"></i>邀请码列表</h4>
+                    <h4 class="mb-0"><i class="fas fa-list me-2"></i>邀请链接列表</h4>
                 </div>
                 <div class="card-body">
                     {% if codes.items %}
@@ -54,7 +54,7 @@
                             <table class="table invite-codes-table">
                                 <thead>
                                     <tr>
-                                        <th>邀请码</th>
+                                        <th>邀请链接</th>
                                         <th>状态</th>
                                         <th>创建时间</th>
                                         <th>过期时间</th>
@@ -111,8 +111,8 @@
                                         </td>
                                         <td>
                                             {% if not code.is_used %}
-                                                <button class="btn-share" onclick="shareCode('{{ code.code }}')">
-                                                    <i class="fas fa-share-alt me-1"></i>分享
+                                                <button class="btn-share" onclick="copyInviteLink('{{ code.code }}')">
+                                                    <i class="fas fa-link me-1"></i>复制链接
                                                 </button>
                                             {% else %}
                                                 <span class="text-muted">-</span>
@@ -126,7 +126,7 @@
 
                         <!-- 分页 -->
                         {% if codes.pages > 1 %}
-                        <nav aria-label="邀请码分页">
+                        <nav aria-label="邀请链接分页">
                             <ul class="pagination justify-content-center">
                                 {% if codes.has_prev %}
                                     <li class="page-item">
@@ -162,9 +162,9 @@
                         {% endif %}
                     {% else %}
                         <div class="text-center py-4">
-                            <p class="text-muted">您还没有创建任何邀请码</p>
+                            <p class="text-muted">您还没有创建任何邀请链接</p>
                             <button type="button" class="btn btn-primary" onclick="generateInviteCode()">
-                                生成第一个邀请码
+                                生成邀请链接
                             </button>
                         </div>
                     {% endif %}
@@ -190,7 +190,7 @@
                                     <th>邮箱</th>
                                     <th>注册时间</th>
                                     <th>激活状态</th>
-                                    <th>使用的邀请码</th>
+                                    <th>使用的邀请链接</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -485,7 +485,7 @@
 
 <script>
 function generateInviteCode() {
-    if (confirm('确定要生成新的邀请码吗？每天最多只能生成3个邀请码。')) {
+    if (confirm('确定要生成新的邀请链接吗？每天最多只能生成3个邀请链接。')) {
         fetch('{{ url_for("user.generate_invite_code") }}', {
             method: 'POST',
             headers: {
@@ -495,7 +495,7 @@ function generateInviteCode() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('邀请码生成成功：' + data.code);
+                alert('邀请链接生成成功：' + data.code);
                 location.reload();
             } else {
                 alert('生成失败：' + data.message);
@@ -509,37 +509,62 @@ function generateInviteCode() {
 }
 
 function copyCode(code) {
-    navigator.clipboard.writeText(code).then(function() {
-        alert('邀请码已复制到剪贴板：' + code);
-    }, function(err) {
+    // 创建完整的邀请链接
+    const inviteLink = `${window.location.origin}/auth/register?code=${code}`;
+    
+    // 使用备用复制方法，确保在所有浏览器中都能工作
+    const textArea = document.createElement('textarea');
+    textArea.value = inviteLink;
+    document.body.appendChild(textArea);
+    textArea.select();
+    
+    try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+            alert('邀请链接已复制到剪贴板：' + inviteLink);
+        } else {
+            throw new Error('复制命令执行失败');
+        }
+    } catch (err) {
         console.error('复制失败: ', err);
-        // 备用复制方法
-        const textArea = document.createElement('textarea');
-        textArea.value = code;
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
+        alert('复制失败，请手动复制：' + inviteLink);
+    } finally {
         document.body.removeChild(textArea);
-        alert('邀请码已复制到剪贴板：' + code);
-    });
+    }
+    
+    // 同时尝试使用现代API
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(inviteLink).catch(e => console.log('现代API复制失败，已使用备用方法'));
+    }
 }
 
-function shareCode(code) {
-    const shareText = `邀请您注册六合彩预测系统！\n邀请码：${code}\n注册链接：${window.location.origin}/auth/register`;
+function copyInviteLink(code) {
+    // 创建完整的邀请链接
+    const inviteLink = `${window.location.origin}/auth/register?code=${code}`;
     
-    if (navigator.share) {
-        navigator.share({
-            title: '邀请注册',
-            text: shareText
-        });
-    } else {
-        // 复制分享文本到剪贴板
-        navigator.clipboard.writeText(shareText).then(function() {
-            alert('分享内容已复制到剪贴板，您可以粘贴发送给朋友！');
-        }, function(err) {
-            console.error('复制失败: ', err);
-            alert('分享内容：\n' + shareText);
-        });
+    // 使用备用复制方法，确保在所有浏览器中都能工作
+    const textArea = document.createElement('textarea');
+    textArea.value = inviteLink;
+    document.body.appendChild(textArea);
+    textArea.select();
+    
+    try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+            alert('邀请链接已复制到剪贴板，您可以粘贴发送给朋友！\n' + inviteLink);
+        } else {
+            throw new Error('复制命令执行失败');
+        }
+    } catch (err) {
+        console.error('复制失败: ', err);
+        alert('复制失败，请手动复制：\n' + inviteLink);
+    } finally {
+        document.body.removeChild(textArea);
+    }
+    
+    // 同时尝试使用现代API
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(inviteLink).catch(e => console.log('现代API复制失败，已使用备用方法'));
     }
 }
 </script>

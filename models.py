@@ -24,6 +24,68 @@ class User(db.Model):
     invited_by = db.Column(db.String(80))  # 邀请人用户名
     invite_code_used = db.Column(db.String(32))  # 使用的邀请码
     invite_activated_at = db.Column(db.DateTime)  # 邀请激活时间
+    
+    # 自动预测相关字段
+    auto_prediction_enabled = db.Column(db.Boolean, default=False)  # 是否启用自动预测
+    auto_prediction_strategies = db.Column(db.String(100), default='balanced')  # 自动预测策略，多个策略用逗号分隔
+    auto_prediction_regions = db.Column(db.String(20), default='hk,macau')  # 自动预测地区，多个地区用逗号分隔
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime, timedelta
+import uuid
+import hashlib
+
+db = SQLAlchemy()
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, default=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
+    
+    # 登录相关字段
+    last_login = db.Column(db.DateTime)  # 最后登录时间
+    login_count = db.Column(db.Integer, default=0)  # 登录次数
+    
+    # 邀请相关字段
+    invited_by = db.Column(db.String(80))  # 邀请人用户名
+    invite_code_used = db.Column(db.String(32))  # 使用的邀请码
+    invite_activated_at = db.Column(db.DateTime)  # 邀请激活时间
+    
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime, timedelta
+import uuid
+import hashlib
+
+db = SQLAlchemy()
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, default=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
+    
+    # 登录相关字段
+    last_login = db.Column(db.DateTime)  # 最后登录时间
+    login_count = db.Column(db.Integer, default=0)  # 登录次数
+    
+    # 邀请相关字段
+    invited_by = db.Column(db.String(80))  # 邀请人用户名
+    invite_code_used = db.Column(db.String(32))  # 使用的邀请码
+    invite_activated_at = db.Column(db.DateTime)  # 邀请激活时间
+    
+    # 自动预测相关字段
+    auto_prediction_enabled = db.Column(db.Boolean, default=False)  # 是否启用自动预测
+    auto_prediction_strategies = db.Column(db.String(100), default='balanced')  # 自动预测策略，多个策略用逗号分隔
 
     def set_password(self, password):
         """设置密码"""

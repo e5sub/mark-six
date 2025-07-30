@@ -319,21 +319,17 @@ def predict_with_ai(data, region):
                 normal_numbers = sorted(valid_numbers[:6])
                 special_number = str(valid_numbers[6])
             else:
-                # 如果无法从AI回复中提取有效号码，使用本地推荐
-                local_rec = get_local_recommendations('balanced', data, region)
-                normal_numbers = local_rec['normal']
-                special_number = local_rec['special']['number']
+                # 如果无法从AI回复中提取有效号码，返回错误
+                return {"error": "无法从AI回复中提取有效号码"}
         
         # 确保所有号码都是有效的
         normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
-        while len(normal_numbers) < 6:
-            new_num = random.randint(1, 49)
-            if new_num not in normal_numbers:
-                normal_numbers.append(new_num)
-        normal_numbers = sorted(normal_numbers)
+        if len(normal_numbers) < 6:
+            return {"error": "AI生成的平码数量不足"}
+        normal_numbers = sorted(normal_numbers[:6])  # 只取前6个号码
         
         if not special_number or not (1 <= int(special_number) <= 49):
-            special_number = str(random.randint(1, 49))
+            return {"error": "AI生成的特码无效"}
         
         # 获取特码生肖
         sno_zodiac = ""
@@ -417,6 +413,67 @@ def update_prediction_accuracy(data, region):
     try:
         # 获取所有该地区的预测记录
         predictions = PredictionRecord.query.filter_by(region=region).all()
+        
+        # 强制触发自动预测功能，确保每次获取数据时都会检查是否需要生成预测
+        if data and len(data) > 0:
+            # 先更新预测准确率，再生成新的预测
+            # 创建期数到开奖结果的映射
+            draw_results = {}
+            for draw in data:
+                period = draw.get('id')
+                if not period:
+                    continue
+                
+                special_number = str(draw.get('sno', ''))
+                # 获取特码生肖
+                special_zodiac = ""
+                if region == 'hk':
+                    special_zodiac = _get_hk_number_zodiac(special_number)
+                else:
+                    special_zodiac = draw.get('sno_zodiac', '') or _get_hk_number_zodiac(special_number)
+                
+                if special_number:
+                    draw_results[period] = {
+                        'special': special_number,
+                        'special_zodiac': special_zodiac
+                    }
+            
+            # 更新每条预测记录的准确率
+            for pred in predictions:
+                # 检查是否已经更新过准确率
+                if pred.is_result_updated:
+                    continue
+                    
+                # 查找对应期数的开奖结果
+                result = draw_results.get(pred.period)
+                if not result:
+                    continue
+                    
+                # 获取预测特码和生肖
+                pred_special = pred.special_number
+                pred_zodiac = pred.special_zodiac
+                
+                # 特码号码是否命中
+                special_hit = 1 if pred_special == result['special'] else 0
+                
+                # 特码生肖是否命中
+                zodiac_hit = 1 if pred_zodiac and pred_zodiac == result['special_zodiac'] else 0
+                
+                # 计算总准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
+                accuracy = (special_hit * 0.7) + (zodiac_hit * 0.3)
+                
+                # 更新预测记录
+                pred.actual_normal_numbers = ''  # 不再需要保存正码
+                pred.actual_special_number = result['special']
+                pred.actual_special_zodiac = result['special_zodiac']
+                pred.accuracy_score = accuracy
+                pred.is_result_updated = True
+            
+            # 提交更改
+            db.session.commit()
+            
+            # 生成新的预测
+            generate_auto_predictions(data, region)
         
         # 创建期数到开奖结果的映射
         draw_results = {}
@@ -559,6 +616,15 @@ def unified_predict_api():
     # 生成新的预测
     if strategy == 'ai': 
         result = predict_with_ai(data, region)
+        # 检查AI预测是否失败
+        if result.get('error'):
+            # 返回详细的错误信息
+            error_message = result.get('error')
+            return jsonify({
+                "error": error_message,
+                "error_type": "ai_prediction_failed",
+                "message": f"AI预测失败：{error_message}，请稍后再试或联系管理员检查AI API配置。"
+            }), 400
     else:
         result = get_local_recommendations(strategy, data, region)
     
@@ -579,6 +645,11 @@ def unified_predict_api():
             db.session.commit()
         except Exception as e:
             print(f"保存预测记录失败: {e}")
+            return jsonify({
+                "error": str(e),
+                "error_type": "database_error",
+                "message": "保存预测记录失败，请稍后再试。"
+            }), 500
     
     return jsonify(result)
 
@@ -601,6 +672,196 @@ def special_color_frequency_api():
     region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
     data = get_yearly_data(region, year)
     return jsonify(analyze_special_color_frequency(data, region))
+
+def generate_auto_predictions(data, region):
+    """为每期自动生成预测"""
+    try:
+        # 获取最新一期数据
+        latest_draw = data[0] if data else None
+        if not latest_draw:
+            return
+            
+        # 计算下一期期数
+        next_period = None
+        if region == 'hk':
+            # 香港六合彩期数格式为"年份/期数"，如"25/075"
+            latest_period = latest_draw.get('id', '')
+            if latest_period and '/' in latest_period:
+                year_part, num_part = latest_period.split('/')
+                next_num = int(num_part) + 1
+                # 如果期数超过120，年份加1，期数重置为1
+                if next_num > 120:
+                    next_year = int(year_part) + 1
+                    next_period = f"{next_year:02d}/001"
+                else:
+                    next_period = f"{year_part}/{next_num:03d}"
+            else:
+                current_year = datetime.now().strftime('%y')
+                next_period = f"{current_year}/001"
+        else:
+            # 澳门六合彩期数格式
+            latest_period = latest_draw.get('id', '')
+            if latest_period and latest_period.isdigit():
+                next_period = str(int(latest_period) + 1)
+            else:
+                next_period = datetime.now().strftime('%Y%m%d')
+        
+        if not next_period:
+            print("自动预测失败：无法确定下一期期数")
+            return
+        
+        # 处理用户级自动预测
+        # 查找所有启用了自动预测的活跃用户
+        auto_predict_users = User.query.filter_by(
+            is_active=True,
+            auto_prediction_enabled=True
+        ).all()
+        
+        for user in auto_predict_users:
+            # 获取用户的预测策略列表
+            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['balanced']
+            
+            # 获取用户的预测地区列表
+            regions = user.auto_prediction_regions.split(',') if hasattr(user, 'auto_prediction_regions') and user.auto_prediction_regions else ['hk', 'macau']
+            
+            # 检查当前地区是否在用户选择的地区列表中
+            if region not in regions:
+                continue
+            
+            # 为每个策略生成预测
+            for strategy in strategies:
+                # 检查是否已经为下一期生成过该策略的预测
+                existing = PredictionRecord.query.filter_by(
+                    user_id=user.id,
+                    region=region,
+                    period=next_period,
+                    strategy=strategy
+                ).first()
+                
+                if not existing:
+                    # 生成用户级预测
+                    generate_prediction_for_user(user, region, next_period, strategy, data)
+                
+    except Exception as e:
+        print(f"自动预测出错：{e}")
+        db.session.rollback()
+
+def generate_prediction_for_user(user, region, period, strategy, data):
+    """为指定用户生成预测"""
+    try:
+        # 生成预测
+        if strategy == 'ai':
+            # 强制调用AI API进行预测
+            ai_config = get_ai_config()
+            if not ai_config['api_key'] or "你的" in ai_config['api_key']:
+                print(f"用户 {user.username} 的AI预测失败：AI API Key未配置")
+                # AI API Key未配置，直接返回错误，不进行预测
+                return
+            else:
+                # 确保调用AI API
+                result = predict_with_ai(data, region)
+                # 如果AI预测失败，直接返回，不使用均衡预测
+                if result.get('error'):
+                    print(f"用户 {user.username} 的AI预测失败：{result.get('error')}")
+                    return
+        else:
+            result = get_local_recommendations(strategy, data, region)
+            
+        if result.get('error'):
+            print(f"用户 {user.username} 的自动预测失败：{result.get('error')}")
+            return
+            
+        # 保存预测记录
+        prediction = PredictionRecord(
+            user_id=user.id,
+            region=region,
+            strategy=strategy,
+            period=period,
+            normal_numbers=','.join(map(str, result.get('normal', []))),
+            special_number=str(result.get('special', {}).get('number', '')),
+            special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+            prediction_text=result.get('recommendation_text', '')
+        )
+        db.session.add(prediction)
+        db.session.commit()
+        print(f"自动预测成功：为用户 {user.username} 的{region}地区第{period}期生成了{strategy}策略的预测")
+    except Exception as e:
+        print(f"为用户 {user.username} 生成预测时出错：{e}")
+        db.session.rollback()
+        
+        # 获取最新一期数据
+        latest_draw = data[0] if data else None
+        if not latest_draw:
+            return
+            
+        # 计算下一期期数
+        next_period = None
+        if region == 'hk':
+            # 香港六合彩期数格式为"年份/期数"，如"25/075"
+            latest_period = latest_draw.get('id', '')
+            if latest_period and '/' in latest_period:
+                year_part, num_part = latest_period.split('/')
+                next_num = int(num_part) + 1
+                # 如果期数超过120，年份加1，期数重置为1
+                if next_num > 120:
+                    next_year = int(year_part) + 1
+                    next_period = f"{next_year:02d}/001"
+                else:
+                    next_period = f"{year_part}/{next_num:03d}"
+            else:
+                current_year = datetime.now().strftime('%y')
+                next_period = f"{current_year}/001"
+        else:
+            # 澳门六合彩期数格式
+            latest_period = latest_draw.get('id', '')
+            if latest_period and latest_period.isdigit():
+                next_period = str(int(latest_period) + 1)
+            else:
+                next_period = datetime.now().strftime('%Y%m%d')
+        
+        if not next_period:
+            print("自动预测失败：无法确定下一期期数")
+            return
+            
+        # 检查是否已经为下一期生成过预测
+        existing = PredictionRecord.query.filter_by(
+            user_id=user_id,
+            region=region,
+            period=next_period,
+            strategy=strategy
+        ).first()
+        
+        if existing:
+            print(f"自动预测跳过：{region}地区第{next_period}期已存在{strategy}策略的预测")
+            return
+            
+        # 生成预测
+        if strategy == 'ai':
+            result = predict_with_ai(data, region)
+        else:
+            result = get_local_recommendations(strategy, data, region)
+            
+        if result.get('error'):
+            print(f"自动预测失败：{result.get('error')}")
+            return
+            
+        # 保存预测记录
+        prediction = PredictionRecord(
+            user_id=user_id,
+            region=region,
+            strategy=strategy,
+            period=next_period,
+            normal_numbers=','.join(map(str, result.get('normal', []))),
+            special_number=str(result.get('special', {}).get('number', '')),
+            special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+            prediction_text=result.get('recommendation_text', '')
+        )
+        db.session.add(prediction)
+        db.session.commit()
+        print(f"自动预测成功：为{region}地区第{next_period}期生成了{strategy}策略的预测")
+    except Exception as e:
+        print(f"自动预测出错：{e}")
+        db.session.rollback()
 
 @app.route('/api/search_draws')
 def search_draws_api():

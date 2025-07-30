@@ -256,8 +256,7 @@
                 <label for="invite_code">
                     <i class="fas fa-gift"></i> 邀请码（可选）
                 </label>
-                <input type="text" id="invite_code" name="invite_code" class="form-control" 
-                       placeholder="输入邀请码可获得1天免费使用时间">
+                <input type="text" id="invite_code" name="invite_code" class="form-control">
                 <small class="text-muted">
                     <i class="fas fa-info-circle"></i> 
                     使用邀请码注册可立即获得1天有效期，邀请人也将获得奖励
@@ -288,5 +287,21 @@
             </p>
         </div>
     </div>
+    <script>
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 从URL中获取邀请码参数
+            const urlParams = new URLSearchParams(window.location.search);
+            const inviteCode = urlParams.get('code');
+            
+            // 如果URL中有邀请码参数，则自动填充到表单中
+            if (inviteCode) {
+                const inviteCodeInput = document.getElementById('invite_code');
+                if (inviteCodeInput) {
+                    inviteCodeInput.value = inviteCode;
+                }
+            }
+        });
+    </script>
 </body>
 </html>
