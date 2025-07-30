@@ -294,7 +294,7 @@ def predict_with_ai(data, region):
     payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
-        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=30)
+        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=60)
         response.raise_for_status()
         ai_response = response.json()['choices'][0]['message']['content']
         
@@ -653,7 +653,7 @@ def handle_chat():
     payload = {"model": ai_config['model'], "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "temperature": 0.7}
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
-        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=30)
+        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=60)
         response.raise_for_status()
         ai_reply = response.json()['choices'][0]['message']['content']
         return jsonify({"reply": ai_reply})
