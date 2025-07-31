@@ -3,23 +3,63 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 聊天室</title>
+    <title>AI 聊天室 - 数据分析预测系统</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-            --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            --success-gradient: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            --warning-gradient: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+            --danger-gradient: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
             --glass-bg: rgba(255, 255, 255, 0.25);
             --glass-border: rgba(255, 255, 255, 0.18);
-            --text-primary: #2d3748;
-            --text-secondary: #4a5568;
-            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-            --shadow-medium: 0 15px 35px rgba(0, 0, 0, 0.1);
-            --shadow-heavy: 0 20px 40px rgba(0, 0, 0, 0.15);
+            --text-primary: #333;
+            --text-secondary: #666;
+            --shadow-light: 0 4px 15px rgba(0, 0, 0, 0.1);
+            --shadow-medium: 0 8px 25px rgba(0, 0, 0, 0.15);
+            --shadow-heavy: 0 15px 35px rgba(0, 0, 0, 0.2);
+        }
+        
+        /* 页面加载动画 */
+        #page-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--primary-gradient);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease;
+        }
+        
+        .loader-content {
+            text-align: center;
+        }
+        
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loader-text {
+            color: white;
+            font-size: 1.2rem;
+            font-weight: 600;
+            letter-spacing: 1px;
         }
 
         * {
@@ -29,8 +69,8 @@
         }
 
         body {
-            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             background-attachment: fixed;
             min-height: 100vh;
             color: var(--text-primary);
@@ -68,53 +108,55 @@
             50% { transform: translateY(-20px) rotate(180deg); }
         }
 
-        /* 玻璃拟态卡片 */
-        .glass-card {
-            background: rgba(255, 255, 255, 0);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            padding: 25px;
-            margin-bottom: 25px;
-            transition: all 0.3s ease;
-            animation: slideInUp 0.6s ease-out;
-        }
-
-        .glass-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-        }
-
-        @keyframes slideInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
         /* 侧边面板和聊天容器 */
         .side-panel, .chat-wrapper {
-            background: rgba(255, 255, 255, 0);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: var(--shadow-light);
             display: flex;
             flex-direction: column;
             overflow: hidden;
             transition: all 0.3s ease;
             height: 100%;
+            animation: fadeIn 0.5s ease-out;
+            position: relative;
+        }
+        
+        /* 添加装饰元素 */
+        .side-panel::before, .chat-wrapper::before {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            z-index: -1;
+        }
+        
+        .side-panel::after, .chat-wrapper::after {
+            content: '';
+            position: absolute;
+            bottom: -15px;
+            right: -15px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.15);
+            z-index: -1;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .side-panel:hover, .chat-wrapper:hover {
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+            box-shadow: var(--shadow-medium);
         }
 
         .panel-header {
@@ -137,13 +179,14 @@
 
         .result-item {
             background: rgba(255, 255, 255, 0.7);
-            margin-bottom: 8px;
-            padding: 10px;
-            border-radius: 10px;
+            margin-bottom: 12px;
+            padding: 12px;
+            border-radius: 12px;
             cursor: pointer;
             transition: all 0.3s ease;
             border: 1px solid rgba(255, 255, 255, 0.3);
             color: var(--text-primary);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
         }
 
         .result-item:hover {
@@ -155,9 +198,10 @@
         .result-item-header {
             display: flex;
             justify-content: space-between;
-            font-size: 0.8rem;
+            font-size: 0.85rem;
             color: var(--text-secondary);
-            margin-bottom: 8px;
+            margin-bottom: 10px;
+            font-weight: 500;
         }
 
         /* 彩球样式 */
@@ -242,6 +286,7 @@
         .chat-header h1 { 
             margin: 0; 
             font-size: 1.2rem; 
+            font-weight: 600;
         }
         
         .chat-header a { 
@@ -254,7 +299,7 @@
             padding: 8px 16px; 
             border-radius: 20px; 
             text-decoration: none; 
-            font-weight: 700; 
+            font-weight: 600; 
             transition: all 0.3s ease;
             display: inline-flex;
             align-items: center;
@@ -274,34 +319,151 @@
             background: rgba(255, 255, 255, 0.5);
         }
         
+        .message-container {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        
+        /* 欢迎消息样式 */
+        .welcome-container {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        
+        .ai-avatar {
+            width: 40px;
+            height: 40px;
+            background: var(--primary-gradient);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2rem;
+            margin-right: 10px;
+            box-shadow: var(--shadow-light);
+            flex-shrink: 0;
+        }
+        
+        .welcome-message {
+            margin-top: 0;
+            max-width: 90%;
+        }
+        
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .ai-name {
+            font-weight: 600;
+            color: #6f42c1;
+        }
+        
+        .message-time {
+            color: var(--text-secondary);
+        }
+        
+        .message-content {
+            margin-bottom: 15px;
+        }
+        
+        /* 快速提问按钮 */
+        .quick-questions {
+            background: rgba(111, 66, 193, 0.05);
+            border-radius: 10px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        
+        .quick-question-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #6f42c1;
+        }
+        
+        .quick-question-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .quick-question-btn {
+            background: rgba(111, 66, 193, 0.1);
+            border: 1px solid rgba(111, 66, 193, 0.2);
+            border-radius: 20px;
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            color: #6f42c1;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .quick-question-btn:hover {
+            background: rgba(111, 66, 193, 0.2);
+            transform: translateY(-2px);
+        }
+        
         .message { 
             max-width: 80%; 
             margin-bottom: 15px; 
-            padding: 12px 18px; 
-            border-radius: 20px; 
+            padding: 15px 20px; 
+            border-radius: 16px; 
             line-height: 1.6; 
             animation: message-in 0.3s ease;
             box-shadow: var(--shadow-light);
+            position: relative;
         }
         
         .user-message { 
-            background: var(--secondary-gradient);
+            background: var(--primary-gradient);
             color: white; 
             margin-left: auto; 
             border-bottom-right-radius: 5px;
         }
         
+        .message-container:has(.user-message) {
+            justify-content: flex-end;
+        }
+        
+        .user-message::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: -8px;
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, #764ba2 0%, #764ba2 50%, transparent 50%, transparent 100%);
+            border-bottom-left-radius: 10px;
+        }
+        
         .ai-message { 
-            background: rgba(255, 255, 255, 0.9);
+            background: white;
             color: var(--text-primary); 
             margin-right: auto; 
             border-bottom-left-radius: 5px; 
             white-space: pre-wrap;
         }
         
+        .ai-message::before {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: -8px;
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(225deg, white 0%, white 50%, transparent 50%, transparent 100%);
+            border-bottom-right-radius: 10px;
+        }
+        
         .ai-message.error { 
-            background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 99%, #fad0c4 100%);
-            color: #922b21;
+            background: var(--danger-gradient);
+            color: white;
         }
         
         .typing-indicator { 
@@ -315,6 +477,31 @@
             padding: 15px; 
             background: var(--primary-gradient);
             flex-shrink: 0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* 添加装饰元素 */
+        .chat-form::before {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .chat-form::after {
+            content: '';
+            position: absolute;
+            bottom: -20px;
+            right: -20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
         }
         
         #chat-input { 
@@ -333,6 +520,7 @@
             outline: none;
             box-shadow: var(--shadow-medium);
             transform: translateY(-1px);
+            border-color: rgba(102, 126, 234, 0.5);
         }
         
         #send-btn { 
@@ -369,7 +557,38 @@
             to { opacity: 1; transform: translateY(0); } 
         }
 
+        /* 导航栏样式 */
+        .navbar {
+            background: var(--primary-gradient) !important;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .navbar .nav-link {
+            color: white !important;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+            margin: 0 0.2rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .navbar .nav-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
         /* 响应式设计 */
+        @media (max-width: 992px) {
+            .navbar .container-fluid {
+                flex-direction: column;
+                padding: 10px 0;
+            }
+            
+            .navbar .nav-link {
+                margin: 5px 0;
+            }
+        }
+
         @media (max-width: 768px) {
             .main-container {
                 grid-template-columns: 1fr;
@@ -384,6 +603,115 @@
                 grid-column: 1;
                 height: calc(100vh - 100px);
             }
+            
+            /* 添加移动端侧边栏切换按钮 */
+            .mobile-toggle {
+                display: block;
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                background: var(--primary-gradient);
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1.2rem;
+                box-shadow: var(--shadow-medium);
+                z-index: 100;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            
+            .mobile-toggle:hover {
+                transform: scale(1.1);
+            }
+            
+            /* 移动端侧边栏样式 */
+            .mobile-sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 99;
+                display: none;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            }
+            
+            .mobile-sidebar.active {
+                display: block;
+                opacity: 1;
+            }
+            
+            .mobile-sidebar-content {
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 80%;
+                height: 100%;
+                background: white;
+                box-shadow: var(--shadow-heavy);
+                transform: translateX(100%);
+                transition: transform 0.3s ease;
+                display: flex;
+                flex-direction: column;
+            }
+            
+            .mobile-sidebar.active .mobile-sidebar-content {
+                transform: translateX(0);
+            }
+            
+            .mobile-sidebar-header {
+                padding: 15px;
+                background: var(--primary-gradient);
+                color: white;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            
+            .mobile-sidebar-header h3 {
+                margin: 0;
+                font-size: 1.2rem;
+            }
+            
+            .mobile-sidebar-close {
+                background: none;
+                border: none;
+                color: white;
+                font-size: 1.5rem;
+                cursor: pointer;
+            }
+            
+            .mobile-sidebar-tabs {
+                display: flex;
+                border-bottom: 1px solid #eee;
+            }
+            
+            .mobile-sidebar-tab {
+                flex: 1;
+                text-align: center;
+                padding: 10px;
+                cursor: pointer;
+                border-bottom: 2px solid transparent;
+                transition: all 0.3s ease;
+            }
+            
+            .mobile-sidebar-tab.active {
+                border-bottom-color: #6f42c1;
+                color: #6f42c1;
+                font-weight: 600;
+            }
+            
+            .mobile-sidebar-content .results-list {
+                flex: 1;
+                overflow-y: auto;
+            }
         }
     </style>
 </head>
@@ -393,31 +721,53 @@
 
     <!-- 用户导航栏 -->
     {% if session.get('user_id') %}
-    <nav class="navbar navbar-expand-lg navbar-dark fixed-top" style="background-color: #6f42c1;">
-        <div class="container-fluid d-flex justify-content-center" style="gap: 30px;">
-            <a href="{{ url_for('index') }}" class="nav-link text-white" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 数据分析
+    <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}" style="font-weight: 700; font-size: 1.3rem;">
+                <i class="fas fa-chart-line"></i> AI数据分析
             </a>
-            <a href="{{ url_for('user.predictions') }}" class="nav-link text-white" style="font-size: 1.2rem;">
-                <i class="fas fa-history"></i> 预测记录
-            </a>
-            <a href="{{ url_for('user.dashboard') }}" class="nav-link text-white" style="font-size: 1.2rem;">
-                <i class="fas fa-tachometer-alt"></i> 用户中心
-            </a>
-            <a href="{{ url_for('user.profile') }}" class="nav-link text-white" style="font-size: 1.2rem;">
-                <i class="fas fa-user"></i> 个人资料
-            </a>
-            <a href="{{ url_for('index') }}" class="nav-link text-white" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 返回首页
-            </a>
-            {% if session.get('is_admin') %}
-            <a href="{{ url_for('admin.dashboard') }}" class="nav-link text-white" style="font-size: 1.2rem; background: rgba(255,215,0,0.2);" onmouseover="this.style.background='rgba(255,215,0,0.4)'" onmouseout="this.style.background='rgba(255,215,0,0.2)'">
-                <i class="fas fa-tachometer-alt"></i> 控制台
-            </a>
-            {% endif %}
-            <a href="{{ url_for('auth.logout') }}" class="nav-link text-white" style="font-size: 1.2rem;">
-                <i class="fas fa-sign-out-alt"></i> 退出登录
-            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav mx-auto">
+                    <li class="nav-item">
+                        <a href="{{ url_for('index') }}" class="nav-link">
+                            <i class="fas fa-home"></i> 首页
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('user.predictions') }}" class="nav-link">
+                            <i class="fas fa-history"></i> 预测记录
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('user.dashboard') }}" class="nav-link">
+                            <i class="fas fa-tachometer-alt"></i> 用户中心
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('user.analytics') }}" class="nav-link">
+                            <i class="fas fa-chart-bar"></i> 统计分析
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('user.invite_codes') }}" class="nav-link">
+                            <i class="fas fa-user-plus"></i> 邀请好友
+                        </a>
+                    </li>
+                </ul>
+                <div class="navbar-nav">
+                    {% if session.get('is_admin') %}
+                    <a href="{{ url_for('admin.dashboard') }}" class="nav-link" style="background: rgba(255,215,0,0.2); border-radius: 8px;" onmouseover="this.style.background='rgba(255,215,0,0.4)'" onmouseout="this.style.background='rgba(255,215,0,0.2)'">
+                        <i class="fas fa-crown"></i> 管理控制台
+                    </a>
+                    {% endif %}
+                    <a href="{{ url_for('auth.logout') }}" class="nav-link">
+                        <i class="fas fa-sign-out-alt"></i> 退出
+                    </a>
+                </div>
+            </div>
         </div>
     </nav>
     {% endif %}
@@ -460,8 +810,27 @@
                 <h1><i class="fas fa-robot"></i> AI 智能分析师</h1>
             </div>
             <div class="chat-container" id="chat-container">
-                <div class="message ai-message">
-                    你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门六合彩的历史、规则或数据规律，我会尽力为您解答。
+                <div class="welcome-container">
+                    <div class="ai-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message ai-message welcome-message">
+                        <div class="message-header">
+                            <span class="ai-name">AI 智能分析师</span>
+                            <span class="message-time">{{ now.strftime('%H:%M') }}</span>
+                        </div>
+                        <div class="message-content">
+                            你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门六合彩的历史、规则或数据规律，我会尽力为您解答。
+                        </div>
+                        <div class="quick-questions">
+                            <div class="quick-question-title">快速提问:</div>
+                            <div class="quick-question-buttons">
+                                <button type="button" class="quick-question-btn" data-question="请介绍一下六合彩的基本规则">六合彩规则</button>
+                                <button type="button" class="quick-question-btn" data-question="什么是特码和生肖？">特码和生肖</button>
+                                <button type="button" class="quick-question-btn" data-question="请分析最近几期的开奖趋势">开奖趋势分析</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <form class="chat-form" id="chat-form">
@@ -503,7 +872,105 @@
         </aside>
     </div>
 
+    <!-- 移动端侧边栏切换按钮 -->
+    <div class="mobile-toggle" id="mobile-toggle">
+        <i class="fas fa-history"></i>
+    </div>
+
+    <!-- 移动端侧边栏 -->
+    <div class="mobile-sidebar" id="mobile-sidebar">
+        <div class="mobile-sidebar-content">
+            <div class="mobile-sidebar-header">
+                <h3>开奖结果</h3>
+                <button class="mobile-sidebar-close" id="mobile-sidebar-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="mobile-sidebar-tabs">
+                <div class="mobile-sidebar-tab active" data-tab="hk">香港</div>
+                <div class="mobile-sidebar-tab" data-tab="macau">澳门</div>
+            </div>
+            <div class="mobile-sidebar-tab-content active" id="hk-tab">
+                <ul class="results-list">
+                    {% for result in hk_results %}
+                    <li class="result-item clickable-result" 
+                        data-region="香港" 
+                        data-id="{{ result.id }}" 
+                        data-numbers="{{ (result.no + [result.sno]) | join(',') }}" 
+                        data-sno_zodiac="{{ result.sno_zodiac }}">
+                        <div class="result-item-header">
+                            <span><i class="fas fa-hashtag"></i> 第 {{ result.id }} 期</span>
+                            <span><i class="fas fa-calendar"></i> {{ result.date.split(' ')[0] }}</span>
+                        </div>
+                        <div class="ball-container">
+                            {% for num in result.no %}
+                            <div class="ball-wrapper"><div class="ball">{{ num }}</div></div>
+                            {% endfor %}
+                            <div class="ball-wrapper">
+                                <div class="ball special">{{ result.sno }}</div>
+                                <span class="zodiac-label">({{ result.sno_zodiac }})</span>
+                            </div>
+                        </div>
+                    </li>
+                    {% else %}
+                    <li>暂无数据</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="mobile-sidebar-tab-content" id="macau-tab" style="display: none;">
+                <ul class="results-list">
+                    {% for result in macau_results %}
+                    <li class="result-item clickable-result" 
+                        data-region="澳门" 
+                        data-id="{{ result.id }}"
+                        data-numbers="{{ (result.no + [result.sno]) | join(',') }}" 
+                        data-zodiacs="{{ result.raw_zodiac }}"
+                        data-waves="{{ result.raw_wave }}">
+                        <div class="result-item-header">
+                            <span><i class="fas fa-hashtag"></i> 第 {{ result.id }} 期</span>
+                            <span><i class="fas fa-calendar"></i> {{ result.date.split(' ')[0] }}</span>
+                        </div>
+                        <div class="ball-container">
+                            {% for num in result.no %}
+                            <div class="ball-wrapper"><div class="ball">{{ num }}</div></div>
+                            {% endfor %}
+                            <div class="ball-wrapper">
+                                <div class="ball special">{{ result.sno }}</div>
+                                <span class="zodiac-label">({{ result.sno_zodiac }})</span>
+                            </div>
+                        </div>
+                    </li>
+                    {% else %}
+                    <li>暂无数据</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// 添加页面加载动画
+document.body.insertAdjacentHTML('afterbegin', `
+    <div id="page-loader">
+        <div class="loader-content">
+            <div class="spinner"></div>
+            <div class="loader-text">加载中...</div>
+        </div>
+    </div>
+`);
+
+// 页面加载完成后隐藏加载动画
+window.addEventListener('load', () => {
+    const loader = document.getElementById('page-loader');
+    setTimeout(() => {
+        loader.style.opacity = '0';
+        setTimeout(() => {
+            loader.style.display = 'none';
+        }, 500);
+    }, 500);
+});
+
 // 接收来自后端的颜色定义
 const BALL_COLORS = JSON.parse('{{ ball_colors | safe }}');
 
@@ -528,6 +995,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 创建背景粒子
     createParticles();
+    
+    // 移动端侧边栏功能
+    const mobileToggle = document.getElementById('mobile-toggle');
+    const mobileSidebar = document.getElementById('mobile-sidebar');
+    const mobileSidebarClose = document.getElementById('mobile-sidebar-close');
+    const mobileTabs = document.querySelectorAll('.mobile-sidebar-tab');
+    
+    // 打开侧边栏
+    if (mobileToggle) {
+        mobileToggle.addEventListener('click', () => {
+            mobileSidebar.classList.add('active');
+        });
+    }
+    
+    // 关闭侧边栏
+    if (mobileSidebarClose) {
+        mobileSidebarClose.addEventListener('click', () => {
+            mobileSidebar.classList.remove('active');
+        });
+    }
+    
+    // 点击遮罩关闭侧边栏
+    if (mobileSidebar) {
+        mobileSidebar.addEventListener('click', (e) => {
+            if (e.target === mobileSidebar) {
+                mobileSidebar.classList.remove('active');
+            }
+        });
+    }
+    
+    // 切换标签页
+    mobileTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            // 移除所有标签页的active类
+            mobileTabs.forEach(t => t.classList.remove('active'));
+            
+            // 添加当前标签页的active类
+            tab.classList.add('active');
+            
+            // 隐藏所有内容
+            document.querySelectorAll('.mobile-sidebar-tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            
+            // 显示当前标签页内容
+            const tabId = tab.dataset.tab;
+            document.getElementById(`${tabId}-tab`).style.display = 'block';
+        });
+    });
 
     const chatContainer = document.getElementById('chat-container');
     const chatForm = document.getElementById('chat-form');
@@ -570,7 +1086,30 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             prompt += "\n请从号码大小、奇偶、波色、生肖等角度进行分析，并给出你的看法。";
             
+            // 添加点击动画效果
+            item.classList.add('clicked');
+            setTimeout(() => {
+                item.classList.remove('clicked');
+            }, 300);
+            
             sendMessageToAI(prompt);
+        });
+    });
+    
+    // 为快速提问按钮添加事件监听
+    const quickQuestionBtns = document.querySelectorAll('.quick-question-btn');
+    quickQuestionBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const question = btn.dataset.question;
+            if (question) {
+                // 添加点击动画效果
+                btn.classList.add('clicked');
+                setTimeout(() => {
+                    btn.classList.remove('clicked');
+                }, 300);
+                
+                sendMessageToAI(question);
+            }
         });
     });
     
@@ -596,38 +1135,136 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .then(data => {
             appendMessage(data.reply, 'ai');
+            // 显示成功提示
+            showToast('AI已回复您的问题', 'success');
         })
         .catch(error => {
             console.error('Chat Error:', error);
             appendMessage(`抱歉，出错了：${error.message}`, 'ai', false, true);
+            // 显示错误提示
+            showToast('请求出错: ' + error.message, 'error');
         });
     }
 
     // 在聊天窗口中追加消息的函数
     function appendMessage(text, sender, isTyping = false, isError = false) {
+        // 创建消息容器
+        const messageContainer = document.createElement('div');
+        messageContainer.className = 'message-container';
+        
+        // 如果是AI消息，添加头像
+        if (sender === 'ai') {
+            const avatar = document.createElement('div');
+            avatar.className = 'ai-avatar';
+            avatar.innerHTML = '<i class="fas fa-robot"></i>';
+            messageContainer.appendChild(avatar);
+        }
+        
+        // 创建消息元素
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message`;
         if (isTyping) { messageDiv.classList.add('typing-indicator'); }
         if (isError) { messageDiv.classList.add('error'); }
-        messageDiv.textContent = text;
+        
+        // 添加消息头部（时间）
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        if (sender === 'ai') {
+            const aiName = document.createElement('span');
+            aiName.className = 'ai-name';
+            aiName.textContent = 'AI 智能分析师';
+            messageHeader.appendChild(aiName);
+        }
+        
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'message-time';
+        const now = new Date();
+        timeSpan.textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        messageHeader.appendChild(timeSpan);
+        
+        messageDiv.appendChild(messageHeader);
+        
+        // 添加消息内容
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        messageContent.textContent = text;
+        messageDiv.appendChild(messageContent);
+        
+        // 将消息添加到容器
+        messageContainer.appendChild(messageDiv);
         
         // 添加动画效果
-        messageDiv.style.opacity = '0';
-        messageDiv.style.transform = 'translateY(10px)';
+        messageContainer.style.opacity = '0';
+        messageContainer.style.transform = 'translateY(10px)';
         
-        chatContainer.appendChild(messageDiv);
+        // 添加到聊天容器
+        chatContainer.appendChild(messageContainer);
         chatContainer.scrollTop = chatContainer.scrollHeight;
         
         // 触发动画
         setTimeout(() => {
-            messageDiv.style.transition = 'all 0.3s ease';
-            messageDiv.style.opacity = '1';
-            messageDiv.style.transform = 'translateY(0)';
+            messageContainer.style.transition = 'all 0.3s ease';
+            messageContainer.style.opacity = '1';
+            messageContainer.style.transform = 'translateY(0)';
         }, 10);
         
         return messageDiv;
     }
+    
+    // 显示提示消息
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            background: ${type === 'success' ? 'var(--success-gradient)' : 'var(--danger-gradient)'};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 12px;
+            box-shadow: var(--shadow-medium);
+            z-index: 9999;
+            font-size: 0.9rem;
+            max-width: 300px;
+            animation: slideIn 0.3s ease;
+            font-weight: 500;
+        `;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.parentElement.removeChild(toast);
+                }
+            }, 300);
+        }, 3000);
+    }
 });
+
+// 添加动画样式
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+    .clicked {
+        animation: pulse 0.3s ease;
+    }
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(0.98); background: rgba(102, 126, 234, 0.2); }
+        100% { transform: scale(1); }
+    }
+`;
+document.head.appendChild(style);
 </script>
 </body>
 </html>
