@@ -4,7 +4,7 @@
 
 {% block content %}
 <!-- 统计信息 -->
-<div class="stats-grid">
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #667eea;">📊</div>
         <div class="stat-number">{{ stats.total_predictions }}</div>
