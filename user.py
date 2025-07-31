@@ -263,6 +263,7 @@ def predictions():
                           special_hit_count=special_hit_predictions,
                           normal_hit_count=normal_hit_predictions,
                           wrong_predictions=wrong_predictions,
+                          total_predictions=total_predictions,
                           accuracy=round(accuracy_rate, 2))
 
 @user_bp.route('/save-prediction', methods=['POST'])
