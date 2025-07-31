@@ -174,12 +174,36 @@ def predictions():
     
     # 计算总体预测准确率
     total_predictions = PredictionRecord.query.filter_by(user_id=session['user_id']).count()
-    accurate_predictions = PredictionRecord.query.filter_by(user_id=session['user_id'])\
-        .filter(PredictionRecord.accuracy_score != None)\
-        .filter(PredictionRecord.accuracy_score > 0).count()
-    wrong_predictions = PredictionRecord.query.filter_by(user_id=session['user_id'])\
-        .filter(PredictionRecord.accuracy_score != None)\
-        .filter(PredictionRecord.accuracy_score <= 0).count()
+    
+    # 特码命中的预测
+    special_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=session['user_id'],
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.special_number == PredictionRecord.actual_special_number
+    ).count()
+    
+    # 平码命中的预测（不包括特码命中的）
+    normal_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=session['user_id'],
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.accuracy_score > 0,
+        PredictionRecord.special_number != PredictionRecord.actual_special_number
+    ).count()
+    
+    # 总命中数（特码命中 + 平码命中）
+    accurate_predictions = special_hit_predictions + normal_hit_predictions
+    
+    # 未命中的预测
+    wrong_predictions = PredictionRecord.query.filter_by(
+        user_id=session['user_id'],
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.accuracy_score <= 0
+    ).count()
+    
+    # 计算准确率
     accuracy_rate = (accurate_predictions / total_predictions * 100) if total_predictions > 0 else 0
     
     return render_template('user/predictions.html', 
