@@ -5,7 +5,7 @@
 {% block content %}
 <!-- 统计信息 -->
 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
-<div class="stat-card">
+<div class="stat-card clickable-stat" data-filter="all">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
         <div class="stat-number">{{ total_predictions }}</div>
         <div class="stat-label">总预测次数</div>
@@ -967,8 +967,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     const currentUrl = new URL(window.location.href);
                     const searchParams = currentUrl.searchParams;
                     
-                    // 设置result参数
-                    searchParams.set('result', filterType);
+                    if (filterType === 'all') {
+                        // 清除所有筛选条件，显示全部记录
+                        searchParams.delete('result');
+                        searchParams.delete('region');
+                        searchParams.delete('strategy');
+                        searchParams.delete('period');
+                        searchParams.delete('zodiac');
+                        searchParams.delete('start_date');
+                        searchParams.delete('end_date');
+                    } else {
+                        // 设置result参数
+                        searchParams.set('result', filterType);
+                    }
                     
                     // 跳转到筛选后的页面
                     window.location.href = currentUrl.toString();
