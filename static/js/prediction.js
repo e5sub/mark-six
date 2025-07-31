@@ -9,6 +9,27 @@ function getPrediction(strategy) {
     // 获取当前选择的年份
     const year = document.getElementById('yearSelect').value;
     
+    // 检查是否选择了"全部"年份
+    if (year !== 'all') {
+        // 如果不是"全部"年份，显示提示信息并返回
+        document.getElementById('predictionIndicator').style.display = 'none';
+        
+        const predictionResult = document.getElementById('predictionResult');
+        predictionResult.style.display = 'flex';
+        
+        const predictionContent = document.getElementById('predictionContent');
+        predictionContent.innerHTML = `
+            <div style="background: rgba(255, 193, 7, 0.1); padding: 15px; border-radius: 10px; text-align: center; color: #856404;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                <p>预测功能仅在选择"全部"年份时可用</p>
+                <button class="modern-btn btn-warning" onclick="resetYearAndPredict('${strategy}')" style="margin-top: 10px;">
+                    <i class="fas fa-sync"></i> 切换到全部年份并预测
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
     console.log(`正在获取${strategy}预测结果: 地区=${region}, 年份=${year}`);
     
     // 发送请求获取预测结果
@@ -174,4 +195,22 @@ function getBallColorClass(number) {
     if (greenBalls.includes(num)) return 'green';
     
     return '';
+}
+
+// 重置年份选择为"全部"并触发预测
+function resetYearAndPredict(strategy) {
+    // 将年份选择器设置为"全部"
+    const yearSelect = document.getElementById('yearSelect');
+    if (yearSelect) {
+        yearSelect.value = 'all';
+        
+        // 触发年份变化事件，更新开奖记录
+        const event = new Event('change');
+        yearSelect.dispatchEvent(event);
+    }
+    
+    // 延迟一下再触发预测，确保开奖记录已更新
+    setTimeout(() => {
+        getPrediction(strategy);
+    }, 300);
 }

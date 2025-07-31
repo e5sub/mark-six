@@ -544,6 +544,12 @@ document.addEventListener('DOMContentLoaded', function() {
         yearSelect.addEventListener('change', function() {
             console.log(`切换年份: ${this.value}`);
             fetchDraws();
+            
+            // 清空预测结果区域，因为年份变化了
+            const predictionResult = document.getElementById('predictionResult');
+            if (predictionResult) {
+                predictionResult.style.display = 'none';
+            }
         });
     } else {
         console.warn('未找到年份选择器');
