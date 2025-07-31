@@ -62,7 +62,9 @@
     
     {% if predictions and predictions.items %}
     <div class="predictions-list">
-        {% for prediction in predictions.items %}
+        {% set display_count = 9 %}
+        {% set total_count = predictions.items|length %}
+        {% for prediction in predictions.items[:display_count] %}
         <div class="prediction-card-compact">
             <!-- 左侧：预测记录信息 -->
             <div class="prediction-left">
@@ -140,6 +142,94 @@
             </div>
         </div>
         {% endfor %}
+        
+        {% if total_count > display_count %}
+        <div class="show-more-container">
+            <button id="show-all-btn" class="btn btn-primary">显示全部</button>
+        </div>
+        
+        <!-- 隐藏的额外记录 -->
+        <div id="hidden-predictions" style="display: none;">
+            {% for prediction in predictions.items[display_count:] %}
+            <div class="prediction-card-compact">
+                <!-- 左侧：预测记录信息 -->
+                <div class="prediction-left">
+                    <div class="prediction-title-compact">
+                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
+                        <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">
+                            {% if prediction.strategy == 'random' %}
+                            🎲 随机预测
+                            {% elif prediction.strategy == 'balanced' %}
+                            ⚖️ 均衡预测
+                            {% else %}
+                            🤖 AI预测
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="prediction-numbers-compact">
+                        {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
+                        {% set color = get_number_color(num) %}
+                        <div class="number-ball-compact ball-{{ color }}">
+                            {{ num }}
+                        </div>
+                        {% endfor %}
+                        
+                        {% set special_color = get_number_color(prediction.special_number) %}
+                        <div class="number-ball-compact ball-{{ special_color }} special-ball-compact">
+                            {{ prediction.special_number }}
+                        </div>
+                        
+                        {% if prediction.is_result_updated and prediction.actual_special_number %}
+                        <div class="draw-result-label">开奖特码:</div>
+                        {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
+                        <div class="number-ball-compact ball-{{ actual_special_color }} actual-special-ball">
+                            {{ prediction.actual_special_number }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="zodiac-info-compact">
+                        🐲 特码生肖: {{ prediction.special_zodiac }}
+                        {% if prediction.is_result_updated and prediction.actual_special_zodiac %}
+                        | 开奖生肖: {{ prediction.actual_special_zodiac }}
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- 中间：预测结果 -->
+                <div class="prediction-center">
+                    {% if prediction.is_result_updated %}
+                        {% if prediction.accuracy_score > 0 %}
+                            {% if prediction.special_number == prediction.actual_special_number %}
+                            <div class="result-badge-compact result-success">
+                                🎯 特码命中
+                            </div>
+                            {% else %}
+                            <div class="result-badge-compact result-partial">
+                                ✅ 平码命中
+                            </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="result-badge-compact result-failed">
+                                ❌ 未命中
+                            </div>
+                        {% endif %}
+                    {% else %}
+                    <div class="result-badge-compact result-pending">
+                        ⏳ 待开奖
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- 右侧：时间 -->
+                <div class="prediction-right">
+                    <div class="prediction-time-compact">
+                        🕐 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
     {% else %}
     <div class="empty-state">
@@ -664,6 +754,28 @@
     margin-bottom: 0.5rem;
 }
 
+/* 显示全部按钮容器 */
+.show-more-container {
+    display: flex;
+    justify-content: center;
+    margin: 1.5rem 0;
+}
+
+#show-all-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 0.75rem 2rem;
+    border-radius: 12px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+#show-all-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
     .card-header {
@@ -757,4 +869,31 @@
     }
 }
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 显示全部按钮点击事件
+    const showAllBtn = document.getElementById('show-all-btn');
+    if (showAllBtn) {
+        showAllBtn.addEventListener('click', function() {
+            // 显示隐藏的预测记录
+            const hiddenPredictions = document.getElementById('hidden-predictions');
+            if (hiddenPredictions) {
+                // 获取所有隐藏的预测记录
+                const hiddenCards = hiddenPredictions.querySelectorAll('.prediction-card-compact');
+                
+                // 将隐藏的预测记录移动到主列表中
+                const predictionsList = document.querySelector('.predictions-list');
+                hiddenCards.forEach(card => {
+                    predictionsList.insertBefore(card, hiddenPredictions);
+                });
+                
+                // 隐藏"显示全部"按钮和空的隐藏容器
+                document.querySelector('.show-more-container').style.display = 'none';
+                hiddenPredictions.style.display = 'none';
+            }
+        });
+    }
+});
+</script>
 {% endblock %}
