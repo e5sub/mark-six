@@ -162,9 +162,13 @@ def predictions():
     
     # 添加预测结果筛选
     if result:
-        if result == 'correct':
+        if result == 'special_hit':
             query = query.filter(PredictionRecord.is_result_updated == True, 
-                                PredictionRecord.accuracy_score > 0)
+                                PredictionRecord.special_number == PredictionRecord.actual_special_number)
+        elif result == 'normal_hit':
+            query = query.filter(PredictionRecord.is_result_updated == True, 
+                                PredictionRecord.accuracy_score > 0,
+                                PredictionRecord.special_number != PredictionRecord.actual_special_number)
         elif result == 'wrong':
             query = query.filter(PredictionRecord.is_result_updated == True, 
                                 PredictionRecord.accuracy_score <= 0)
@@ -221,6 +225,8 @@ def predictions():
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac,
                           correct_predictions=accurate_predictions,
+                          special_hit_count=special_hit_predictions,
+                          normal_hit_count=normal_hit_predictions,
                           wrong_predictions=wrong_predictions,
                           accuracy=round(accuracy_rate, 2))
 
