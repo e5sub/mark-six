@@ -163,19 +163,37 @@ def predictions():
     # 添加预测结果筛选
     if result:
         if result == 'special_hit':
-            query = query.filter(PredictionRecord.is_result_updated == True, 
-                                PredictionRecord.special_number == PredictionRecord.actual_special_number)
-        elif result == 'normal_hit':
-            query = query.filter(
-                PredictionRecord.is_result_updated == True, 
-                (PredictionRecord.special_number != PredictionRecord.actual_special_number) &
-                PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
-            )
-        elif result == 'wrong':
             query = query.filter(
                 PredictionRecord.is_result_updated == True,
-                (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-                ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number == PredictionRecord.actual_special_number
+            )
+        elif result == 'normal_hit':
+            # 平码命中：特码不命中，但开奖特码在平码中
+            query = query.filter(
+                PredictionRecord.is_result_updated == True, 
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                # 确保开奖特码在平码中，需要在特码前后添加逗号或在开头/结尾
+                # 这样可以避免部分匹配问题，例如：避免将"1"匹配到"10,11,12"中
+                db.or_(
+                    PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                    PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                    PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+                )
+            )
+        elif result == 'wrong':
+            # 未命中：特码不命中，且开奖特码不在平码中
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                # 确保开奖特码不在平码中，需要检查所有可能的位置
+                ~db.or_(
+                    PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                    PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                    PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+                )
             )
         elif result == 'pending':
             query = query.filter(PredictionRecord.is_result_updated == False)
@@ -192,6 +210,7 @@ def predictions():
         user_id=session['user_id'],
         is_result_updated=True
     ).filter(
+        PredictionRecord.actual_special_number != None,
         PredictionRecord.special_number == PredictionRecord.actual_special_number
     ).count()
     
@@ -200,9 +219,13 @@ def predictions():
         user_id=session['user_id'],
         is_result_updated=True
     ).filter(
-        PredictionRecord.special_number != PredictionRecord.actual_special_number
-    ).filter(
-        PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+        PredictionRecord.actual_special_number != None,
+        PredictionRecord.special_number != PredictionRecord.actual_special_number,
+        db.or_(
+            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+        )
     ).count()
     
     # 总命中数（特码命中 + 平码命中）
@@ -213,8 +236,13 @@ def predictions():
         user_id=session['user_id'],
         is_result_updated=True
     ).filter(
-        (PredictionRecord.special_number != PredictionRecord.actual_special_number) &
-        ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+        PredictionRecord.actual_special_number != None,
+        (PredictionRecord.special_number != PredictionRecord.actual_special_number),
+        ~db.or_(
+            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+        )
     ).count()
     
     # 计算准确率
@@ -626,9 +654,13 @@ def analytics():
         user_id=user.id,
         is_result_updated=True
     ).filter(
-        PredictionRecord.special_number != PredictionRecord.actual_special_number
-    ).filter(
-        PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+        PredictionRecord.actual_special_number != None,
+        PredictionRecord.special_number != PredictionRecord.actual_special_number,
+        db.or_(
+            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+        )
     ).count()
     
     # 总命中数（特码命中 + 平码命中）
@@ -639,8 +671,13 @@ def analytics():
         user_id=user.id,
         is_result_updated=True
     ).filter(
-        (PredictionRecord.special_number != PredictionRecord.actual_special_number) &
-        ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+        PredictionRecord.actual_special_number != None,
+        (PredictionRecord.special_number != PredictionRecord.actual_special_number),
+        ~db.or_(
+            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+        )
     ).count()
     
     # 计算不同策略的准确率
@@ -661,15 +698,25 @@ def analytics():
         # 平码命中的预测（不包括特码命中的）
         normal_hit = query.filter(
             PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
             PredictionRecord.special_number != PredictionRecord.actual_special_number,
-            PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+            db.or_(
+                PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+            )
         ).count()
         
         # 未命中的预测
         wrong = query.filter(
             PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
             (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-            ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+            ~db.or_(
+                PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+            )
         ).count()
         
         # 总命中数（特码命中 + 平码命中）
@@ -703,15 +750,25 @@ def analytics():
         # 平码命中的预测（不包括特码命中的）
         normal_hit = query.filter(
             PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
             PredictionRecord.special_number != PredictionRecord.actual_special_number,
-            PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+            db.or_(
+                PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+            )
         ).count()
         
         # 未命中的预测
         wrong = query.filter(
             PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
             (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-            ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+            ~db.or_(
+                PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+            )
         ).count()
         
         # 总命中数（特码命中 + 平码命中）

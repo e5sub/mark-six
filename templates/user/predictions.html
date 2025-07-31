@@ -125,7 +125,7 @@
                             <div class="result-badge-compact result-success">
                                 🎯 特码命中
                             </div>
-                        {% elif prediction.normal_numbers and prediction.actual_special_number in prediction.normal_numbers.split(',') %}
+                    {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
                             <div class="result-badge-compact result-partial">
                                 ✅ 平码命中
                             </div>
@@ -211,7 +211,7 @@
                         <div class="result-badge-compact result-success">
                             🎯 特码命中
                         </div>
-                    {% elif prediction.normal_numbers and prediction.actual_special_number in prediction.normal_numbers.split(',') %}
+                    {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
                         <div class="result-badge-compact result-partial">
                             ✅ 平码命中
                         </div>
