@@ -170,8 +170,12 @@ def predictions():
                                 PredictionRecord.special_number != PredictionRecord.actual_special_number,
                                 PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String)))
         elif result == 'wrong':
-            query = query.filter(PredictionRecord.is_result_updated == True, 
-                                PredictionRecord.accuracy_score <= 0)
+            query = query.filter(PredictionRecord.is_result_updated == True)
+            # 排除特码命中和平码命中的情况
+            query = query.filter(
+                (PredictionRecord.special_number != PredictionRecord.actual_special_number) &
+                ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+            )
         elif result == 'pending':
             query = query.filter(PredictionRecord.is_result_updated == False)
     
@@ -633,7 +637,8 @@ def analytics():
         user_id=user.id,
         is_result_updated=True
     ).filter(
-        PredictionRecord.accuracy_score <= 0
+        (PredictionRecord.special_number != PredictionRecord.actual_special_number) &
+        ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
     ).count()
     
     # 计算不同策略的准确率
@@ -658,6 +663,13 @@ def analytics():
             PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
         ).count()
         
+        # 未命中的预测
+        wrong = query.filter(
+            PredictionRecord.is_result_updated == True,
+            (PredictionRecord.special_number != PredictionRecord.actual_special_number),
+            ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+        ).count()
+        
         # 总命中数（特码命中 + 平码命中）
         correct = special_hit + normal_hit
         
@@ -667,6 +679,9 @@ def analytics():
             'total': total,
             'updated': updated,
             'correct': correct,
+            'wrong': wrong,
+            'special_hit': special_hit,
+            'normal_hit': normal_hit,
             'accuracy': round(accuracy, 1)
         }
     
@@ -690,6 +705,13 @@ def analytics():
             PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
         ).count()
         
+        # 未命中的预测
+        wrong = query.filter(
+            PredictionRecord.is_result_updated == True,
+            (PredictionRecord.special_number != PredictionRecord.actual_special_number),
+            ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+        ).count()
+        
         # 总命中数（特码命中 + 平码命中）
         correct = special_hit + normal_hit
         
@@ -699,6 +721,9 @@ def analytics():
             'total': total,
             'updated': updated,
             'correct': correct,
+            'wrong': wrong,
+            'special_hit': special_hit,
+            'normal_hit': normal_hit,
             'accuracy': round(accuracy, 1)
         }
     
