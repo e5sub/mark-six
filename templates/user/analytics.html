@@ -5,7 +5,7 @@
 {% block content %}
 <!-- 统计概览 -->
 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
-    <div class="stat-card-compact">
+    <div class="stat-card-compact clickable-stat" data-filter="all">
         <div class="stat-icon" style="color: #667eea;">📊</div>
         <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
         <div class="stat-label">总预测次数</div>
@@ -250,8 +250,13 @@ document.addEventListener('DOMContentLoaded', function() {
             stat.addEventListener('click', function() {
                 const filterType = this.getAttribute('data-filter');
                 if (filterType) {
-                    // 跳转到预测记录页面并应用筛选
-                    window.location.href = "{{ url_for('user.predictions') }}?result=" + filterType;
+                    if (filterType === 'all') {
+                        // 跳转到预测记录页面并清除所有筛选条件
+                        window.location.href = "{{ url_for('user.predictions') }}";
+                    } else {
+                        // 跳转到预测记录页面并应用筛选
+                        window.location.href = "{{ url_for('user.predictions') }}?result=" + filterType;
+                    }
                 }
             });
             
