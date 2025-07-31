@@ -195,8 +195,9 @@ def predictions():
         user_id=session['user_id'],
         is_result_updated=True
     ).filter(
-        PredictionRecord.accuracy_score == 50,  # 平码命中的准确率为50
         PredictionRecord.special_number != PredictionRecord.actual_special_number
+    ).filter(
+        PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
     ).count()
     
     # 总命中数（特码命中 + 平码命中）
@@ -619,8 +620,9 @@ def analytics():
         user_id=user.id,
         is_result_updated=True
     ).filter(
-        PredictionRecord.accuracy_score == 50,  # 平码命中的准确率为50
         PredictionRecord.special_number != PredictionRecord.actual_special_number
+    ).filter(
+        PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
     ).count()
     
     # 总命中数（特码命中 + 平码命中）

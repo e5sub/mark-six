@@ -14,25 +14,25 @@
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">🎯</div>
         <div class="stat-number">{{ special_hit_count or 0 }}</div>
-        <div class="stat-label">特码命中</div>
+        <div class="stat-label">特码命中次数</div>
     </div>
     
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">✅</div>
         <div class="stat-number">{{ normal_hit_count or 0 }}</div>
-        <div class="stat-label">平码命中</div>
+        <div class="stat-label">平码命中次数</div>
     </div>
     
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">❌</div>
         <div class="stat-number">{{ wrong_predictions or 0 }}</div>
-        <div class="stat-label">未命中</div>
+        <div class="stat-label">未命中次数</div>
     </div>
     
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">📈</div>
         <div class="stat-number">{{ accuracy or 0 }}%</div>
-        <div class="stat-label">准确率</div>
+        <div class="stat-label">总体命中率</div>
     </div>
 </div>
 
