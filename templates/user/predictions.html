@@ -4,26 +4,26 @@
 
 {% block content %}
 <!-- 统计信息 -->
-<div class="stats-grid">
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
         <div class="stat-number">{{ predictions.total if predictions else 0 }}</div>
         <div class="stat-label">总预测次数</div>
     </div>
     
-    <div class="stat-card">
+    <div class="stat-card clickable-stat" data-filter="special_hit">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">🎯</div>
         <div class="stat-number">{{ special_hit_count or 0 }}</div>
         <div class="stat-label">特码命中次数</div>
     </div>
     
-    <div class="stat-card">
+    <div class="stat-card clickable-stat" data-filter="normal_hit">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">✅</div>
         <div class="stat-number">{{ normal_hit_count or 0 }}</div>
         <div class="stat-label">平码命中次数</div>
     </div>
     
-    <div class="stat-card">
+    <div class="stat-card clickable-stat" data-filter="wrong">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">❌</div>
         <div class="stat-number">{{ wrong_predictions or 0 }}</div>
         <div class="stat-label">未命中次数</div>
@@ -322,6 +322,52 @@
 </div>
 
 <style>
+/* 可点击统计卡片样式 */
+.stat-card {
+    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(102, 126, 234, 0.1);
+    transition: all 0.3s ease;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.clickable-stat {
+    position: relative;
+    cursor: pointer;
+}
+
+.clickable-stat::after {
+    content: '🔍';
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 0.9rem;
+    opacity: 0.6;
+    transition: all 0.3s ease;
+}
+
+.clickable-stat:hover::after {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+.clickable-stat:hover {
+    background: linear-gradient(135deg, #f8f9ff 0%, #eef1ff 100%);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    box-shadow: 0 8px 30px rgba(102, 126, 234, 0.2);
+}
+
 /* 紧凑型搜索表单样式 */
 .inline-search-form {
     margin-left: auto;
@@ -899,6 +945,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.querySelector('.show-more-container').style.display = 'none';
                 hiddenPredictions.style.display = 'none';
             }
+        });
+    }
+    
+    // 点击统计卡片筛选功能
+    const clickableStats = document.querySelectorAll('.clickable-stat');
+    if (clickableStats) {
+        clickableStats.forEach(stat => {
+            stat.addEventListener('click', function() {
+                const filterType = this.getAttribute('data-filter');
+                if (filterType) {
+                    // 构建筛选URL
+                    const currentUrl = new URL(window.location.href);
+                    const searchParams = currentUrl.searchParams;
+                    
+                    // 设置result参数
+                    searchParams.set('result', filterType);
+                    
+                    // 跳转到筛选后的页面
+                    window.location.href = currentUrl.toString();
+                }
+            });
+            
+            // 添加鼠标悬停效果
+            stat.style.cursor = 'pointer';
+            stat.title = '点击查看相关记录';
         });
     }
 });

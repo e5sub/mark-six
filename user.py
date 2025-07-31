@@ -167,8 +167,8 @@ def predictions():
                                 PredictionRecord.special_number == PredictionRecord.actual_special_number)
         elif result == 'normal_hit':
             query = query.filter(PredictionRecord.is_result_updated == True, 
-                                PredictionRecord.accuracy_score > 0,
-                                PredictionRecord.special_number != PredictionRecord.actual_special_number)
+                                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                                PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String)))
         elif result == 'wrong':
             query = query.filter(PredictionRecord.is_result_updated == True, 
                                 PredictionRecord.accuracy_score <= 0)
@@ -644,8 +644,22 @@ def analytics():
         
         total = query.count()
         updated = query.filter_by(is_result_updated=True).count()
-        correct = query.filter(PredictionRecord.is_result_updated == True, 
-                              PredictionRecord.accuracy_score > 0).count()
+        
+        # 特码命中的预测
+        special_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.special_number == PredictionRecord.actual_special_number
+        ).count()
+        
+        # 平码命中的预测（不包括特码命中的）
+        normal_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.special_number != PredictionRecord.actual_special_number,
+            PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+        ).count()
+        
+        # 总命中数（特码命中 + 平码命中）
+        correct = special_hit + normal_hit
         
         accuracy = (correct / updated * 100) if updated > 0 else 0
         
@@ -662,8 +676,22 @@ def analytics():
         
         total = query.count()
         updated = query.filter_by(is_result_updated=True).count()
-        correct = query.filter(PredictionRecord.is_result_updated == True, 
-                              PredictionRecord.accuracy_score > 0).count()
+        
+        # 特码命中的预测
+        special_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.special_number == PredictionRecord.actual_special_number
+        ).count()
+        
+        # 平码命中的预测（不包括特码命中的）
+        normal_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.special_number != PredictionRecord.actual_special_number,
+            PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+        ).count()
+        
+        # 总命中数（特码命中 + 平码命中）
+        correct = special_hit + normal_hit
         
         accuracy = (correct / updated * 100) if updated > 0 else 0
         

@@ -4,30 +4,30 @@
 
 {% block content %}
 <!-- 统计概览 -->
-<div class="stats-grid">
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #667eea;">📊</div>
         <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
         <div class="stat-label">总预测次数</div>
     </div>
     
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #28a745;">🎯</div>
-        <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
-        <div class="stat-label">特码命中</div>
-    </div>
-    
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #17a2b8;">✅</div>
-        <div class="stat-number">{{ stats.normal_hit_count or 0 }}</div>
-        <div class="stat-label">平码命中</div>
-    </div>
-    
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #dc3545;">❌</div>
-        <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
-        <div class="stat-label">未命中</div>
-    </div>
+<div class="stat-card-compact clickable-stat" data-filter="special_hit">
+    <div class="stat-icon" style="color: #28a745;">🎯</div>
+    <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
+    <div class="stat-label">特码命中</div>
+</div>
+
+<div class="stat-card-compact clickable-stat" data-filter="normal_hit">
+    <div class="stat-icon" style="color: #17a2b8;">✅</div>
+    <div class="stat-number">{{ stats.normal_hit_count or 0 }}</div>
+    <div class="stat-label">平码命中</div>
+</div>
+
+<div class="stat-card-compact clickable-stat" data-filter="wrong">
+    <div class="stat-icon" style="color: #dc3545;">❌</div>
+    <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
+    <div class="stat-label">未命中</div>
+</div>
     
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #ffc107;">📈</div>
@@ -241,7 +241,57 @@
     </div>
 </div>
 
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 点击统计卡片筛选功能
+    const clickableStats = document.querySelectorAll('.clickable-stat');
+    if (clickableStats) {
+        clickableStats.forEach(stat => {
+            stat.addEventListener('click', function() {
+                const filterType = this.getAttribute('data-filter');
+                if (filterType) {
+                    // 跳转到预测记录页面并应用筛选
+                    window.location.href = "{{ url_for('user.predictions') }}?result=" + filterType;
+                }
+            });
+            
+            // 添加鼠标悬停效果
+            stat.style.cursor = 'pointer';
+            stat.title = '点击查看相关记录';
+        });
+    }
+});
+</script>
+
 <style>
+/* 可点击统计卡片样式 */
+.clickable-stat {
+    position: relative;
+    cursor: pointer;
+}
+
+.clickable-stat::after {
+    content: '🔍';
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 0.9rem;
+    opacity: 0.6;
+    transition: all 0.3s ease;
+}
+
+.clickable-stat:hover::after {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+.clickable-stat:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 30px rgba(102, 126, 234, 0.2);
+    background: linear-gradient(135deg, #f8f9ff 0%, #eef1ff 100%);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+}
+
 /* 继承dashboard的基础样式 */
 .card-compact {
     background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
