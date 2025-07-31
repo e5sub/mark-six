@@ -1,0 +1,104 @@
+<!-- 控制面板 -->
+<div class="controls-panel">
+    <div class="control-group">
+        <span class="control-label">地区:</span>
+        <div class="region-selector">
+            <button class="region-btn active" data-region="macau" onclick="changeRegion('macau', this)">澳门</button>
+            <button class="region-btn" data-region="hk" onclick="changeRegion('hk', this)">香港</button>
+        </div>
+    </div>
+    
+    <div class="control-group">
+        <span class="control-label">年份:</span>
+        <select id="yearSelect" class="modern-select" onchange="fetchDraws()">
+            <option value="all">全部</option>
+            <option value="2025">2025年</option>
+            <option value="2024">2024年</option>
+            <option value="2023">2023年</option>
+            <option value="2022">2022年</option>
+            <option value="2021">2021年</option>
+            <option value="2020">2020年</option>
+            <option value="2019">2019年</option>
+            <option value="2018">2018年</option>
+        </select>
+    </div>
+</div>
+
+<!-- 搜索面板 -->
+<div class="glass-card" style="margin-top: 15px; padding: 15px;">
+    <div style="display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; align-items: center;">
+        <!-- 统一搜索框 -->
+        <div style="display: flex; align-items: center; gap: 10px; flex-grow: 1; max-width: 500px;">
+            <span class="control-label">搜索:</span>
+            <input type="text" id="unifiedSearch" class="modern-select" placeholder="输入期数、特码号码或生肖..." style="width: 100%; min-width: 250px;">
+        </div>
+        
+        <!-- 搜索按钮 -->
+        <button class="modern-btn btn-primary" onclick="searchDraws()" style="padding: 10px 20px;">
+            <i class="fas fa-search"></i> 搜索
+        </button>
+        
+        <!-- 重置按钮 -->
+        <button class="modern-btn btn-secondary" onclick="resetSearch()" style="padding: 10px 20px;">
+            <i class="fas fa-redo"></i> 重置
+        </button>
+    </div>
+</div>
+
+<!-- 预测功能按钮 -->
+{% if session.get('user_id') and session.get('is_active') %}
+<div class="button-grid">
+    <button class="modern-btn btn-primary" onclick="getPrediction('random')">
+        <i class="fas fa-dice"></i> 随机预测
+    </button>
+    <button class="modern-btn btn-success" onclick="getPrediction('balanced')">
+        <i class="fas fa-balance-scale"></i> 均衡预测
+    </button>
+    <button class="modern-btn btn-warning" onclick="getPrediction('ai')">
+        <i class="fas fa-robot"></i> AI智能预测
+    </button>
+    <a href="{{ url_for('chat_page') }}" class="modern-btn btn-secondary">
+        <i class="fas fa-comments"></i> AI智能聊天室
+    </a>
+</div>
+
+<!-- 预测结果区域 -->
+<div id="predictionResult" class="recommendation-card" style="display: none;">
+    <div id="predictionContent" style="width: 100%;"></div>
+</div>
+
+<!-- 加载指示器 -->
+<div id="loadingIndicator" style="display: none; text-align: center; padding: 20px;">
+    <div class="loading-spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
+    <p style="margin-top: 15px; color: #6c757d;">正在生成预测结果，请稍候...</p>
+</div>
+{% else %}
+<div style="background: rgba(0, 123, 255, 0.1); color: #004085; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(0, 123, 255, 0.3);">
+    <i class="fas fa-info-circle"></i> 登录并激活账号后可使用预测功能和AI智能聊天室。
+</div>
+{% endif %}
+
+<!-- 开奖记录表格 -->
+<div class="table-container">
+    <table class="modern-table" id="drawsTable">
+        <thead>
+            <tr>
+                <th>期数</th>
+                <th>开奖日期</th>
+                <th>平码</th>
+                <th>特码</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="drawsTableBody">
+            <!-- 开奖记录将通过JavaScript动态加载 -->
+        </tbody>
+    </table>
+</div>
+
+<!-- 加载更多按钮 -->
+<div style="text-align: center; margin-top: 20px;">
+    <button id="loadMoreBtn" class="modern-btn btn-primary" style="padding: 10px 20px;" onclick="loadMoreDraws()">
+        <i class="fas fa-sync-alt"></i> 加载更多
+    </button>
+</div>

@@ -90,18 +90,21 @@ def dashboard():
                           get_number_zodiac=get_number_zodiac)
 
 # 号码属性计算函数
-ZODIAC_MAPPING_SEQUENCE = ("虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马")
 RED_BALLS = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46]
 BLUE_BALLS = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48]
 GREEN_BALLS = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49]
 
+# 生肖对照表将从澳门接口返回的JSON数据中获取
+# 不再在此处定义静态映射
+
 def get_number_zodiac(number):
-    try:
-        num = int(number)
-        if not 1 <= num <= 49: return ""
-        return ZODIAC_MAPPING_SEQUENCE[(num - 1) % 12]
-    except:
-        return ""
+    """
+    此函数已不再使用静态映射表
+    生肖信息应直接从澳门接口返回的JSON数据中获取
+    此函数仅作为兼容性保留
+    """
+    # 返回空字符串，实际生肖信息应从API数据中获取
+    return ""
 
 def get_number_color(number):
     try:

@@ -112,7 +112,10 @@ def get_ai_config():
         'model': SystemConfig.get_config('ai_model', 'gemini-2.0-flash')
     }
 # 澳门数据API
-MACAU_API_URL_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}"
+# 原始API可能不可访问，使用备用API
+# MACAU_API_URL_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}"
+MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
+print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
 # 香港数据API
 HK_DATA_SOURCE_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/data/all.json"
 
@@ -124,13 +127,13 @@ GREEN_BALLS = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49]
 COLOR_MAP_EN_TO_ZH = {'red': '红', 'blue': '蓝', 'green': '绿'}
 ZODIAC_TRAD_TO_SIMP = {'鼠':'鼠','牛':'牛','虎':'虎','兔':'兔','龍':'龙','蛇':'蛇','馬':'马','羊':'羊','猴':'猴','雞':'鸡','狗':'狗','豬':'猪'}
 
+# 此函数已不再使用，保留是为了兼容性
 def _get_hk_number_zodiac(number):
-    try:
-        num = int(number)
-        if not 1 <= num <= 49: return ""
-        return ZODIAC_MAPPING_SEQUENCE[(num - 1) % 12]
-    except:
-        return ""
+    """
+    此函数已不再使用，香港数据也应使用澳门接口返回的生肖数据
+    保留此函数仅为兼容性考虑
+    """
+    return ""
 
 def _get_hk_number_color(number):
     try:
@@ -156,10 +159,15 @@ def load_hk_data():
 def get_macau_data(year):
     url = MACAU_API_URL_TEMPLATE.format(year=year)
     try:
+        print(f"正在获取澳门数据，URL: {url}")
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         api_data = response.json()
-        if not api_data or not api_data.get("data"): return []
+        if not api_data or not api_data.get("data"): 
+            print(f"澳门API返回空数据或格式错误: {api_data}")
+            return []
+        
+        print(f"澳门API返回数据条数: {len(api_data['data'])}")
         
         normalized_data = []
         for record in api_data["data"]:
@@ -179,6 +187,8 @@ def get_macau_data(year):
                 "raw_wave": record.get("wave", ""), "raw_zodiac": ",".join(simplified_zodiacs)
             })
         
+        print(f"标准化后的数据条数: {len(normalized_data)}")
+        
         # --- 新增去重逻辑 ---
         unique_data = []
         seen_ids = set()
@@ -188,10 +198,20 @@ def get_macau_data(year):
                 unique_data.append(record)
                 seen_ids.add(record_id)
         # --- 去重逻辑结束 ---
+        
+        print(f"去重后的数据条数: {len(unique_data)}")
 
         # 使用去重后的 unique_data 进行过滤和排序
         filtered_by_year = [rec for rec in unique_data if rec.get("date", "").startswith(str(year))]
-        return sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+        print(f"按年份过滤后的数据条数: {len(filtered_by_year)}")
+        
+        result = sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+        print(f"最终返回的数据条数: {len(result)}")
+        
+        if len(result) > 0:
+            print(f"示例数据: {result[0]}")
+        
+        return result
     except Exception as e:
         print(f"Error in get_macau_data for year {year}: {e}")
         return []
@@ -246,12 +266,9 @@ def get_local_recommendations(strategy, data, region):
             print(f"Balanced recommendation failed, falling back to random. Reason: {e}")
             return get_local_recommendations('random', data, region)
     special_num = random.choice([n for n in all_numbers if n not in normal])
+    # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
+    # 生肖信息将在API返回数据后更新
     sno_zodiac_info = ""
-    if region == 'hk':
-        sno_zodiac_info = _get_hk_number_zodiac(special_num)
-    else:
-        # 为澳门预测也添加特码生肖
-        sno_zodiac_info = _get_hk_number_zodiac(special_num)
     return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": sno_zodiac_info}}
 
 def predict_with_ai(data, region):
@@ -333,13 +350,9 @@ def predict_with_ai(data, region):
         if not special_number or not (1 <= int(special_number) <= 49):
             return {"error": "AI生成的特码无效"}
         
-        # 获取特码生肖
+        # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
+        # 生肖信息将在API返回数据后更新
         sno_zodiac = ""
-        if region == 'hk':
-            sno_zodiac = _get_hk_number_zodiac(special_number)
-        else:
-            # 澳门也使用相同的生肖计算方法
-            sno_zodiac = _get_hk_number_zodiac(special_number)
         
         return {
             "recommendation_text": ai_response,
@@ -375,20 +388,67 @@ def index():
     return render_template('index.html', user=user)
 
 def get_yearly_data(region, year):
+    print(f"获取年度数据: 地区={region}, 年份={year}")
+    
+    # 处理"全部"年份的情况
+    if year == 'all':
+        year = str(datetime.now().year)
+        print(f"年份为'全部'，使用当前年份: {year}")
+    
     if region == 'hk':
         all_data = load_hk_data()
-        return [rec for rec in all_data if rec.get('date', '').startswith(str(year))]
+        filtered_data = [rec for rec in all_data if rec.get('date', '').startswith(str(year))]
+        print(f"香港数据: 总数={len(all_data)}, 过滤后={len(filtered_data)}")
+        return filtered_data
     if region == 'macau':
-        return get_macau_data(year)
+        macau_data = get_macau_data(year)
+        print(f"澳门数据: 总数={len(macau_data)}")
+        return macau_data
+    print(f"未知地区: {region}")
     return []
 
 @app.route('/api/draws')
 def draws_api():
-    region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
+    region = request.args.get('region', 'hk')
+    year = request.args.get('year', str(datetime.now().year))
+    
+    print(f"API请求: 地区={region}, 年份={year}")
+    
+    # 处理"全部"年份的情况
+    if year == 'all':
+        year = str(datetime.now().year)
+        print(f"年份为'全部'，使用当前年份: {year}")
+    
     data = get_yearly_data(region, year)
+    print(f"获取到{len(data)}条数据")
+    
+    # 获取澳门数据，用于提取生肖信息
+    macau_data = get_macau_data(year)
+    print(f"获取到{len(macau_data)}条澳门数据用于生肖映射")
+    
+    # 创建号码到生肖的映射
+    number_to_zodiac = {}
+    for record in macau_data:
+        all_numbers = record.get('no', []) + [record.get('sno')]
+        zodiacs = record.get('raw_zodiac', '').split(',')
+        if len(all_numbers) == len(zodiacs):
+            for i, num in enumerate(all_numbers):
+                if num:
+                    number_to_zodiac[num] = zodiacs[i]
+    
     if region == 'hk':
         for record in data:
-            record['sno_zodiac'] = _get_hk_number_zodiac(record.get('sno'))
+            # 使用澳门的生肖对应关系
+            sno = record.get('sno')
+            record['sno_zodiac'] = number_to_zodiac.get(sno, '')
+            
+            # 为平码添加生肖信息
+            normal_numbers = record.get('no', [])
+            normal_zodiacs = []
+            for num in normal_numbers:
+                normal_zodiacs.append(number_to_zodiac.get(num, ''))
+            record['raw_zodiac'] = ','.join(normal_zodiacs + [number_to_zodiac.get(sno, '')])
+            
             details_breakdown = []
             all_numbers = record.get('no', []) + [record.get('sno')]
             for i, num_str in enumerate(all_numbers):
@@ -397,7 +457,7 @@ def draws_api():
                 details_breakdown.append({
                     "position": f"平码 {i + 1}" if i < 6 else "特码", "number": num_str,
                     "color_en": color_en, "color_zh": COLOR_MAP_EN_TO_ZH.get(color_en, ''),
-                    "zodiac": _get_hk_number_zodiac(num_str)
+                    "zodiac": number_to_zodiac.get(num_str, '')
                 })
             record['details_breakdown'] = details_breakdown
         data = sorted(data, key=lambda x: x.get('date', ''), reverse=True)
@@ -408,7 +468,7 @@ def draws_api():
         # 更新澳门预测准确率
         update_prediction_accuracy(data, 'macau')
         
-    return jsonify(data[:20])
+    return jsonify(data[:50])
 
 def update_prediction_accuracy(data, region):
     """更新预测准确率 - 只比较特码和生肖"""
@@ -427,12 +487,8 @@ def update_prediction_accuracy(data, region):
                     continue
                 
                 special_number = str(draw.get('sno', ''))
-                # 获取特码生肖
-                special_zodiac = ""
-                if region == 'hk':
-                    special_zodiac = _get_hk_number_zodiac(special_number)
-                else:
-                    special_zodiac = draw.get('sno_zodiac', '') or _get_hk_number_zodiac(special_number)
+                # 获取特码生肖 - 所有地区都使用澳门API返回的生肖数据
+                special_zodiac = draw.get('sno_zodiac', '')
                 
                 if special_number:
                     draw_results[period] = {
@@ -485,12 +541,8 @@ def update_prediction_accuracy(data, region):
                 continue
             
             special_number = str(draw.get('sno', ''))
-            # 获取特码生肖
-            special_zodiac = ""
-            if region == 'hk':
-                special_zodiac = _get_hk_number_zodiac(special_number)
-            else:
-                special_zodiac = draw.get('sno_zodiac', '') or _get_hk_number_zodiac(special_number)
+            # 获取特码生肖 - 所有地区都使用澳门API返回的生肖数据
+            special_zodiac = draw.get('sno_zodiac', '')
             
             if special_number:
                 draw_results[period] = {
@@ -593,16 +645,7 @@ def unified_predict_api():
         if existing:
             # 返回已存在的预测结果
             sno_zodiac = existing.special_zodiac
-            # 如果数据库中的生肖为空，重新计算
-            if not sno_zodiac and existing.special_number:
-                sno_zodiac = _get_hk_number_zodiac(existing.special_number)
-                # 更新数据库中的生肖信息
-                existing.special_zodiac = sno_zodiac
-                try:
-                    db.session.commit()
-                except Exception as e:
-                    print(f"更新生肖信息失败: {e}")
-                    db.session.rollback()
+            # 不再在本地计算生肖，所有地区都使用澳门API返回的生肖数据
             
             result = {
                 "normal": existing.normal_numbers.split(','),
@@ -865,6 +908,39 @@ def generate_prediction_for_user(user, region, period, strategy, data):
         print(f"自动预测出错：{e}")
         db.session.rollback()
 
+@app.route('/api/get_zodiacs')
+def get_zodiacs_api():
+    numbers = request.args.get('numbers', '').split(',')
+    if not numbers or not numbers[0]:
+        return jsonify({'normal_zodiacs': [], 'special_zodiac': ''})
+    
+    # 获取当前年份的澳门数据，用于提取生肖信息
+    current_year = str(datetime.now().year)
+    macau_data = get_macau_data(current_year)
+    
+    # 创建号码到生肖的映射
+    number_to_zodiac = {}
+    for record in macau_data:
+        all_numbers = record.get('no', []) + [record.get('sno')]
+        zodiacs = record.get('raw_zodiac', '').split(',')
+        if len(all_numbers) == len(zodiacs):
+            for i, num in enumerate(all_numbers):
+                if num:
+                    number_to_zodiac[num] = zodiacs[i]
+    
+    # 获取每个号码对应的生肖
+    normal_zodiacs = []
+    for num in numbers[:-1]:  # 除了最后一个数字（特码）
+        normal_zodiacs.append(number_to_zodiac.get(num, ''))
+    
+    # 获取特码生肖
+    special_zodiac = number_to_zodiac.get(numbers[-1], '') if len(numbers) > 0 else ''
+    
+    return jsonify({
+        'normal_zodiacs': normal_zodiacs,
+        'special_zodiac': special_zodiac
+    })
+
 @app.route('/api/search_draws')
 def search_draws_api():
     region, year, term = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year)), request.args.get('term', '').strip().lower()
@@ -885,11 +961,26 @@ def chat_page():
         return redirect(url_for('auth.login'))
     current_year = str(datetime.now().year)
     
+    # 获取澳门数据，用于提取生肖信息
+    macau_data = get_macau_data(current_year)
+    
+    # 创建号码到生肖的映射
+    number_to_zodiac = {}
+    for record in macau_data:
+        all_numbers = record.get('no', []) + [record.get('sno')]
+        zodiacs = record.get('raw_zodiac', '').split(',')
+        if len(all_numbers) == len(zodiacs):
+            for i, num in enumerate(all_numbers):
+                if num:
+                    number_to_zodiac[num] = zodiacs[i]
+    
     hk_all_yearly_data = get_yearly_data('hk', current_year)
     hk_data_sorted = sorted(hk_all_yearly_data, key=lambda x: x.get('date', ''), reverse=True)
     hk_latest_10 = hk_data_sorted[:10]
     for record in hk_latest_10:
-        record['sno_zodiac'] = _get_hk_number_zodiac(record.get('sno'))
+        # 使用澳门的生肖对应关系
+        sno = record.get('sno')
+        record['sno_zodiac'] = number_to_zodiac.get(sno, '')
 
     macau_latest_10 = get_yearly_data('macau', current_year)[:10]
 
