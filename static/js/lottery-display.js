@@ -302,11 +302,15 @@ function showDrawDetails(draw) {
         
         numbersContainer.appendChild(regularContainer);
         
-        // 添加分隔符
-        const separator = document.createElement('div');
-        separator.textContent = '+';
-        separator.style.cssText = 'font-size: 1.2rem; font-weight: bold; margin: 0 10px; color: #495057;';
-        numbersContainer.appendChild(separator);
+        // 添加开奖特码标签和特码，放在右侧
+        const specialSection = document.createElement('div');
+        specialSection.style.cssText = 'display: flex; align-items: center; margin-left: auto; gap: 10px;';
+        
+        // 添加开奖特码标签
+        const specialLabel = document.createElement('div');
+        specialLabel.textContent = '开奖特码:';
+        specialLabel.style.cssText = 'font-size: 1.2rem; font-weight: 700; color: #333;';
+        specialSection.appendChild(specialLabel);
         
         // 添加特码
         if (draw.sno) {
@@ -315,7 +319,7 @@ function showDrawDetails(draw) {
             
             // 添加特效光环
             const glowEffect = document.createElement('div');
-            glowEffect.style.cssText = 'position: absolute; width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle, rgba(255,215,0,0.3) 0%, rgba(255,215,0,0) 70%); z-index: 0; top: 20px; left: 50%; transform: translate(-50%, -50%);';
+            glowEffect.style.cssText = 'position: absolute; width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle, rgba(255,215,0,0.4) 0%, rgba(255,215,0,0) 70%); z-index: 0; top: 20px; left: 50%; transform: translate(-50%, -50%);';
             specialWrapper.appendChild(glowEffect);
             
             // 创建特码球
@@ -323,7 +327,7 @@ function showDrawDetails(draw) {
             const specialColor = getBallColorClass(draw.sno);
             specialBall.className = `ball ${specialColor} special`;
             specialBall.textContent = draw.sno;
-            specialBall.style.cssText = 'width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 1.2rem; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); border: 2px solid #ffd700; position: relative; z-index: 1;';
+            specialBall.style.cssText = 'width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 1.4rem; box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3); border: 3px solid #ffd700; position: relative; z-index: 1;';
             
             if (specialColor === 'red') {
                 specialBall.style.background = 'linear-gradient(135deg, #ff4b4b 0%, #dc3545 100%)';
@@ -336,13 +340,15 @@ function showDrawDetails(draw) {
             // 添加生肖标签
             const specialZodiacLabel = document.createElement('div');
             specialZodiacLabel.textContent = draw.sno_zodiac || '';
-            specialZodiacLabel.style.cssText = 'font-size: 0.9rem; color: #495057; font-weight: 600;';
+            specialZodiacLabel.style.cssText = 'font-size: 1rem; color: #333; font-weight: 600;';
             
             specialWrapper.appendChild(specialBall);
             specialWrapper.appendChild(specialZodiacLabel);
             
-            numbersContainer.appendChild(specialWrapper);
+            specialSection.appendChild(specialWrapper);
         }
+        
+        numbersContainer.appendChild(specialSection);
     }
     
     modalBody.appendChild(numbersContainer);

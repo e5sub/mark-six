@@ -109,30 +109,28 @@
                 </div>
             </div>
             
-            <!-- 中间：预测结果 -->
-            <div class="prediction-center">
-                {% if prediction.is_result_updated %}
-                    {% if prediction.accuracy_score > 0 %}
+                <!-- 中间：预测结果 -->
+                <div class="prediction-center">
+                    {% if prediction.is_result_updated %}
                         {% if prediction.special_number == prediction.actual_special_number %}
-                        <div class="result-badge-compact result-success">
-                            🎯 特码命中
-                        </div>
+                            <div class="result-badge-compact result-success">
+                                🎯 特码命中
+                            </div>
+                        {% elif prediction.normal_numbers and prediction.actual_special_number in prediction.normal_numbers.split(',') %}
+                            <div class="result-badge-compact result-partial">
+                                ✅ 平码命中
+                            </div>
                         {% else %}
-                        <div class="result-badge-compact result-partial">
-                            ✅ 平码命中
-                        </div>
+                            <div class="result-badge-compact result-failed">
+                                ❌ 未命中
+                            </div>
                         {% endif %}
                     {% else %}
-                        <div class="result-badge-compact result-failed">
-                            ❌ 未命中
-                        </div>
+                    <div class="result-badge-compact result-pending">
+                        ⏳ 待开奖
+                    </div>
                     {% endif %}
-                {% else %}
-                <div class="result-badge-compact result-pending">
-                    ⏳ 待开奖
                 </div>
-                {% endif %}
-            </div>
             
             <!-- 右侧：时间 -->
             <div class="prediction-right">
@@ -195,30 +193,28 @@
                     </div>
                 </div>
                 
-                <!-- 中间：预测结果 -->
-                <div class="prediction-center">
-                    {% if prediction.is_result_updated %}
-                        {% if prediction.accuracy_score > 0 %}
-                            {% if prediction.special_number == prediction.actual_special_number %}
-                            <div class="result-badge-compact result-success">
-                                🎯 特码命中
-                            </div>
-                            {% else %}
-                            <div class="result-badge-compact result-partial">
-                                ✅ 平码命中
-                            </div>
-                            {% endif %}
-                        {% else %}
-                            <div class="result-badge-compact result-failed">
-                                ❌ 未命中
-                            </div>
-                        {% endif %}
+            <!-- 中间：预测结果 -->
+            <div class="prediction-center">
+                {% if prediction.is_result_updated %}
+                    {% if prediction.special_number == prediction.actual_special_number %}
+                        <div class="result-badge-compact result-success">
+                            🎯 特码命中
+                        </div>
+                    {% elif prediction.normal_numbers and prediction.actual_special_number in prediction.normal_numbers.split(',') %}
+                        <div class="result-badge-compact result-partial">
+                            ✅ 平码命中
+                        </div>
                     {% else %}
-                    <div class="result-badge-compact result-pending">
-                        ⏳ 待开奖
-                    </div>
+                        <div class="result-badge-compact result-failed">
+                            ❌ 未命中
+                        </div>
                     {% endif %}
+                {% else %}
+                <div class="result-badge-compact result-pending">
+                    ⏳ 待开奖
                 </div>
+                {% endif %}
+            </div>
                 
                 <!-- 右侧：时间 -->
                 <div class="prediction-right">

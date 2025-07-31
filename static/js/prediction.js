@@ -133,10 +133,13 @@ function displayPrediction(data, strategy) {
         const zodiac = data.special.sno_zodiac || '';
         
         html += `
-            <div style="display: flex; flex-direction: column; align-items: center; margin-top: 10px; position: relative;">
-                <div style="position: absolute; width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle, rgba(255,215,0,0.3) 0%, rgba(255,215,0,0) 70%); z-index: 0;"></div>
-                <div class="lottery-ball ${colorClass} special" style="margin-bottom: 5px; position: relative; z-index: 1;">${specialNum}</div>
-                <div style="font-size: 0.9rem; font-weight: 600; color: #495057;">${zodiac}</div>
+            <div style="display: flex; align-items: center; justify-content: center; margin-top: 20px; position: relative;">
+                <div style="font-size: 1.2rem; font-weight: 700; color: #333; margin-right: 15px;">特码:</div>
+                <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
+                    <div style="position: absolute; width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle, rgba(255,215,0,0.4) 0%, rgba(255,215,0,0) 70%); z-index: 0; top: 20px; left: 50%; transform: translate(-50%, -50%);"></div>
+                    <div class="lottery-ball ${colorClass} special" style="width: 50px; height: 50px; font-size: 1.4rem; border: 3px solid #ffd700; margin-bottom: 5px; position: relative; z-index: 1; box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);">${specialNum}</div>
+                    <div style="font-size: 1rem; font-weight: 600; color: #333;">${zodiac}</div>
+                </div>
             </div>
         `;
     }

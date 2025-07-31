@@ -191,7 +191,7 @@ def predictions():
         user_id=session['user_id'],
         is_result_updated=True
     ).filter(
-        PredictionRecord.accuracy_score > 0,
+        PredictionRecord.accuracy_score > 0.3,  # 提高平码命中的阈值，确保只有真正命中的才算
         PredictionRecord.special_number != PredictionRecord.actual_special_number
     ).count()
     
