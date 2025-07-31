@@ -195,7 +195,7 @@ def predictions():
         user_id=session['user_id'],
         is_result_updated=True
     ).filter(
-        PredictionRecord.accuracy_score > 0.3,  # 提高平码命中的阈值，确保只有真正命中的才算
+        PredictionRecord.accuracy_score == 50,  # 平码命中的准确率为50
         PredictionRecord.special_number != PredictionRecord.actual_special_number
     ).count()
     
@@ -606,6 +606,34 @@ def analytics():
     # 获取用户预测统计
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
     
+    # 特码命中的预测
+    special_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.special_number == PredictionRecord.actual_special_number
+    ).count()
+    
+    # 平码命中的预测（不包括特码命中的）
+    normal_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.accuracy_score == 50,  # 平码命中的准确率为50
+        PredictionRecord.special_number != PredictionRecord.actual_special_number
+    ).count()
+    
+    # 总命中数（特码命中 + 平码命中）
+    accurate_predictions = special_hit_predictions + normal_hit_predictions
+    
+    # 未命中的预测
+    wrong_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.accuracy_score <= 0
+    ).count()
+    
     # 计算不同策略的准确率
     def calculate_strategy_stats(strategy=None):
         query = PredictionRecord.query.filter_by(user_id=user.id)
@@ -646,6 +674,13 @@ def analytics():
     
     # 计算总体统计
     stats = calculate_strategy_stats()
+    
+    # 添加特码命中和平码命中的统计
+    stats['total_predictions'] = total_predictions
+    stats['special_hit_count'] = special_hit_predictions
+    stats['normal_hit_count'] = normal_hit_predictions
+    stats['wrong_predictions'] = wrong_predictions
+    stats['accuracy'] = (accurate_predictions / total_predictions * 100) if total_predictions > 0 else 0
     
     # 计算各策略统计
     strategy_stats = {

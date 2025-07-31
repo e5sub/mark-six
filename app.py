@@ -538,12 +538,12 @@ def update_prediction_accuracy(data, region):
                         normal_hit = 1
                         accuracy = 0.4  # 平码命中的准确率设为0.4
                 
-                # 更新预测记录
-                pred.actual_normal_numbers = ''  # 不再需要保存正码
-                pred.actual_special_number = result['special']
-                pred.actual_special_zodiac = result['special_zodiac']
-                pred.accuracy_score = accuracy
-                pred.is_result_updated = True
+                    # 更新预测记录
+                    pred.actual_normal_numbers = ''  # 不再需要保存正码
+                    pred.actual_special_number = result['special']
+                    pred.actual_special_zodiac = result['special_zodiac']
+                    pred.accuracy_score = accuracy
+                    pred.is_result_updated = True
             
             # 提交更改
             db.session.commit()

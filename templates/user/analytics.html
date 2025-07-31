@@ -12,15 +12,21 @@
     </div>
     
     <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #28a745;">✅</div>
-        <div class="stat-number">{{ stats.correct_predictions or 0 }}</div>
-        <div class="stat-label">预测正确</div>
+        <div class="stat-icon" style="color: #28a745;">🎯</div>
+        <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
+        <div class="stat-label">特码命中</div>
+    </div>
+    
+    <div class="stat-card-compact">
+        <div class="stat-icon" style="color: #17a2b8;">✅</div>
+        <div class="stat-number">{{ stats.normal_hit_count or 0 }}</div>
+        <div class="stat-label">平码命中</div>
     </div>
     
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #dc3545;">❌</div>
         <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
-        <div class="stat-label">预测错误</div>
+        <div class="stat-label">未命中</div>
     </div>
     
     <div class="stat-card-compact">
@@ -48,7 +54,7 @@
                     <span class="stat-value">{{ strategy_stats.random.total or 0 }}</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">正确次数</span>
+                    <span class="stat-label">命中次数</span>
                     <span class="stat-value">{{ strategy_stats.random.correct or 0 }}</span>
                 </div>
                 <div class="stat-item">
@@ -69,7 +75,7 @@
                     <span class="stat-value">{{ strategy_stats.balanced.total or 0 }}</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">正确次数</span>
+                    <span class="stat-label">命中次数</span>
                     <span class="stat-value">{{ strategy_stats.balanced.correct or 0 }}</span>
                 </div>
                 <div class="stat-item">
@@ -90,7 +96,7 @@
                     <span class="stat-value">{{ strategy_stats.ai.total or 0 }}</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">正确次数</span>
+                    <span class="stat-label">命中次数</span>
                     <span class="stat-value">{{ strategy_stats.ai.correct or 0 }}</span>
                 </div>
                 <div class="stat-item">
@@ -118,7 +124,7 @@
                 <div class="progress-bar" style="width: {{ region_stats.hk.accuracy or 0 }}%"></div>
             </div>
             <div class="region-details">
-                <span>总计 {{ region_stats.hk.total or 0 }} 次预测，正确 {{ region_stats.hk.correct or 0 }} 次</span>
+                <span>总计 {{ region_stats.hk.total or 0 }} 次预测，命中 {{ region_stats.hk.correct or 0 }} 次</span>
             </div>
         </div>
         
@@ -131,7 +137,7 @@
                 <div class="progress-bar" style="width: {{ region_stats.macau.accuracy or 0 }}%"></div>
             </div>
             <div class="region-details">
-                <span>总计 {{ region_stats.macau.total or 0 }} 次预测，正确 {{ region_stats.macau.correct or 0 }} 次</span>
+                <span>总计 {{ region_stats.macau.total or 0 }} 次预测，命中 {{ region_stats.macau.correct or 0 }} 次</span>
             </div>
         </div>
     </div>
