@@ -817,7 +817,7 @@
                     <div class="message ai-message welcome-message">
                         <div class="message-header">
                             <span class="ai-name">AI 智能分析师</span>
-                            <span class="message-time">{{ now.strftime('%H:%M') }}</span>
+                            <span class="message-time" id="welcome-time"></span>
                         </div>
                         <div class="message-content">
                             你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门六合彩的历史、规则或数据规律，我会尽力为您解答。
@@ -975,6 +975,13 @@ window.addEventListener('load', () => {
 const BALL_COLORS = JSON.parse('{{ ball_colors | safe }}');
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 设置欢迎消息的时间
+    const welcomeTime = document.getElementById('welcome-time');
+    if (welcomeTime) {
+        const now = new Date();
+        welcomeTime.textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    }
+    
     // 创建动态背景粒子
     function createParticles() {
         const particlesContainer = document.getElementById('particles');
