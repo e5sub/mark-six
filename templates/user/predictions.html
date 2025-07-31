@@ -241,11 +241,19 @@
     {% else %}
     <div class="empty-state">
         <div class="empty-icon">📊</div>
-        <h3>暂无预测记录</h3>
-        <p>开始您的第一次预测吧！</p>
-        <a href="{{ url_for('index') }}" class="btn btn-primary">
-            🎯 开始预测
-        </a>
+        {% if request.args.get('result') or request.args.get('region') or request.args.get('strategy') %}
+            <h3>没有符合条件的记录</h3>
+            <p>尝试更改筛选条件或清除筛选</p>
+            <a href="{{ url_for('user.predictions') }}" class="btn btn-primary">
+                🔄 清除筛选
+            </a>
+        {% else %}
+            <h3>暂无预测记录</h3>
+            <p>开始您的第一次预测吧！</p>
+            <a href="{{ url_for('index') }}" class="btn btn-primary">
+                🎯 开始预测
+            </a>
+        {% endif %}
     </div>
     {% endif %}
 </div>

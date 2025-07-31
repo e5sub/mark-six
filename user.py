@@ -166,14 +166,15 @@ def predictions():
             query = query.filter(PredictionRecord.is_result_updated == True, 
                                 PredictionRecord.special_number == PredictionRecord.actual_special_number)
         elif result == 'normal_hit':
-            query = query.filter(PredictionRecord.is_result_updated == True, 
-                                PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                                PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String)))
-        elif result == 'wrong':
-            query = query.filter(PredictionRecord.is_result_updated == True)
-            # 排除特码命中和平码命中的情况
             query = query.filter(
+                PredictionRecord.is_result_updated == True, 
                 (PredictionRecord.special_number != PredictionRecord.actual_special_number) &
+                PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
+            )
+        elif result == 'wrong':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                (PredictionRecord.special_number != PredictionRecord.actual_special_number),
                 ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
             )
         elif result == 'pending':
@@ -212,7 +213,8 @@ def predictions():
         user_id=session['user_id'],
         is_result_updated=True
     ).filter(
-        PredictionRecord.accuracy_score <= 0
+        (PredictionRecord.special_number != PredictionRecord.actual_special_number) &
+        ~PredictionRecord.normal_numbers.contains(db.cast(PredictionRecord.actual_special_number, db.String))
     ).count()
     
     # 计算准确率
