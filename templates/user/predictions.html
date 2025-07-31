@@ -94,10 +94,12 @@
                     </div>
                     
                     {% if prediction.is_result_updated and prediction.actual_special_number %}
-                    <div class="draw-result-label">开奖特码:</div>
-                    {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
-                    <div class="number-ball-compact ball-{{ actual_special_color }} actual-special-ball">
-                        {{ prediction.actual_special_number }}
+                    <div style="display: flex; align-items: center; margin-left: auto; margin-right: 0;">
+                        <div class="draw-result-label" style="font-size: 1.1rem; font-weight: 700; color: #333; margin-right: 10px;">开奖特码:</div>
+                        {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
+                        <div class="number-ball-compact ball-{{ actual_special_color }} actual-special-ball" style="width: 40px; height: 40px; font-size: 1.2rem; border: 3px solid #ff5722; box-shadow: 0 0 20px rgba(255, 87, 34, 0.7);">
+                            {{ prediction.actual_special_number }}
+                        </div>
                     </div>
                     {% endif %}
                 </div>
@@ -178,10 +180,12 @@
                         </div>
                         
                         {% if prediction.is_result_updated and prediction.actual_special_number %}
-                        <div class="draw-result-label">开奖特码:</div>
-                        {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
-                        <div class="number-ball-compact ball-{{ actual_special_color }} actual-special-ball">
-                            {{ prediction.actual_special_number }}
+                        <div style="display: flex; align-items: center; margin-left: auto; margin-right: 0;">
+                            <div class="draw-result-label" style="font-size: 1.1rem; font-weight: 700; color: #333; margin-right: 10px;">开奖特码:</div>
+                            {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
+                            <div class="number-ball-compact ball-{{ actual_special_color }} actual-special-ball" style="width: 40px; height: 40px; font-size: 1.2rem; border: 3px solid #ff5722; box-shadow: 0 0 20px rgba(255, 87, 34, 0.7);">
+                                {{ prediction.actual_special_number }}
+                            </div>
                         </div>
                         {% endif %}
                     </div>
