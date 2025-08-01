@@ -476,81 +476,6 @@ def update_prediction_accuracy(data, region):
         # 获取所有该地区的预测记录
         predictions = PredictionRecord.query.filter_by(region=region).all()
         
-        # 强制触发自动预测功能，确保每次获取数据时都会检查是否需要生成预测
-        if data and len(data) > 0:
-            # 先更新预测准确率，再生成新的预测
-            # 创建期数到开奖结果的映射
-            draw_results = {}
-            for draw in data:
-                period = draw.get('id')
-                if not period:
-                    continue
-                
-                special_number = str(draw.get('sno', ''))
-                # 获取特码生肖 - 所有地区都使用澳门API返回的生肖数据
-                special_zodiac = draw.get('sno_zodiac', '')
-                
-                if special_number:
-                    draw_results[period] = {
-                        'special': special_number,
-                        'special_zodiac': special_zodiac
-                    }
-            
-            # 更新每条预测记录的准确率
-            for pred in predictions:
-                # 检查是否已经更新过准确率
-                if pred.is_result_updated:
-                    continue
-                    
-                # 查找对应期数的开奖结果
-                result = draw_results.get(pred.period)
-                if not result:
-                    continue
-                    
-                # 获取预测特码和生肖
-                pred_special = pred.special_number
-                pred_zodiac = pred.special_zodiac
-                
-                # 特码号码是否命中
-                special_hit = 1 if pred_special == result['special'] else 0
-                
-                # 特码生肖是否命中
-                zodiac_hit = 1 if pred_zodiac and pred_zodiac == result['special_zodiac'] else 0
-                
-                # 计算总准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
-                # 只有特码命中或生肖命中才算有效命中
-                accuracy = (special_hit * 0.7) + (zodiac_hit * 0.3)
-                
-                # 检查平码是否命中
-                normal_hit = 0
-                if not special_hit:  # 只有在特码未命中的情况下才检查平码
-                    pred_normal_numbers = pred.normal_numbers.split(',') if pred.normal_numbers else []
-                    actual_normal_numbers = record.get('no', [])
-                    
-                    # 计算平码命中数量
-                    hits = 0
-                    for num in pred_normal_numbers:
-                        if num in actual_normal_numbers:
-                            hits += 1
-                    
-                    # 只有当平码命中数量大于等于3个时才算平码命中
-                    if hits >= 3:
-                        normal_hit = 1
-                        accuracy = 0.4  # 平码命中的准确率设为0.4
-                
-                    # 更新预测记录
-                    pred.actual_normal_numbers = ''  # 不再需要保存正码
-                    pred.actual_special_number = result['special']
-                    pred.actual_special_zodiac = result['special_zodiac']
-                    pred.accuracy_score = accuracy
-                    pred.is_result_updated = True
-            
-            # 提交更改
-            db.session.commit()
-            
-            # 生成新的预测
-            generate_auto_predictions(data, region)
-        
         # 创建期数到开奖结果的映射
         draw_results = {}
         for draw in data:
@@ -568,48 +493,50 @@ def update_prediction_accuracy(data, region):
                     'special_zodiac': special_zodiac
                 }
         
-                # 更新每条预测记录的准确率
-                for pred in predictions:
-                    # 检查是否已经更新过准确率
-                    if pred.is_result_updated:
-                        continue
-                        
-                    # 查找对应期数的开奖结果
-                    result = draw_results.get(pred.period)
-                    if not result:
-                        continue
-                        
-                    # 获取预测特码和生肖
-                    pred_special = pred.special_number
-                    pred_zodiac = pred.special_zodiac
-                    
-                    # 特码号码是否命中
-                    special_hit = 1 if pred_special == result['special'] else 0
-                    
-                    # 特码生肖是否命中
-                    zodiac_hit = 1 if pred_zodiac and pred_zodiac == result['special_zodiac'] else 0
-                    
-                    # 计算总准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
-                    accuracy = 0
-                    
-                    # 只有特码命中才算命中
-                    if special_hit == 1:
-                        accuracy = 100
-                    # 检查平码是否包含开奖特码
-                    elif pred.normal_numbers:
-                        normal_numbers = pred.normal_numbers.split(',')
-                        if result['special'] in normal_numbers:
-                            accuracy = 50
-                    
-                    # 更新预测记录
-                    pred.actual_normal_numbers = ''  # 不再需要保存正码
-                    pred.actual_special_number = result['special']
-                    pred.actual_special_zodiac = result['special_zodiac']
-                    pred.accuracy_score = accuracy
-                    pred.is_result_updated = True
+        # 更新每条预测记录的准确率
+        for pred in predictions:
+            # 检查是否已经更新过准确率
+            if pred.is_result_updated:
+                continue
+                
+            # 查找对应期数的开奖结果
+            result = draw_results.get(pred.period)
+            if not result:
+                continue
+                
+            # 获取预测特码和生肖
+            pred_special = pred.special_number
+            pred_zodiac = pred.special_zodiac
+            
+            # 特码号码是否命中
+            special_hit = 1 if pred_special == result['special'] else 0
+            
+            # 计算准确率
+            accuracy = 0
+            
+            # 只有特码命中才算命中
+            if special_hit == 1:
+                accuracy = 100
+            # 检查平码是否包含开奖特码
+            elif pred.normal_numbers:
+                normal_numbers = pred.normal_numbers.split(',')
+                if result['special'] in normal_numbers:
+                    accuracy = 50
+            
+            # 更新预测记录
+            pred.actual_normal_numbers = ''  # 不再需要保存正码
+            pred.actual_special_number = result['special']
+            pred.actual_special_zodiac = result['special_zodiac']
+            pred.accuracy_score = accuracy
+            pred.is_result_updated = True
         
         # 提交更改
         db.session.commit()
+        
+        # 强制触发自动预测功能，确保每次获取数据时都会检查是否需要生成预测
+        if data and len(data) > 0:
+            # 生成新的预测
+            generate_auto_predictions(data, region)
         
     except Exception as e:
         print(f"更新预测准确率时出错: {e}")
