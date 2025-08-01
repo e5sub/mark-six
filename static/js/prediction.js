@@ -50,7 +50,10 @@ function getPrediction(strategy) {
                     numbers.push(data.special.number);
                 }
                 
-                fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${region}`)
+                // 确保使用与开奖记录相同的生肖计算逻辑
+                // 添加当前年份参数，以便后端使用正确的生肖映射
+                const currentYear = new Date().getFullYear();
+                fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${region}&year=${currentYear}`)
                     .then(response => response.json())
                     .then(zodiacData => {
                         // 添加生肖数据
