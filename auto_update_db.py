@@ -22,6 +22,11 @@ def check_column_exists(cursor, table_name, column_name):
     columns = [column[1] for column in cursor.fetchall()]
     return column_name in columns
 
+def check_table_exists(cursor, table_name):
+    """检查表是否存在"""
+    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+    return cursor.fetchone() is not None
+
 def update_database():
     """更新数据库结构和数据"""
     if not check_database_exists():
@@ -68,6 +73,29 @@ def update_database():
         ''')
         updated_strategies = cursor.rowcount
         print(f"✓ 更新了 {updated_strategies} 个用户的自动预测策略设置")
+        
+        # 检查并创建 lottery_draws 表
+        if not check_table_exists(cursor, 'lottery_draws'):
+            print("创建 lottery_draws 表...")
+            cursor.execute('''
+            CREATE TABLE lottery_draws (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                region VARCHAR(10) NOT NULL,
+                draw_id VARCHAR(20) NOT NULL,
+                draw_date VARCHAR(20),
+                normal_numbers VARCHAR(50) NOT NULL,
+                special_number VARCHAR(10) NOT NULL,
+                special_zodiac VARCHAR(10),
+                raw_zodiac VARCHAR(100),
+                raw_wave VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(region, draw_id)
+            )
+            ''')
+            print("✓ lottery_draws 表创建成功")
+        else:
+            print("lottery_draws 表已存在")
         
         # 验证更新结果
         print("\n验证更新结果:")

@@ -343,3 +343,78 @@ class SystemConfig(db.Model):
 
     def __repr__(self):
         return f'<SystemConfig {self.key}>'
+
+class LotteryDraw(db.Model):
+    """开奖记录模型"""
+    __tablename__ = 'lottery_draws'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    region = db.Column(db.String(10), nullable=False)  # 'hk' 或 'macau'
+    draw_id = db.Column(db.String(20), nullable=False)  # 期号
+    draw_date = db.Column(db.String(20))  # 开奖日期
+    normal_numbers = db.Column(db.String(50), nullable=False)  # 正码，逗号分隔
+    special_number = db.Column(db.String(10), nullable=False)  # 特码
+    special_zodiac = db.Column(db.String(10))  # 特码生肖
+    raw_zodiac = db.Column(db.String(100))  # 所有号码的生肖，逗号分隔
+    raw_wave = db.Column(db.String(100))  # 波色信息
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # 创建联合唯一索引，确保每个地区的每期号码只有一条记录
+    __table_args__ = (db.UniqueConstraint('region', 'draw_id', name='uix_region_draw_id'),)
+    
+    def to_dict(self):
+        """将记录转换为字典，方便API返回"""
+        return {
+            "id": self.draw_id,
+            "date": self.draw_date,
+            "no": self.normal_numbers.split(','),
+            "sno": self.special_number,
+            "sno_zodiac": self.special_zodiac,
+            "raw_zodiac": self.raw_zodiac,
+            "raw_wave": self.raw_wave
+        }
+    
+    @staticmethod
+    def save_draw(region, draw_data):
+        """保存开奖记录到数据库"""
+        try:
+            # 检查记录是否已存在
+            existing = LotteryDraw.query.filter_by(
+                region=region,
+                draw_id=draw_data.get('id')
+            ).first()
+            
+            if existing:
+                # 更新现有记录
+                existing.draw_date = draw_data.get('date', '')
+                existing.normal_numbers = ','.join(draw_data.get('no', []))
+                existing.special_number = draw_data.get('sno', '')
+                existing.special_zodiac = draw_data.get('sno_zodiac', '')
+                existing.raw_zodiac = draw_data.get('raw_zodiac', '')
+                existing.raw_wave = draw_data.get('raw_wave', '')
+                existing.updated_at = datetime.now()
+            else:
+                # 创建新记录
+                new_draw = LotteryDraw(
+                    region=region,
+                    draw_id=draw_data.get('id', ''),
+                    draw_date=draw_data.get('date', ''),
+                    normal_numbers=','.join(draw_data.get('no', [])),
+                    special_number=draw_data.get('sno', ''),
+                    special_zodiac=draw_data.get('sno_zodiac', ''),
+                    raw_zodiac=draw_data.get('raw_zodiac', ''),
+                    raw_wave=draw_data.get('raw_wave', '')
+                )
+                db.session.add(new_draw)
+            
+            db.session.commit()
+            return True
+        except Exception as e:
+            print(f"保存开奖记录失败: {e}")
+            db.session.rollback()
+            return False
+    
+    def __repr__(self):
+        return f'<LotteryDraw {self.region}-{self.draw_id}>'
+

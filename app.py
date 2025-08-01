@@ -1,5 +1,4 @@
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
 from flask_login import LoginManager, current_user
 import json
 import os
@@ -7,9 +6,11 @@ import random
 import requests
 from collections import Counter
 from datetime import datetime
+import time
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig, InviteCode
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw
 from auth import auth_bp
 from admin import admin_bp
 from user import user_bp
@@ -395,17 +396,56 @@ def get_yearly_data(region, year):
         year = str(datetime.now().year)
         print(f"年份为'全部'，使用当前年份: {year}")
     
+    # 首先尝试从数据库获取数据
+    try:
+        # 查询数据库中的开奖记录
+        query = LotteryDraw.query.filter_by(region=region)
+        if year != 'all':
+            query = query.filter(LotteryDraw.draw_date.like(f"{year}%"))
+        
+        db_records = query.order_by(LotteryDraw.draw_date.desc()).all()
+        
+        if db_records:
+            print(f"从数据库获取到{len(db_records)}条{region}地区{year}年的数据")
+            # 将数据库记录转换为API格式
+            return [record.to_dict() for record in db_records]
+    except Exception as e:
+        print(f"从数据库获取数据失败: {e}")
+    
+    # 如果数据库中没有数据，则从API获取
     if region == 'hk':
         all_data = load_hk_data()
         filtered_data = [rec for rec in all_data if rec.get('date', '').startswith(str(year))]
-        print(f"香港数据: 总数={len(all_data)}, 过滤后={len(filtered_data)}")
+        print(f"从API获取香港数据: 总数={len(all_data)}, 过滤后={len(filtered_data)}")
+        
+        # 保存数据到数据库
+        save_draws_to_database(filtered_data, 'hk')
+        
         return filtered_data
     if region == 'macau':
         macau_data = get_macau_data(year)
-        print(f"澳门数据: 总数={len(macau_data)}")
+        print(f"从API获取澳门数据: 总数={len(macau_data)}")
+        
+        # 保存数据到数据库
+        save_draws_to_database(macau_data, 'macau')
+        
         return macau_data
     print(f"未知地区: {region}")
     return []
+
+def save_draws_to_database(draws, region):
+    """保存开奖记录到数据库"""
+    try:
+        count = 0
+        for draw in draws:
+            # 调用LotteryDraw模型的save_draw方法保存记录
+            if LotteryDraw.save_draw(region, draw):
+                count += 1
+        
+        print(f"成功保存{count}条{region}地区的开奖记录到数据库")
+    except Exception as e:
+        print(f"保存开奖记录到数据库失败: {e}")
+        db.session.rollback()
 
 @app.route('/api/draws')
 def draws_api():
@@ -1065,10 +1105,39 @@ def init_database():
         except Exception as e:
             print(f"创建示例邀请码时出错: {e}")
 
+# 定时任务：每天22:00自动更新数据库中的开奖记录
+def update_lottery_data():
+    """定时任务：更新数据库中的开奖记录"""
+    print(f"开始执行定时任务：更新数据库中的开奖记录，时间：{datetime.now()}")
+    try:
+        current_year = str(datetime.now().year)
+        
+        # 更新香港数据
+        hk_data = load_hk_data()
+        hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
+        save_draws_to_database(hk_filtered, 'hk')
+        
+        # 更新澳门数据
+        macau_data = get_macau_data(current_year)
+        save_draws_to_database(macau_data, 'macau')
+        
+        print(f"定时任务执行完成：成功更新香港数据{len(hk_filtered)}条，澳门数据{len(macau_data)}条")
+    except Exception as e:
+        print(f"定时任务执行失败：{e}")
+
 if __name__ == '__main__':
     # 初始化数据库
     init_database()
     
-    # 不再需要检查本地数据文件
+    # 设置定时任务
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(update_lottery_data, 'cron', hour=22, minute=0)
+    scheduler.start()
+    print("定时任务已启动：每天22:00自动更新数据库中的开奖记录")
     
-    app.run(debug=True, port=5000)
+    try:
+        # 启动Flask应用
+        app.run(debug=True, port=5000)
+    except (KeyboardInterrupt, SystemExit):
+        # 关闭定时任务
+        scheduler.shutdown()

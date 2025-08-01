@@ -118,6 +118,24 @@ CREATE TABLE system_config (
 )
 ''')
 
+# 创建开奖记录表
+cursor.execute('''
+CREATE TABLE lottery_draws (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    region VARCHAR(10) NOT NULL,
+    draw_id VARCHAR(20) NOT NULL,
+    draw_date VARCHAR(20),
+    normal_numbers VARCHAR(50) NOT NULL,
+    special_number VARCHAR(10) NOT NULL,
+    special_zodiac VARCHAR(10),
+    raw_zodiac VARCHAR(100),
+    raw_wave VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(region, draw_id)
+)
+''')
+
 print("表创建完成，正在添加初始数据...")
 
 # 创建管理员用户
