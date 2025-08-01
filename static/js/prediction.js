@@ -42,30 +42,9 @@ function getPrediction(strategy) {
             // 调试信息
             console.log('预测结果数据:', data);
             
-            // 获取生肖数据
-            if (data.normal && data.normal.length > 0) {
-                // 调用API获取生肖数据
-                fetch(`/api/get_zodiacs?numbers=${data.normal.join(',')},${data.special ? data.special.number : ''}`)
-                    .then(response => response.json())
-                    .then(zodiacData => {
-                        // 添加生肖数据
-                        data.normal_zodiacs = zodiacData.normal_zodiacs;
-                        if (data.special) {
-                            data.special.sno_zodiac = zodiacData.special_zodiac;
-                        }
-                        
-                        // 显示预测结果
-                        displayPrediction(data, strategy);
-                    })
-                    .catch(error => {
-                        console.error('获取生肖数据失败:', error);
-                        // 即使没有生肖数据，也显示预测结果
-                        displayPrediction(data, strategy);
-                    });
-            } else {
-                // 显示预测结果
-                displayPrediction(data, strategy);
-            }
+            // 直接显示预测结果，使用API返回的生肖数据
+            // API已经在后端处理了生肖数据，确保与开奖记录使用相同的生肖计算逻辑
+            displayPrediction(data, strategy);
         })
         .catch(error => {
             console.error('获取预测失败:', error);
@@ -178,6 +157,19 @@ function displayPrediction(data, strategy) {
     predictionContent.innerHTML = html;
 }
 
+// 清除预测结果
+function clearPredictionResult() {
+    const predictionResult = document.getElementById('predictionResult');
+    if (predictionResult) {
+        predictionResult.style.display = 'none';
+    }
+    
+    const predictionContent = document.getElementById('predictionContent');
+    if (predictionContent) {
+        predictionContent.innerHTML = '';
+    }
+}
+
 // 获取球的颜色类
 function getBallColorClass(number) {
     const num = parseInt(number);
@@ -214,3 +206,17 @@ function resetYearAndPredict(strategy) {
         getPrediction(strategy);
     }, 300);
 }
+
+// 在页面加载完成后，为地区按钮添加切换事件监听器
+document.addEventListener('DOMContentLoaded', function() {
+    // 查找所有地区按钮
+    const regionButtons = document.querySelectorAll('.region-btn');
+    
+    // 为每个地区按钮添加点击事件监听器
+    regionButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            // 清除预测结果
+            clearPredictionResult();
+        });
+    });
+});
