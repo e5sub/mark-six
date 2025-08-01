@@ -258,28 +258,6 @@
     {% endif %}
 </div>
 
-<!-- 分页导航 -->
-{% if predictions and predictions.pages > 1 %}
-<div class="card">
-    <div class="pagination-wrapper">
-        {% if predictions.has_prev %}
-        <a href="{{ url_for('user.predictions', page=predictions.prev_num, **request.args) }}" class="btn btn-secondary">
-            ← 上一页
-        </a>
-        {% endif %}
-        
-        <span class="pagination-info">
-            第 {{ predictions.page }} 页，共 {{ predictions.pages }} 页
-        </span>
-        
-        {% if predictions.has_next %}
-        <a href="{{ url_for('user.predictions', page=predictions.next_num, **request.args) }}" class="btn btn-secondary">
-            下一页 →
-        </a>
-        {% endif %}
-    </div>
-</div>
-{% endif %}
 
 <!-- 操作说明 -->
 <div class="card">
@@ -733,20 +711,6 @@
     font-size: 1.1rem;
 }
 
-/* 分页样式 */
-.pagination-wrapper {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 2rem;
-    padding: 1.5rem;
-}
-
-.pagination-info {
-    color: #666;
-    font-weight: 600;
-    font-size: 1rem;
-}
 
 /* 帮助说明样式 */
 .help-grid {
@@ -885,10 +849,6 @@
         grid-template-columns: 1fr;
     }
     
-    .pagination-wrapper {
-        flex-direction: column;
-        gap: 1rem;
-    }
 }
 
 @media (max-width: 480px) {
