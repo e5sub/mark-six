@@ -51,11 +51,12 @@ function getPrediction(strategy) {
                 }
                 
                 // 确保使用与开奖记录相同的生肖计算逻辑
-                // 获取当前选择的年份，确保与开奖记录使用相同的年份参数
+                // 获取当前选择的地区和年份
+                const selectedRegion = document.querySelector('.region-btn.active').dataset.region;
                 const selectedYear = document.getElementById('yearSelect').value === 'all' ? 
                     new Date().getFullYear() : document.getElementById('yearSelect').value;
                 
-                fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}`)
+                fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${selectedRegion}&year=${selectedYear}`)
                     .then(response => response.json())
                     .then(zodiacData => {
                         // 添加生肖数据
