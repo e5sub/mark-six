@@ -406,7 +406,8 @@ def save_prediction_settings():
     # 验证策略是否有效
     valid_strategies = []
     for strategy in auto_prediction_strategies:
-        if strategy in ['random', 'balanced', 'ai']:
+        # 移除AI预测选项，只允许随机和均衡预测
+        if strategy in ['random', 'balanced']:
             valid_strategies.append(strategy)
     
     # 如果没有选择任何有效策略，默认使用均衡策略
