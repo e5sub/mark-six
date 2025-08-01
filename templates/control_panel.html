@@ -2,7 +2,7 @@
 <div class="controls-panel">
     <div class="control-group">
         <span class="control-label">地区:</span>
-        <div class="region-selector">
+        <div class="region-selector" id="regionSelector">
             <button class="region-btn active" data-region="macau" onclick="changeRegion('macau', this)">澳门</button>
             <button class="region-btn" data-region="hk" onclick="changeRegion('hk', this)">香港</button>
         </div>
@@ -10,16 +10,9 @@
     
     <div class="control-group">
         <span class="control-label">年份:</span>
-        <select id="yearSelect" class="modern-select" onchange="fetchDraws()">
+        <select id="yearSelect" class="modern-select" onchange="handleYearChange()">
             <option value="all">全部</option>
-            <option value="2025">2025年</option>
-            <option value="2024">2024年</option>
-            <option value="2023">2023年</option>
-            <option value="2022">2022年</option>
-            <option value="2021">2021年</option>
-            <option value="2020">2020年</option>
-            <option value="2019">2019年</option>
-            <option value="2018">2018年</option>
+            <!-- 年份选项将通过JavaScript动态生成 -->
         </select>
     </div>
 </div>
@@ -47,17 +40,17 @@
 
 <!-- 预测功能按钮 -->
 {% if session.get('user_id') and session.get('is_active') %}
-<div class="button-grid">
-    <button class="modern-btn btn-primary" onclick="getPrediction('random')">
+<div class="button-grid" id="predictionButtons">
+    <button class="modern-btn btn-primary" onclick="getPrediction('random')" id="randomPredBtn">
         <i class="fas fa-dice"></i> 随机预测
     </button>
-    <button class="modern-btn btn-success" onclick="getPrediction('balanced')">
+    <button class="modern-btn btn-success" onclick="getPrediction('balanced')" id="balancedPredBtn">
         <i class="fas fa-balance-scale"></i> 均衡预测
     </button>
-    <button class="modern-btn btn-warning" onclick="getPrediction('ai')">
+    <button class="modern-btn btn-warning" onclick="getPrediction('ai')" id="aiPredBtn">
         <i class="fas fa-robot"></i> AI智能预测
     </button>
-    <a href="{{ url_for('chat_page') }}" class="modern-btn btn-secondary">
+    <a href="{{ url_for('chat_page') }}" class="modern-btn btn-secondary" id="chatBtn">
         <i class="fas fa-comments"></i> AI智能聊天室
     </a>
 </div>
@@ -77,6 +70,11 @@
     <i class="fas fa-info-circle"></i> 登录并激活账号后可使用预测功能和AI智能聊天室。
 </div>
 {% endif %}
+
+<!-- 年份限制提示 -->
+<div id="yearLimitNotice" style="display: none; background: rgba(255, 193, 7, 0.1); color: #856404; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(255, 193, 7, 0.3);">
+    <i class="fas fa-exclamation-triangle"></i> 地区选择和预测功能仅在选择"全部年份"时可用，请将年份设置为"全部"。
+</div>
 
 <!-- 开奖记录表格 -->
 <div class="table-container">

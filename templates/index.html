@@ -791,6 +791,26 @@
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        /* 禁用状态样式 */
+        .disabled {
+            opacity: 0.5;
+            pointer-events: none;
+            cursor: not-allowed !important;
+        }
+
+        .region-btn.disabled {
+            background: #e9ecef !important;
+            color: #6c757d !important;
+            cursor: not-allowed !important;
+        }
+
+        .modern-btn.disabled {
+            opacity: 0.5;
+            pointer-events: none;
+            cursor: not-allowed !important;
+            filter: grayscale(50%);
+        }
     </style>
 </head>
 <body>
@@ -910,3 +930,159 @@
                     <button type="button" class="modern-btn btn-primary close-modal" style="padding: 8px 16px; font-size: 0.9rem;">关闭</button>
                 </div>
             </div>
+        </div>
+
+        <script>
+        // 处理年份变化
+        function handleYearChange() {
+            const yearSelect = document.getElementById('yearSelect');
+            const selectedYear = yearSelect.value;
+            const isAllYears = selectedYear === 'all';
+            
+            // 控制地区选择器
+            const regionSelector = document.getElementById('regionSelector');
+            const regionButtons = regionSelector ? regionSelector.querySelectorAll('.region-btn') : [];
+            
+            // 控制预测按钮
+            const predictionButtons = document.getElementById('predictionButtons');
+            const yearLimitNotice = document.getElementById('yearLimitNotice');
+            
+            if (isAllYears) {
+                // 启用地区选择
+                regionButtons.forEach(btn => {
+                    btn.classList.remove('disabled');
+                    btn.style.pointerEvents = 'auto';
+                    btn.style.opacity = '1';
+                    btn.style.cursor = 'pointer';
+                });
+                
+                // 启用预测按钮
+                if (predictionButtons) {
+                    const buttons = predictionButtons.querySelectorAll('.modern-btn');
+                    buttons.forEach(btn => {
+                        btn.classList.remove('disabled');
+                        btn.style.pointerEvents = 'auto';
+                        btn.style.opacity = '1';
+                        btn.style.filter = 'none';
+                        btn.style.cursor = 'pointer';
+                    });
+                }
+                
+                // 隐藏提示
+                if (yearLimitNotice) {
+                    yearLimitNotice.style.display = 'none';
+                }
+            } else {
+                // 禁用地区选择，强制选择澳门
+                regionButtons.forEach(btn => {
+                    if (btn.dataset.region !== 'macau') {
+                        btn.classList.remove('active');
+                    } else {
+                        btn.classList.add('active');
+                    }
+                    btn.classList.add('disabled');
+                    btn.style.pointerEvents = 'none';
+                    btn.style.opacity = '0.5';
+                    btn.style.cursor = 'not-allowed';
+                });
+                
+                // 强制设置为澳门地区
+                if (window.currentRegion !== 'macau') {
+                    window.currentRegion = 'macau';
+                }
+                
+                // 禁用预测按钮
+                if (predictionButtons) {
+                    const buttons = predictionButtons.querySelectorAll('.modern-btn');
+                    buttons.forEach(btn => {
+                        btn.classList.add('disabled');
+                        btn.style.pointerEvents = 'none';
+                        btn.style.opacity = '0.5';
+                        btn.style.filter = 'grayscale(50%)';
+                        btn.style.cursor = 'not-allowed';
+                    });
+                }
+                
+                // 显示提示
+                if (yearLimitNotice) {
+                    yearLimitNotice.style.display = 'block';
+                }
+            }
+            
+            // 调用原有的fetchDraws函数
+            if (typeof fetchDraws === 'function') {
+                fetchDraws();
+            }
+        }
+
+        // 动态生成年份选项
+        function generateYearOptions() {
+            const yearSelect = document.getElementById('yearSelect');
+            const currentYear = new Date().getFullYear();
+            
+            // 清除现有的年份选项（保留"全部"选项）
+            const allOption = yearSelect.querySelector('option[value="all"]');
+            yearSelect.innerHTML = '';
+            yearSelect.appendChild(allOption);
+            
+            // 生成当前年份及前4年的选项（总共5年）
+            for (let i = 0; i < 5; i++) {
+                const year = currentYear - i;
+                const option = document.createElement('option');
+                option.value = year.toString();
+                option.textContent = year + '年';
+                yearSelect.appendChild(option);
+            }
+        }
+
+        // 页面加载时初始化状态
+        document.addEventListener('DOMContentLoaded', function() {
+            // 先生成年份选项
+            generateYearOptions();
+            // 然后初始化年份控制状态
+            handleYearChange();
+        });
+
+        // 重写changeRegion函数，添加年份检查
+        const originalChangeRegion = window.changeRegion;
+        window.changeRegion = function(region, element) {
+            const yearSelect = document.getElementById('yearSelect');
+            const selectedYear = yearSelect ? yearSelect.value : 'all';
+            
+            // 只有在选择全部年份时才允许切换地区
+            if (selectedYear === 'all') {
+                if (originalChangeRegion) {
+                    originalChangeRegion(region, element);
+                }
+            } else {
+                // 如果不是全部年份，强制保持澳门选中状态
+                const regionButtons = document.querySelectorAll('.region-btn');
+                regionButtons.forEach(btn => {
+                    if (btn.dataset.region === 'macau') {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+            }
+        };
+
+        // 重写预测函数，添加年份检查
+        const originalGetPrediction = window.getPrediction;
+        window.getPrediction = function(type) {
+            const yearSelect = document.getElementById('yearSelect');
+            const selectedYear = yearSelect ? yearSelect.value : 'all';
+            
+            // 只有在选择全部年份时才允许预测
+            if (selectedYear === 'all') {
+                if (originalGetPrediction) {
+                    originalGetPrediction(type);
+                }
+            } else {
+                alert('预测功能仅在选择"全部年份"时可用，请将年份设置为"全部"。');
+            }
+        };
+        </script>
+    </div>
+</body>
+</html>
