@@ -42,9 +42,35 @@ function getPrediction(strategy) {
             // 调试信息
             console.log('预测结果数据:', data);
             
-            // 直接显示预测结果，使用API返回的生肖数据
-            // API已经在后端处理了生肖数据，确保与开奖记录使用相同的生肖计算逻辑
-            displayPrediction(data, strategy);
+            // 获取生肖数据
+            if (data.normal && data.normal.length > 0) {
+                // 调用API获取生肖数据，确保与开奖记录使用相同的生肖计算逻辑
+                const numbers = [...data.normal];
+                if (data.special && data.special.number) {
+                    numbers.push(data.special.number);
+                }
+                
+                fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${region}`)
+                    .then(response => response.json())
+                    .then(zodiacData => {
+                        // 添加生肖数据
+                        data.normal_zodiacs = zodiacData.normal_zodiacs;
+                        if (data.special) {
+                            data.special.sno_zodiac = zodiacData.special_zodiac;
+                        }
+                        
+                        // 显示预测结果
+                        displayPrediction(data, strategy);
+                    })
+                    .catch(error => {
+                        console.error('获取生肖数据失败:', error);
+                        // 即使没有生肖数据，也显示预测结果
+                        displayPrediction(data, strategy);
+                    });
+            } else {
+                // 显示预测结果
+                displayPrediction(data, strategy);
+            }
         })
         .catch(error => {
             console.error('获取预测失败:', error);
