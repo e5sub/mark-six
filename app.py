@@ -411,8 +411,10 @@ def get_yearly_data(region, year):
 def draws_api():
     region = request.args.get('region', 'hk')
     year = request.args.get('year', str(datetime.now().year))
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('pageSize', 20))
     
-    print(f"API请求: 地区={region}, 年份={year}")
+    print(f"API请求: 地区={region}, 年份={year}, 页码={page}, 每页数量={page_size}")
     
     # 处理"全部"年份的情况
     if year == 'all':
@@ -467,8 +469,16 @@ def draws_api():
     else:
         # 更新澳门预测准确率
         update_prediction_accuracy(data, 'macau')
-        
-    return jsonify(data[:50])
+    
+    # 分页处理
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # 如果是第一页，返回前50条数据，否则返回分页数据
+    if page == 1:
+        return jsonify(data[:50])
+    else:
+        return jsonify(data[start_idx:end_idx])
 
 def update_prediction_accuracy(data, region):
     """更新预测准确率 - 只比较特码和生肖"""

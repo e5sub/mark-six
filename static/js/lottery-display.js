@@ -3,6 +3,12 @@ const RED_BALLS = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 4
 const BLUE_BALLS = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48];
 const GREEN_BALLS = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49];
 
+// 分页变量
+let currentPage = 1;
+const pageSize = 20;
+let allDraws = []; // 存储所有获取到的数据
+let hasMoreData = true; // 标记是否还有更多数据可加载
+
 // 获取号码颜色
 function getBallColorClass(number) {
     const num = parseInt(number);
@@ -40,11 +46,24 @@ function createLotteryBallElement(num, isSpecial = false, zodiac = '') {
 }
 
 // 显示开奖记录
-function displayDraws(draws) {
+function displayDraws(draws, append = false) {
     const tableBody = document.getElementById('drawsTableBody');
-    tableBody.innerHTML = '';
+    
+    // 如果不是追加模式，则清空表格
+    if (!append) {
+        tableBody.innerHTML = '';
+    }
     
     if (!draws || draws.length === 0) {
+        // 如果是追加模式但没有数据，隐藏加载更多按钮
+        if (append) {
+            const loadMoreBtn = document.getElementById('loadMoreBtn');
+            if (loadMoreBtn) {
+                loadMoreBtn.style.display = 'none';
+            }
+            return;
+        }
+        
         const emptyRow = document.createElement('tr');
         const emptyCell = document.createElement('td');
         emptyCell.colSpan = 5; // 修改为5列，与表头一致
@@ -108,6 +127,13 @@ function displayDraws(draws) {
         
         tableBody.appendChild(row);
     });
+    
+    // 显示或隐藏加载更多按钮
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    if (loadMoreBtn) {
+        // 始终显示加载更多按钮，除非没有更多数据
+        loadMoreBtn.style.display = 'inline-block';
+    }
 }
 
 // 显示开奖详情
@@ -401,7 +427,20 @@ function fetchDraws() {
         .then(data => {
             console.log(`获取到${data ? data.length : 0}条开奖记录`);
             console.log('数据示例:', data && data.length > 0 ? data[0] : '无数据');
-            displayDraws(data);
+            
+            // 保存所有数据
+            allDraws = data || [];
+            
+            // 重置分页
+            currentPage = 1;
+            
+            // 检查是否还有更多数据可加载
+            hasMoreData = data && data.length > 0;
+            
+            // 显示第一页数据
+            const firstPageData = allDraws.slice(0, pageSize);
+            displayDraws(firstPageData);
+            
             if (loadingIndicator) {
                 loadingIndicator.style.display = 'none';
             }
@@ -414,6 +453,68 @@ function fetchDraws() {
             const tableBody = document.getElementById('drawsTableBody');
             if (tableBody) {
                 tableBody.innerHTML = '<tr><td colspan="10" style="padding: 30px; text-align: center;">获取数据失败，请稍后再试</td></tr>';
+            }
+        });
+}
+
+// 加载更多数据
+function loadMoreData() {
+    // 增加页码
+    currentPage++;
+    
+    // 获取当前选择的地区和年份
+    const region = document.querySelector('.region-btn.active')?.dataset.region || 'macau';
+    const year = document.getElementById('yearSelect')?.value || 'all';
+    
+    // 添加当前时间戳，避免缓存
+    const timestamp = new Date().getTime();
+    const url = `/api/draws?region=${region}&year=${year}&page=${currentPage}&pageSize=${pageSize}&_=${timestamp}`;
+    console.log(`加载更多数据: ${url}`);
+    
+    // 显示加载指示器
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    if (loadMoreBtn) {
+        loadMoreBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 加载中...';
+        loadMoreBtn.disabled = true;
+    }
+    
+    fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP错误! 状态: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log(`获取到${data ? data.length : 0}条新数据`);
+            
+            // 如果没有新数据，则隐藏加载更多按钮
+            if (!data || data.length === 0) {
+                if (loadMoreBtn) {
+                    loadMoreBtn.style.display = 'none';
+                }
+                return;
+            }
+            
+            // 将新数据添加到allDraws中
+            allDraws = allDraws.concat(data);
+            
+            // 追加显示数据
+            displayDraws(data, true);
+            
+            // 恢复加载更多按钮状态
+            if (loadMoreBtn) {
+                loadMoreBtn.innerHTML = '<i class="fas fa-sync-alt"></i> 查看更多';
+                loadMoreBtn.disabled = false;
+            }
+        })
+        .catch(error => {
+            console.error('加载更多数据失败:', error);
+            
+            // 恢复加载更多按钮状态
+            if (loadMoreBtn) {
+                loadMoreBtn.innerHTML = '<i class="fas fa-sync-alt"></i> 查看更多';
+                loadMoreBtn.disabled = false;
             }
         });
 }
@@ -447,7 +548,16 @@ function searchDraws() {
         .then(data => {
             // 在前端进行过滤
             const filteredData = filterDraws(data, searchTerm);
-            displayDraws(filteredData);
+            
+            // 保存过滤后的数据
+            allDraws = filteredData || [];
+            
+            // 重置分页
+            currentPage = 1;
+            
+            // 显示第一页数据
+            const firstPageData = allDraws.slice(0, pageSize);
+            displayDraws(firstPageData);
             
             if (loadingIndicator) {
                 loadingIndicator.style.display = 'none';
@@ -568,6 +678,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchButton = document.getElementById('searchButton');
     if (searchButton) {
         searchButton.addEventListener('click', searchDraws);
+    }
+    
+    // 初始化加载更多按钮
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    if (loadMoreBtn) {
+        loadMoreBtn.addEventListener('click', loadMoreData);
     }
     
     // 初始化模态框关闭按钮
