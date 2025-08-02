@@ -344,6 +344,208 @@ class SystemConfig(db.Model):
     def __repr__(self):
         return f'<SystemConfig {self.key}>'
 
+class ZodiacSetting(db.Model):
+    """生肖号码设置模型"""
+    __tablename__ = 'zodiac_settings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    year = db.Column(db.Integer, nullable=False)  # 年份
+    zodiac = db.Column(db.String(10), nullable=False)  # 生肖
+    numbers = db.Column(db.String(100), nullable=False)  # 号码组，逗号分隔
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # 创建联合唯一索引，确保每个年份的每个生肖只有一条记录
+    __table_args__ = (db.UniqueConstraint('year', 'zodiac', name='uix_year_zodiac'),)
+    
+    @staticmethod
+    def get_zodiac_for_number(year, number):
+        """获取指定年份指定号码的生肖"""
+        try:
+            number = int(number)
+            settings = ZodiacSetting.query.filter_by(year=year).all()
+            for setting in settings:
+                numbers = [int(n) for n in setting.numbers.split(',') if n.strip()]
+                if number in numbers:
+                    return setting.zodiac
+            
+            # 如果没有找到设置，使用默认规则
+            return ZodiacSetting.get_default_zodiac_for_number(number, year)
+        except Exception as e:
+            print(f"获取生肖设置失败: {e}")
+            return ZodiacSetting.get_default_zodiac_for_number(number, year)
+    
+    @staticmethod
+    def get_all_settings_for_year(year):
+        """获取指定年份的所有生肖设置，返回号码到生肖的映射"""
+        try:
+            settings = ZodiacSetting.query.filter_by(year=year).all()
+            number_to_zodiac = {}
+            
+            # 如果数据库中有设置，使用数据库设置
+            if settings:
+                for setting in settings:
+                    zodiac = setting.zodiac
+                    numbers = [int(n) for n in setting.numbers.split(',') if n.strip()]
+                    for number in numbers:
+                        number_to_zodiac[number] = zodiac
+            else:
+                # 如果数据库中没有设置，使用默认规则生成
+                for number in range(1, 50):
+                    zodiac = ZodiacSetting.get_default_zodiac_for_number(number, year)
+                    if zodiac:
+                        number_to_zodiac[number] = zodiac
+            
+            return number_to_zodiac
+        except Exception as e:
+            print(f"获取年份生肖设置失败: {e}")
+            # 出错时使用默认规则
+            number_to_zodiac = {}
+            for number in range(1, 50):
+                zodiac = ZodiacSetting.get_default_zodiac_for_number(number, year)
+                if zodiac:
+                    number_to_zodiac[number] = zodiac
+            return number_to_zodiac
+    
+    @staticmethod
+    def get_zodiac_settings(year):
+        """获取指定年份的所有生肖设置，返回生肖到号码组的映射"""
+        try:
+            settings = ZodiacSetting.query.filter_by(year=year).all()
+            
+            # 如果数据库中有设置，使用数据库设置
+            if settings:
+                return {setting.zodiac: setting.numbers for setting in settings}
+            else:
+                # 如果数据库中没有设置，使用默认规则生成
+                default_settings = {}
+                for zodiac in ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"]:
+                    default_settings[zodiac] = []
+                
+                for number in range(1, 50):
+                    zodiac = ZodiacSetting.get_default_zodiac_for_number(number, year)
+                    if zodiac and zodiac in default_settings:
+                        default_settings[zodiac].append(str(number))
+                
+                # 将号码列表转换为逗号分隔的字符串
+                for zodiac, numbers in default_settings.items():
+                    default_settings[zodiac] = ','.join(numbers)
+                
+                return default_settings
+        except Exception as e:
+            print(f"获取生肖设置失败: {e}")
+            return {}
+    
+    @staticmethod
+    def batch_update_settings(year, settings_data):
+        """批量更新生肖设置
+        settings_data格式: {zodiac: numbers_str, ...}
+        """
+        try:
+            # 先删除该年份的所有设置
+            ZodiacSetting.query.filter_by(year=year).delete()
+            
+            # 添加新的设置
+            for zodiac, numbers_str in settings_data.items():
+                # 验证号码格式
+                numbers = []
+                for num_str in numbers_str.split(','):
+                    try:
+                        num = int(num_str.strip())
+                        if 1 <= num <= 49:
+                            numbers.append(str(num))
+                    except ValueError:
+                        continue
+                
+                if numbers:  # 只有当有有效号码时才添加设置
+                    new_setting = ZodiacSetting(
+                        year=year,
+                        zodiac=zodiac,
+                        numbers=','.join(numbers)
+                    )
+                    db.session.add(new_setting)
+            
+            db.session.commit()
+            return True, "生肖设置更新成功"
+        except Exception as e:
+            db.session.rollback()
+            return False, f"更新生肖设置失败: {str(e)}"
+    
+    @staticmethod
+    def get_default_zodiac_for_number(number, year=None):
+        """使用默认规则获取号码对应的生肖"""
+        if year is None:
+            year = datetime.now().year
+            
+        # 基础生肖顺序（2025年龙年的顺序）
+        base_zodiacs = ["蛇", "龙", "兔", "虎", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马"]
+        
+        # 计算年份差值（以2025年为基准）
+        year_diff = year - 2025
+        
+        # 计算生肖偏移量（每年农历一月一日，末尾生肖调整到第一个，其他生肖整体后移）
+        offset = year_diff % 12
+        
+        # 调整生肖顺序
+        zodiacs = base_zodiacs[:]
+        for _ in range(offset):
+            # 将最后一个生肖移到第一位，其他生肖整体后移
+            zodiacs.insert(0, zodiacs.pop())
+        
+        # 固定的号码分组（每个生肖对应4个号码，最后一个生肖只有1个号码）
+        try:
+            number = int(number)
+            if 1 <= number <= 49:
+                # 计算生肖索引：(号码 - 1) % 12
+                zodiac_index = (number - 1) % 12
+                return zodiacs[zodiac_index]
+        except (ValueError, TypeError):
+            pass
+            
+        return None
+    
+    @staticmethod
+    def get_zodiac_table_for_year(year):
+        """获取指定年份的生肖号码对照表"""
+        # 基础生肖顺序（2025年龙年的顺序）
+        base_zodiacs = ["蛇", "龙", "兔", "虎", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马"]
+        
+        # 计算年份差值（以2025年为基准）
+        year_diff = year - 2025
+        
+        # 计算生肖偏移量（每年农历一月一日，末尾生肖调整到第一个，其他生肖整体后移）
+        offset = year_diff % 12
+        
+        # 调整生肖顺序
+        zodiacs = base_zodiacs[:]
+        for _ in range(offset):
+            # 将最后一个生肖移到第一位，其他生肖整体后移
+            zodiacs.insert(0, zodiacs.pop())
+        
+        # 生成对照表
+        table = {
+            'zodiacs': zodiacs,
+            'rows': []
+        }
+        
+        # 生成4行数据，每行12个号码
+        for row in range(4):
+            row_data = []
+            for col in range(12):
+                number = row * 12 + col + 1
+                if number <= 49:
+                    row_data.append(number)
+                else:
+                    row_data.append(None)
+            table['rows'].append(row_data)
+        
+        # 添加第5行（只有49号）
+        last_row = [None] * 12
+        last_row[0] = 49
+        table['rows'].append(last_row)
+        
+        return table
+
 class LotteryDraw(db.Model):
     """开奖记录模型"""
     __tablename__ = 'lottery_draws'
@@ -385,13 +587,56 @@ class LotteryDraw(db.Model):
                 draw_id=draw_data.get('id')
             ).first()
             
+            # 获取当前年份
+            draw_date = draw_data.get('date', '')
+            try:
+                current_year = int(draw_date.split('-')[0]) if '-' in draw_date else int(draw_date[:4])
+            except (ValueError, IndexError):
+                current_year = datetime.now().year
+            
+            # 获取号码列表
+            normal_numbers = draw_data.get('no', [])
+            special_number = draw_data.get('sno', '')
+            all_numbers = normal_numbers + [special_number] if special_number else normal_numbers
+            
+            # 尝试从ZodiacSetting获取生肖设置
+            zodiac_settings = ZodiacSetting.get_all_settings_for_year(current_year)
+            
+            # 如果有生肖设置，使用设置的生肖
+            if zodiac_settings:
+                # 更新特码生肖
+                if special_number:
+                    try:
+                        special_number_int = int(special_number)
+                        special_zodiac = zodiac_settings.get(special_number_int, draw_data.get('sno_zodiac', ''))
+                    except (ValueError, TypeError):
+                        special_zodiac = draw_data.get('sno_zodiac', '')
+                else:
+                    special_zodiac = draw_data.get('sno_zodiac', '')
+                
+                # 更新所有号码的生肖
+                raw_zodiacs = []
+                for num in all_numbers:
+                    try:
+                        num_int = int(num)
+                        zodiac = zodiac_settings.get(num_int, '')
+                        raw_zodiacs.append(zodiac)
+                    except (ValueError, TypeError):
+                        raw_zodiacs.append('')
+                
+                raw_zodiac = ','.join(raw_zodiacs)
+            else:
+                # 如果没有设置，使用原始数据
+                special_zodiac = draw_data.get('sno_zodiac', '')
+                raw_zodiac = draw_data.get('raw_zodiac', '')
+            
             if existing:
                 # 更新现有记录
-                existing.draw_date = draw_data.get('date', '')
-                existing.normal_numbers = ','.join(draw_data.get('no', []))
-                existing.special_number = draw_data.get('sno', '')
-                existing.special_zodiac = draw_data.get('sno_zodiac', '')
-                existing.raw_zodiac = draw_data.get('raw_zodiac', '')
+                existing.draw_date = draw_date
+                existing.normal_numbers = ','.join(normal_numbers)
+                existing.special_number = special_number
+                existing.special_zodiac = special_zodiac
+                existing.raw_zodiac = raw_zodiac
                 existing.raw_wave = draw_data.get('raw_wave', '')
                 existing.updated_at = datetime.now()
             else:
@@ -399,11 +644,11 @@ class LotteryDraw(db.Model):
                 new_draw = LotteryDraw(
                     region=region,
                     draw_id=draw_data.get('id', ''),
-                    draw_date=draw_data.get('date', ''),
-                    normal_numbers=','.join(draw_data.get('no', [])),
-                    special_number=draw_data.get('sno', ''),
-                    special_zodiac=draw_data.get('sno_zodiac', ''),
-                    raw_zodiac=draw_data.get('raw_zodiac', ''),
+                    draw_date=draw_date,
+                    normal_numbers=','.join(normal_numbers),
+                    special_number=special_number,
+                    special_zodiac=special_zodiac,
+                    raw_zodiac=raw_zodiac,
                     raw_wave=draw_data.get('raw_wave', '')
                 )
                 db.session.add(new_draw)

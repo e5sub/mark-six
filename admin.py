@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from functools import wraps
-from models import db, User, ActivationCode, PredictionRecord, SystemConfig, InviteCode
+from models import db, User, ActivationCode, PredictionRecord, SystemConfig, InviteCode, ZodiacSetting
 from datetime import datetime, timedelta
 import csv
 import json
@@ -718,3 +718,119 @@ def user_invites():
                              invited_users=empty_users, 
                              invite_stats={},
                              stats={'invite_stats': {}})
+
+# 生肖设置相关路由
+@admin_bp.route('/zodiac_settings')
+@admin_required
+def zodiac_settings():
+    """生肖号码对照表页面"""
+    try:
+        # 获取当前年份
+        current_year = request.args.get('year', datetime.now().year, type=int)
+        
+        # 获取当前年份的生肖对照表
+        zodiac_table = ZodiacSetting.get_zodiac_table_for_year(current_year)
+        
+        # 获取当前年份的生肖设置（用于编辑表单）
+        zodiac_settings = ZodiacSetting.get_zodiac_settings(current_year)
+        
+        return render_template('admin/zodiac_settings.html', 
+                              current_year=current_year,
+                              zodiac_table=zodiac_table,
+                              zodiac_settings=zodiac_settings)
+    except Exception as e:
+        flash(f'加载生肖对照表失败: {str(e)}', 'error')
+        return render_template('admin/zodiac_settings.html', 
+                              current_year=datetime.now().year,
+                              zodiac_table={},
+                              zodiac_settings={})
+
+@admin_bp.route('/zodiac_settings/save', methods=['POST'])
+@admin_required
+def save_zodiac_settings():
+    """保存生肖号码设置"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': '无效的数据格式'})
+        
+        year = data.get('year')
+        settings = data.get('settings')
+        
+        if not year or not settings:
+            return jsonify({'success': False, 'message': '缺少必要参数'})
+        
+        # 验证年份
+        try:
+            year = int(year)
+            if year < 2020 or year > 2050:
+                return jsonify({'success': False, 'message': '年份必须在2020-2050之间'})
+        except ValueError:
+            return jsonify({'success': False, 'message': '无效的年份格式'})
+        
+        # 验证设置数据
+        if not isinstance(settings, dict):
+            return jsonify({'success': False, 'message': '设置数据格式错误'})
+        
+        # 验证生肖名称
+        valid_zodiacs = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"]
+        for zodiac in settings.keys():
+            if zodiac not in valid_zodiacs:
+                return jsonify({'success': False, 'message': f'无效的生肖名称: {zodiac}'})
+        
+        # 验证号码范围和重复性
+        all_numbers = set()
+        for zodiac, numbers_str in settings.items():
+            if not numbers_str or not numbers_str.strip():
+                continue
+                
+            try:
+                numbers = [int(n.strip()) for n in numbers_str.split(',') if n.strip()]
+                for num in numbers:
+                    if num < 1 or num > 49:
+                        return jsonify({'success': False, 'message': f'号码必须在1-49之间: {num}'})
+                    if num in all_numbers:
+                        return jsonify({'success': False, 'message': f'号码重复: {num}'})
+                    all_numbers.add(num)
+            except ValueError:
+                return jsonify({'success': False, 'message': f'{zodiac}的号码格式错误'})
+        
+        # 保存设置
+        success, message = ZodiacSetting.batch_update_settings(year, settings)
+        
+        if success:
+            return jsonify({'success': True, 'message': message})
+        else:
+            return jsonify({'success': False, 'message': message})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'保存失败: {str(e)}'})
+
+@admin_bp.route('/zodiac_settings/reset', methods=['POST'])
+@admin_required
+def reset_zodiac_settings():
+    """重置生肖设置为默认值"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': '无效的数据格式'})
+        
+        year = data.get('year')
+        if not year:
+            return jsonify({'success': False, 'message': '缺少年份参数'})
+        
+        try:
+            year = int(year)
+        except ValueError:
+            return jsonify({'success': False, 'message': '无效的年份格式'})
+        
+        # 删除该年份的所有自定义设置，系统将自动使用默认规则
+        ZodiacSetting.query.filter_by(year=year).delete()
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': '生肖设置已重置为默认值'})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'重置失败: {str(e)}'})
+

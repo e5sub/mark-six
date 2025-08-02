@@ -470,13 +470,37 @@ def draws_api():
     
     # 创建号码到生肖的映射
     number_to_zodiac = {}
-    for record in macau_data:
-        all_numbers = record.get('no', []) + [record.get('sno')]
-        zodiacs = record.get('raw_zodiac', '').split(',')
-        if len(all_numbers) == len(zodiacs):
-            for i, num in enumerate(all_numbers):
-                if num:
-                    number_to_zodiac[num] = zodiacs[i]
+    
+    # 从ZodiacSetting获取当前年份的生肖设置
+    try:
+        from models import ZodiacSetting
+        current_year = int(year)
+        
+        # 使用ZodiacSetting模型获取生肖设置
+        for number in range(1, 50):
+            zodiac = ZodiacSetting.get_zodiac_for_number(current_year, number)
+            if zodiac:
+                number_to_zodiac[str(number)] = zodiac
+        
+        if not number_to_zodiac:  # 如果没有获取到生肖设置，则使用澳门API数据
+            print(f"未找到{current_year}年的生肖设置，使用澳门API数据")
+            for record in macau_data:
+                all_numbers = record.get('no', []) + [record.get('sno')]
+                zodiacs = record.get('raw_zodiac', '').split(',')
+                if len(all_numbers) == len(zodiacs):
+                    for i, num in enumerate(all_numbers):
+                        if num:
+                            number_to_zodiac[num] = zodiacs[i]
+    except Exception as e:
+        print(f"获取生肖设置失败，使用澳门API数据: {e}")
+        # 如果出错，使用澳门API返回的生肖数据
+        for record in macau_data:
+            all_numbers = record.get('no', []) + [record.get('sno')]
+            zodiacs = record.get('raw_zodiac', '').split(',')
+            if len(all_numbers) == len(zodiacs):
+                for i, num in enumerate(all_numbers):
+                    if num:
+                        number_to_zodiac[num] = zodiacs[i]
     
     if region == 'hk':
         for record in data:
@@ -918,19 +942,30 @@ def get_zodiacs_api():
     if not numbers or not numbers[0]:
         return jsonify({'normal_zodiacs': [], 'special_zodiac': ''})
     
-    # 获取当前年份的澳门数据，用于提取生肖信息
-    current_year = str(datetime.now().year)
-    macau_data = get_macau_data(current_year)
+    # 获取当前年份
+    current_year = datetime.now().year
     
-    # 创建号码到生肖的映射
+    # 从ZodiacSetting获取当前年份的生肖设置
+    from models import ZodiacSetting
     number_to_zodiac = {}
-    for record in macau_data:
-        all_numbers = record.get('no', []) + [record.get('sno')]
-        zodiacs = record.get('raw_zodiac', '').split(',')
-        if len(all_numbers) == len(zodiacs):
-            for i, num in enumerate(all_numbers):
-                if num:
-                    number_to_zodiac[num] = zodiacs[i]
+    
+    try:
+        # 使用ZodiacSetting模型获取生肖设置
+        for number in range(1, 50):
+            zodiac = ZodiacSetting.get_zodiac_for_number(current_year, number)
+            if zodiac:
+                number_to_zodiac[str(number)] = zodiac
+    except Exception as e:
+        print(f"获取生肖设置失败: {e}")
+        # 如果出错，使用澳门API返回的生肖数据
+        macau_data = get_macau_data(str(current_year))
+        for record in macau_data:
+            all_numbers = record.get('no', []) + [record.get('sno')]
+            zodiacs = record.get('raw_zodiac', '').split(',')
+            if len(all_numbers) == len(zodiacs):
+                for i, num in enumerate(all_numbers):
+                    if num:
+                        number_to_zodiac[num] = zodiacs[i]
     
     # 获取每个号码对应的生肖
     normal_zodiacs = []
@@ -963,20 +998,41 @@ def chat_page():
     # 检查用户登录状态
     if 'user_id' not in session:
         return redirect(url_for('auth.login'))
-    current_year = str(datetime.now().year)
-    
-    # 获取澳门数据，用于提取生肖信息
-    macau_data = get_macau_data(current_year)
+    current_year = datetime.now().year
     
     # 创建号码到生肖的映射
     number_to_zodiac = {}
-    for record in macau_data:
-        all_numbers = record.get('no', []) + [record.get('sno')]
-        zodiacs = record.get('raw_zodiac', '').split(',')
-        if len(all_numbers) == len(zodiacs):
-            for i, num in enumerate(all_numbers):
-                if num:
-                    number_to_zodiac[num] = zodiacs[i]
+    
+    # 首先尝试从ZodiacSetting获取当前年份的生肖设置
+    try:
+        from models import ZodiacSetting
+        zodiac_settings = ZodiacSetting.get_all_settings_for_year(current_year)
+        
+        if zodiac_settings:
+            # 使用数据库中的生肖设置
+            for number, zodiac in zodiac_settings.items():
+                number_to_zodiac[str(number)] = zodiac
+        else:
+            # 如果数据库中没有设置，则使用澳门API返回的生肖数据
+            macau_data = get_macau_data(str(current_year))
+            for record in macau_data:
+                all_numbers = record.get('no', []) + [record.get('sno')]
+                zodiacs = record.get('raw_zodiac', '').split(',')
+                if len(all_numbers) == len(zodiacs):
+                    for i, num in enumerate(all_numbers):
+                        if num:
+                            number_to_zodiac[num] = zodiacs[i]
+    except Exception as e:
+        print(f"获取生肖设置失败，使用澳门API数据: {e}")
+        # 如果出错，使用澳门API返回的生肖数据
+        macau_data = get_macau_data(str(current_year))
+        for record in macau_data:
+            all_numbers = record.get('no', []) + [record.get('sno')]
+            zodiacs = record.get('raw_zodiac', '').split(',')
+            if len(all_numbers) == len(zodiacs):
+                for i, num in enumerate(all_numbers):
+                    if num:
+                        number_to_zodiac[num] = zodiacs[i]
     
     hk_all_yearly_data = get_yearly_data('hk', current_year)
     hk_data_sorted = sorted(hk_all_yearly_data, key=lambda x: x.get('date', ''), reverse=True)
