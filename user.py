@@ -99,12 +99,16 @@ GREEN_BALLS = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49]
 
 def get_number_zodiac(number):
     """
-    此函数已不再使用静态映射表
-    生肖信息应直接从澳门接口返回的JSON数据中获取
-    此函数仅作为兼容性保留
+    获取号码对应的生肖
+    使用ZodiacSetting模型获取当前年份的生肖设置
     """
-    # 返回空字符串，实际生肖信息应从API数据中获取
-    return ""
+    try:
+        from models import ZodiacSetting
+        current_year = datetime.now().year
+        return ZodiacSetting.get_zodiac_for_number(current_year, number) or ""
+    except Exception as e:
+        print(f"获取号码生肖失败: {e}")
+        return ""
 
 def get_number_color(number):
     try:
