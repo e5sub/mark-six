@@ -82,7 +82,8 @@
             grid-template-columns: 280px 1fr 280px;
             gap: 20px;
             padding: 20px;
-            height: calc(100vh - 60px);
+            height: calc(100vh - 80px);
+            max-height: 800px;
         }
 
         /* 动态背景粒子效果 */
@@ -325,24 +326,24 @@
             margin-bottom: 20px;
         }
         
-        /* 欢迎消息样式 */
+        /* 欢迎消息样式 - 紧凑版 */
         .welcome-container {
             display: flex;
             align-items: flex-start;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         
         .ai-avatar {
-            width: 40px;
-            height: 40px;
+            width: 35px;
+            height: 35px;
             background: var(--primary-gradient);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-size: 1.2rem;
-            margin-right: 10px;
+            font-size: 1rem;
+            margin-right: 8px;
             box-shadow: var(--shadow-light);
             flex-shrink: 0;
         }
@@ -350,13 +351,14 @@
         .welcome-message {
             margin-top: 0;
             max-width: 90%;
+            padding: 10px 15px;
         }
         
         .message-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 0.85rem;
+            margin-bottom: 5px;
+            font-size: 0.8rem;
         }
         
         .ai-name {
@@ -369,36 +371,38 @@
         }
         
         .message-content {
-            margin-bottom: 15px;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            line-height: 1.4;
         }
         
-        /* 快速提问按钮 */
+        /* 快速提问按钮 - 紧凑版 */
         .quick-questions {
             background: rgba(111, 66, 193, 0.05);
-            border-radius: 10px;
-            padding: 10px;
-            margin-top: 10px;
+            border-radius: 8px;
+            padding: 8px;
+            margin-top: 5px;
         }
         
         .quick-question-title {
-            font-size: 0.9rem;
+            font-size: 0.8rem;
             font-weight: 600;
-            margin-bottom: 8px;
+            margin-bottom: 5px;
             color: #6f42c1;
         }
         
         .quick-question-buttons {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 5px;
         }
         
         .quick-question-btn {
             background: rgba(111, 66, 193, 0.1);
             border: 1px solid rgba(111, 66, 193, 0.2);
-            border-radius: 20px;
-            padding: 6px 12px;
-            font-size: 0.85rem;
+            border-radius: 15px;
+            padding: 4px 10px;
+            font-size: 0.8rem;
             color: #6f42c1;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -406,7 +410,7 @@
         
         .quick-question-btn:hover {
             background: rgba(111, 66, 193, 0.2);
-            transform: translateY(-2px);
+            transform: translateY(-1px);
         }
         
         .message { 
@@ -870,82 +874,6 @@
                 {% endfor %}
             </ul>
         </aside>
-    </div>
-
-    <!-- 移动端侧边栏切换按钮 -->
-    <div class="mobile-toggle" id="mobile-toggle">
-        <i class="fas fa-history"></i>
-    </div>
-
-    <!-- 移动端侧边栏 -->
-    <div class="mobile-sidebar" id="mobile-sidebar">
-        <div class="mobile-sidebar-content">
-            <div class="mobile-sidebar-header">
-                <h3>开奖结果</h3>
-                <button class="mobile-sidebar-close" id="mobile-sidebar-close">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="mobile-sidebar-tabs">
-                <div class="mobile-sidebar-tab active" data-tab="hk">香港</div>
-                <div class="mobile-sidebar-tab" data-tab="macau">澳门</div>
-            </div>
-            <div class="mobile-sidebar-tab-content active" id="hk-tab">
-                <ul class="results-list">
-                    {% for result in hk_results %}
-                    <li class="result-item clickable-result" 
-                        data-region="香港" 
-                        data-id="{{ result.id }}" 
-                        data-numbers="{{ (result.no + [result.sno]) | join(',') }}" 
-                        data-sno_zodiac="{{ result.sno_zodiac }}">
-                        <div class="result-item-header">
-                            <span><i class="fas fa-hashtag"></i> 第 {{ result.id }} 期</span>
-                            <span><i class="fas fa-calendar"></i> {{ result.date.split(' ')[0] }}</span>
-                        </div>
-                        <div class="ball-container">
-                            {% for num in result.no %}
-                            <div class="ball-wrapper"><div class="ball">{{ num }}</div></div>
-                            {% endfor %}
-                            <div class="ball-wrapper">
-                                <div class="ball special">{{ result.sno }}</div>
-                                <span class="zodiac-label">({{ result.sno_zodiac }})</span>
-                            </div>
-                        </div>
-                    </li>
-                    {% else %}
-                    <li>暂无数据</li>
-                    {% endfor %}
-                </ul>
-            </div>
-            <div class="mobile-sidebar-tab-content" id="macau-tab" style="display: none;">
-                <ul class="results-list">
-                    {% for result in macau_results %}
-                    <li class="result-item clickable-result" 
-                        data-region="澳门" 
-                        data-id="{{ result.id }}"
-                        data-numbers="{{ (result.no + [result.sno]) | join(',') }}" 
-                        data-zodiacs="{{ result.raw_zodiac }}"
-                        data-waves="{{ result.raw_wave }}">
-                        <div class="result-item-header">
-                            <span><i class="fas fa-hashtag"></i> 第 {{ result.id }} 期</span>
-                            <span><i class="fas fa-calendar"></i> {{ result.date.split(' ')[0] }}</span>
-                        </div>
-                        <div class="ball-container">
-                            {% for num in result.no %}
-                            <div class="ball-wrapper"><div class="ball">{{ num }}</div></div>
-                            {% endfor %}
-                            <div class="ball-wrapper">
-                                <div class="ball special">{{ result.sno }}</div>
-                                <span class="zodiac-label">({{ result.sno_zodiac }})</span>
-                            </div>
-                        </div>
-                    </li>
-                    {% else %}
-                    <li>暂无数据</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
     </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
