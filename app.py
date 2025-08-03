@@ -726,7 +726,36 @@ def unified_predict_api():
     
     return jsonify(result)
 
-# 移除更新数据API
+# 手动更新数据API
+@app.route('/api/update_data', methods=['POST'])
+def update_data_api():
+    try:
+        region = request.json.get('region', 'all')
+        current_year = str(datetime.now().year)
+        
+        if region == 'all' or region == 'hk':
+            # 更新香港数据
+            hk_data = load_hk_data()
+            hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
+            save_draws_to_database(hk_filtered, 'hk')
+            print(f"手动更新：成功更新香港数据{len(hk_filtered)}条")
+        
+        if region == 'all' or region == 'macau':
+            # 更新澳门数据
+            macau_data = get_macau_data(current_year)
+            save_draws_to_database(macau_data, 'macau')
+            print(f"手动更新：成功更新澳门数据{len(macau_data)}条")
+        
+        return jsonify({
+            "success": True, 
+            "message": f"数据更新成功，香港和澳门数据已更新至最新"
+        })
+    except Exception as e:
+        print(f"手动更新数据失败: {e}")
+        return jsonify({
+            "success": False,
+            "message": f"更新失败: {str(e)}"
+        }), 500
 
 @app.route('/api/number_frequency')
 def number_frequency_api():

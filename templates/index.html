@@ -914,6 +914,64 @@
     <div class="glass-card">
         {% include 'control_panel.html' %}
         
+        <!-- 手动更新数据按钮 -->
+        <div style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(0,0,0,0.1);">
+            <button id="updateDataBtn" class="modern-btn btn-success" style="padding: 10px 20px;">
+                <i class="fas fa-sync-alt"></i> 更新开奖数据
+            </button>
+            <span id="updateStatus" style="display: none; margin-left: 10px; font-size: 0.9rem;"></span>
+        </div>
+        
+        <script>
+            document.getElementById('updateDataBtn').addEventListener('click', function() {
+                // 显示加载状态
+                const btn = this;
+                const updateStatus = document.getElementById('updateStatus');
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在更新...';
+                updateStatus.style.display = 'inline';
+                updateStatus.textContent = '正在从官方数据源获取最新开奖数据...';
+                updateStatus.style.color = '#3498db';
+                
+                // 发送请求更新数据
+                fetch('/api/update_data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        region: 'all'  // 更新所有地区数据
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        updateStatus.textContent = data.message;
+                        updateStatus.style.color = '#2ecc71';
+                        
+                        // 更新成功后重新加载数据
+                        setTimeout(() => {
+                            fetchDraws();
+                        }, 1000);
+                    } else {
+                        updateStatus.textContent = data.message;
+                        updateStatus.style.color = '#e74c3c';
+                    }
+                })
+                .catch(error => {
+                    updateStatus.textContent = '更新失败，请稍后再试';
+                    updateStatus.style.color = '#e74c3c';
+                    console.error('更新数据出错:', error);
+                })
+                .finally(() => {
+                    // 恢复按钮状态
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-sync-alt"></i> 手动更新开奖数据';
+                    }, 2000);
+                });
+            });
+        </script>
     </div>
     
         
