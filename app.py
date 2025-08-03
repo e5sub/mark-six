@@ -20,59 +20,10 @@ from invite_routes import invite_bp
 # --- 配置信息 ---
 app = Flask(__name__)
 # 使用环境变量设置密钥，如果不存在则使用随机生成的密钥
-import os
 import secrets
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
 # 确保数据目录存在
-data_dir = os.path.join(os.getcwd(), 'data')
-os.makedirs(data_dir, exist_ok=True)
-
-# 数据库配置
-db_path = os.path.join(data_dir, 'lottery_system.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-print(f"数据库路径: {db_path}")
-print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
-import json
-import os
-import random
-import requests
-from collections import Counter
-from datetime import datetime
-
-# 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig
-from auth import auth_bp
-from admin import admin_bp
-from user import user_bp
-
-# --- 配置信息 ---
-app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'  # 请在生产环境中更改此密钥
-
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
-import json
-import os
-import random
-import requests
-from collections import Counter
-from datetime import datetime
-
-# 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig
-from auth import auth_bp
-from admin import admin_bp
-from user import user_bp
-
-# --- 配置信息 ---
-app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'  # 请在生产环境中更改此密钥
-
-# 确保数据目录存在
-import os
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
