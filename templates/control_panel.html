@@ -41,6 +41,9 @@
 <!-- 预测功能按钮 -->
 {% if session.get('user_id') and session.get('is_active') %}
 <div class="button-grid" id="predictionButtons">
+    <button id="updateDataBtn" class="modern-btn btn-success" style="padding: 10px 20px;">
+        <i class="fas fa-sync-alt"></i> 更新开奖数据
+    </button>
     <button class="modern-btn btn-primary" onclick="getPrediction('random')" id="randomPredBtn">
         <i class="fas fa-dice"></i> 随机预测
     </button>
@@ -64,6 +67,21 @@
 <div id="loadingIndicator" style="display: none; text-align: center; padding: 20px;">
     <div class="loading-spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
     <p style="margin-top: 15px; color: #6c757d;">正在生成预测结果，请稍候...</p>
+</div>
+
+<!-- 更新数据提示 -->
+<div id="updateStatusIndicator" style="display: none; position: fixed; top: 20px; right: 20px; max-width: 300px; background: linear-gradient(135deg, rgba(232, 234, 246, 0.95) 0%, rgba(243, 229, 245, 0.95) 50%, rgba(225, 245, 254, 0.95) 100%); border-radius: 12px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); z-index: 1000; overflow: hidden; animation: slideIn 0.3s ease-out;">
+    <div style="display: flex; align-items: center; padding: 15px;">
+        <div style="margin-right: 15px; width: 24px; height: 24px; flex-shrink: 0;">
+            <i id="updateStatusIcon" class="fas fa-spinner fa-spin" style="font-size: 24px; color: #3498db;"></i>
+        </div>
+        <div>
+            <p id="updateStatusText" style="margin: 0; font-size: 14px; font-weight: 500;">正在从官方数据源获取最新开奖数据...</p>
+        </div>
+        <div style="margin-left: auto; cursor: pointer;" onclick="document.getElementById('updateStatusIndicator').style.display = 'none';">
+            <i class="fas fa-times" style="color: #aaa;"></i>
+        </div>
+    </div>
 </div>
 {% else %}
 <div style="background: rgba(0, 123, 255, 0.1); color: #004085; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(0, 123, 255, 0.3);">
@@ -100,3 +118,71 @@
         <i class="fas fa-sync-alt"></i> 加载更多
     </button>
 </div>
+
+<script>
+    document.getElementById('updateDataBtn').addEventListener('click', function() {
+        // 显示加载状态
+        const btn = this;
+        const updateStatusIndicator = document.getElementById('updateStatusIndicator');
+        const updateStatusIcon = document.getElementById('updateStatusIcon');
+        const updateStatusText = document.getElementById('updateStatusText');
+        
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在更新...';
+        
+        // 显示右上角提示
+        updateStatusIndicator.style.display = 'block';
+        updateStatusIcon.className = 'fas fa-spinner fa-spin';
+        updateStatusIcon.style.color = '#3498db';
+        updateStatusText.textContent = '正在从官方数据源获取最新开奖数据...';
+        
+        // 发送请求更新数据
+        fetch('/api/update_data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                region: 'all'  // 更新所有地区数据
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // 更新成功
+                updateStatusIcon.className = 'fas fa-check-circle';
+                updateStatusIcon.style.color = '#2ecc71';
+                updateStatusText.textContent = data.message;
+                
+                // 更新成功后重新加载数据
+                setTimeout(() => {
+                    fetchDraws();
+                }, 1000);
+                
+                // 3秒后自动隐藏提示
+                setTimeout(() => {
+                    updateStatusIndicator.style.display = 'none';
+                }, 3000);
+            } else {
+                // 更新失败
+                updateStatusIcon.className = 'fas fa-exclamation-circle';
+                updateStatusIcon.style.color = '#e74c3c';
+                updateStatusText.textContent = data.message;
+            }
+        })
+        .catch(error => {
+            // 发生错误
+            updateStatusIcon.className = 'fas fa-exclamation-circle';
+            updateStatusIcon.style.color = '#e74c3c';
+            updateStatusText.textContent = '更新失败，请稍后再试';
+            console.error('更新数据出错:', error);
+        })
+        .finally(() => {
+            // 恢复按钮状态
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync-alt"></i> 更新开奖数据';
+            }, 2000);
+        });
+    });
+</script>
