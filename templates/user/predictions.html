@@ -105,28 +105,27 @@
                 
                 <div class="zodiac-info-compact">
                     <div class="special-zodiac-info">🐲 特码生肖: {{ get_number_zodiac(prediction.special_number) }}</div>
-                    {% if prediction.is_result_updated and prediction.actual_special_number %}
-                    <div class="draw-result-container">
-                        <div class="draw-result-label">开奖特码:</div>
-                        {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
-                        <div class="number-ball-compact ball-{{ actual_special_color }} actual-special-ball">
-                            {{ prediction.actual_special_number }}
-                            <div class="zodiac-indicator">{{ get_number_zodiac(prediction.actual_special_number) }}</div>
-                        </div>
-                        <div class="actual-zodiac-info">开奖生肖: {{ get_number_zodiac(prediction.actual_special_number) }}</div>
-                    </div>
-                    {% endif %}
                 </div>
             </div>
             
-                <!-- 中间：预测结果 -->
+            <!-- 中间：开奖特码和预测结果 -->
                 <div class="prediction-center">
-                    {% if prediction.is_result_updated %}
+                    {% if prediction.is_result_updated and prediction.actual_special_number %}
+                    <div class="draw-result-container-centered">
+                        <div class="draw-result-label-large">开奖特码</div>
+                        {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
+                        <div class="number-ball-large ball-{{ actual_special_color }} actual-special-ball-large">
+                            {{ prediction.actual_special_number }}
+                        </div>
+                        <div class="zodiac-indicator-large">{{ get_number_zodiac(prediction.actual_special_number) }}</div>
+                    </div>
+                    
+                    <div class="result-badge-container">
                         {% if prediction.special_number == prediction.actual_special_number %}
                             <div class="result-badge-compact result-success">
                                 🎯 特码命中
                             </div>
-                    {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
+                        {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
                             <div class="result-badge-compact result-partial">
                                 ✅ 平码命中
                             </div>
@@ -135,6 +134,7 @@
                                 ❌ 未命中
                             </div>
                         {% endif %}
+                    </div>
                     {% else %}
                     <div class="result-badge-compact result-pending">
                         ⏳ 待开奖
@@ -191,24 +191,23 @@
                     </div>
                     
                     <div class="zodiac-info-compact">
-                        <div class="special-zodiac-info">🐲 特码生肖: {{ prediction.special_zodiac }}</div>
-                        {% if prediction.is_result_updated and prediction.actual_special_number %}
-                        <div class="draw-result-container">
-                            <div class="draw-result-label">开奖特码:</div>
-                            {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
-                            <div class="number-ball-compact ball-{{ actual_special_color }} actual-special-ball">
-                                {{ prediction.actual_special_number }}
-                                <div class="zodiac-indicator">{{ prediction.actual_special_zodiac }}</div>
-                            </div>
-                            <div class="actual-zodiac-info">开奖生肖: {{ prediction.actual_special_zodiac }}</div>
-                        </div>
-                        {% endif %}
+                        <div class="special-zodiac-info">🐲 特码生肖: {{ get_number_zodiac(prediction.special_number) }}</div>
                     </div>
                 </div>
                 
-            <!-- 中间：预测结果 -->
+            <!-- 中间：开奖特码和预测结果 -->
             <div class="prediction-center">
-                {% if prediction.is_result_updated %}
+                {% if prediction.is_result_updated and prediction.actual_special_number %}
+                <div class="draw-result-container-centered">
+                    <div class="draw-result-label-large">开奖特码</div>
+                    {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
+                    <div class="number-ball-large ball-{{ actual_special_color }} actual-special-ball-large">
+                        {{ prediction.actual_special_number }}
+                    </div>
+                    <div class="zodiac-indicator-large">{{ get_number_zodiac(prediction.actual_special_number) }}</div>
+                </div>
+                
+                <div class="result-badge-container">
                     {% if prediction.special_number == prediction.actual_special_number %}
                         <div class="result-badge-compact result-success">
                             🎯 特码命中
@@ -222,6 +221,7 @@
                             ❌ 未命中
                         </div>
                     {% endif %}
+                </div>
                 {% else %}
                 <div class="result-badge-compact result-pending">
                     ⏳ 待开奖
@@ -701,12 +701,79 @@
     gap: 0.3rem;
 }
 
-/* 中间：预测结果 */
+/* 中间：预测结果和开奖特码 */
 .prediction-center {
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
     min-width: 120px;
+    gap: 0.8rem;
+}
+
+/* 开奖特码中央显示样式 */
+.draw-result-container-centered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255, 193, 7, 0.1);
+    padding: 0.8rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    box-shadow: 0 3px 10px rgba(255, 193, 7, 0.15);
+}
+
+.draw-result-label-large {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #ff5722;
+    margin-bottom: 0.5rem;
+    text-align: center;
+}
+
+.number-ball-large {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 700;
+    font-size: 1.3rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    margin-bottom: 0.5rem;
+}
+
+.actual-special-ball-large {
+    border: 3px solid #ff5722;
+    box-shadow: 0 0 20px rgba(255, 87, 34, 0.7), 0 4px 12px rgba(0, 0, 0, 0.2);
+    animation: actual-glow-large 2s ease-in-out infinite alternate;
+}
+
+.zodiac-indicator-large {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #ff5722;
+    background-color: rgba(255, 255, 255, 0.9);
+    padding: 2px 8px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+@keyframes actual-glow-large {
+    from {
+        box-shadow: 0 0 20px rgba(255, 87, 34, 0.7), 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    to {
+        box-shadow: 0 0 30px rgba(255, 87, 34, 0.9), 0 6px 16px rgba(0, 0, 0, 0.25);
+    }
+}
+
+.result-badge-container {
+    margin-top: 0.5rem;
 }
 
 .result-badge-compact {
@@ -921,10 +988,27 @@
         font-size: 0.85rem;
     }
     
+    .number-ball-large {
+        width: 42px;
+        height: 42px;
+        font-size: 1.2rem;
+    }
+    
+    .draw-result-container-centered {
+        padding: 0.6rem;
+    }
+    
+    .draw-result-label-large {
+        font-size: 1rem;
+    }
+    
+    .zodiac-indicator-large {
+        font-size: 0.85rem;
+    }
+    
     .help-grid {
         grid-template-columns: 1fr;
     }
-    
 }
 
 @media (max-width: 480px) {
@@ -963,6 +1047,28 @@
     
     .prediction-time-compact {
         font-size: 0.75rem;
+    }
+    
+    .number-ball-large {
+        width: 38px;
+        height: 38px;
+        font-size: 1.1rem;
+    }
+    
+    .draw-result-container-centered {
+        padding: 0.5rem;
+        width: 100%;
+        max-width: 160px;
+        margin: 0 auto;
+    }
+    
+    .draw-result-label-large {
+        font-size: 0.95rem;
+    }
+    
+    .zodiac-indicator-large {
+        font-size: 0.8rem;
+        padding: 1px 6px;
     }
 }
 </style>
