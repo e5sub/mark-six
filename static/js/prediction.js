@@ -6,41 +6,30 @@ function getPrediction(strategy) {
     // 获取当前选择的地区
     const region = document.querySelector('.region-btn.active').dataset.region;
     
-    // 获取当前选择的年份
-    const year = document.getElementById('yearSelect').value;
-    
-    // 检查是否选择了"全部"年份
-    if (year !== 'all') {
-        // 如果不是"全部"年份，显示提示信息并返回
-        document.getElementById('predictionIndicator').style.display = 'none';
-        
-        const predictionResult = document.getElementById('predictionResult');
-        predictionResult.style.display = 'flex';
-        
-        const predictionContent = document.getElementById('predictionContent');
-        predictionContent.innerHTML = `
-            <div style="background: rgba(255, 193, 7, 0.1); padding: 15px; border-radius: 10px; text-align: center; color: #856404;">
-                <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 10px;"></i>
-                <p>预测功能仅在选择"全部"年份时可用</p>
-                <button class="modern-btn btn-warning" onclick="resetYearAndPredict('${strategy}')" style="margin-top: 10px;">
-                    <i class="fas fa-sync"></i> 切换到全部年份并预测
-                </button>
-            </div>
-        `;
-        return;
-    }
+    // 由于年份选择器已被删除，默认使用'all'
+    const year = 'all';
     
     console.log(`正在获取${strategy}预测结果: 地区=${region}, 年份=${year}`);
     
     // 发送请求获取预测结果
     fetch(`/api/predict?region=${region}&strategy=${strategy}&year=${year}`)
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP错误! 状态: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
             // 隐藏预测加载指示器
             document.getElementById('predictionIndicator').style.display = 'none';
             
             // 调试信息
             console.log('预测结果数据:', data);
+            
+            // 检查是否有错误信息
+            if (data.error) {
+                throw new Error(data.error);
+            }
             
             // 获取生肖数据
             if (data.normal && data.normal.length > 0) {
@@ -53,11 +42,15 @@ function getPrediction(strategy) {
                 // 确保使用与开奖记录相同的生肖计算逻辑
                 // 获取当前选择的地区和年份
                 const selectedRegion = document.querySelector('.region-btn.active').dataset.region;
-                const selectedYear = document.getElementById('yearSelect').value === 'all' ? 
-                    new Date().getFullYear() : document.getElementById('yearSelect').value;
+                const selectedYear = new Date().getFullYear(); // 使用当前年份
                 
                 fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${selectedRegion}&year=${selectedYear}`)
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`获取生肖数据失败: ${response.status}`);
+                        }
+                        return response.json();
+                    })
                     .then(zodiacData => {
                         // 添加生肖数据
                         data.normal_zodiacs = zodiacData.normal_zodiacs;
@@ -90,7 +83,10 @@ function getPrediction(strategy) {
             predictionContent.innerHTML = `
                 <div style="background: rgba(220, 53, 69, 0.1); padding: 15px; border-radius: 10px; text-align: center; color: #dc3545;">
                     <i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 10px;"></i>
-                    <p>获取预测失败，请稍后再试</p>
+                    <p>获取预测失败: ${error.message}</p>
+                    <button class="modern-btn btn-danger" onclick="location.reload()" style="margin-top: 10px;">
+                        <i class="fas fa-sync"></i> 刷新页面
+                    </button>
                 </div>
             `;
         });
@@ -219,24 +215,6 @@ function getBallColorClass(number) {
     if (greenBalls.includes(num)) return 'green';
     
     return '';
-}
-
-// 重置年份选择为"全部"并触发预测
-function resetYearAndPredict(strategy) {
-    // 将年份选择器设置为"全部"
-    const yearSelect = document.getElementById('yearSelect');
-    if (yearSelect) {
-        yearSelect.value = 'all';
-        
-        // 触发年份变化事件，更新开奖记录
-        const event = new Event('change');
-        yearSelect.dispatchEvent(event);
-    }
-    
-    // 延迟一下再触发预测，确保开奖记录已更新
-    setTimeout(() => {
-        getPrediction(strategy);
-    }, 300);
 }
 
 // 在页面加载完成后，为地区按钮添加切换事件监听器

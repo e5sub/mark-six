@@ -909,102 +909,14 @@
             </div>
         </div>
 
-        <script>
-        // 处理年份变化
-        function handleYearChange() {
-            const yearSelect = document.getElementById('yearSelect');
-            const selectedYear = yearSelect.value;
-            const isAllYears = selectedYear === 'all';
-            
-            // 控制预测按钮
-            const predictionButtons = document.getElementById('predictionButtons');
-            const yearLimitNotice = document.getElementById('yearLimitNotice');
-            
-            if (isAllYears) {
-                // 启用预测按钮
-                if (predictionButtons) {
-                    const buttons = predictionButtons.querySelectorAll('.modern-btn');
-                    buttons.forEach(btn => {
-                        btn.classList.remove('disabled');
-                        btn.style.pointerEvents = 'auto';
-                        btn.style.opacity = '1';
-                        btn.style.filter = 'none';
-                        btn.style.cursor = 'pointer';
-                    });
-                }
-                
-                // 隐藏提示
-                if (yearLimitNotice) {
-                    yearLimitNotice.style.display = 'none';
-                }
-            } else {
-                // 禁用预测按钮
-                if (predictionButtons) {
-                    const buttons = predictionButtons.querySelectorAll('.modern-btn');
-                    buttons.forEach(btn => {
-                        btn.classList.add('disabled');
-                        btn.style.pointerEvents = 'none';
-                        btn.style.opacity = '0.5';
-                        btn.style.filter = 'grayscale(50%)';
-                        btn.style.cursor = 'not-allowed';
-                    });
-                }
-                
-                // 显示提示
-                if (yearLimitNotice) {
-                    yearLimitNotice.style.display = 'block';
-                }
-            }
-            
+<script>
+        // 页面加载时初始化状态
+        document.addEventListener('DOMContentLoaded', function() {
             // 调用原有的fetchDraws函数
             if (typeof fetchDraws === 'function') {
                 fetchDraws();
             }
-        }
-
-        // 动态生成年份选项
-        function generateYearOptions() {
-            const yearSelect = document.getElementById('yearSelect');
-            const currentYear = new Date().getFullYear();
-            
-            // 清除现有的年份选项（保留"全部"选项）
-            const allOption = yearSelect.querySelector('option[value="all"]');
-            yearSelect.innerHTML = '';
-            yearSelect.appendChild(allOption);
-            
-            // 生成当前年份及前4年的选项（总共5年）
-            for (let i = 0; i < 5; i++) {
-                const year = currentYear - i;
-                const option = document.createElement('option');
-                option.value = year.toString();
-                option.textContent = year + '年';
-                yearSelect.appendChild(option);
-            }
-        }
-
-        // 页面加载时初始化状态
-        document.addEventListener('DOMContentLoaded', function() {
-            // 先生成年份选项
-            generateYearOptions();
-            // 然后初始化年份控制状态
-            handleYearChange();
         });
-
-        // 重写预测函数，添加年份检查
-        const originalGetPrediction = window.getPrediction;
-        window.getPrediction = function(type) {
-            const yearSelect = document.getElementById('yearSelect');
-            const selectedYear = yearSelect ? yearSelect.value : 'all';
-            
-            // 只有在选择全部年份时才允许预测
-            if (selectedYear === 'all') {
-                if (originalGetPrediction) {
-                    originalGetPrediction(type);
-                }
-            } else {
-                alert('预测功能仅在选择"全部年份"时可用，请将年份设置为"全部"。');
-            }
-        };
         </script>
     </div>
 </body>
