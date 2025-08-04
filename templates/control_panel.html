@@ -1,25 +1,20 @@
 <!-- 控制面板 -->
 <div class="controls-panel">
-    <div class="control-group">
-        <span class="control-label">地区:</span>
-        <div class="region-selector" id="regionSelector">
-            <button class="region-btn active" data-region="macau" onclick="changeRegion('macau', this)">澳门</button>
-            <button class="region-btn" data-region="hk" onclick="changeRegion('hk', this)">香港</button>
-        </div>
-    </div>
-    
-    <div class="control-group">
-        <span class="control-label">年份:</span>
-        <select id="yearSelect" class="modern-select" onchange="handleYearChange()">
-            <option value="all">全部</option>
-            <!-- 年份选项将通过JavaScript动态生成 -->
-        </select>
-    </div>
+    <!-- 年份选择器已删除 -->
 </div>
 
 <!-- 搜索面板 -->
 <div class="glass-card" style="margin-top: 15px; padding: 15px;">
     <div style="display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; align-items: center;">
+        <!-- 地区选择器移到搜索左边 -->
+        <div class="control-group" style="margin-right: 10px;">
+            <span class="control-label">地区:</span>
+            <div class="region-selector" id="regionSelector">
+                <button class="region-btn active" data-region="macau" onclick="changeRegion('macau', this)">澳门</button>
+                <button class="region-btn" data-region="hk" onclick="changeRegion('hk', this)">香港</button>
+            </div>
+        </div>
+        
         <!-- 统一搜索框 -->
         <div style="display: flex; align-items: center; gap: 10px; flex-grow: 1; max-width: 500px;">
             <span class="control-label">搜索:</span>
