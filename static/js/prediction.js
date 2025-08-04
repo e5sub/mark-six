@@ -174,12 +174,98 @@ function displayPrediction(data, strategy) {
     
     // 显示AI分析文本
     if (data.recommendation_text) {
-        html += `
-            <div style="margin-top: 20px; text-align: left; background: rgba(248, 249, 250, 0.7); padding: 15px; border-radius: 10px; border: 1px solid rgba(0, 0, 0, 0.1);">
-                <h4 style="margin-bottom: 10px; color: #495057;">AI分析:</h4>
-                <p style="white-space: pre-line; line-height: 1.6;">${data.recommendation_text}</p>
-            </div>
-        `;
+        // 添加marked.js库（如果页面中还没有）
+        if (!window.marked) {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+            document.head.appendChild(script);
+            
+            // 等待脚本加载完成
+            script.onload = function() {
+                renderMarkdown();
+            };
+        } else {
+            renderMarkdown();
+        }
+        
+        function renderMarkdown() {
+            // 使用marked解析Markdown文本
+            const parsedContent = window.marked ? window.marked.parse(data.recommendation_text) : data.recommendation_text;
+            
+            html += `
+                <div style="margin-top: 20px; text-align: left; background: rgba(248, 249, 250, 0.7); padding: 15px; border-radius: 10px; border: 1px solid rgba(0, 0, 0, 0.1);">
+                    <h4 style="margin-bottom: 10px; color: #495057;">AI分析:</h4>
+                    <div style="line-height: 1.6;" class="markdown-content">${parsedContent}</div>
+                </div>
+            `;
+            
+            predictionContent.innerHTML = html;
+            
+            // 添加Markdown样式
+            const style = document.createElement('style');
+            style.textContent = `
+                .markdown-content h1, .markdown-content h2, .markdown-content h3, 
+                .markdown-content h4, .markdown-content h5, .markdown-content h6 {
+                    margin-top: 1em;
+                    margin-bottom: 0.5em;
+                    font-weight: 600;
+                    color: #333;
+                }
+                .markdown-content h1 { font-size: 1.8em; }
+                .markdown-content h2 { font-size: 1.6em; }
+                .markdown-content h3 { font-size: 1.4em; }
+                .markdown-content h4 { font-size: 1.2em; }
+                .markdown-content h5 { font-size: 1.1em; }
+                .markdown-content h6 { font-size: 1em; }
+                .markdown-content p { margin-bottom: 1em; }
+                .markdown-content strong { font-weight: 700; }
+                .markdown-content em { font-style: italic; }
+                .markdown-content ul, .markdown-content ol { 
+                    margin-left: 2em; 
+                    margin-bottom: 1em;
+                }
+                .markdown-content li { margin-bottom: 0.5em; }
+                .markdown-content code {
+                    background-color: rgba(0,0,0,0.05);
+                    padding: 0.2em 0.4em;
+                    border-radius: 3px;
+                    font-family: monospace;
+                }
+                .markdown-content pre {
+                    background-color: rgba(0,0,0,0.05);
+                    padding: 1em;
+                    border-radius: 5px;
+                    overflow-x: auto;
+                    margin-bottom: 1em;
+                }
+                .markdown-content pre code {
+                    background-color: transparent;
+                    padding: 0;
+                }
+                .markdown-content blockquote {
+                    border-left: 4px solid #ddd;
+                    padding-left: 1em;
+                    margin-left: 0;
+                    color: #666;
+                }
+                .markdown-content table {
+                    border-collapse: collapse;
+                    width: 100%;
+                    margin-bottom: 1em;
+                }
+                .markdown-content table th, .markdown-content table td {
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }
+                .markdown-content table th {
+                    background-color: rgba(0,0,0,0.05);
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        return; // 提前返回，因为renderMarkdown会设置innerHTML
     }
     
     predictionContent.innerHTML = html;
