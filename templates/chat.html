@@ -6,6 +6,11 @@
     <title>AI 聊天室 - 数据分析预测系统</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- 添加 Markdown 解析库 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- 添加代码高亮库 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github.css">
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
     <style>
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -374,6 +379,70 @@
             margin-bottom: 8px;
             font-size: 0.9rem;
             line-height: 1.4;
+        }
+        
+        /* Markdown 样式 */
+        .message-content img {
+            max-width: 100%;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        
+        .message-content pre {
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+            padding: 10px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        
+        .message-content code {
+            font-family: Consolas, Monaco, 'Andale Mono', monospace;
+            font-size: 0.85rem;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 3px;
+            padding: 2px 4px;
+        }
+        
+        .message-content pre code {
+            background: transparent;
+            padding: 0;
+        }
+        
+        .message-content blockquote {
+            border-left: 4px solid #6f42c1;
+            padding-left: 15px;
+            margin-left: 0;
+            color: #666;
+        }
+        
+        .message-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0;
+        }
+        
+        .message-content th, .message-content td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        
+        .message-content th {
+            background-color: rgba(111, 66, 193, 0.1);
+        }
+        
+        .message-content a {
+            color: #6f42c1;
+            text-decoration: none;
+        }
+        
+        .message-content a:hover {
+            text-decoration: underline;
+        }
+        
+        .message-content ul, .message-content ol {
+            padding-left: 20px;
         }
         
         /* 快速提问按钮 - 紧凑版 */
@@ -1081,6 +1150,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 配置 marked 解析器
+    marked.setOptions({
+        breaks: true,
+        gfm: true,
+        headerIds: false,
+        highlight: function(code, lang) {
+            const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+            return hljs.highlight(code, { language }).value;
+        }
+    });
+    
     // 在聊天窗口中追加消息的函数
     function appendMessage(text, sender, isTyping = false, isError = false) {
         // 创建消息容器
@@ -1123,7 +1203,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // 添加消息内容
         const messageContent = document.createElement('div');
         messageContent.className = 'message-content';
-        messageContent.textContent = text;
+        
+        // 如果是AI消息且不是打字指示器，使用Markdown解析
+        if (sender === 'ai' && !isTyping) {
+            messageContent.innerHTML = marked.parse(text);
+            // 处理完成后应用代码高亮
+            messageContent.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+        } else {
+            messageContent.textContent = text;
+        }
+        
         messageDiv.appendChild(messageContent);
         
         // 将消息添加到容器
