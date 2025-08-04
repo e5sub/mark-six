@@ -32,8 +32,10 @@ db_path = os.path.join(data_dir, 'lottery_system.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-print(f"数据库路径: {db_path}")
-print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+# 只在主进程中打印一次
+if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+    print(f"数据库路径: {db_path}")
+    print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
 
 # 初始化数据库
 # 初始化数据库
@@ -67,7 +69,9 @@ def get_ai_config():
 # 原始API可能不可访问，使用备用API
 # MACAU_API_URL_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}"
 MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
-print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
+# 只在主进程中打印一次
+if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+    print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
 # 香港数据API
 HK_DATA_SOURCE_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/data/all.json"
 
@@ -1031,7 +1035,8 @@ def init_database():
             admin.set_password('admin123')  # 默认密码，请在首次登录后修改
             db.session.add(admin)
             db.session.commit()
-            print("已创建默认管理员账号: admin / admin123")
+            if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+                print("已创建默认管理员账号: admin / admin123")
         
         # 初始化系统配置
         configs = [
@@ -1063,7 +1068,8 @@ def init_database():
                     invite_code.expires_at = datetime.now() + timedelta(days=30)
                     db.session.add(invite_code)
                 db.session.commit()
-                print("✅ 为管理员创建了3个示例邀请码")
+                if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+                    print("✅ 为管理员创建了3个示例邀请码")
         except Exception as e:
             print(f"创建示例邀请码时出错: {e}")
 
@@ -1112,7 +1118,9 @@ if __name__ == '__main__':
     scheduler = BackgroundScheduler()
     scheduler.add_job(update_lottery_data, 'cron', hour=22, minute=0)
     scheduler.start()
-    print("定时任务已启动：每天22:00自动更新数据库中的开奖记录")
+    # 只在主进程中打印一次
+    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        print("定时任务已启动：每天22:00自动更新数据库中的开奖记录")
     
     try:
         # 启动Flask应用
