@@ -886,30 +886,6 @@
     </style>
 
     <div class="main-container">
-        <!-- 主标题区域 -->
-        <div class="glass-card">
-            <h1 class="main-title" id="mainTitle">
-                <i class="fas fa-chart-line"></i>
-                六合彩数据分析
-            </h1>
-            <p class="subtitle">智能数据分析 · 精准预测推荐 · 实时更新</p>
-            {% if not session.get('user_id') %}
-            <div style="text-align: center; margin-top: 20px;">
-                <a href="{{ url_for('auth.login') }}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 25px; border-radius: 25px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-                    <i class="fas fa-sign-in-alt"></i> 登录使用完整功能
-                </a>
-                <a href="{{ url_for('auth.register') }}" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 12px 25px; border-radius: 25px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); transition: all 0.3s ease; margin-left: 15px;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-                    <i class="fas fa-user-plus"></i> 注册新账号
-                </a>
-            </div>
-            {% elif not session.get('is_active') %}
-            <div style="background: rgba(255, 193, 7, 0.1); color: #856404; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(255, 193, 7, 0.3);">
-                <i class="fas fa-exclamation-triangle"></i> 您的账号尚未激活，请先激活账号才能使用预测功能。
-                <a href="{{ url_for('auth.activate') }}" style="color: #856404; text-decoration: underline; margin-left: 10px;">立即激活</a>
-            </div>
-            {% endif %}
-        </div>
-
         <!-- 控制面板 -->
         <div class="glass-card">
             {% include 'control_panel.html' %}
