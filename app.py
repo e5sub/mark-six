@@ -1071,21 +1071,38 @@ def init_database():
 def update_lottery_data():
     """定时任务：更新数据库中的开奖记录"""
     print(f"开始执行定时任务：更新数据库中的开奖记录，时间：{datetime.now()}")
-    try:
-        current_year = str(datetime.now().year)
-        
-        # 更新香港数据
-        hk_data = load_hk_data()
-        hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
-        save_draws_to_database(hk_filtered, 'hk')
-        
-        # 更新澳门数据
-        macau_data = get_macau_data(current_year)
-        save_draws_to_database(macau_data, 'macau')
-        
-        print(f"定时任务执行完成：成功更新香港数据{len(hk_filtered)}条，澳门数据{len(macau_data)}条")
-    except Exception as e:
-        print(f"定时任务执行失败：{e}")
+    
+    # 在应用上下文中执行数据库操作
+    with app.app_context():
+        try:
+            current_year = str(datetime.now().year)
+            
+            # 更新香港数据
+            print("正在获取香港数据...")
+            hk_data = load_hk_data()
+            hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
+            save_draws_to_database(hk_filtered, 'hk')
+            print(f"香港数据更新完成：{len(hk_filtered)}条")
+            
+            # 更新澳门数据
+            print("正在获取澳门数据...")
+            macau_data = get_macau_data(current_year)
+            save_draws_to_database(macau_data, 'macau')
+            print(f"澳门数据更新完成：{len(macau_data)}条")
+            
+            # 触发自动预测功能
+            print("正在生成自动预测...")
+            if hk_filtered:
+                generate_auto_predictions(hk_filtered, 'hk')
+            if macau_data:
+                generate_auto_predictions(macau_data, 'macau')
+            
+            print(f"定时任务执行完成：成功更新香港数据{len(hk_filtered)}条，澳门数据{len(macau_data)}条")
+            
+        except Exception as e:
+            print(f"定时任务执行失败：{e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == '__main__':
     # 初始化数据库
