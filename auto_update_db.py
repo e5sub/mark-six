@@ -96,6 +96,24 @@ def update_database():
             print("✓ lottery_draws 表创建成功")
         else:
             print("lottery_draws 表已存在")
+            
+        # 检查并创建 zodiac_settings 表
+        if not check_table_exists(cursor, 'zodiac_settings'):
+            print("创建 zodiac_settings 表...")
+            cursor.execute('''
+            CREATE TABLE zodiac_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year INTEGER NOT NULL,
+                zodiac VARCHAR(10) NOT NULL,
+                numbers VARCHAR(100) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(year, zodiac)
+            )
+            ''')
+            print("✓ zodiac_settings 表创建成功")
+        else:
+            print("zodiac_settings 表已存在")
         
         # 验证更新结果
         print("\n验证更新结果:")

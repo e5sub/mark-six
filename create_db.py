@@ -136,6 +136,19 @@ CREATE TABLE lottery_draws (
 )
 ''')
 
+# 创建生肖设置表
+cursor.execute('''
+CREATE TABLE zodiac_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    year INTEGER NOT NULL,
+    zodiac VARCHAR(10) NOT NULL,
+    numbers VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(year, zodiac)
+)
+''')
+
 print("表创建完成，正在添加初始数据...")
 
 # 创建管理员用户
