@@ -177,7 +177,7 @@ function displayPrediction(data, strategy) {
         // 添加marked.js库（如果页面中还没有）
         if (!window.marked) {
             const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+            script.src = 'https://fastly.jsdelivr.net/npm/marked/marked.min.js';
             document.head.appendChild(script);
             
             // 等待脚本加载完成
