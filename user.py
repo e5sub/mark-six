@@ -407,12 +407,12 @@ def save_prediction_settings():
     auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
     auto_prediction_regions = request.form.getlist('auto_prediction_regions')
     
-    # 验证策略是否有效
-    valid_strategies = []
-    for strategy in auto_prediction_strategies:
-        # 移除AI预测选项，只允许随机和均衡预测
-        if strategy in ['random', 'balanced']:
-            valid_strategies.append(strategy)
+        # 验证策略是否有效
+        valid_strategies = []
+        for strategy in auto_prediction_strategies:
+            # 允许随机、均衡和AI预测
+            if strategy in ['random', 'balanced', 'ai']:
+                valid_strategies.append(strategy)
     
     # 如果没有选择任何有效策略，默认使用均衡策略
     if not valid_strategies:

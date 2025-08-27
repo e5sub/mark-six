@@ -188,10 +188,10 @@
                                    {{ 'checked' if not user.auto_prediction_strategies or 'balanced' in user.auto_prediction_strategies.split(',') else '' }}>
                             均衡预测
                         </label>
-                        <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; color: #999; opacity: 0.6;">
-                            <input type="checkbox" name="auto_prediction_strategies" value="ai" disabled
-                                   style="opacity: 0.5; cursor: not-allowed;">
-                            AI智能预测 (暂不可用)
+                        <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal;">
+                            <input type="checkbox" name="auto_prediction_strategies" value="ai" 
+                                   {{ 'checked' if user.auto_prediction_strategies and 'ai' in user.auto_prediction_strategies.split(',') else '' }}>
+                            AI智能预测
                         </label>
 {% extends "user/base.html" %}
 
