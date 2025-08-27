@@ -4,6 +4,9 @@ import json
 import os
 import random
 import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from collections import Counter
 from datetime import datetime
 import time
@@ -558,6 +561,16 @@ def update_prediction_accuracy(data, region):
             pred.actual_special_zodiac = result['special_zodiac']
             pred.accuracy_score = accuracy
             pred.is_result_updated = True
+            
+            # 如果预测成功（特码命中），发送中奖通知邮件
+            if special_hit == 1:
+                try:
+                    # 获取用户信息
+                    user = User.query.get(pred.user_id)
+                    if user and user.email:
+                        send_winning_notification_email(user, pred, region)
+                except Exception as e:
+                    print(f"发送中奖通知邮件失败: {e}")
         
         # 提交更改
         db.session.commit()
@@ -984,6 +997,95 @@ def handle_chat():
     except Exception as e:
         print(f"Error calling AI chat API: {e}")
         return jsonify({"reply": f"抱歉，调用AI时遇到错误，请稍后再试。"}), 500
+
+def send_winning_notification_email(user, prediction, region):
+    """发送预测命中通知邮件"""
+    # 获取SMTP配置
+    smtp_server = SystemConfig.get_config('smtp_server')
+    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
+    smtp_username = SystemConfig.get_config('smtp_username')
+    smtp_password = SystemConfig.get_config('smtp_password')
+    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    
+    # 检查SMTP配置是否完整
+    if not all([smtp_server, smtp_username, smtp_password]):
+        raise Exception('邮件服务未配置，请联系管理员')
+    
+    # 准备邮件内容
+    region_name = '香港' if region == 'hk' else '澳门'
+    strategy_name = {
+        'random': '随机预测',
+        'balanced': '均衡预测',
+        'ai': 'AI智能预测'
+    }.get(prediction.strategy, '未知策略')
+    
+    subject = f"恭喜您！{region_name}第{prediction.period}期特码预测命中"
+    
+    # 构建HTML邮件内容
+    html_content = f"""
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background-color: #4CAF50; color: white; padding: 10px; text-align: center; }}
+            .content {{ padding: 20px; background-color: #f9f9f9; }}
+            .footer {{ text-align: center; margin-top: 20px; font-size: 12px; color: #777; }}
+            .highlight {{ color: #e53935; font-weight: bold; }}
+            .info-row {{ margin-bottom: 10px; }}
+            .btn {{ display: inline-block; background-color: #4CAF50; color: white; padding: 10px 20px; 
+                   text-decoration: none; border-radius: 4px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2>🎉 恭喜您！预测命中通知 🎉</h2>
+            </div>
+            <div class="content">
+                <p>尊敬的 <strong>{user.username}</strong>：</p>
+                <p>恭喜您！您使用<strong>{strategy_name}</strong>对{region_name}六合彩第{prediction.period}期的特码预测已经<span class="highlight">命中</span>！</p>
+                
+                <div class="info-row"><strong>预测期数：</strong> {prediction.period}</div>
+                <div class="info-row"><strong>预测策略：</strong> {strategy_name}</div>
+                <div class="info-row"><strong>预测特码：</strong> <span class="highlight">{prediction.special_number}</span></div>
+                <div class="info-row"><strong>开奖特码：</strong> <span class="highlight">{prediction.actual_special_number}</span></div>
+                <div class="info-row"><strong>预测时间：</strong> {prediction.created_at.strftime('%Y-%m-%d %H:%M:%S')}</div>
+                
+                <p>您可以登录系统查看更多预测详情和历史记录。</p>
+                <p style="text-align: center; margin-top: 20px;">
+                    <a href="#" class="btn">查看详情</a>
+                </p>
+            </div>
+            <div class="footer">
+                <p>此邮件由系统自动发送，请勿回复。</p>
+                <p>© {datetime.now().year} {site_name} - 所有权利保留</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    # 创建邮件对象
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = smtp_username
+    msg['To'] = user.email
+    
+    # 添加HTML内容
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    # 发送邮件
+    try:
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_username, smtp_password)
+        server.send_message(msg)
+        server.quit()
+        print(f"成功发送预测命中通知邮件给用户 {user.username} ({user.email})")
+    except Exception as e:
+        print(f"发送邮件失败: {e}")
+        raise
 
 # 全局请求前处理器，检查用户激活状态
 @app.before_request

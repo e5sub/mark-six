@@ -131,10 +131,10 @@
                                {{ 'checked' if not user.auto_prediction_strategies or 'balanced' in user.auto_prediction_strategies.split(',') else '' }}>
                         <span>⚖️均衡</span>
                     </label>
-                    <label class="mini-checkbox" style="opacity: 0.5; cursor: not-allowed;">
-                        <input type="checkbox" name="auto_prediction_strategies" value="ai" disabled
-                               style="cursor: not-allowed;">
-                        <span style="color: #999;">🤖AI (暂不可用)</span>
+                    <label class="mini-checkbox">
+                        <input type="checkbox" name="auto_prediction_strategies" value="ai"
+                               {{ 'checked' if user.auto_prediction_strategies and 'ai' in user.auto_prediction_strategies.split(',') else '' }}>
+                        <span>🤖AI</span>
                     </label>
                 </div>
             </div>
