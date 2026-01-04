@@ -1133,12 +1133,11 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(response => {
             typingIndicator.remove();
             if (!response.ok) {
-                return response.json().then(errData => { throw new Error(errData.reply || '服务器响应错误') });
+                throw new Error('服务器响应错误');
             }
-            return response.json();
+            return handleStreamingResponse(response);
         })
-        .then(data => {
-            appendMessage(data.reply, 'ai');
+        .then(() => {
             // 显示成功提示
             showToast('AI已回复您的问题', 'success');
         })
@@ -1147,6 +1146,70 @@ document.addEventListener('DOMContentLoaded', () => {
             appendMessage(`抱歉，出错了：${error.message}`, 'ai', false, true);
             // 显示错误提示
             showToast('请求出错: ' + error.message, 'error');
+        })
+        .finally(() => {
+            sendBtn.disabled = false;
+        });
+    }
+
+    // 处理流式响应
+    function handleStreamingResponse(response) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let aiMessageDiv = null;
+        let messageContent = null;
+        let fullText = '';
+
+        return new Promise((resolve, reject) => {
+            function readStream() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        if (aiMessageDiv && messageContent) {
+                            // 最后进行Markdown解析和代码高亮
+                            messageContent.innerHTML = marked.parse(fullText);
+                            messageContent.querySelectorAll('pre code').forEach((block) => {
+                                hljs.highlightElement(block);
+                            });
+                        }
+                        resolve();
+                        return;
+                    }
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.substring(6);
+                            try {
+                                const data = JSON.parse(dataStr);
+                                if (data.error) {
+                                    reject(new Error(data.error));
+                                    return;
+                                }
+                                if (data.content) {
+                                    fullText += data.content;
+                                    if (!aiMessageDiv) {
+                                        aiMessageDiv = appendMessage('', 'ai');
+                                        messageContent = aiMessageDiv.querySelector('.message-content');
+                                    }
+                                    messageContent.textContent = fullText;
+                                    // 滚动到底部
+                                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                                }
+                            } catch (e) {
+                                console.error('解析流式数据错误:', e);
+                            }
+                        }
+                    }
+
+                    readStream();
+                }).catch(error => {
+                    reject(error);
+                });
+            }
+
+            readStream();
         });
     }
 

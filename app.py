@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash, Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
 import os
@@ -106,74 +106,136 @@ def _get_hk_number_color(number):
 
 # --- 数据加载与处理 ---
 def load_hk_data():
-    # 直接从URL获取数据
-    try:
-        response = requests.get(HK_DATA_SOURCE_URL, timeout=15)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"从URL获取香港数据失败: {e}")
-        return []
+    # 直接从URL获取数据，添加重试机制
+    max_retries = 3
+    retry_delay = 2  # 秒
+
+    for attempt in range(max_retries):
+        try:
+            print(f"正在获取香港数据，URL: {HK_DATA_SOURCE_URL} (尝试 {attempt + 1}/{max_retries})")
+            response = requests.get(HK_DATA_SOURCE_URL, timeout=30)
+            response.raise_for_status()
+            print(f"成功获取香港数据")
+            return response.json()
+
+        except requests.exceptions.Timeout:
+            print(f"获取香港数据超时 (尝试 {attempt + 1}/{max_retries})")
+            if attempt < max_retries - 1:
+                import time as t
+                t.sleep(retry_delay)
+            else:
+                print(f"获取香港数据超时，已重试 {max_retries} 次后失败")
+                return []
+
+        except requests.exceptions.ConnectionError as e:
+            print(f"获取香港数据连接错误 (尝试 {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                import time as t
+                t.sleep(retry_delay)
+            else:
+                print(f"获取香港数据连接失败，已重试 {max_retries} 次后失败")
+                return []
+
+        except Exception as e:
+            print(f"从URL获取香港数据失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                import time as t
+                t.sleep(retry_delay)
+            else:
+                print(f"获取香港数据失败，已重试 {max_retries} 次后失败")
+                return []
+
+    return []
 
 def get_macau_data(year):
     url = MACAU_API_URL_TEMPLATE.format(year=year)
-    try:
-        print(f"正在获取澳门数据，URL: {url}")
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        api_data = response.json()
-        if not api_data or not api_data.get("data"): 
-            print(f"澳门API返回空数据或格式错误: {api_data}")
-            return []
-        
-        print(f"澳门API返回数据条数: {len(api_data['data'])}")
-        
-        normalized_data = []
-        for record in api_data["data"]:
-            raw_numbers_str = record.get("openCode", "").split(',')
-            try:
-                numbers = [str(int(n)) for n in raw_numbers_str]
-            except (ValueError, TypeError):
-                continue
-            traditional_zodiacs = record.get("zodiac", "").split(',')
-            if len(numbers) < 7: continue
+    max_retries = 3
+    retry_delay = 2  # 秒
 
-            simplified_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in traditional_zodiacs]
-            
-            normalized_data.append({
-                "id": record.get("expect"), "date": record.get("openTime"), "no": numbers[:6], "sno": numbers[6],
-                "sno_zodiac": simplified_zodiacs[6] if len(simplified_zodiacs) >= 7 else "",
-                "raw_wave": record.get("wave", ""), "raw_zodiac": ",".join(simplified_zodiacs)
-            })
-        
-        print(f"标准化后的数据条数: {len(normalized_data)}")
-        
-        # --- 新增去重逻辑 ---
-        unique_data = []
-        seen_ids = set()
-        for record in normalized_data:
-            record_id = record.get("id")
-            if record_id and record_id not in seen_ids:
-                unique_data.append(record)
-                seen_ids.add(record_id)
-        # --- 去重逻辑结束 ---
-        
-        print(f"去重后的数据条数: {len(unique_data)}")
+    for attempt in range(max_retries):
+        try:
+            print(f"正在获取澳门数据，URL: {url} (尝试 {attempt + 1}/{max_retries})")
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            api_data = response.json()
+            if not api_data or not api_data.get("data"):
+                print(f"澳门API返回空数据或格式错误: {api_data}")
+                return []
 
-        # 使用去重后的 unique_data 进行过滤和排序
-        filtered_by_year = [rec for rec in unique_data if rec.get("date", "").startswith(str(year))]
-        print(f"按年份过滤后的数据条数: {len(filtered_by_year)}")
-        
-        result = sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
-        print(f"最终返回的数据条数: {len(result)}")
-        
-        if len(result) > 0:
-            print(f"示例数据: {result[0]}")
-        
-        return result
-    except Exception as e:
-        print(f"Error in get_macau_data for year {year}: {e}")
-        return []
+            print(f"澳门API返回数据条数: {len(api_data['data'])}")
+
+            normalized_data = []
+            for record in api_data["data"]:
+                raw_numbers_str = record.get("openCode", "").split(',')
+                try:
+                    numbers = [str(int(n)) for n in raw_numbers_str]
+                except (ValueError, TypeError):
+                    continue
+                traditional_zodiacs = record.get("zodiac", "").split(',')
+                if len(numbers) < 7: continue
+
+                simplified_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in traditional_zodiacs]
+
+                normalized_data.append({
+                    "id": record.get("expect"), "date": record.get("openTime"), "no": numbers[:6], "sno": numbers[6],
+                    "sno_zodiac": simplified_zodiacs[6] if len(simplified_zodiacs) >= 7 else "",
+                    "raw_wave": record.get("wave", ""), "raw_zodiac": ",".join(simplified_zodiacs)
+                })
+
+            print(f"标准化后的数据条数: {len(normalized_data)}")
+
+            # --- 新增去重逻辑 ---
+            unique_data = []
+            seen_ids = set()
+            for record in normalized_data:
+                record_id = record.get("id")
+                if record_id and record_id not in seen_ids:
+                    unique_data.append(record)
+                    seen_ids.add(record_id)
+            # --- 去重逻辑结束 ---
+
+            print(f"去重后的数据条数: {len(unique_data)}")
+
+            # 使用去重后的 unique_data 进行过滤和排序
+            filtered_by_year = [rec for rec in unique_data if rec.get("date", "").startswith(str(year))]
+            print(f"按年份过滤后的数据条数: {len(filtered_by_year)}")
+
+            result = sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+            print(f"最终返回的数据条数: {len(result)}")
+
+            if len(result) > 0:
+                print(f"示例数据: {result[0]}")
+
+            return result
+
+        except requests.exceptions.Timeout:
+            print(f"获取澳门数据超时 (尝试 {attempt + 1}/{max_retries})")
+            if attempt < max_retries - 1:
+                import time as t
+                t.sleep(retry_delay)
+            else:
+                print(f"获取澳门数据超时，已重试 {max_retries} 次后失败")
+                return []
+
+        except requests.exceptions.ConnectionError as e:
+            print(f"获取澳门数据连接错误 (尝试 {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                import time as t
+                t.sleep(retry_delay)
+            else:
+                print(f"获取澳门数据连接失败，已重试 {max_retries} 次后失败")
+                return []
+
+        except Exception as e:
+            print(f"Error in get_macau_data for year {year}: {e}")
+            if attempt < max_retries - 1:
+                import time as t
+                t.sleep(retry_delay)
+            else:
+                print(f"获取澳门数据失败，已重试 {max_retries} 次后失败")
+                return []
+
+    return []
 
 def analyze_special_number_frequency(data):
     special_numbers = []
@@ -232,7 +294,7 @@ def get_local_recommendations(strategy, data, region):
 
 def predict_with_ai(data, region):
     ai_config = get_ai_config()
-    if not ai_config['api_key'] or "你的" in ai_config['api_key']: 
+    if not ai_config['api_key'] or "你的" in ai_config['api_key']:
         return {"error": "AI API Key 未配置"}
     history_lines, prompt = [], ""
     recent_data = data[:10]
@@ -268,59 +330,100 @@ def predict_with_ai(data, region):
    推荐号码：[平码1, 平码2, 平码3, 平码4, 平码5, 平码6] 特码: [特码]
 3. 请以友好、自然的语言风格进行回复。
 4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
-    
-    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
+
+    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "stream": True}
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
-        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120)
+        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120, stream=True)
         response.raise_for_status()
-        ai_response = response.json()['choices'][0]['message']['content']
-        
-        # 从AI回复中提取号码
-        import re
-        normal_numbers = []
-        special_number = ""
-        
-        # 尝试匹配格式化的推荐号码
-        number_pattern = r'推荐号码：\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*特码:\s*\[(\d+)\]'
-        match = re.search(number_pattern, ai_response)
-        
-        if match:
-            normal_numbers = [int(match.group(i)) for i in range(1, 7)]
-            special_number = match.group(7)
-        else:
-            # 如果没有找到格式化的推荐，尝试从文本中提取数字
-            all_numbers = re.findall(r'\b\d{1,2}\b', ai_response)
-            valid_numbers = [int(n) for n in all_numbers if 1 <= int(n) <= 49]
-            
-            if len(valid_numbers) >= 7:
-                normal_numbers = sorted(valid_numbers[:6])
-                special_number = str(valid_numbers[6])
+
+        def generate():
+            full_response = ""
+            for line in response.iter_lines():
+                if line:
+                    line = line.decode('utf-8')
+                    if line.startswith('data: '):
+                        data_str = line[6:]
+                        if data_str == '[DONE]':
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            if 'choices' in data and len(data['choices']) > 0:
+                                delta = data['choices'][0].get('delta', {})
+                                content = delta.get('content', '')
+                                if content:
+                                    full_response += content
+                                    yield json.dumps({
+                                        'type': 'content',
+                                        'content': content,
+                                        'full_text': full_response
+                                    }) + '\n\n'
+                        except json.JSONDecodeError:
+                            continue
+
+            # 流式传输完成后，提取号码
+            import re
+            normal_numbers = []
+            special_number = ""
+
+            # 尝试匹配格式化的推荐号码
+            number_pattern = r'推荐号码：\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*特码:\s*\[(\d+)\]'
+            match = re.search(number_pattern, full_response)
+
+            if match:
+                normal_numbers = [int(match.group(i)) for i in range(1, 7)]
+                special_number = match.group(7)
             else:
-                # 如果无法从AI回复中提取有效号码，返回错误
-                return {"error": "无法从AI回复中提取有效号码"}
-        
-        # 确保所有号码都是有效的
-        normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
-        if len(normal_numbers) < 6:
-            return {"error": "AI生成的平码数量不足"}
-        normal_numbers = sorted(normal_numbers[:6])  # 只取前6个号码
-        
-        if not special_number or not (1 <= int(special_number) <= 49):
-            return {"error": "AI生成的特码无效"}
-        
-        # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
-        # 生肖信息将在API返回数据后更新
-        sno_zodiac = ""
-        
-        return {
-            "recommendation_text": ai_response,
-            "normal": normal_numbers,
-            "special": {
-                "number": special_number,
-                "sno_zodiac": sno_zodiac
-            }
-        }
+                # 如果没有找到格式化的推荐，尝试从文本中提取数字
+                all_numbers = re.findall(r'\b\d{1,2}\b', full_response)
+                valid_numbers = [int(n) for n in all_numbers if 1 <= int(n) <= 49]
+
+                if len(valid_numbers) >= 7:
+                    normal_numbers = sorted(valid_numbers[:6])
+                    special_number = str(valid_numbers[6])
+                else:
+                    # 如果无法从AI回复中提取有效号码，返回错误
+                    yield json.dumps({
+                        'type': 'error',
+                        'error': "无法从AI回复中提取有效号码"
+                    }) + '\n\n'
+                    return
+
+            # 确保所有号码都是有效的
+            normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
+            if len(normal_numbers) < 6:
+                yield json.dumps({
+                    'type': 'error',
+                    'error': "AI生成的平码数量不足"
+                }) + '\n\n'
+                return
+
+            normal_numbers = sorted(normal_numbers[:6])
+
+            if not special_number or not (1 <= int(special_number) <= 49):
+                yield json.dumps({
+                    'type': 'error',
+                    'error': "AI生成的特码无效"
+                }) + '\n\n'
+                return
+
+            # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
+            # 生肖信息将在API返回数据后更新
+            sno_zodiac = ""
+
+            # 返回最终结果
+            yield json.dumps({
+                'type': 'done',
+                'recommendation_text': full_response,
+                'normal': normal_numbers,
+                'special': {
+                    'number': special_number,
+                    'sno_zodiac': sno_zodiac
+                }
+            }) + '\n\n'
+
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
     except Exception as e:
         return {"error": f"调用AI API时出错: {e}"}
 
@@ -588,12 +691,13 @@ def update_prediction_accuracy(data, region):
 def unified_predict_api():
     region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
     data = get_yearly_data(region, year)
-    if not data: return jsonify({"error": f"无法加载{year}年的数据"}), 404
-    
+    if not data:
+        return jsonify({"error": f"无法加载{year}年的数据"}), 404
+
     # 检查用户是否登录和激活（对于需要保存记录的功能）
     user_id = session.get('user_id')
     is_active = session.get('is_active', False)
-    
+
     # 获取下一期期数（使用最近一期的下一期）
     if data:
         try:
@@ -628,21 +732,21 @@ def unified_predict_api():
     else:
         current_year = datetime.now().strftime('%y')
         current_period = f"{current_year}/001"
-    
+
     # 检查用户是否已经为当前期和当前策略生成过预测
-    if user_id and is_active:
+    if user_id and is_active and strategy != 'ai':
         existing = PredictionRecord.query.filter_by(
             user_id=user_id,
             region=region,
             period=current_period,
             strategy=strategy  # 添加策略作为过滤条件
         ).first()
-        
+
         if existing:
             # 返回已存在的预测结果
             sno_zodiac = existing.special_zodiac
             # 不再在本地计算生肖，所有地区都使用澳门API返回的生肖数据
-            
+
             result = {
                 "normal": existing.normal_numbers.split(','),
                 "special": {
@@ -653,14 +757,18 @@ def unified_predict_api():
             if existing.prediction_text:
                 result["recommendation_text"] = existing.prediction_text
             return jsonify(result)
-    
+
     # 生成新的预测
-    if strategy == 'ai': 
-        result = predict_with_ai(data, region)
-        # 检查AI预测是否失败
-        if result.get('error'):
-            # 返回详细的错误信息
-            error_message = result.get('error')
+    if strategy == 'ai':
+        # AI预测使用流式输出
+        ai_response = predict_with_ai(data, region)
+
+        # 如果返回的是Response对象（流式），直接返回
+        if isinstance(ai_response, Response):
+            return ai_response
+        else:
+            # 如果返回的是字典（错误信息），返回错误
+            error_message = ai_response.get('error')
             return jsonify({
                 "error": error_message,
                 "error_type": "ai_prediction_failed",
@@ -668,8 +776,8 @@ def unified_predict_api():
             }), 400
     else:
         result = get_local_recommendations(strategy, data, region)
-    
-    # 保存预测记录（仅对已激活用户）
+
+    # 保存预测记录（仅对已激活用户，非AI预测）
     if user_id and is_active and not result.get('error'):
         try:
             prediction = PredictionRecord(
@@ -691,7 +799,7 @@ def unified_predict_api():
                 "error_type": "database_error",
                 "message": "保存预测记录失败，请稍后再试。"
             }), 500
-    
+
     return jsonify(result)
 
 # 手动更新数据API
@@ -987,16 +1095,35 @@ def handle_chat():
     if not user_message:
         return jsonify({"reply": "错误：未能获取到您发送的消息。"}), 400
     system_prompt = "你是一个精通香港和澳门六合彩数据分析的AI助手，知识渊博，回答友好。请根据用户的提问，提供相关的历史知识、数据规律或普遍性建议。不要提供具体的投资建议。"
-    payload = {"model": ai_config['model'], "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "temperature": 0.7}
+    payload = {"model": ai_config['model'], "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "temperature": 0.7, "stream": True}
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
-    try:
-        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=60)
-        response.raise_for_status()
-        ai_reply = response.json()['choices'][0]['message']['content']
-        return jsonify({"reply": ai_reply})
-    except Exception as e:
-        print(f"Error calling AI chat API: {e}")
-        return jsonify({"reply": f"抱歉，调用AI时遇到错误，请稍后再试。"}), 500
+
+    def generate():
+        try:
+            response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=60, stream=True)
+            response.raise_for_status()
+
+            for line in response.iter_lines():
+                if line:
+                    line = line.decode('utf-8')
+                    if line.startswith('data: '):
+                        data_str = line[6:]
+                        if data_str.strip() == '[DONE]':
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            if 'choices' in data and len(data['choices']) > 0:
+                                delta = data['choices'][0].get('delta', {})
+                                content = delta.get('content', '')
+                                if content:
+                                    yield f"data: {json.dumps({'content': content})}\n\n"
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as e:
+            print(f"Error calling AI chat API: {e}")
+            yield f"data: {json.dumps({'error': '抱歉，调用AI时遇到错误，请稍后再试。'})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 def send_winning_notification_email(user, prediction, region):
     """发送预测命中通知邮件"""
