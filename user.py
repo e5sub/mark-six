@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from models import db, User, PredictionRecord, SystemConfig, InviteCode
+from sqlalchemy import func, case
 from datetime import datetime
 import json
 
@@ -41,32 +42,44 @@ def dashboard():
         query = PredictionRecord.query.filter_by(user_id=user.id, is_result_updated=True)
         if strategy:
             query = query.filter_by(strategy=strategy)
-        
-        predictions = query.all()
-        if not predictions:
+
+        base_query = query.filter(
+            PredictionRecord.actual_special_number != None,
+            PredictionRecord.special_number != None
+        )
+
+        special_hit_expr = case(
+            (PredictionRecord.special_number == PredictionRecord.actual_special_number, 1),
+            else_=0
+        )
+        zodiac_hit_expr = case(
+            (
+                db.and_(
+                    PredictionRecord.special_zodiac != None,
+                    PredictionRecord.actual_special_zodiac != None,
+                    PredictionRecord.special_zodiac != '',
+                    PredictionRecord.actual_special_zodiac != '',
+                    PredictionRecord.special_zodiac == PredictionRecord.actual_special_zodiac,
+                ),
+                1,
+            ),
+            else_=0,
+        )
+
+        agg = base_query.with_entities(
+            func.count().label('total'),
+            func.sum(special_hit_expr).label('special_hits'),
+            func.sum(zodiac_hit_expr).label('zodiac_hits'),
+        ).first()
+
+        total_count = agg.total or 0
+        if total_count == 0:
             return 0.0
-        
-        total_score = 0.0
-        total_count = 0
-        
-        for pred in predictions:
-            if pred.actual_special_number and pred.special_number:
-                total_count += 1
-                
-                # 特码号码是否命中
-                special_hit = 1 if pred.special_number == pred.actual_special_number else 0
-                
-                # 特码生肖是否命中
-                zodiac_hit = 0
-                if hasattr(pred, 'special_zodiac') and hasattr(pred, 'actual_special_zodiac') and pred.special_zodiac and pred.actual_special_zodiac:
-                    zodiac_hit = 1 if pred.special_zodiac == pred.actual_special_zodiac else 0
-                
-                # 计算该预测的准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
-                accuracy = (special_hit * 0.7) + (zodiac_hit * 0.3)
-                total_score += accuracy
-        
-        # 返回平均准确率
-        return round((total_score / total_count) * 100, 1) if total_count > 0 else 0.0
+
+        special_hits = agg.special_hits or 0
+        zodiac_hits = agg.zodiac_hits or 0
+        total_score = (special_hits * 0.7) + (zodiac_hits * 0.3)
+        return round((total_score / total_count) * 100, 1)
     
     # 计算各种准确率
     avg_accuracy = calculate_user_accuracy()
