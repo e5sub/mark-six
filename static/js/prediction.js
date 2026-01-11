@@ -387,20 +387,31 @@ function displayPrediction(data, strategy) {
     
     // 根据策略显示不同的标题
     const strategyTitles = {
-        'random': '随机预测',
+        'hot': '热门预测',
+        'cold': '冷门预测',
+        'trend': '走势预测',
+        'hybrid': '综合预测',
         'balanced': '均衡预测',
+        'random': '随机预测',
         'ai': 'AI智能预测'
     };
     
     const strategyIcons = {
-        'random': 'dice',
+        'hot': 'fire',
+        'cold': 'snowflake',
+        'trend': 'chart-line',
+        'hybrid': 'sliders-h',
         'balanced': 'balance-scale',
+        'random': 'dice',
         'ai': 'robot'
     };
     
+    const strategyTitle = strategyTitles[strategy] || '预测';
+    const strategyIcon = strategyIcons[strategy] || 'dice';
+    
     html += `<div style="text-align: center; margin-bottom: 20px;">
         <span style="background: rgba(0, 123, 255, 0.1); color: #007bff; padding: 5px 15px; border-radius: 20px; font-weight: 600;">
-            <i class="fas fa-${strategyIcons[strategy]}"></i> ${strategyTitles[strategy]}
+            <i class="fas fa-${strategyIcon}"></i> ${strategyTitle}
         </span>
     </div>`;
     

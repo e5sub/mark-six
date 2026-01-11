@@ -4,8 +4,8 @@
 
 {% block content %}
 <!-- 统计信息 -->
-<div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
-<div class="stat-card clickable-stat" data-filter="all">
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;">
+    <div class="stat-card clickable-stat" data-filter="all">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
         <div class="stat-number">{{ total_predictions }}</div>
         <div class="stat-label">总预测次数</div>
@@ -30,9 +30,15 @@
     </div>
     
     <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">📈</div>
-        <div class="stat-number">{{ accuracy or 0 }}%</div>
-        <div class="stat-label">总体命中率</div>
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">🎯</div>
+        <div class="stat-number">{{ special_hit_rate or 0 }}%</div>
+        <div class="stat-label">特码命中率</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #6f42c1;">✅</div>
+        <div class="stat-number">{{ normal_hit_rate or 0 }}%</div>
+        <div class="stat-label">平码命中率</div>
     </div>
 </div>
 
@@ -50,8 +56,12 @@
                 </select>
                 <select name="strategy" class="compact-select" title="预测策略">
                     <option value="">全部策略</option>
-                    <option value="random" {% if request.args.get('strategy') == 'random' %}selected{% endif %}>随机预测</option>
+                    <option value="hot" {% if request.args.get('strategy') == 'hot' %}selected{% endif %}>热门预测</option>
+                    <option value="cold" {% if request.args.get('strategy') == 'cold' %}selected{% endif %}>冷门预测</option>
+                    <option value="trend" {% if request.args.get('strategy') == 'trend' %}selected{% endif %}>走势预测</option>
+                    <option value="hybrid" {% if request.args.get('strategy') == 'hybrid' %}selected{% endif %}>综合预测</option>
                     <option value="balanced" {% if request.args.get('strategy') == 'balanced' %}selected{% endif %}>均衡预测</option>
+                    <option value="random" {% if request.args.get('strategy') == 'random' %}selected{% endif %}>随机预测</option>
                     <option value="ai" {% if request.args.get('strategy') == 'ai' %}selected{% endif %}>AI智能</option>
                 </select>
                 <select name="result" class="compact-select" title="预测结果">
@@ -78,10 +88,18 @@
                 <div class="prediction-title-compact">
                     {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
                     <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">
-                        {% if prediction.strategy == 'random' %}
-                        🎲 随机预测
+                        {% if prediction.strategy == 'hot' %}
+                        🔥 热门预测
+                        {% elif prediction.strategy == 'cold' %}
+                        🧊 冷门预测
+                        {% elif prediction.strategy == 'trend' %}
+                        📈 走势预测
+                        {% elif prediction.strategy == 'hybrid' %}
+                        ⚙️ 综合预测
                         {% elif prediction.strategy == 'balanced' %}
                         ⚖️ 均衡预测
+                        {% elif prediction.strategy == 'random' %}
+                        🎲 随机预测
                         {% else %}
                         🤖 AI预测
                         {% endif %}
@@ -165,10 +183,18 @@
                     <div class="prediction-title-compact">
                         {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
                         <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">
-                            {% if prediction.strategy == 'random' %}
-                            🎲 随机预测
+                            {% if prediction.strategy == 'hot' %}
+                            🔥 热门预测
+                            {% elif prediction.strategy == 'cold' %}
+                            🧊 冷门预测
+                            {% elif prediction.strategy == 'trend' %}
+                            📈 走势预测
+                            {% elif prediction.strategy == 'hybrid' %}
+                            ⚙️ 综合预测
                             {% elif prediction.strategy == 'balanced' %}
                             ⚖️ 均衡预测
+                            {% elif prediction.strategy == 'random' %}
+                            🎲 随机预测
                             {% else %}
                             🤖 AI预测
                             {% endif %}
@@ -292,8 +318,12 @@
         <div class="help-card help-strategy">
             <h3>🎯 预测策略</h3>
             <ul>
+                <li><strong>🔥 热门预测</strong>：优先选择近期高频号码</li>
+                <li><strong>🧊 冷门预测</strong>：优先选择近期低频号码</li>
+                <li><strong>📈 走势预测</strong>：强调近期走势变化</li>
+                <li><strong>⚙️ 综合预测</strong>：频率+间隔+趋势综合评分</li>
+                <li><strong>⚖️ 均衡预测</strong>：冷热搭配分层选择</li>
                 <li><strong>🎲 随机预测</strong>：完全随机生成号码</li>
-                <li><strong>⚖️ 均衡预测</strong>：基于历史数据的均衡算法</li>
                 <li><strong>🤖 AI智能</strong>：使用人工智能算法预测</li>
             </ul>
         </div>
@@ -304,6 +334,7 @@
                 <li><strong>特码命中</strong>：预测的特码与开奖特码完全一致</li>
                 <li><strong>平码命中</strong>：预测的平码中包含开奖特码</li>
                 <li><strong>未命中</strong>：预测的号码均未命中开奖特码</li>
+                <li><strong>命中率</strong>：分别统计特码命中率和平码命中率</li>
             </ul>
         </div>
     </div>
@@ -531,6 +562,26 @@
 
 .strategy-random {
     background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+}
+
+.strategy-hot {
+    background: linear-gradient(135deg, #ff6a00 0%, #ee0979 100%);
+    color: white;
+}
+
+.strategy-cold {
+    background: linear-gradient(135deg, #36d1dc 0%, #5b86e5 100%);
+    color: white;
+}
+
+.strategy-trend {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    color: white;
+}
+
+.strategy-hybrid {
+    background: linear-gradient(135deg, #7f00ff 0%, #e100ff 100%);
     color: white;
 }
 

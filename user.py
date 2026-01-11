@@ -6,6 +6,17 @@ import json
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
 
+STRATEGY_META = [
+    {"key": "hot", "label": "热门", "icon": "🔥"},
+    {"key": "cold", "label": "冷门", "icon": "🧊"},
+    {"key": "trend", "label": "走势", "icon": "📈"},
+    {"key": "hybrid", "label": "综合", "icon": "⚙️"},
+    {"key": "balanced", "label": "均衡", "icon": "⚖️"},
+    {"key": "random", "label": "随机", "icon": "🎲"},
+    {"key": "ai", "label": "AI", "icon": "🤖"},
+]
+STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
+
 def login_required(f):
     """登录验证装饰器"""
     def decorated_function(*args, **kwargs):
@@ -34,32 +45,60 @@ def dashboard():
     
     # 获取用户预测统计
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
     recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
         .order_by(PredictionRecord.created_at.desc()).limit(5).all()
     
-    # 计算不同策略的准确率（对比特码和生肖）
+    # 计算不同策略的命中率（区分特码/平码）
     def calculate_user_accuracy(strategy=None):
         query = PredictionRecord.query.filter_by(user_id=user.id, is_result_updated=True)
         if strategy:
             query = query.filter_by(strategy=strategy)
 
-        base_query = query.filter(
-            PredictionRecord.actual_special_number != None,
-            PredictionRecord.special_number != None
-        )
+        base_query = query.filter(PredictionRecord.actual_special_number != None)
 
         special_hit_expr = case(
             (PredictionRecord.special_number == PredictionRecord.actual_special_number, 1),
             else_=0
         )
-        zodiac_hit_expr = case(
+        normal_hit_expr = case(
             (
                 db.and_(
-                    PredictionRecord.special_zodiac != None,
-                    PredictionRecord.actual_special_zodiac != None,
-                    PredictionRecord.special_zodiac != '',
-                    PredictionRecord.actual_special_zodiac != '',
-                    PredictionRecord.special_zodiac == PredictionRecord.actual_special_zodiac,
+                    PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                    db.or_(
+                        PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                        PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+                        PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+                    ),
                 ),
                 1,
             ),
@@ -69,7 +108,7 @@ def dashboard():
         agg = base_query.with_entities(
             func.count().label('total'),
             func.sum(special_hit_expr).label('special_hits'),
-            func.sum(zodiac_hit_expr).label('zodiac_hits'),
+            func.sum(normal_hit_expr).label('normal_hits'),
         ).first()
 
         total_count = agg.total or 0
@@ -77,28 +116,58 @@ def dashboard():
             return 0.0
 
         special_hits = agg.special_hits or 0
-        zodiac_hits = agg.zodiac_hits or 0
-        total_score = (special_hits * 0.7) + (zodiac_hits * 0.3)
-        return round((total_score / total_count) * 100, 1)
-    
+        normal_hits = agg.normal_hits or 0
+        total_hits = special_hits + normal_hits
+        return round((total_hits / total_count) * 100, 1)
+
     # 计算各种准确率
     avg_accuracy = calculate_user_accuracy()
-    random_accuracy = calculate_user_accuracy('random')
-    balanced_accuracy = calculate_user_accuracy('balanced')
-    ai_accuracy = calculate_user_accuracy('ai')
+    strategy_accuracy = {
+        meta["key"]: calculate_user_accuracy(meta["key"])
+        for meta in STRATEGY_META
+    }
+
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    special_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None,
+        PredictionRecord.special_number == PredictionRecord.actual_special_number
+    ).count()
+    normal_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None,
+        PredictionRecord.special_number != PredictionRecord.actual_special_number,
+        db.or_(
+            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
+            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
+        )
+    ).count()
+    special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     
     stats = {
         'total_predictions': total_predictions,
         'avg_accuracy': avg_accuracy,
-        'random_accuracy': random_accuracy,
-        'balanced_accuracy': balanced_accuracy,
-        'ai_accuracy': ai_accuracy,
+        'special_hit_rate': round(special_hit_rate, 1),
+        'normal_hit_rate': round(normal_hit_rate, 1),
         'recent_predictions': recent_predictions
     }
     
     return render_template('user/dashboard.html', 
                           user=user, 
                           stats=stats,
+                          strategy_meta=STRATEGY_META,
+                          strategy_accuracy=strategy_accuracy,
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac)
 
@@ -219,8 +288,14 @@ def predictions():
         page=page, per_page=20, error_out=False
     )
     
-    # 计算总体预测准确率
+    # 计算总体预测命中率
     total_predictions = PredictionRecord.query.filter_by(user_id=session['user_id']).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=session['user_id'],
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
     
     # 特码命中的预测
     special_hit_predictions = PredictionRecord.query.filter_by(
@@ -262,8 +337,10 @@ def predictions():
         )
     ).count()
     
-    # 计算准确率
-    accuracy_rate = (accurate_predictions / total_predictions * 100) if total_predictions > 0 else 0
+    # 计算命中率（分开统计特码/平码）
+    accuracy_rate = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     
     return render_template('user/predictions.html', 
                           predictions=predictions, 
@@ -281,7 +358,9 @@ def predictions():
                           normal_hit_count=normal_hit_predictions,
                           wrong_predictions=wrong_predictions,
                           total_predictions=total_predictions,
-                          accuracy=round(accuracy_rate, 2))
+                          accuracy=round(accuracy_rate, 2),
+                          special_hit_rate=round(special_hit_rate, 2),
+                          normal_hit_rate=round(normal_hit_rate, 2))
 
 @user_bp.route('/save-prediction', methods=['POST'])
 @login_required
@@ -377,26 +456,26 @@ def profile():
         # 验证当前密码
         if not user.check_password(current_password):
             flash('当前密码错误', 'error')
-            return render_template('user/profile.html', user=user)
+            return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
             
         # 更新邮箱（仅管理员可修改）
         if new_email and new_email != user.email:
             if not user.is_admin:
                 flash('普通用户无权修改邮箱地址，如需修改请联系管理员', 'error')
-                return render_template('user/profile.html', user=user)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
             if User.query.filter_by(email=new_email).first():
                 flash('邮箱已被其他用户使用', 'error')
-                return render_template('user/profile.html', user=user)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
             user.email = new_email
         
         # 更新密码
         if new_password:
             if new_password != confirm_password:
                 flash('两次输入的新密码不一致', 'error')
-                return render_template('user/profile.html', user=user)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
             if len(new_password) < 6:
                 flash('新密码长度至少6位', 'error')
-                return render_template('user/profile.html', user=user)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
             user.set_password(new_password)
         
         try:
@@ -406,7 +485,7 @@ def profile():
             db.session.rollback()
             flash(f'更新失败：{str(e)}', 'error')
     
-    return render_template('user/profile.html', user=user)
+    return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
 
 @user_bp.route('/save_prediction_settings', methods=['POST'])
 @login_required
@@ -423,13 +502,12 @@ def save_prediction_settings():
     # 验证策略是否有效
     valid_strategies = []
     for strategy in auto_prediction_strategies:
-        # 允许随机、均衡和AI预测
-        if strategy in ['random', 'balanced', 'ai']:
+        if strategy in STRATEGY_KEYS:
             valid_strategies.append(strategy)
     
     # 如果没有选择任何有效策略，默认使用均衡策略
     if not valid_strategies:
-        valid_strategies = ['balanced']
+        valid_strategies = ['hybrid']
     
     # 验证地区是否有效
     valid_regions = []
@@ -619,12 +697,12 @@ def update_auto_prediction():
         # 验证策略是否有效
         valid_strategies = []
         for strategy in auto_prediction_strategies:
-            if strategy in ['random', 'balanced', 'ai']:
+            if strategy in STRATEGY_KEYS:
                 valid_strategies.append(strategy)
         
         # 如果没有选择任何有效策略，默认使用均衡策略
         if not valid_strategies:
-            valid_strategies = ['balanced']
+            valid_strategies = ['hybrid']
         
         # 验证地区是否有效
         valid_regions = []
@@ -659,12 +737,19 @@ def analytics():
     
     # 获取用户预测统计
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
     
     # 特码命中的预测
     special_hit_predictions = PredictionRecord.query.filter_by(
         user_id=user.id,
         is_result_updated=True
     ).filter(
+        PredictionRecord.actual_special_number != None,
         PredictionRecord.special_number == PredictionRecord.actual_special_number
     ).count()
     
@@ -706,7 +791,9 @@ def analytics():
             query = query.filter_by(strategy=strategy)
         
         total = query.count()
-        updated = query.filter_by(is_result_updated=True).count()
+        updated = query.filter_by(is_result_updated=True).filter(
+            PredictionRecord.actual_special_number != None
+        ).count()
         
         # 特码命中的预测
         special_hit = query.filter(
@@ -742,6 +829,8 @@ def analytics():
         correct = special_hit + normal_hit
         
         accuracy = (correct / updated * 100) if updated > 0 else 0
+        special_hit_rate = (special_hit / updated * 100) if updated > 0 else 0
+        normal_hit_rate = (normal_hit / updated * 100) if updated > 0 else 0
         
         return {
             'total': total,
@@ -750,7 +839,9 @@ def analytics():
             'wrong': wrong,
             'special_hit': special_hit,
             'normal_hit': normal_hit,
-            'accuracy': round(accuracy, 1)
+            'accuracy': round(accuracy, 1),
+            'special_hit_rate': round(special_hit_rate, 1),
+            'normal_hit_rate': round(normal_hit_rate, 1)
         }
     
     # 计算不同地区的准确率
@@ -758,7 +849,9 @@ def analytics():
         query = PredictionRecord.query.filter_by(user_id=user.id, region=region)
         
         total = query.count()
-        updated = query.filter_by(is_result_updated=True).count()
+        updated = query.filter_by(is_result_updated=True).filter(
+            PredictionRecord.actual_special_number != None
+        ).count()
         
         # 特码命中的预测
         special_hit = query.filter(
@@ -794,6 +887,8 @@ def analytics():
         correct = special_hit + normal_hit
         
         accuracy = (correct / updated * 100) if updated > 0 else 0
+        special_hit_rate = (special_hit / updated * 100) if updated > 0 else 0
+        normal_hit_rate = (normal_hit / updated * 100) if updated > 0 else 0
         
         return {
             'total': total,
@@ -802,7 +897,9 @@ def analytics():
             'wrong': wrong,
             'special_hit': special_hit,
             'normal_hit': normal_hit,
-            'accuracy': round(accuracy, 1)
+            'accuracy': round(accuracy, 1),
+            'special_hit_rate': round(special_hit_rate, 1),
+            'normal_hit_rate': round(normal_hit_rate, 1)
         }
     
     # 计算总体统计
@@ -810,16 +907,18 @@ def analytics():
     
     # 添加特码命中和平码命中的统计
     stats['total_predictions'] = total_predictions
+    stats['updated_predictions'] = updated_predictions
     stats['special_hit_count'] = special_hit_predictions
     stats['normal_hit_count'] = normal_hit_predictions
     stats['wrong_predictions'] = wrong_predictions
-    stats['accuracy'] = (accurate_predictions / total_predictions * 100) if total_predictions > 0 else 0
+    stats['accuracy'] = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    stats['special_hit_rate'] = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    stats['normal_hit_rate'] = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     
     # 计算各策略统计
     strategy_stats = {
-        'random': calculate_strategy_stats('random'),
-        'balanced': calculate_strategy_stats('balanced'),
-        'ai': calculate_strategy_stats('ai')
+        meta["key"]: calculate_strategy_stats(meta["key"])
+        for meta in STRATEGY_META
     }
     
     # 计算各地区统计
@@ -827,6 +926,16 @@ def analytics():
         'hk': calculate_region_stats('hk'),
         'macau': calculate_region_stats('macau')
     }
+
+    best_strategy = None
+    best_accuracy = -1
+    for meta in STRATEGY_META:
+        stats_entry = strategy_stats.get(meta["key"])
+        if stats_entry and stats_entry.get("updated", 0) > 0:
+            accuracy_value = stats_entry.get("accuracy", 0)
+            if accuracy_value > best_accuracy:
+                best_accuracy = accuracy_value
+                best_strategy = meta
     
     # 获取最近预测记录
     recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
@@ -856,6 +965,8 @@ def analytics():
                           user=user,
                           stats=stats,
                           strategy_stats=strategy_stats,
+                          strategy_meta=STRATEGY_META,
+                          best_strategy=best_strategy,
                           region_stats=region_stats,
                           recent_predictions=recent_predictions,
                           trend_data=trend_data,

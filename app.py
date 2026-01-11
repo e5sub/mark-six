@@ -272,21 +272,146 @@ def analyze_special_color_frequency(data, region):
                 continue
     return Counter(c for c in colors if c)
 
+def _extract_record_numbers(record):
+    numbers = []
+    for n in record.get('no', []):
+        try:
+            num = int(n)
+            if 1 <= num <= 49:
+                numbers.append(num)
+        except (TypeError, ValueError):
+            continue
+    sno = record.get('sno')
+    try:
+        sno_int = int(sno)
+        if 1 <= sno_int <= 49:
+            numbers.append(sno_int)
+    except (TypeError, ValueError):
+        pass
+    return numbers
+
+def _build_number_stats(data, window=80, trend_window=12):
+    if not data:
+        return None
+    window = max(1, min(window, len(data)))
+    trend_window = max(1, min(trend_window, window))
+    freq = Counter()
+    recent_freq = Counter()
+    last_seen = {}
+
+    for idx, record in enumerate(data[:window]):
+        for num in _extract_record_numbers(record):
+            freq[num] += 1
+            if num not in last_seen:
+                last_seen[num] = idx
+            if idx < trend_window:
+                recent_freq[num] += 1
+
+    max_freq = max(freq.values(), default=0)
+    max_gap = max(last_seen.values(), default=0)
+
+    return {
+        "freq": freq,
+        "recent_freq": recent_freq,
+        "last_seen": last_seen,
+        "window": window,
+        "trend_window": trend_window,
+        "max_freq": max_freq,
+        "max_gap": max_gap
+    }
+
+def _score_number(num, stats, strategy):
+    freq = stats["freq"].get(num, 0)
+    recent = stats["recent_freq"].get(num, 0)
+    gap = stats["last_seen"].get(num, stats["window"])
+
+    freq_norm = (freq / stats["max_freq"]) if stats["max_freq"] else 0
+    recency = 1 / (gap + 1)
+    trend = (recent / stats["trend_window"]) - (freq / stats["window"]) if stats["window"] else 0
+    trend_pos = max(trend, 0)
+    gap_norm = (gap / stats["max_gap"]) if stats["max_gap"] else 0
+
+    if strategy == "hot":
+        return (freq_norm * 0.7) + (recency * 0.3)
+    if strategy == "cold":
+        return (gap_norm * 0.7) + ((1 - freq_norm) * 0.3)
+    if strategy == "trend":
+        return (trend_pos * 0.8) + (recency * 0.2)
+    if strategy == "balanced":
+        return (freq_norm * 0.4) + (recency * 0.3) + (trend_pos * 0.3)
+    # hybrid or unknown
+    return (freq_norm * 0.45) + (recency * 0.35) + (trend_pos * 0.2)
+
+def _weighted_choice(choices, weights):
+    total = sum(weights)
+    if total <= 0:
+        return random.choice(choices)
+    r = random.random() * total
+    upto = 0.0
+    for choice, weight in zip(choices, weights):
+        upto += weight
+        if upto >= r:
+            return choice
+    return choices[-1]
+
+def _weighted_sample(choices, weights, k):
+    selected = []
+    choices = list(choices)
+    weights = list(weights)
+    k = min(k, len(choices))
+    for _ in range(k):
+        pick = _weighted_choice(choices, weights)
+        idx = choices.index(pick)
+        selected.append(pick)
+        choices.pop(idx)
+        weights.pop(idx)
+    return selected
+
+def _pick_numbers_by_strategy(strategy, stats, count=6):
+    all_numbers = list(range(1, 50))
+    if strategy == "balanced":
+        scores = {n: _score_number(n, stats, "balanced") for n in all_numbers}
+        ranked = sorted(all_numbers, key=lambda n: scores[n], reverse=True)
+        top = ranked[:16]
+        mid = ranked[16:33]
+        low = ranked[33:]
+        selected = []
+        for bucket in (top, mid, low):
+            bucket_weights = [max(scores[n], 0.01) for n in bucket]
+            selected.extend(_weighted_sample(bucket, bucket_weights, 2))
+        return sorted(selected[:count])
+
+    scores = [max(_score_number(n, stats, strategy), 0.01) for n in all_numbers]
+    return sorted(_weighted_sample(all_numbers, scores, count))
+
+def _pick_special_number(available, stats, strategy):
+    if not available:
+        return None
+    scores = [max(_score_number(n, stats, strategy), 0.01) for n in available]
+    return _weighted_choice(available, scores)
+
 def get_local_recommendations(strategy, data, region):
     all_numbers = list(range(1, 50))
-    if strategy == 'random':
+    stats = _build_number_stats(data)
+    if strategy == 'random' or not stats:
         normal = sorted(random.sample(all_numbers, 6))
     else:
+        valid_strategies = {"hot", "cold", "trend", "balanced", "hybrid"}
+        algo = strategy if strategy in valid_strategies else "hybrid"
         try:
-            freq = analyze_special_number_frequency(data)
-            if not any(v > 0 for v in freq.values()): raise ValueError("No frequency data")
-            sorted_freq = sorted(freq.items(), key=lambda item: item[1])
-            low_freq, mid_freq, high_freq = [int(k) for k, v in sorted_freq[:16]], [int(k) for k, v in sorted_freq[16:33]], [int(k) for k, v in sorted_freq[33:]]
-            normal = sorted(random.sample(low_freq, 2) + random.sample(mid_freq, 2) + random.sample(high_freq, 2))
+            normal = _pick_numbers_by_strategy(algo, stats, 6)
         except Exception as e:
-            print(f"Balanced recommendation failed, falling back to random. Reason: {e}")
-            return get_local_recommendations('random', data, region)
-    special_num = random.choice([n for n in all_numbers if n not in normal])
+            print(f"Local recommendation failed, falling back to random. Reason: {e}")
+            normal = sorted(random.sample(all_numbers, 6))
+
+    available = [n for n in all_numbers if n not in normal]
+    if strategy == 'random' or not stats:
+        special_num = random.choice(available)
+    else:
+        special_algo = "trend" if strategy == "trend" else "hot"
+        special_num = _pick_special_number(available, stats, special_algo)
+        if special_num is None:
+            special_num = random.choice(available)
     # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
     # 生肖信息将在API返回数据后更新
     sno_zodiac_info = ""
@@ -689,7 +814,7 @@ def update_prediction_accuracy(data, region):
 
 @app.route('/api/predict')
 def unified_predict_api():
-    region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
+    region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'hybrid'), request.args.get('year', str(datetime.now().year))
     data = get_yearly_data(region, year)
     if not data:
         return jsonify({"error": f"无法加载{year}年的数据"}), 404
@@ -897,7 +1022,7 @@ def generate_auto_predictions(data, region):
         
         for user in auto_predict_users:
             # 获取用户的预测策略列表
-            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['balanced']
+            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['hybrid']
             
             # 获取用户的预测地区列表
             regions = user.auto_prediction_regions.split(',') if hasattr(user, 'auto_prediction_regions') and user.auto_prediction_regions else ['hk', 'macau']
@@ -1143,6 +1268,10 @@ def send_winning_notification_email(user, prediction, region):
     strategy_name = {
         'random': '随机预测',
         'balanced': '均衡预测',
+        'hot': '热门预测',
+        'cold': '冷门预测',
+        'trend': '走势预测',
+        'hybrid': '综合预测',
         'ai': 'AI智能预测'
     }.get(prediction.strategy, '未知策略')
     

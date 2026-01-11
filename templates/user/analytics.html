@@ -4,35 +4,41 @@
 
 {% block content %}
 <!-- 统计概览 -->
-<div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;">
     <div class="stat-card-compact clickable-stat" data-filter="all">
         <div class="stat-icon" style="color: #667eea;">📊</div>
         <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
         <div class="stat-label">总预测次数</div>
     </div>
     
-<div class="stat-card-compact clickable-stat" data-filter="special_hit">
-    <div class="stat-icon" style="color: #28a745;">🎯</div>
-    <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
-    <div class="stat-label">特码命中</div>
-</div>
+    <div class="stat-card-compact clickable-stat" data-filter="special_hit">
+        <div class="stat-icon" style="color: #28a745;">🎯</div>
+        <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
+        <div class="stat-label">特码命中</div>
+    </div>
 
-<div class="stat-card-compact clickable-stat" data-filter="normal_hit">
-    <div class="stat-icon" style="color: #17a2b8;">✅</div>
-    <div class="stat-number">{{ stats.normal_hit_count or 0 }}</div>
-    <div class="stat-label">平码命中</div>
-</div>
+    <div class="stat-card-compact clickable-stat" data-filter="normal_hit">
+        <div class="stat-icon" style="color: #17a2b8;">✅</div>
+        <div class="stat-number">{{ stats.normal_hit_count or 0 }}</div>
+        <div class="stat-label">平码命中</div>
+    </div>
 
-<div class="stat-card-compact clickable-stat" data-filter="wrong">
-    <div class="stat-icon" style="color: #dc3545;">❌</div>
-    <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
-    <div class="stat-label">未命中</div>
-</div>
+    <div class="stat-card-compact clickable-stat" data-filter="wrong">
+        <div class="stat-icon" style="color: #dc3545;">❌</div>
+        <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
+        <div class="stat-label">未命中</div>
+    </div>
     
     <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #ffc107;">📈</div>
-        <div class="stat-number">{{ "%.1f"|format(stats.accuracy or 0) }}%</div>
-        <div class="stat-label">总体准确率</div>
+        <div class="stat-icon" style="color: #ffc107;">🎯</div>
+        <div class="stat-number">{{ "%.1f"|format(stats.special_hit_rate or 0) }}%</div>
+        <div class="stat-label">特码命中率</div>
+    </div>
+
+    <div class="stat-card-compact">
+        <div class="stat-icon" style="color: #6f42c1;">✅</div>
+        <div class="stat-number">{{ "%.1f"|format(stats.normal_hit_rate or 0) }}%</div>
+        <div class="stat-label">平码命中率</div>
     </div>
 </div>
 
@@ -43,68 +49,36 @@
     </div>
     
     <div class="strategy-analysis">
+        {% for meta in strategy_meta %}
         <div class="strategy-item">
             <div class="strategy-header">
-                <span class="strategy-icon">🎲</span>
-                <span class="strategy-name">随机预测</span>
+                <span class="strategy-icon">{{ meta.icon }}</span>
+                <span class="strategy-name">{{ meta.label }}预测</span>
             </div>
             <div class="strategy-stats">
                 <div class="stat-item">
                     <span class="stat-label">预测次数</span>
-                    <span class="stat-value">{{ strategy_stats.random.total or 0 }}</span>
+                    <span class="stat-value">{{ strategy_stats[meta.key].total or 0 }}</span>
                 </div>
                 <div class="stat-item">
                     <span class="stat-label">命中次数</span>
-                    <span class="stat-value">{{ strategy_stats.random.correct or 0 }}</span>
+                    <span class="stat-value">{{ strategy_stats[meta.key].correct or 0 }}</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">准确率</span>
-                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats.random.accuracy or 0) }}%</span>
+                    <span class="stat-label">特码命中率</span>
+                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].special_hit_rate or 0) }}%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">平码命中率</span>
+                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].normal_hit_rate or 0) }}%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">综合命中率</span>
+                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].accuracy or 0) }}%</span>
                 </div>
             </div>
         </div>
-        
-        <div class="strategy-item">
-            <div class="strategy-header">
-                <span class="strategy-icon">⚖️</span>
-                <span class="strategy-name">均衡预测</span>
-            </div>
-            <div class="strategy-stats">
-                <div class="stat-item">
-                    <span class="stat-label">预测次数</span>
-                    <span class="stat-value">{{ strategy_stats.balanced.total or 0 }}</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">命中次数</span>
-                    <span class="stat-value">{{ strategy_stats.balanced.correct or 0 }}</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">准确率</span>
-                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats.balanced.accuracy or 0) }}%</span>
-                </div>
-            </div>
-        </div>
-        
-        <div class="strategy-item">
-            <div class="strategy-header">
-                <span class="strategy-icon">🤖</span>
-                <span class="strategy-name">AI智能预测</span>
-            </div>
-            <div class="strategy-stats">
-                <div class="stat-item">
-                    <span class="stat-label">预测次数</span>
-                    <span class="stat-value">{{ strategy_stats.ai.total or 0 }}</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">命中次数</span>
-                    <span class="stat-value">{{ strategy_stats.ai.correct or 0 }}</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">准确率</span>
-                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats.ai.accuracy or 0) }}%</span>
-                </div>
-            </div>
-        </div>
+        {% endfor %}
     </div>
 </div>
 
@@ -193,16 +167,14 @@
         </div>
         {% else %}
         
-        {% if strategy_stats and strategy_stats.ai and strategy_stats.ai.accuracy and strategy_stats.random and strategy_stats.balanced %}
-            {% if strategy_stats.ai.accuracy > strategy_stats.random.accuracy and strategy_stats.ai.accuracy > strategy_stats.balanced.accuracy %}
-            <div class="suggestion-item">
-                <span class="suggestion-icon">🤖</span>
-                <div class="suggestion-content">
-                    <h4>AI策略表现最佳</h4>
-                    <p>您的AI智能预测策略准确率最高（{{ "%.1f"|format(strategy_stats.ai.accuracy) }}%），建议优先使用此策略。</p>
-                </div>
+        {% if best_strategy %}
+        <div class="suggestion-item">
+            <span class="suggestion-icon">{{ best_strategy.icon }}</span>
+            <div class="suggestion-content">
+                <h4>{{ best_strategy.label }}策略表现更好</h4>
+                <p>当前综合命中率最高的是{{ best_strategy.label }}策略，建议优先尝试该策略并持续观察数据变化。</p>
             </div>
-            {% endif %}
+        </div>
         {% endif %}
         
         {% if region_stats and region_stats.hk and region_stats.macau %}

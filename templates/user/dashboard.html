@@ -4,7 +4,7 @@
 
 {% block content %}
 <!-- 统计信息 -->
-<div class="stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #667eea;">📊</div>
         <div class="stat-number">{{ stats.total_predictions }}</div>
@@ -13,8 +13,14 @@
     
     <div class="stat-card-compact">
         <div class="stat-icon" style="color: #28a745;">🎯</div>
-        <div class="stat-number">{{ stats.avg_accuracy }}%</div>
-        <div class="stat-label">平均准确率</div>
+        <div class="stat-number">{{ stats.special_hit_rate }}%</div>
+        <div class="stat-label">特码命中率</div>
+    </div>
+    
+    <div class="stat-card-compact">
+        <div class="stat-icon" style="color: #6f42c1;">✅</div>
+        <div class="stat-number">{{ stats.normal_hit_rate }}%</div>
+        <div class="stat-label">平码命中率</div>
     </div>
     
     <div class="stat-card-compact">
@@ -45,29 +51,13 @@
     </div>
     
     <div class="accuracy-grid">
+        {% for meta in strategy_meta %}
         <div class="accuracy-item">
-            <span class="accuracy-icon">🎲</span>
-            <span class="accuracy-name">随机</span>
-            <span class="accuracy-value">{{ stats.random_accuracy }}%</span>
+            <span class="accuracy-icon">{{ meta.icon }}</span>
+            <span class="accuracy-name">{{ meta.label }}</span>
+            <span class="accuracy-value">{{ strategy_accuracy.get(meta.key, 0) }}%</span>
         </div>
-        
-        <div class="accuracy-item">
-            <span class="accuracy-icon">⚖️</span>
-            <span class="accuracy-name">均衡</span>
-            <span class="accuracy-value">{{ stats.balanced_accuracy }}%</span>
-        </div>
-        
-        <div class="accuracy-item">
-            <span class="accuracy-icon">🤖</span>
-            <span class="accuracy-name">AI智能</span>
-            <span class="accuracy-value">{{ stats.ai_accuracy }}%</span>
-        </div>
-        
-        <div class="accuracy-item">
-            <span class="accuracy-icon">📊</span>
-            <span class="accuracy-name">平均</span>
-            <span class="accuracy-value">{{ stats.avg_accuracy }}%</span>
-        </div>
+        {% endfor %}
     </div>
 </div>
 
@@ -121,21 +111,13 @@
             <div class="setting-group">
                 <span class="group-title">预测策略：</span>
                 <div class="checkbox-group">
+                    {% for meta in strategy_meta %}
                     <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_strategies" value="random" 
-                               {{ 'checked' if not user.auto_prediction_strategies or 'random' in user.auto_prediction_strategies.split(',') else '' }}>
-                        <span>🎲随机</span>
+                        <input type="checkbox" name="auto_prediction_strategies" value="{{ meta.key }}" 
+                               {{ 'checked' if user.auto_prediction_strategies and meta.key in user.auto_prediction_strategies.split(',') else '' }}>
+                        <span>{{ meta.icon }}{{ meta.label }}</span>
                     </label>
-                    <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_strategies" value="balanced" 
-                               {{ 'checked' if not user.auto_prediction_strategies or 'balanced' in user.auto_prediction_strategies.split(',') else '' }}>
-                        <span>⚖️均衡</span>
-                    </label>
-                    <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_strategies" value="ai"
-                               {{ 'checked' if user.auto_prediction_strategies and 'ai' in user.auto_prediction_strategies.split(',') else '' }}>
-                        <span>🤖AI</span>
-                    </label>
+                    {% endfor %}
                 </div>
             </div>
             
@@ -184,7 +166,7 @@
     <div class="help-grid">
         <div class="help-item">
             <span class="help-icon">🎯</span>
-            <span class="help-text">支持香港和澳门六合彩预测，提供三种预测策略</span>
+            <span class="help-text">支持香港和澳门六合彩预测，提供多种预测策略</span>
         </div>
         <div class="help-item">
             <span class="help-icon">📊</span>
