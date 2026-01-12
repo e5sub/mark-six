@@ -28,7 +28,18 @@ jobs:
       - name: Write local.properties
         run: |
           FLUTTER_SDK=$(dirname "$(dirname "$(which flutter)")")
+          VERSION_CODE=${GITHUB_RUN_NUMBER}
+          VERSION_NAME=$(python - <<'PY'
+          import os
+          run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+          base = 1.0
+          version = base + (run - 1) / 10.0
+          print(f"{version:.1f}")
+          PY
+          )
           echo "flutter.sdk=$FLUTTER_SDK" > android/local.properties
+          echo "flutter.versionCode=$VERSION_CODE" >> android/local.properties
+          echo "flutter.versionName=$VERSION_NAME" >> android/local.properties
         working-directory: mobile/mark_six
 
       - name: Decode keystore
@@ -58,8 +69,31 @@ jobs:
         run: flutter build apk --release
         working-directory: mobile/mark_six
 
+      - name: Read version
+        id: app_version
+        run: |
+          VERSION_NAME=$(python - <<'PY'
+          import os
+          run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+          base = 1.0
+          version = base + (run - 1) / 10.0
+          print(f"{version:.1f}")
+          PY
+          )
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION_NAME" >> $GITHUB_OUTPUT
+        working-directory: mobile/mark_six
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: mark-six-release-apk
           path: mobile/mark_six/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.app_version.outputs.tag }}
+          name: ${{ steps.app_version.outputs.version_name }}
+          generate_release_notes: true
+          files: mobile/mark_six/build/app/outputs/flutter-apk/app-release.apk
