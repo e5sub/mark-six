@@ -5,6 +5,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - '**'
     paths:
       - 'mobile/mark_six/**'
       - '.github/workflows/android-release.yml'
@@ -37,13 +39,21 @@ jobs:
           import os
           ref = os.environ.get("GITHUB_REF", "")
           tag = ref.rsplit("/", 1)[-1] if ref else ""
+          def normalize(ver):
+              parts = ver.split(".")
+              if len(parts) == 1:
+                  parts += ["0", "0"]
+              elif len(parts) == 2:
+                  parts += ["0"]
+              return ".".join(parts[:3])
           if tag.startswith("v"):
-              print(tag[1:])
+              raw = tag[1:]
           else:
               run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
               base = 1.0
               version = base + (run - 1) / 10.0
-              print(f"{version:.1f}")
+              raw = f"{version:.1f}"
+          print(normalize(raw))
           PY
           )
           VERSION_CODE=${GITHUB_RUN_NUMBER}
@@ -58,13 +68,21 @@ jobs:
           import os
           ref = os.environ.get("GITHUB_REF", "")
           tag = ref.rsplit("/", 1)[-1] if ref else ""
+          def normalize(ver):
+              parts = ver.split(".")
+              if len(parts) == 1:
+                  parts += ["0", "0"]
+              elif len(parts) == 2:
+                  parts += ["0"]
+              return ".".join(parts[:3])
           if tag.startswith("v"):
-              print(tag[1:])
+              raw = tag[1:]
           else:
               run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
               base = 1.0
               version = base + (run - 1) / 10.0
-              print(f"{version:.1f}")
+              raw = f"{version:.1f}"
+          print(normalize(raw))
           PY
           )
           VERSION_CODE=${GITHUB_RUN_NUMBER}
@@ -118,21 +136,32 @@ jobs:
       - name: Read version
         id: app_version
         run: |
-          VERSION_NAME=$(python - <<'PY'
+          python - <<'PY'
           import os
           ref = os.environ.get("GITHUB_REF", "")
           tag = ref.rsplit("/", 1)[-1] if ref else ""
+          def normalize(ver):
+              parts = ver.split(".")
+              if len(parts) == 1:
+                  parts += ["0", "0"]
+              elif len(parts) == 2:
+                  parts += ["0"]
+              return ".".join(parts[:3])
           if tag.startswith("v"):
-              print(tag[1:])
+              raw = tag[1:]
+              tag_name = tag
           else:
               run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
               base = 1.0
               version = base + (run - 1) / 10.0
-              print(f"{version:.1f}")
+              raw = f"{version:.1f}"
+              tag_name = f"v{raw}"
+          normalized = normalize(raw)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"version_name={raw}\n")
+              f.write(f"normalized_version={normalized}\n")
+              f.write(f"tag={tag_name}\n")
           PY
-          )
-          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
-          echo "tag=v$VERSION_NAME" >> $GITHUB_OUTPUT
         working-directory: mobile/mark_six
 
       - name: Upload APK
