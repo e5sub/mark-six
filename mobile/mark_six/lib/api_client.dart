@@ -140,10 +140,16 @@ class ApiClient {
   Future<Map<String, dynamic>> predictions({
     int page = 1,
     int pageSize = 20,
+    String? region,
+    String? strategy,
+    String? result,
   }) async {
     final response = await get('/api/mobile/predictions', queryParameters: {
       'page': page.toString(),
       'page_size': pageSize.toString(),
+      if (region != null && region.isNotEmpty) 'region': region,
+      if (strategy != null && strategy.isNotEmpty) 'strategy': strategy,
+      if (result != null && result.isNotEmpty) 'result': result,
     });
     return _ensureJsonMap(response.data);
   }

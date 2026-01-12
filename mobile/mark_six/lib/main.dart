@@ -463,7 +463,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (value) => setState(() => _index = value),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.list_alt), label: '开奖记录'),
-          NavigationDestination(icon: Icon(Icons.auto_graph), label: '开奖预测'),
+          NavigationDestination(icon: Icon(Icons.auto_graph), label: '号码预测'),
           NavigationDestination(icon: Icon(Icons.person), label: '个人中心'),
         ],
       ),
@@ -805,14 +805,6 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                     outlined: true,
                                     highlight: true,
                                   ),
-                                  if (specialZodiac.isNotEmpty)
-                                    Text(
-                                      '生肖：$specialZodiac',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade600,
-                                        fontSize: 12,
-                                      ),
-                                    ),
                                 ],
                               ),
                             ],
@@ -946,7 +938,7 @@ class PredictScreen extends StatefulWidget {
 
 class _PredictScreenState extends State<PredictScreen> {
   String _region = 'hk';
-  String _strategy = 'hybrid';
+  final Set<String> _strategies = {'hybrid'};
   bool _loading = false;
   String _aiText = '';
   Map<String, dynamic>? _result;
@@ -967,6 +959,95 @@ class _PredictScreenState extends State<PredictScreen> {
     'random': '随机',
     'ai': 'AI智能',
   };
+
+  LinearGradient? _strategyGradient(String key) {
+    switch (key) {
+      case 'random':
+        return const LinearGradient(
+          colors: [Color(0xFF28A745), Color(0xFF20C997)],
+        );
+      case 'hot':
+        return const LinearGradient(
+          colors: [Color(0xFFFF6A00), Color(0xFFEE0979)],
+        );
+      case 'cold':
+        return const LinearGradient(
+          colors: [Color(0xFF36D1DC), Color(0xFF5B86E5)],
+        );
+      case 'trend':
+        return const LinearGradient(
+          colors: [Color(0xFF11998E), Color(0xFF38EF7D)],
+        );
+      case 'hybrid':
+        return const LinearGradient(
+          colors: [Color(0xFF7F00FF), Color(0xFFE100FF)],
+        );
+      case 'balanced':
+        return const LinearGradient(
+          colors: [Color(0xFFFFC107), Color(0xFFFD7E14)],
+        );
+      case 'ai':
+        return const LinearGradient(
+          colors: [Color(0xFF17A2B8), Color(0xFF6F42C1)],
+        );
+    }
+    return null;
+  }
+
+  Widget _buildStrategyChip(String key, String label) {
+    final selected = _strategies.contains(key);
+    final gradient = _strategyGradient(key);
+    final borderColor = gradient?.colors.first ?? Colors.grey.shade400;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          if (selected) {
+            if (_strategies.length > 1) {
+              _strategies.remove(key);
+            }
+          } else {
+            _strategies.add(key);
+          }
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: selected ? gradient : null,
+          color: selected ? null : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: selected ? Colors.transparent : borderColor),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: borderColor.withOpacity(0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : [],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected)
+              const Padding(
+                padding: EdgeInsets.only(right: 6),
+                child: Icon(Icons.check, size: 16, color: Colors.white),
+              ),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -1019,7 +1100,19 @@ class _PredictScreenState extends State<PredictScreen> {
       _resetPrediction();
     });
 
-    if (_strategy == 'ai') {
+    final selected = _strategies.isEmpty ? ['hybrid'] : _strategies.toList();
+    final hasAi = selected.contains('ai');
+    final nonAiStrategies =
+        selected.where((value) => value != 'ai').toList();
+
+    if (nonAiStrategies.isNotEmpty) {
+      for (final strategy in nonAiStrategies) {
+        final ok = await _runPredictOnce(strategy);
+        if (!ok) break;
+      }
+    }
+
+    if (hasAi) {
       _aiSubscription?.cancel();
       _aiSubscription = ApiClient.instance
           .predictAiStream(region: _region, year: _currentYear)
@@ -1075,10 +1168,16 @@ class _PredictScreenState extends State<PredictScreen> {
       return;
     }
 
+    if (mounted) {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<bool> _runPredictOnce(String strategy) async {
     try {
       final res = await ApiClient.instance.predict(
         region: _region,
-        strategy: _strategy,
+        strategy: strategy,
         year: _currentYear,
       );
       final normal = _uniqueNumbers(
@@ -1092,21 +1191,22 @@ class _PredictScreenState extends State<PredictScreen> {
       final numbers = [...cleanNormal, specialNumber]
           .where((n) => n.isNotEmpty)
           .toList();
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _result = {
           ...res,
           'normal': cleanNormal,
           'special': special,
         };
-        _loading = false;
       });
       await _updateZodiacs(numbers);
       await _loadPredictionRecords();
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() => _loading = false);
       _showMessage('预测失败: $e');
+      return false;
     }
   }
 
@@ -1162,6 +1262,7 @@ class _PredictScreenState extends State<PredictScreen> {
       final res = await ApiClient.instance.predictions(
         page: 1,
         pageSize: 10,
+        region: _region,
       );
       final items = (res['items'] as List<dynamic>? ?? [])
           .map((value) => PredictionItem.fromJson(value as Map<String, dynamic>))
@@ -1237,7 +1338,8 @@ class _PredictScreenState extends State<PredictScreen> {
     final normalZodiacs = _recordNormalZodiacs[item.id] ??
         List.filled(item.normalNumbers.length, '');
     final specialZodiac = _recordSpecialZodiacs[item.id] ?? item.specialZodiac;
-    final strategyLabel = _strategyLabels[item.strategy] ?? item.strategy;
+    final actualSpecialNumber = item.actualSpecialNumber;
+    final actualSpecialZodiac = item.actualSpecialZodiac;
     final createdAt = item.createdAt == null
         ? ''
         : '${item.createdAt!.year}-${item.createdAt!.month.toString().padLeft(2, '0')}-${item.createdAt!.day.toString().padLeft(2, '0')}';
@@ -1263,7 +1365,7 @@ class _PredictScreenState extends State<PredictScreen> {
             children: [
               Expanded(
                 child: Text(
-                  '${item.period} · $strategyLabel',
+                  '期号：${item.period}  预测时间：$createdAt',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -1285,19 +1387,16 @@ class _PredictScreenState extends State<PredictScreen> {
               ),
             ],
           ),
-          if (createdAt.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                createdAt,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-              ),
-            ),
           const SizedBox(height: 10),
           Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 8,
             runSpacing: 8,
             children: [
+              const Text(
+                '平码：',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               ...item.normalNumbers.asMap().entries.map(
                     (entry) => _NumberZodiacTile(
                       number: entry.value,
@@ -1305,6 +1404,10 @@ class _PredictScreenState extends State<PredictScreen> {
                       color: ballColor(entry.value),
                     ),
                   ),
+              const Text(
+                '特码：',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               if (item.specialNumber.isNotEmpty)
                 _NumberZodiacTile(
                   number: item.specialNumber,
@@ -1314,6 +1417,18 @@ class _PredictScreenState extends State<PredictScreen> {
                   highlight: true,
                 ),
             ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            actualSpecialNumber.isEmpty
+                ? '开奖结果：待开奖'
+                : '开奖结果：$actualSpecialNumber  生肖：$actualSpecialZodiac',
+            style: TextStyle(
+              color: actualSpecialNumber.isEmpty
+                  ? Colors.orange
+                  : Colors.grey.shade700,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -1368,7 +1483,7 @@ class _PredictScreenState extends State<PredictScreen> {
     final active = widget.appState.user?.isActive ?? false;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('开奖预测')),
+      appBar: AppBar(title: const Text('号码预测')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -1404,14 +1519,7 @@ class _PredictScreenState extends State<PredictScreen> {
                       child: Wrap(
                         spacing: 8,
                         children: _strategyLabels.entries.map((entry) {
-                          final selected = _strategy == entry.key;
-                          return ChoiceChip(
-                            label: Text(entry.value),
-                            selected: selected,
-                            onSelected: (_) {
-                              setState(() => _strategy = entry.key);
-                            },
-                          );
+                          return _buildStrategyChip(entry.key, entry.value);
                         }).toList(),
                       ),
                     ),
@@ -1509,11 +1617,13 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   AccuracyStats? _overall;
   bool _loading = false;
+  String _appVersion = '';
 
   @override
   void initState() {
     super.initState();
     _loadAccuracy();
+    _loadVersion();
   }
 
   Future<void> _loadAccuracy() async {
@@ -1530,6 +1640,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() => _appVersion = info.version);
+    } catch (_) {}
   }
 
   Future<void> _activate(BuildContext context) async {
@@ -1636,6 +1754,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Row(
+                          children: [
+                            const Text(
+                              '当前版本：',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text(_appVersion.isEmpty ? '-' : _appVersion),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
                         const Text(
                           '预测准确率',
                           style: TextStyle(
@@ -1784,8 +1912,8 @@ class UpdateService {
   }
 
   static int _compareVersions(String a, String b) {
-    final aParts = a.split('.').map(_safeParseInt).toList();
-    final bParts = b.split('.').map(_safeParseInt).toList();
+    final aParts = _normalizeVersion(a).map(_safeParseInt).toList();
+    final bParts = _normalizeVersion(b).map(_safeParseInt).toList();
     final maxLen = aParts.length > bParts.length ? aParts.length : bParts.length;
     for (var i = 0; i < maxLen; i++) {
       final aVal = i < aParts.length ? aParts[i] : 0;
@@ -1795,6 +1923,13 @@ class UpdateService {
       }
     }
     return 0;
+  }
+
+  static List<String> _normalizeVersion(String version) {
+    final raw = version.split('+').first.trim();
+    final parts = raw.split('.');
+    if (parts.length <= 2) return parts;
+    return parts.take(2).toList();
   }
 
   static int _safeParseInt(String value) {

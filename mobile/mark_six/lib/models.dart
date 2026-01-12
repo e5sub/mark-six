@@ -35,6 +35,8 @@ class PredictionItem {
     required this.normalNumbers,
     required this.specialNumber,
     required this.specialZodiac,
+    required this.actualSpecialNumber,
+    required this.actualSpecialZodiac,
     required this.result,
     required this.createdAt,
   });
@@ -46,6 +48,8 @@ class PredictionItem {
   final List<String> normalNumbers;
   final String specialNumber;
   final String specialZodiac;
+  final String actualSpecialNumber;
+  final String actualSpecialZodiac;
   final String result;
   final DateTime? createdAt;
 
@@ -60,6 +64,8 @@ class PredictionItem {
           .toList(),
       specialNumber: json['special_number'] as String? ?? '',
       specialZodiac: json['special_zodiac'] as String? ?? '',
+      actualSpecialNumber: json['actual_special_number'] as String? ?? '',
+      actualSpecialZodiac: json['actual_special_zodiac'] as String? ?? '',
       result: json['result'] as String? ?? 'pending',
       createdAt: json['created_at'] == null
           ? null
