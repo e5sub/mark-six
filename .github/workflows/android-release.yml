@@ -47,6 +47,7 @@ jobs:
           rm -f android/app/build.gradle
           rm -f android/build.gradle
           rm -f android/settings.gradle
+          rm -rf android/app/src/main/kotlin
         working-directory: mobile/mark_six
 
       - name: Flutter pub get
