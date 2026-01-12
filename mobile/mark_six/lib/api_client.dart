@@ -117,6 +117,22 @@ class ApiClient {
       options: Options(responseType: ResponseType.stream),
     );
 
+    if (response.statusCode != 200) {
+      final bytes = await response.data?.stream
+              .fold<List<int>>(<int>[], (acc, chunk) => acc..addAll(chunk)) ??
+          <int>[];
+      final body = bytes.isEmpty ? '' : utf8.decode(bytes);
+      try {
+        final data = jsonDecode(body);
+        if (data is Map<String, dynamic>) {
+          yield {'type': 'error', 'error': data['message'] ?? data['error'] ?? body};
+          return;
+        }
+      } catch (_) {}
+      yield {'type': 'error', 'error': body.isEmpty ? 'AI预测失败' : body};
+      return;
+    }
+
     final stream = response.data?.stream;
     if (stream == null) {
       yield {'type': 'error', 'error': 'empty stream'};

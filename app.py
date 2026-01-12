@@ -631,7 +631,10 @@ def get_yearly_data(region, year):
     # 如果数据库中没有数据，则从API获取
     if region == 'hk':
         all_data = load_hk_data()
-        filtered_data = [rec for rec in all_data if rec.get('date', '').startswith(str(year))]
+        filtered_data = [
+            rec for rec in all_data if rec.get('date', '').startswith(str(year))
+        ]
+        filtered_data.sort(key=lambda rec: rec.get('date', ''), reverse=True)
         print(f"从API获取香港数据: 总数={len(all_data)}, 过滤后={len(filtered_data)}")
         
         # 保存数据到数据库
@@ -640,6 +643,7 @@ def get_yearly_data(region, year):
         return filtered_data
     if region == 'macau':
         macau_data = get_macau_data(year)
+        macau_data.sort(key=lambda rec: rec.get('date', ''), reverse=True)
         print(f"从API获取澳门数据: 总数={len(macau_data)}")
         
         # 保存数据到数据库
@@ -852,17 +856,69 @@ def unified_predict_api():
     if not data:
         return jsonify({"error": f"无法加载{year}年的数据"}), 404
 
-    # 检查用户是否登录和激活（对于需要保存记录的功能）
+    def _latest_period_from_data(records, region_name):
+        if region_name == 'hk':
+            latest_year = -1
+            latest_num = -1
+            for rec in records:
+                period = rec.get('id', '')
+                if not period or '/' not in period:
+                    continue
+                year_part, num_part = period.split('/', 1)
+                try:
+                    year_val = int(year_part)
+                    num_val = int(num_part)
+                except ValueError:
+                    continue
+                if (year_val, num_val) > (latest_year, latest_num):
+                    latest_year = year_val
+                    latest_num = num_val
+            if latest_year >= 0 and latest_num >= 0:
+                return f"{latest_year:02d}/{latest_num:03d}"
+            return None
+        latest_num = -1
+        for rec in records:
+            period = rec.get('id', '')
+            if period and period.isdigit():
+                value = int(period)
+                if value > latest_num:
+                    latest_num = value
+        if latest_num >= 0:
+            return str(latest_num)
+        return None
+
+    # 必须登录且已激活才能预测
     user_id = session.get('user_id')
-    user = User.query.get(user_id) if user_id else None
-    is_active = user.is_active if user else False
+    if not user_id:
+        return jsonify({
+            "error": "auth_required",
+            "message": "请先登录后再使用预测功能"
+        }), 401
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({
+            "error": "auth_required",
+            "message": "请先登录后再使用预测功能"
+        }), 401
+
+    try:
+        is_active = user.check_and_update_activation_status()
+    except Exception:
+        is_active = user.is_active and not user.is_activation_expired()
+    session['is_active'] = bool(is_active)
+    if not is_active:
+        return jsonify({
+            "error": "account_inactive",
+            "message": "账号未激活或已过期，无法使用预测功能"
+        }), 403
 
     # 获取下一期期数（使用最近一期的下一期）
     if data:
         try:
             if region == 'hk':
                 # 香港六合彩期数格式为"年份/期数"，如"25/075"
-                latest_period = data[0].get('id', '')
+                latest_period = _latest_period_from_data(data, region)
                 if latest_period and '/' in latest_period:
                     year_part, num_part = latest_period.split('/')
                     next_num = int(num_part) + 1
@@ -878,7 +934,7 @@ def unified_predict_api():
                     current_period = f"{current_year}/001"
             else:
                 # 澳门六合彩期数格式
-                latest_period = data[0].get('id', '')
+                latest_period = _latest_period_from_data(data, region)
                 if latest_period and latest_period.isdigit():
                     next_period = str(int(latest_period) + 1)
                     current_period = next_period

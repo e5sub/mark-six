@@ -1224,18 +1224,26 @@ class _PredictScreenState extends State<PredictScreen> {
     }
   }
 
-  Future<bool> _runPredictOnce(String strategy) async {
-    try {
-      final res = await ApiClient.instance.predict(
-        region: _region,
-        strategy: strategy,
-        year: _currentYear,
-      );
-      final normal = _uniqueNumbers(
-        (res['normal'] as List<dynamic>? ?? [])
-            .map((value) => value.toString())
-            .toList(),
-      );
+    Future<bool> _runPredictOnce(String strategy) async {
+      try {
+        final res = await ApiClient.instance.predict(
+          region: _region,
+          strategy: strategy,
+          year: _currentYear,
+        );
+        if (res['success'] == false || res.containsKey('error')) {
+          final message = res['message']?.toString() ??
+              res['error']?.toString() ??
+              '预测失败';
+          if (!mounted) return false;
+          _showMessage(message);
+          return false;
+        }
+        final normal = _uniqueNumbers(
+          (res['normal'] as List<dynamic>? ?? [])
+              .map((value) => value.toString())
+              .toList(),
+        );
       final special = res['special'] as Map<String, dynamic>? ?? {};
       final specialNumber = special['number']?.toString() ?? '';
       final cleanNormal = _removeSpecialFromNormal(normal, specialNumber);
