@@ -24,9 +24,11 @@ if (keystorePropertiesFile.exists()) {
     }
 }
 
-apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
-apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
+plugins {
+    id 'com.android.application'
+    id 'kotlin-android'
+    id 'dev.flutter.flutter-gradle-plugin'
+}
 
 android {
     namespace 'com.caiya.mark_six'
@@ -67,10 +69,6 @@ android {
             shrinkResources false
         }
     }
-}
-
-flutter {
-    source '../..'
 }
 
 dependencies {
