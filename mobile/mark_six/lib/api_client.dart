@@ -122,7 +122,7 @@ class ApiClient {
       return;
     }
 
-    final textStream = stream.transform(utf8.decoder);
+    final textStream = stream.cast<List<int>>().transform(utf8.decoder);
     await for (final chunk in _splitByDoubleNewline(textStream)) {
       final trimmed = chunk.trim();
       if (trimmed.isEmpty) continue;

@@ -193,19 +193,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final resultSummary = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (normal != null) Text('Normal: ${normal.join(', ')}'),
-        if (special != null) Text('Special: ${special['number']}'),
-        if ((_result?['recommendation_text'] as String?)?.isNotEmpty ?? false)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(_result?['recommendation_text'] as String),
-          ),
-      ],
-    );
-
     return Scaffold(
       appBar: AppBar(title: const Text('Login')),
       body: Padding(
@@ -514,6 +501,18 @@ class _PredictScreenState extends State<PredictScreen> {
     final active = widget.appState.user?.isActive ?? false;
     final normal = _result?['normal'] as List<dynamic>?;
     final special = _result?['special'] as Map<String, dynamic>?;
+    final resultSummary = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (normal != null) Text('Normal: ${normal.join(', ')}'),
+        if (special != null) Text('Special: ${special['number']}'),
+        if ((_result?['recommendation_text'] as String?)?.isNotEmpty ?? false)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(_result?['recommendation_text'] as String),
+          ),
+      ],
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Prediction')),
