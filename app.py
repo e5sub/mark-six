@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash, Response, stream_with_context
+﻿from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash, Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
 import os
@@ -892,7 +892,8 @@ def unified_predict_api():
         existing = PredictionRecord.query.filter_by(
             user_id=user_id,
             region=region,
-            period=current_period
+            period=current_period,
+            strategy=strategy
         ).first()
 
         if existing:
@@ -1551,3 +1552,4 @@ if __name__ == '__main__':
     except (KeyboardInterrupt, SystemExit):
         # 关闭定时任务
         scheduler.shutdown()
+
