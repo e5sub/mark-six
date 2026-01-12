@@ -3,11 +3,12 @@ name: Android Release APK
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*'
     paths:
       - 'mobile/mark_six/**'
       - '.github/workflows/android-release.yml'
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
