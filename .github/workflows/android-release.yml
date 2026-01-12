@@ -42,6 +42,13 @@ jobs:
           EOF
         working-directory: mobile/mark_six
 
+      - name: Remove legacy Gradle files
+        run: |
+          rm -f android/app/build.gradle
+          rm -f android/build.gradle
+          rm -f android/settings.gradle
+        working-directory: mobile/mark_six
+
       - name: Flutter pub get
         run: flutter pub get
         working-directory: mobile/mark_six
