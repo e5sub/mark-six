@@ -1,0 +1,57 @@
+name: Android Release APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'mobile/mark_six/**'
+      - '.github/workflows/android-release.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Write local.properties
+        run: |
+          FLUTTER_SDK=$(dirname "$(dirname "$(which flutter)")")
+          echo "flutter.sdk=$FLUTTER_SDK" > android/local.properties
+        working-directory: mobile/mark_six
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/caiya_release.jks
+          cat > android/key.properties <<EOF
+          storeFile=app/caiya_release.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+        working-directory: mobile/mark_six
+
+      - name: Flutter pub get
+        run: flutter pub get
+        working-directory: mobile/mark_six
+
+      - name: Build release APK
+        run: flutter build apk --release
+        working-directory: mobile/mark_six
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mark-six-release-apk
+          path: mobile/mark_six/build/app/outputs/flutter-apk/app-release.apk

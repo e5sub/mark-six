@@ -1,0 +1,20 @@
+# Flutter/Dart/Pub
+.dart_tool/
+.packages
+pubspec.lock
+
+# Flutter build
+build/
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+android/app/*.jks
+
+# iOS
+ios/Pods/
+
+# IDE
+.idea/
+.vscode/

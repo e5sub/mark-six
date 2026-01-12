@@ -23,6 +23,7 @@ from admin import admin_bp
 from user import user_bp
 from activation_code_routes import activation_code_bp
 from invite_routes import invite_bp
+from api_mobile import mobile_api_bp
 
 # --- 配置信息 ---
 app = Flask(__name__)
@@ -64,6 +65,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(user_bp)
 app.register_blueprint(activation_code_bp)
 app.register_blueprint(invite_bp, url_prefix='/invite')
+app.register_blueprint(mobile_api_bp)
 
 # 获取AI配置的函数
 def get_ai_config():
@@ -842,7 +844,10 @@ def update_prediction_accuracy(data, region):
 
 @app.route('/api/predict')
 def unified_predict_api():
-    region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'hybrid'), request.args.get('year', str(datetime.now().year))
+    region = request.args.get('region', 'hk')
+    strategy = request.args.get('strategy', 'hybrid')
+    year = request.args.get('year', str(datetime.now().year))
+    stream = request.args.get('stream', '1') != '0'
     data = get_yearly_data(region, year)
     if not data:
         return jsonify({"error": f"无法加载{year}年的数据"}), 404
@@ -918,7 +923,7 @@ def unified_predict_api():
         ai_response = predict_with_ai(
             data,
             region,
-            stream=True,
+            stream=stream,
             user_id=user_id,
             is_active=is_active,
             period=current_period
@@ -927,14 +932,23 @@ def unified_predict_api():
         # 如果返回的是Response对象（流式），直接返回
         if isinstance(ai_response, Response):
             return ai_response
-        else:
-            # 如果返回的是字典（错误信息），返回错误
-            error_message = ai_response.get('error')
-            return jsonify({
-                "error": error_message,
-                "error_type": "ai_prediction_failed",
-                "message": f"AI预测失败：{error_message}，请稍后再试或联系管理员检查AI API配置。"
-            }), 400
+        # 非流式返回字典结果
+        if isinstance(ai_response, dict) and not stream:
+            if ai_response.get('error'):
+                error_message = ai_response.get('error')
+                return jsonify({
+                    "error": error_message,
+                    "error_type": "ai_prediction_failed",
+                    "message": f"AI预测失败：{error_message}，请稍后再试或联系管理员检查AI API配置。"
+                }), 400
+            return jsonify(ai_response)
+        # 如果返回的是字典（错误信息），返回错误
+        error_message = ai_response.get('error')
+        return jsonify({
+            "error": error_message,
+            "error_type": "ai_prediction_failed",
+            "message": f"AI预测失败：{error_message}，请稍后再试或联系管理员检查AI API配置。"
+        }), 400
     else:
         result = get_local_recommendations(strategy, data, region)
 
