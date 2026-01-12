@@ -101,6 +101,7 @@ class DrawRecord {
     required this.normalNumbers,
     required this.specialNumber,
     required this.specialZodiac,
+    required this.rawZodiacs,
   });
 
   final String id;
@@ -108,8 +109,13 @@ class DrawRecord {
   final List<String> normalNumbers;
   final String specialNumber;
   final String specialZodiac;
+  final List<String> rawZodiacs;
 
   factory DrawRecord.fromJson(Map<String, dynamic> json) {
+    final rawZodiac = json['raw_zodiac']?.toString() ?? '';
+    final rawZodiacs = rawZodiac.isEmpty
+        ? <String>[]
+        : rawZodiac.split(',').map((value) => value.trim()).toList();
     return DrawRecord(
       id: json['id']?.toString() ?? '',
       date: json['date']?.toString() ?? '',
@@ -118,6 +124,7 @@ class DrawRecord {
           .toList(),
       specialNumber: json['sno']?.toString() ?? '',
       specialZodiac: json['sno_zodiac']?.toString() ?? '',
+      rawZodiacs: rawZodiacs,
     );
   }
 }

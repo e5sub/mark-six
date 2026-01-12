@@ -170,6 +170,19 @@ class ApiClient {
     return <dynamic>[];
   }
 
+  Future<Map<String, dynamic>> getZodiacs({
+    required List<String> numbers,
+    required String region,
+    required String year,
+  }) async {
+    final response = await get('/api/get_zodiacs', queryParameters: {
+      'numbers': numbers.join(','),
+      'region': region,
+      'year': year,
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Map<String, dynamic> _ensureJsonMap(dynamic data) {
     if (data is Map<String, dynamic>) {
       return data;

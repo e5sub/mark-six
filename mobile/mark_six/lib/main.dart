@@ -1,4 +1,4 @@
-
+﻿
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -30,13 +30,16 @@ class _MarkSixAppState extends State<MarkSixApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '??????',
+      title: '彩票数据分析',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF0B6B4F),
           secondary: const Color(0xFFF4B547),
         ),
         fontFamily: 'NotoSansSC',
+        textTheme: ThemeData.light().textTheme.apply(fontFamily: 'NotoSansSC'),
+        primaryTextTheme:
+            ThemeData.light().textTheme.apply(fontFamily: 'NotoSansSC'),
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF6F7FB),
         appBarTheme: const AppBarTheme(
@@ -104,9 +107,9 @@ class AppState extends ChangeNotifier {
         notifyListeners();
         return null;
       }
-      return res['message']?.toString() ?? '????';
+      return res['message']?.toString() ?? '登录失败';
     } catch (e) {
-      return '????: $e';
+      return '登录失败: $e';
     }
   }
 
@@ -128,9 +131,9 @@ class AppState extends ChangeNotifier {
       if (res['success'] == true) {
         return null;
       }
-      return res['message']?.toString() ?? '????';
+      return res['message']?.toString() ?? '注册失败';
     } catch (e) {
-      return '????: $e';
+      return '注册失败: $e';
     }
   }
 
@@ -142,9 +145,9 @@ class AppState extends ChangeNotifier {
         notifyListeners();
         return null;
       }
-      return res['message']?.toString() ?? '????';
+      return res['message']?.toString() ?? '激活失败';
     } catch (e) {
-      return '????: $e';
+      return '激活失败: $e';
     }
   }
 
@@ -236,24 +239,24 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      '??????',
+                      '彩票数据分析',
                       style:
                           TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '???????????',
+                      '登录后开始你的智能预测',
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
                     const SizedBox(height: 24),
                     TextField(
                       controller: _username,
-                      decoration: const InputDecoration(labelText: '??????'),
+                      decoration: const InputDecoration(labelText: '用户名或邮箱'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _password,
-                      decoration: const InputDecoration(labelText: '??'),
+                      decoration: const InputDecoration(labelText: '密码'),
                       obscureText: true,
                     ),
                     const SizedBox(height: 24),
@@ -273,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 width: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Text('??'),
+                            : const Text('登录'),
                       ),
                     ),
                     TextButton(
@@ -285,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         );
                       },
-                      child: const Text('?????????'),
+                      child: const Text('没有账号？立即注册'),
                     ),
                   ],
                 ),
@@ -345,12 +348,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('????'),
-        content: const Text('??????????????'),
+        title: const Text('注册成功'),
+        content: const Text('注册完成，请登录并激活账号。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('???'),
+            child: const Text('知道了'),
           ),
         ],
       ),
@@ -369,37 +372,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('????')),
+      appBar: AppBar(title: const Text('注册账号')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             TextField(
               controller: _username,
-              decoration: const InputDecoration(labelText: '???'),
+              decoration: const InputDecoration(labelText: '用户名'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _email,
-              decoration: const InputDecoration(labelText: '??'),
+              decoration: const InputDecoration(labelText: '邮箱'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _password,
-              decoration: const InputDecoration(labelText: '??'),
+              decoration: const InputDecoration(labelText: '密码'),
               obscureText: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _confirmPassword,
-              decoration: const InputDecoration(labelText: '????'),
+              decoration: const InputDecoration(labelText: '确认密码'),
               obscureText: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _inviteCode,
               decoration: const InputDecoration(
-                labelText: '???????',
+                labelText: '邀请码（可选）',
               ),
             ),
             const SizedBox(height: 24),
@@ -413,7 +416,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('??'),
+                    : const Text('注册'),
               ),
             ),
           ],
@@ -448,13 +451,22 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.list_alt), label: '????'),
-          NavigationDestination(icon: Icon(Icons.auto_graph), label: '????'),
-          NavigationDestination(icon: Icon(Icons.person), label: '????'),
+          NavigationDestination(icon: Icon(Icons.list_alt), label: '开奖记录'),
+          NavigationDestination(icon: Icon(Icons.auto_graph), label: '开奖预测'),
+          NavigationDestination(icon: Icon(Icons.person), label: '个人中心'),
         ],
       ),
     );
   }
+}
+
+Color ballColor(String number) {
+  final numValue = int.tryParse(number) ?? 0;
+  const red = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46];
+  const blue = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48];
+  if (red.contains(numValue)) return const Color(0xFFE54B4B);
+  if (blue.contains(numValue)) return const Color(0xFF2D6CDF);
+  return const Color(0xFF36B37E);
 }
 
 class RecordsScreen extends StatefulWidget {
@@ -486,7 +498,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
           .toList();
       setState(() => _records = records);
     } catch (_) {
-      _showMessage('????????');
+      _showMessage('获取开奖数据失败');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -500,19 +512,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
     );
   }
 
-  Color _ballColor(String number) {
-    final numValue = int.tryParse(number) ?? 0;
-    const red = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46];
-    const blue = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48];
-    if (red.contains(numValue)) return const Color(0xFFE54B4B);
-    if (blue.contains(numValue)) return const Color(0xFF2D6CDF);
-    return const Color(0xFF36B37E);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('????')),
+      appBar: AppBar(title: const Text('开奖记录')),
       body: Column(
         children: [
           Container(
@@ -538,7 +541,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        '?10???',
+                        '近10期开奖',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -547,7 +550,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _region == 'hk' ? '?????' : '?????',
+                        _region == 'hk' ? '香港六合彩' : '澳门六合彩',
                         style: const TextStyle(color: Colors.white70),
                       ),
                     ],
@@ -555,8 +558,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
                 ),
                 SegmentedButton<String>(
                   segments: const [
-                    ButtonSegment(value: 'hk', label: Text('??')),
-                    ButtonSegment(value: 'macau', label: Text('??')),
+                    ButtonSegment(value: 'hk', label: Text('香港')),
+                    ButtonSegment(value: 'macau', label: Text('澳门')),
                   ],
                   selected: {_region},
                   onSelectionChanged: (value) {
@@ -581,6 +584,17 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final record = _records[index];
+                      final rawZodiacs = record.rawZodiacs;
+                      final normalZodiacs = rawZodiacs.length >=
+                              record.normalNumbers.length
+                          ? rawZodiacs
+                              .take(record.normalNumbers.length)
+                              .toList()
+                          : List.filled(record.normalNumbers.length, '');
+                      final specialZodiac = rawZodiacs.length >
+                              record.normalNumbers.length
+                          ? rawZodiacs[record.normalNumbers.length]
+                          : record.specialZodiac;
                       return Card(
                         elevation: 2,
                         shape: RoundedRectangleBorder(
@@ -602,21 +616,26 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                 spacing: 8,
                                 runSpacing: 8,
                                 children: [
-                                  ...record.normalNumbers.map(
-                                    (number) => _Ball(number: number, color: _ballColor(number)),
-                                  ),
-                                  _Ball(
+                                  ...record.normalNumbers.asMap().entries.map(
+                                        (entry) => _NumberZodiacTile(
+                                          number: entry.value,
+                                          zodiac: normalZodiacs[entry.key],
+                                          color: ballColor(entry.value),
+                                        ),
+                                      ),
+                                  _NumberZodiacTile(
                                     number: record.specialNumber,
-                                    color: _ballColor(record.specialNumber),
+                                    zodiac: specialZodiac,
+                                    color: ballColor(record.specialNumber),
                                     outlined: true,
                                   ),
                                 ],
                               ),
-                              if (record.specialZodiac.isNotEmpty)
+                              if (specialZodiac.isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 8),
                                   child: Text(
-                                    '?????${record.specialZodiac}',
+                                    '特码生肖：$specialZodiac',
                                     style: TextStyle(color: Colors.grey.shade600),
                                   ),
                                 ),
@@ -629,6 +648,35 @@ class _RecordsScreenState extends State<RecordsScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _NumberZodiacTile extends StatelessWidget {
+  const _NumberZodiacTile({
+    required this.number,
+    required this.zodiac,
+    required this.color,
+    this.outlined = false,
+  });
+
+  final String number;
+  final String zodiac;
+  final Color color;
+  final bool outlined;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _Ball(number: number, color: color, outlined: outlined),
+        const SizedBox(height: 4),
+        Text(
+          zodiac,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+        ),
+      ],
     );
   }
 }
@@ -681,16 +729,18 @@ class _PredictScreenState extends State<PredictScreen> {
   bool _loading = false;
   String _aiText = '';
   Map<String, dynamic>? _result;
+  List<String> _normalZodiacs = [];
+  String _specialZodiac = '';
   StreamSubscription<Map<String, dynamic>>? _aiSubscription;
 
   final Map<String, String> _strategyLabels = const {
-    'hybrid': '??',
-    'balanced': '??',
-    'hot': '??',
-    'cold': '??',
-    'trend': '??',
-    'random': '??',
-    'ai': 'AI??',
+    'hybrid': '综合',
+    'balanced': '均衡',
+    'hot': '热门',
+    'cold': '冷门',
+    'trend': '走势',
+    'random': '随机',
+    'ai': 'AI智能',
   };
 
   @override
@@ -706,38 +756,79 @@ class _PredictScreenState extends State<PredictScreen> {
     super.dispose();
   }
 
+  void _resetPrediction() {
+    _result = null;
+    _aiText = '';
+    _normalZodiacs = [];
+    _specialZodiac = '';
+  }
+
+  Future<void> _updateZodiacs(List<String> numbers) async {
+    if (numbers.isEmpty) return;
+    try {
+      final res = await ApiClient.instance.getZodiacs(
+        numbers: numbers,
+        region: _region,
+        year: _year.text.trim(),
+      );
+      final normal = (res['normal_zodiacs'] as List<dynamic>? ?? [])
+          .map((value) => value.toString())
+          .toList();
+      final special = res['special_zodiac']?.toString() ?? '';
+      if (!mounted) return;
+      setState(() {
+        _normalZodiacs = normal;
+        _specialZodiac = special;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _normalZodiacs = [];
+        _specialZodiac = '';
+      });
+    }
+  }
+
   Future<void> _handlePredict() async {
     setState(() {
       _loading = true;
-      _result = null;
-      _aiText = '';
+      _resetPrediction();
     });
 
     if (_strategy == 'ai') {
       _aiSubscription?.cancel();
       _aiSubscription = ApiClient.instance
           .predictAiStream(region: _region, year: _year.text.trim())
-          .listen((event) {
+          .listen((event) async {
         if (!mounted) return;
         if (event['type'] == 'content') {
           setState(() {
             _aiText += event['content']?.toString() ?? '';
           });
         } else if (event['type'] == 'done') {
+          final normal = (event['normal'] as List<dynamic>? ?? [])
+              .map((value) => value.toString())
+              .toList();
+          final special = (event['special'] as Map<String, dynamic>? ?? {});
+          final specialNumber = special['number']?.toString() ?? '';
+          final numbers = [...normal, specialNumber]
+              .where((n) => n.isNotEmpty)
+              .toList();
           setState(() {
             _result = event;
             _loading = false;
           });
+          await _updateZodiacs(numbers);
         } else if (event['type'] == 'error') {
           setState(() {
             _loading = false;
           });
-          _showMessage(event['error']?.toString() ?? 'AI????');
+          _showMessage(event['error']?.toString() ?? 'AI预测失败');
         }
       }, onError: (e) {
         if (!mounted) return;
         setState(() => _loading = false);
-        _showMessage('AI????: $e');
+        _showMessage('AI流式失败: $e');
       }, onDone: () {
         if (!mounted) return;
         setState(() => _loading = false);
@@ -751,15 +842,24 @@ class _PredictScreenState extends State<PredictScreen> {
         strategy: _strategy,
         year: _year.text.trim(),
       );
+      final normal = (res['normal'] as List<dynamic>? ?? [])
+          .map((value) => value.toString())
+          .toList();
+      final special = res['special'] as Map<String, dynamic>? ?? {};
+      final specialNumber = special['number']?.toString() ?? '';
+      final numbers = [...normal, specialNumber]
+          .where((n) => n.isNotEmpty)
+          .toList();
       if (!mounted) return;
       setState(() {
         _result = res;
         _loading = false;
       });
+      await _updateZodiacs(numbers);
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      _showMessage('????: $e');
+      _showMessage('预测失败: $e');
     }
   }
 
@@ -769,26 +869,48 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final active = widget.appState.user?.isActive ?? false;
-    final normal = _result?['normal'] as List<dynamic>?;
-    final special = _result?['special'] as Map<String, dynamic>?;
-    final resultSummary = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildPredictionNumbers() {
+    final normal = (_result?['normal'] as List<dynamic>? ?? [])
+        .map((value) => value.toString())
+        .toList();
+    final specialMap = _result?['special'] as Map<String, dynamic>? ?? {};
+    final specialNumber = specialMap['number']?.toString() ?? '';
+    if (normal.isEmpty && specialNumber.isEmpty) {
+      return const Text('暂无预测结果');
+    }
+
+    final normalZodiacs = _normalZodiacs.length == normal.length
+        ? _normalZodiacs
+        : List.filled(normal.length, '');
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        if (normal != null) Text('???${normal.join(', ')}'),
-        if (special != null) Text('???${special['number']}'),
-        if ((_result?['recommendation_text'] as String?)?.isNotEmpty ?? false)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(_result?['recommendation_text'] as String),
+        ...normal.asMap().entries.map(
+              (entry) => _NumberZodiacTile(
+                number: entry.value,
+                zodiac: normalZodiacs[entry.key],
+                color: ballColor(entry.value),
+              ),
+            ),
+        if (specialNumber.isNotEmpty)
+          _NumberZodiacTile(
+            number: specialNumber,
+            zodiac: _specialZodiac,
+            color: ballColor(specialNumber),
+            outlined: true,
           ),
       ],
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = widget.appState.user?.isActive ?? false;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('????')),
+      appBar: AppBar(title: const Text('开奖预测')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -806,8 +928,8 @@ class _PredictScreenState extends State<PredictScreen> {
                         Expanded(
                           child: SegmentedButton<String>(
                             segments: const [
-                              ButtonSegment(value: 'hk', label: Text('??')),
-                              ButtonSegment(value: 'macau', label: Text('??')),
+                              ButtonSegment(value: 'hk', label: Text('香港')),
+                              ButtonSegment(value: 'macau', label: Text('澳门')),
                             ],
                             selected: {_region},
                             onSelectionChanged: (value) {
@@ -820,7 +942,7 @@ class _PredictScreenState extends State<PredictScreen> {
                           width: 110,
                           child: TextField(
                             controller: _year,
-                            decoration: const InputDecoration(labelText: '??'),
+                            decoration: const InputDecoration(labelText: '年份'),
                             keyboardType: TextInputType.number,
                           ),
                         ),
@@ -854,14 +976,14 @@ class _PredictScreenState extends State<PredictScreen> {
                                 width: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Text('????'),
+                            : const Text('生成预测'),
                       ),
                     ),
                     if (!active)
                       const Padding(
                         padding: EdgeInsets.only(top: 8),
                         child: Text(
-                          '?????????????????',
+                          '账号未激活，预测记录可能无法保存。',
                           style: TextStyle(color: Colors.orange),
                         ),
                       ),
@@ -878,7 +1000,7 @@ class _PredictScreenState extends State<PredictScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            resultSummary,
+                            _buildPredictionNumbers(),
                             const Divider(),
                             Expanded(
                               child: SingleChildScrollView(
@@ -892,7 +1014,7 @@ class _PredictScreenState extends State<PredictScreen> {
                   : Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
-                        child: resultSummary,
+                        child: _buildPredictionNumbers(),
                       ),
                     ),
             ),
@@ -930,7 +1052,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _overall = AccuracyStats.fromJson(res['overall'] as Map<String, dynamic>);
       });
     } catch (_) {
-      _showMessage('???????');
+      _showMessage('获取准确率失败');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -943,19 +1065,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('????'),
+        title: const Text('激活账号'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: '???'),
+          decoration: const InputDecoration(labelText: '激活码'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('??'),
+            child: const Text('取消'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('??'),
+            child: const Text('激活'),
           ),
         ],
       ),
@@ -983,7 +1105,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('????')),
+      appBar: AppBar(title: const Text('个人中心')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1009,13 +1131,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Row(
                     children: [
                       Chip(
-                        label: Text(user.isActive ? '???' : '???'),
+                        label: Text(user.isActive ? '已激活' : '未激活'),
                         backgroundColor:
                             user.isActive ? Colors.green.shade100 : Colors.orange.shade100,
                       ),
                       const SizedBox(width: 8),
                       if (user.activationExpiresAt != null)
-                        Text('???${user.activationExpiresAt}'),
+                        Text('到期：${user.activationExpiresAt}'),
                     ],
                   ),
                   if (!user.isActive)
@@ -1023,7 +1145,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       padding: const EdgeInsets.only(top: 12),
                       child: ElevatedButton(
                         onPressed: () => _activate(context),
-                        child: const Text('?????'),
+                        child: const Text('输入激活码'),
                       ),
                     ),
                 ],
@@ -1043,7 +1165,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          '?????',
+                          '预测准确率',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -1051,12 +1173,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 8),
                         if (_overall != null) ...[
-                          Text('??????${_overall!.accuracy}%'),
-                          Text('??????${_overall!.total}'),
-                          Text('?????${_overall!.specialHits}'),
-                          Text('?????${_overall!.normalHits}'),
+                          Text('总体命中率：${_overall!.accuracy}%'),
+                          Text('总预测次数：${_overall!.total}'),
+                          Text('特码命中：${_overall!.specialHits}'),
+                          Text('平码命中：${_overall!.normalHits}'),
                         ] else
-                          const Text('????'),
+                          const Text('暂无数据'),
                       ],
                     ),
             ),
@@ -1064,7 +1186,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 16),
           OutlinedButton(
             onPressed: () => widget.appState.logout(),
-            child: const Text('????'),
+            child: const Text('退出登录'),
           ),
         ],
       ),
