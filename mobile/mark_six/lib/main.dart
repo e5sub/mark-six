@@ -590,6 +590,142 @@ class _RecordsScreenState extends State<RecordsScreen> {
     _applyFilters();
   }
 
+  Future<void> _openSearchSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '筛选开奖',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _yearController,
+                        decoration: const InputDecoration(
+                          labelText: '年份',
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _monthController,
+                        decoration: const InputDecoration(
+                          labelText: '月份',
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _periodController,
+                        decoration: const InputDecoration(
+                          labelText: '期号',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _specialNumberController,
+                        decoration: const InputDecoration(
+                          labelText: '特码号码',
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _specialZodiacController,
+                        decoration: const InputDecoration(
+                          labelText: '特码生肖',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : () async {
+                                Navigator.of(context).pop();
+                                await _fetch();
+                              },
+                        icon: const Icon(Icons.search),
+                        label: const Text('搜索'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    OutlinedButton(
+                      onPressed: () {
+                        _resetFilters();
+                        Navigator.of(context).pop();
+                      },
+                      child: const Text('重置'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -655,89 +791,21 @@ class _RecordsScreenState extends State<RecordsScreen> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _yearController,
-                            decoration: const InputDecoration(
-                              labelText: '年份',
-                            ),
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _monthController,
-                            decoration: const InputDecoration(
-                              labelText: '月份',
-                            ),
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _periodController,
-                            decoration: const InputDecoration(
-                              labelText: '期号',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _specialNumberController,
-                            decoration: const InputDecoration(
-                              labelText: '特码号码',
-                            ),
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _specialZodiacController,
-                            decoration: const InputDecoration(
-                              labelText: '特码生肖',
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _loading ? null : _fetch,
-                            icon: const Icon(Icons.search),
-                            label: const Text('搜索'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        OutlinedButton(
-                          onPressed: _resetFilters,
-                          child: const Text('重置'),
-                        ),
-                      ],
-                    ),
-                  ],
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _openSearchSheet,
+                    icon: const Icon(Icons.search),
+                    label: const Text('筛选搜索'),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                OutlinedButton(
+                  onPressed: _resetFilters,
+                  child: const Text('重置'),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -1000,6 +1068,7 @@ class _PredictScreenState extends State<PredictScreen> {
     final borderColor = gradient?.colors.first ?? Colors.grey.shade400;
     return GestureDetector(
       onTap: () {
+        if (_loading) return;
         setState(() {
           if (selected) {
             if (_strategies.length > 1) {
@@ -1009,6 +1078,7 @@ class _PredictScreenState extends State<PredictScreen> {
             _strategies.add(key);
           }
         });
+        _handlePredict();
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
@@ -1421,7 +1491,7 @@ class _PredictScreenState extends State<PredictScreen> {
           const SizedBox(height: 8),
           Text(
             actualSpecialNumber.isEmpty
-                ? '开奖结果：待开奖'
+                ? '开奖结果：未开奖'
                 : '开奖结果：$actualSpecialNumber  生肖：$actualSpecialZodiac',
             style: TextStyle(
               color: actualSpecialNumber.isEmpty
@@ -1524,19 +1594,17 @@ class _PredictScreenState extends State<PredictScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _loading ? null : _handlePredict,
-                        child: _loading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('生成预测'),
+                    if (_loading)
+                      const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Text(
+                        '点击策略自动生成预测',
+                        style: TextStyle(color: Colors.grey.shade600),
                       ),
-                    ),
                     if (!active)
                       const Padding(
                         padding: EdgeInsets.only(top: 8),

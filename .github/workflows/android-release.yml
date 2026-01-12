@@ -3,6 +3,8 @@ name: Android Release APK
 on:
   workflow_dispatch:
   push:
+    tags:
+      - 'v*'
     paths:
       - 'mobile/mark_six/**'
       - '.github/workflows/android-release.yml'
@@ -31,18 +33,59 @@ jobs:
       - name: Write local.properties
         run: |
           FLUTTER_SDK=$(dirname "$(dirname "$(which flutter)")")
-          VERSION_CODE=${GITHUB_RUN_NUMBER}
           VERSION_NAME=$(python - <<'PY'
           import os
-          run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
-          base = 1.0
-          version = base + (run - 1) / 10.0
-          print(f"{version:.1f}")
+          ref = os.environ.get("GITHUB_REF", "")
+          tag = ref.rsplit("/", 1)[-1] if ref else ""
+          if tag.startswith("v"):
+              print(tag[1:])
+          else:
+              run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+              base = 1.0
+              version = base + (run - 1) / 10.0
+              print(f"{version:.1f}")
           PY
           )
+          VERSION_CODE=${GITHUB_RUN_NUMBER}
           echo "flutter.sdk=$FLUTTER_SDK" > android/local.properties
           echo "flutter.versionCode=$VERSION_CODE" >> android/local.properties
           echo "flutter.versionName=$VERSION_NAME" >> android/local.properties
+        working-directory: mobile/mark_six
+
+      - name: Sync pubspec version
+        run: |
+          VERSION_NAME=$(python - <<'PY'
+          import os
+          ref = os.environ.get("GITHUB_REF", "")
+          tag = ref.rsplit("/", 1)[-1] if ref else ""
+          if tag.startswith("v"):
+              print(tag[1:])
+          else:
+              run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+              base = 1.0
+              version = base + (run - 1) / 10.0
+              print(f"{version:.1f}")
+          PY
+          )
+          VERSION_CODE=${GITHUB_RUN_NUMBER}
+          python - <<PY
+          from pathlib import Path
+          version_name = "${VERSION_NAME}"
+          version_code = "${VERSION_CODE}"
+          pubspec = Path("pubspec.yaml")
+          lines = pubspec.read_text(encoding="utf-8").splitlines()
+          out = []
+          replaced = False
+          for line in lines:
+              if line.startswith("version:"):
+                  out.append(f"version: {version_name}+{version_code}")
+                  replaced = True
+              else:
+                  out.append(line)
+          if not replaced:
+              out.insert(1, f"version: {version_name}+{version_code}")
+          pubspec.write_text("\n".join(out) + "\n", encoding="utf-8")
+          PY
         working-directory: mobile/mark_six
 
       - name: Decode keystore
@@ -77,10 +120,15 @@ jobs:
         run: |
           VERSION_NAME=$(python - <<'PY'
           import os
-          run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
-          base = 1.0
-          version = base + (run - 1) / 10.0
-          print(f"{version:.1f}")
+          ref = os.environ.get("GITHUB_REF", "")
+          tag = ref.rsplit("/", 1)[-1] if ref else ""
+          if tag.startswith("v"):
+              print(tag[1:])
+          else:
+              run = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+              base = 1.0
+              version = base + (run - 1) / 10.0
+              print(f"{version:.1f}")
           PY
           )
           echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
