@@ -771,15 +771,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '期号：${record.id}',
+                                '期号：${record.id}  开奖时间：${record.date}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '开奖时间：${record.date}',
-                                style: TextStyle(color: Colors.grey.shade600),
                               ),
                               const SizedBox(height: 12),
                               Wrap(
@@ -868,24 +863,28 @@ class _NumberZodiacTile extends StatelessWidget {
                   ],
                 ),
                 child: Stack(
-                  alignment: Alignment.topRight,
+                  clipBehavior: Clip.none,
                   children: [
                     ball,
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        '特',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                    Positioned(
+                      top: -6,
+                      right: -6,
+                      child: Container(
+                        width: 18,
+                        height: 18,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Text(
+                          '特',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -917,8 +916,8 @@ class _Ball extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 38,
-      height: 38,
+      width: 46,
+      height: 46,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: outlined ? Colors.white : color,
@@ -930,6 +929,7 @@ class _Ball extends StatelessWidget {
         style: TextStyle(
           color: outlined ? color : Colors.white,
           fontWeight: FontWeight.bold,
+          fontSize: 16,
         ),
       ),
     );
@@ -945,7 +945,6 @@ class PredictScreen extends StatefulWidget {
 }
 
 class _PredictScreenState extends State<PredictScreen> {
-  final TextEditingController _year = TextEditingController();
   String _region = 'hk';
   String _strategy = 'hybrid';
   bool _loading = false;
@@ -972,14 +971,12 @@ class _PredictScreenState extends State<PredictScreen> {
   @override
   void initState() {
     super.initState();
-    _year.text = DateTime.now().year.toString();
     _loadPredictionRecords();
   }
 
   @override
   void dispose() {
     _aiSubscription?.cancel();
-    _year.dispose();
     super.dispose();
   }
 
@@ -996,7 +993,7 @@ class _PredictScreenState extends State<PredictScreen> {
       final res = await ApiClient.instance.getZodiacs(
         numbers: numbers,
         region: _region,
-        year: _year.text.trim(),
+        year: _currentYear,
       );
       final normal = (res['normal_zodiacs'] as List<dynamic>? ?? [])
           .map((value) => value.toString())
@@ -1025,7 +1022,7 @@ class _PredictScreenState extends State<PredictScreen> {
     if (_strategy == 'ai') {
       _aiSubscription?.cancel();
       _aiSubscription = ApiClient.instance
-          .predictAiStream(region: _region, year: _year.text.trim())
+          .predictAiStream(region: _region, year: _currentYear)
           .listen((event) async {
         if (!mounted) return;
         if (event['type'] == 'content') {
@@ -1035,16 +1032,23 @@ class _PredictScreenState extends State<PredictScreen> {
         } else if (event['type'] == 'done' ||
             event.containsKey('normal') ||
             event.containsKey('special')) {
-          final normal = (event['normal'] as List<dynamic>? ?? [])
-              .map((value) => value.toString())
-              .toList();
+          final normal = _uniqueNumbers(
+            (event['normal'] as List<dynamic>? ?? [])
+                .map((value) => value.toString())
+                .toList(),
+          );
           final special = (event['special'] as Map<String, dynamic>? ?? {});
           final specialNumber = special['number']?.toString() ?? '';
-          final numbers = [...normal, specialNumber]
+          final cleanNormal = _removeSpecialFromNormal(normal, specialNumber);
+          final numbers = [...cleanNormal, specialNumber]
               .where((n) => n.isNotEmpty)
               .toList();
           setState(() {
-            _result = event;
+            _result = {
+              ...event,
+              'normal': cleanNormal,
+              'special': special,
+            };
             _loading = false;
           });
           await _updateZodiacs(numbers);
@@ -1075,19 +1079,26 @@ class _PredictScreenState extends State<PredictScreen> {
       final res = await ApiClient.instance.predict(
         region: _region,
         strategy: _strategy,
-        year: _year.text.trim(),
+        year: _currentYear,
       );
-      final normal = (res['normal'] as List<dynamic>? ?? [])
-          .map((value) => value.toString())
-          .toList();
+      final normal = _uniqueNumbers(
+        (res['normal'] as List<dynamic>? ?? [])
+            .map((value) => value.toString())
+            .toList(),
+      );
       final special = res['special'] as Map<String, dynamic>? ?? {};
       final specialNumber = special['number']?.toString() ?? '';
-      final numbers = [...normal, specialNumber]
+      final cleanNormal = _removeSpecialFromNormal(normal, specialNumber);
+      final numbers = [...cleanNormal, specialNumber]
           .where((n) => n.isNotEmpty)
           .toList();
       if (!mounted) return;
       setState(() {
-        _result = res;
+        _result = {
+          ...res,
+          'normal': cleanNormal,
+          'special': special,
+        };
         _loading = false;
       });
       await _updateZodiacs(numbers);
@@ -1106,24 +1117,27 @@ class _PredictScreenState extends State<PredictScreen> {
   }
 
   Widget _buildPredictionNumbers() {
-    final normal = (_result?['normal'] as List<dynamic>? ?? [])
-        .map((value) => value.toString())
-        .toList();
+    final normal = _uniqueNumbers(
+      (_result?['normal'] as List<dynamic>? ?? [])
+          .map((value) => value.toString())
+          .toList(),
+    );
     final specialMap = _result?['special'] as Map<String, dynamic>? ?? {};
     final specialNumber = specialMap['number']?.toString() ?? '';
+    final cleanNormal = _removeSpecialFromNormal(normal, specialNumber);
     if (normal.isEmpty && specialNumber.isEmpty) {
       return const Text('暂无预测结果');
     }
 
-    final normalZodiacs = _normalZodiacs.length == normal.length
+    final normalZodiacs = _normalZodiacs.length == cleanNormal.length
         ? _normalZodiacs
-        : List.filled(normal.length, '');
+        : List.filled(cleanNormal.length, '');
 
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        ...normal.asMap().entries.map(
+        ...cleanNormal.asMap().entries.map(
               (entry) => _NumberZodiacTile(
                 number: entry.value,
                 zodiac: normalZodiacs[entry.key],
@@ -1179,7 +1193,7 @@ class _PredictScreenState extends State<PredictScreen> {
       final res = await ApiClient.instance.getZodiacs(
         numbers: numbers,
         region: item.region,
-        year: _year.text.trim(),
+        year: _currentYear,
       );
       final normal = (res['normal_zodiacs'] as List<dynamic>? ?? [])
           .map((value) => value.toString())
@@ -1382,15 +1396,6 @@ class _PredictScreenState extends State<PredictScreen> {
                             },
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: 110,
-                          child: TextField(
-                            controller: _year,
-                            decoration: const InputDecoration(labelText: '年份'),
-                            keyboardType: TextInputType.number,
-                          ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -1469,6 +1474,26 @@ class _PredictScreenState extends State<PredictScreen> {
         ),
       ),
     );
+  }
+
+  String get _currentYear => DateTime.now().year.toString();
+
+  List<String> _uniqueNumbers(List<String> values) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final value in values) {
+      final v = value.trim();
+      if (v.isEmpty || seen.contains(v)) continue;
+      seen.add(v);
+      result.add(v);
+    }
+    return result;
+  }
+
+  List<String> _removeSpecialFromNormal(
+      List<String> normal, String special) {
+    if (special.isEmpty) return normal;
+    return normal.where((value) => value != special).toList();
   }
 }
 
