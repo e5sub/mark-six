@@ -1006,7 +1006,7 @@ class PredictScreen extends StatefulWidget {
 
 class _PredictScreenState extends State<PredictScreen> {
   String _region = 'hk';
-  final Set<String> _strategies = {'hybrid'};
+  String _strategy = 'hybrid';
   bool _loading = false;
   String _aiText = '';
   Map<String, dynamic>? _result;
@@ -1063,21 +1063,13 @@ class _PredictScreenState extends State<PredictScreen> {
   }
 
   Widget _buildStrategyChip(String key, String label) {
-    final selected = _strategies.contains(key);
+    final selected = _strategy == key;
     final gradient = _strategyGradient(key);
     final borderColor = gradient?.colors.first ?? Colors.grey.shade400;
     return GestureDetector(
       onTap: () {
         if (_loading) return;
-        setState(() {
-          if (selected) {
-            if (_strategies.length > 1) {
-              _strategies.remove(key);
-            }
-          } else {
-            _strategies.add(key);
-          }
-        });
+        setState(() => _strategy = key);
         _handlePredict();
       },
       child: AnimatedContainer(
@@ -1170,19 +1162,7 @@ class _PredictScreenState extends State<PredictScreen> {
       _resetPrediction();
     });
 
-    final selected = _strategies.isEmpty ? ['hybrid'] : _strategies.toList();
-    final hasAi = selected.contains('ai');
-    final nonAiStrategies =
-        selected.where((value) => value != 'ai').toList();
-
-    if (nonAiStrategies.isNotEmpty) {
-      for (final strategy in nonAiStrategies) {
-        final ok = await _runPredictOnce(strategy);
-        if (!ok) break;
-      }
-    }
-
-    if (hasAi) {
+    if (_strategy == 'ai') {
       _aiSubscription?.cancel();
       _aiSubscription = ApiClient.instance
           .predictAiStream(region: _region, year: _currentYear)
@@ -1238,6 +1218,7 @@ class _PredictScreenState extends State<PredictScreen> {
       return;
     }
 
+    await _runPredictOnce(_strategy);
     if (mounted) {
       setState(() => _loading = false);
     }
@@ -1410,6 +1391,7 @@ class _PredictScreenState extends State<PredictScreen> {
     final specialZodiac = _recordSpecialZodiacs[item.id] ?? item.specialZodiac;
     final actualSpecialNumber = item.actualSpecialNumber;
     final actualSpecialZodiac = item.actualSpecialZodiac;
+    final strategyLabel = _strategyLabels[item.strategy] ?? item.strategy;
     final createdAt = item.createdAt == null
         ? ''
         : '${item.createdAt!.year}-${item.createdAt!.month.toString().padLeft(2, '0')}-${item.createdAt!.day.toString().padLeft(2, '0')}';
@@ -1435,7 +1417,7 @@ class _PredictScreenState extends State<PredictScreen> {
             children: [
               Expanded(
                 child: Text(
-                  '期号：${item.period}  预测时间：$createdAt',
+                  '期号：${item.period}  预测时间：$createdAt  策略：$strategyLabel',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
