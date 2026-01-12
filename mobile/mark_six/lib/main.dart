@@ -2,6 +2,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'api_client.dart';
 import 'models.dart';
@@ -20,6 +24,7 @@ class MarkSixApp extends StatefulWidget {
 
 class _MarkSixAppState extends State<MarkSixApp> {
   final AppState _appState = AppState();
+  bool _updateChecked = false;
 
   @override
   void initState() {
@@ -61,6 +66,12 @@ class _MarkSixAppState extends State<MarkSixApp> {
         builder: (context, _) {
           if (!_appState.initialized) {
             return const SplashScreen();
+          }
+          if (!_updateChecked) {
+            _updateChecked = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              UpdateService.checkForUpdate(context);
+            });
           }
           if (_appState.user == null) {
             return LoginScreen(appState: _appState);
@@ -478,25 +489,46 @@ class RecordsScreen extends StatefulWidget {
 
 class _RecordsScreenState extends State<RecordsScreen> {
   List<DrawRecord> _records = [];
+  List<DrawRecord> _allRecords = [];
   String _region = 'hk';
   bool _loading = false;
+  final TextEditingController _yearController = TextEditingController();
+  final TextEditingController _monthController = TextEditingController();
+  final TextEditingController _periodController = TextEditingController();
+  final TextEditingController _specialNumberController = TextEditingController();
+  final TextEditingController _specialZodiacController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _yearController.text = DateTime.now().year.toString();
     _fetch();
+  }
+
+  @override
+  void dispose() {
+    _yearController.dispose();
+    _monthController.dispose();
+    _periodController.dispose();
+    _specialNumberController.dispose();
+    _specialZodiacController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetch() async {
     setState(() => _loading = true);
     try {
-      final year = DateTime.now().year.toString();
+      final year = _yearController.text.trim().isEmpty
+          ? DateTime.now().year.toString()
+          : _yearController.text.trim();
       final raw = await ApiClient.instance.draws(region: _region, year: year);
       final records = raw
           .map((item) => DrawRecord.fromJson(item as Map<String, dynamic>))
-          .take(10)
           .toList();
-      setState(() => _records = records);
+      setState(() {
+        _allRecords = records;
+      });
+      _applyFilters();
     } catch (_) {
       _showMessage('获取开奖数据失败');
     } finally {
@@ -510,6 +542,52 @@ class _RecordsScreenState extends State<RecordsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  void _applyFilters() {
+    final month = _monthController.text.trim();
+    final period = _periodController.text.trim();
+    final specialNo = _specialNumberController.text.trim();
+    final specialZodiac = _specialZodiacController.text.trim();
+
+    var filtered = List<DrawRecord>.from(_allRecords);
+    if (month.isNotEmpty) {
+      filtered = filtered.where((record) {
+        final parts = record.date.split('-');
+        if (parts.length < 2) return false;
+        final value = parts[1].padLeft(2, '0');
+        final target = month.padLeft(2, '0');
+        return value == target;
+      }).toList();
+    }
+    if (period.isNotEmpty) {
+      filtered =
+          filtered.where((record) => record.id.contains(period)).toList();
+    }
+    if (specialNo.isNotEmpty) {
+      filtered = filtered
+          .where((record) => record.specialNumber.contains(specialNo))
+          .toList();
+    }
+    if (specialZodiac.isNotEmpty) {
+      filtered = filtered.where((record) {
+        final rawZodiacs = record.rawZodiacs;
+        final zodiac = rawZodiacs.length > record.normalNumbers.length
+            ? rawZodiacs[record.normalNumbers.length]
+            : record.specialZodiac;
+        return zodiac.contains(specialZodiac);
+      }).toList();
+    }
+
+    setState(() => _records = filtered);
+  }
+
+  void _resetFilters() {
+    _monthController.clear();
+    _periodController.clear();
+    _specialNumberController.clear();
+    _specialZodiacController.clear();
+    _applyFilters();
   }
 
   @override
@@ -541,7 +619,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        '近10期开奖',
+                        '本年度开奖',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -575,6 +653,93 @@ class _RecordsScreenState extends State<RecordsScreen> {
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _yearController,
+                            decoration: const InputDecoration(
+                              labelText: '年份',
+                            ),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _monthController,
+                            decoration: const InputDecoration(
+                              labelText: '月份',
+                            ),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _periodController,
+                            decoration: const InputDecoration(
+                              labelText: '期号',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _specialNumberController,
+                            decoration: const InputDecoration(
+                              labelText: '特码号码',
+                            ),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _specialZodiacController,
+                            decoration: const InputDecoration(
+                              labelText: '特码生肖',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _loading ? null : _fetch,
+                            icon: const Icon(Icons.search),
+                            label: const Text('搜索'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        OutlinedButton(
+                          onPressed: _resetFilters,
+                          child: const Text('重置'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
@@ -606,16 +771,26 @@ class _RecordsScreenState extends State<RecordsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${record.id}  |  ${record.date}',
+                                '期号：${record.id}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '开奖时间：${record.date}',
+                                style: TextStyle(color: Colors.grey.shade600),
+                              ),
                               const SizedBox(height: 12),
                               Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 spacing: 8,
                                 runSpacing: 8,
                                 children: [
+                                  const Text(
+                                    '平码：',
+                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                  ),
                                   ...record.normalNumbers.asMap().entries.map(
                                         (entry) => _NumberZodiacTile(
                                           number: entry.value,
@@ -623,22 +798,28 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                           color: ballColor(entry.value),
                                         ),
                                       ),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    '特码：',
+                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                  ),
                                   _NumberZodiacTile(
                                     number: record.specialNumber,
                                     zodiac: specialZodiac,
                                     color: ballColor(record.specialNumber),
                                     outlined: true,
+                                    highlight: true,
                                   ),
+                                  if (specialZodiac.isNotEmpty)
+                                    Text(
+                                      '生肖：$specialZodiac',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
                                 ],
                               ),
-                              if (specialZodiac.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    '特码生肖：$specialZodiac',
-                                    style: TextStyle(color: Colors.grey.shade600),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -658,19 +839,60 @@ class _NumberZodiacTile extends StatelessWidget {
     required this.zodiac,
     required this.color,
     this.outlined = false,
+    this.highlight = false,
   });
 
   final String number;
   final String zodiac;
   final Color color;
   final bool outlined;
+  final bool highlight;
 
   @override
   Widget build(BuildContext context) {
+    final ball = _Ball(number: number, color: color, outlined: outlined);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _Ball(number: number, color: color, outlined: outlined),
+        highlight
+            ? Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withOpacity(0.35),
+                      blurRadius: 12,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    ball,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        '特',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : ball,
         const SizedBox(height: 4),
         Text(
           zodiac,
@@ -731,6 +953,10 @@ class _PredictScreenState extends State<PredictScreen> {
   Map<String, dynamic>? _result;
   List<String> _normalZodiacs = [];
   String _specialZodiac = '';
+  bool _loadingRecords = false;
+  List<PredictionItem> _predictionRecords = [];
+  final Map<int, List<String>> _recordNormalZodiacs = {};
+  final Map<int, String> _recordSpecialZodiacs = {};
   StreamSubscription<Map<String, dynamic>>? _aiSubscription;
 
   final Map<String, String> _strategyLabels = const {
@@ -747,6 +973,7 @@ class _PredictScreenState extends State<PredictScreen> {
   void initState() {
     super.initState();
     _year.text = DateTime.now().year.toString();
+    _loadPredictionRecords();
   }
 
   @override
@@ -805,7 +1032,9 @@ class _PredictScreenState extends State<PredictScreen> {
           setState(() {
             _aiText += event['content']?.toString() ?? '';
           });
-        } else if (event['type'] == 'done') {
+        } else if (event['type'] == 'done' ||
+            event.containsKey('normal') ||
+            event.containsKey('special')) {
           final normal = (event['normal'] as List<dynamic>? ?? [])
               .map((value) => value.toString())
               .toList();
@@ -819,6 +1048,12 @@ class _PredictScreenState extends State<PredictScreen> {
             _loading = false;
           });
           await _updateZodiacs(numbers);
+          await _loadPredictionRecords();
+        } else if (event.containsKey('error')) {
+          setState(() {
+            _loading = false;
+          });
+          _showMessage(event['error']?.toString() ?? 'AI预测失败');
         } else if (event['type'] == 'error') {
           setState(() {
             _loading = false;
@@ -856,6 +1091,7 @@ class _PredictScreenState extends State<PredictScreen> {
         _loading = false;
       });
       await _updateZodiacs(numbers);
+      await _loadPredictionRecords();
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -900,8 +1136,216 @@ class _PredictScreenState extends State<PredictScreen> {
             zodiac: _specialZodiac,
             color: ballColor(specialNumber),
             outlined: true,
+            highlight: true,
           ),
       ],
+    );
+  }
+
+  Future<void> _loadPredictionRecords() async {
+    setState(() => _loadingRecords = true);
+    try {
+      final res = await ApiClient.instance.predictions(
+        page: 1,
+        pageSize: 10,
+      );
+      final items = (res['items'] as List<dynamic>? ?? [])
+          .map((value) => PredictionItem.fromJson(value as Map<String, dynamic>))
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        _predictionRecords = items;
+      });
+      for (final item in items) {
+        await _loadRecordZodiacs(item);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('获取预测记录失败');
+    } finally {
+      if (mounted) {
+        setState(() => _loadingRecords = false);
+      }
+    }
+  }
+
+  Future<void> _loadRecordZodiacs(PredictionItem item) async {
+    if (_recordNormalZodiacs.containsKey(item.id)) return;
+    final numbers = [...item.normalNumbers, item.specialNumber]
+        .where((value) => value.isNotEmpty)
+        .toList();
+    if (numbers.isEmpty) return;
+    try {
+      final res = await ApiClient.instance.getZodiacs(
+        numbers: numbers,
+        region: item.region,
+        year: _year.text.trim(),
+      );
+      final normal = (res['normal_zodiacs'] as List<dynamic>? ?? [])
+          .map((value) => value.toString())
+          .toList();
+      final special = res['special_zodiac']?.toString() ?? item.specialZodiac;
+      if (!mounted) return;
+      setState(() {
+        _recordNormalZodiacs[item.id] = normal;
+        _recordSpecialZodiacs[item.id] = special;
+      });
+    } catch (_) {}
+  }
+
+  String _resultLabel(String value) {
+    switch (value) {
+      case 'special_hit':
+        return '中特码';
+      case 'normal_hit':
+        return '中平码';
+      case 'wrong':
+        return '未命中';
+      default:
+        return '待开奖';
+    }
+  }
+
+  Color _resultColor(String value) {
+    switch (value) {
+      case 'special_hit':
+        return const Color(0xFF0B6B4F);
+      case 'normal_hit':
+        return const Color(0xFF0F9D58);
+      case 'wrong':
+        return Colors.redAccent;
+      default:
+        return Colors.orange;
+    }
+  }
+
+  Widget _buildPredictionRecordItem(PredictionItem item) {
+    final normalZodiacs = _recordNormalZodiacs[item.id] ??
+        List.filled(item.normalNumbers.length, '');
+    final specialZodiac = _recordSpecialZodiacs[item.id] ?? item.specialZodiac;
+    final strategyLabel = _strategyLabels[item.strategy] ?? item.strategy;
+    final createdAt = item.createdAt == null
+        ? ''
+        : '${item.createdAt!.year}-${item.createdAt!.month.toString().padLeft(2, '0')}-${item.createdAt!.day.toString().padLeft(2, '0')}';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${item.period} · $strategyLabel',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _resultColor(item.result).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _resultLabel(item.result),
+                  style: TextStyle(
+                    color: _resultColor(item.result),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (createdAt.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                createdAt,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
+            ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ...item.normalNumbers.asMap().entries.map(
+                    (entry) => _NumberZodiacTile(
+                      number: entry.value,
+                      zodiac: normalZodiacs[entry.key],
+                      color: ballColor(entry.value),
+                    ),
+                  ),
+              if (item.specialNumber.isNotEmpty)
+                _NumberZodiacTile(
+                  number: item.specialNumber,
+                  zodiac: specialZodiac,
+                  color: ballColor(item.specialNumber),
+                  outlined: true,
+                  highlight: true,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPredictionRecordsSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '预测记录',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _loadingRecords ? null : _loadPredictionRecords,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            if (_loadingRecords)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_predictionRecords.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('暂无预测记录'),
+              )
+            else
+              Column(
+                children: _predictionRecords
+                    .map(_buildPredictionRecordItem)
+                    .toList(),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -934,6 +1378,7 @@ class _PredictScreenState extends State<PredictScreen> {
                             selected: {_region},
                             onSelectionChanged: (value) {
                               setState(() => _region = value.first);
+                              _loadPredictionRecords();
                             },
                           ),
                         ),
@@ -993,30 +1438,32 @@ class _PredictScreenState extends State<PredictScreen> {
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: _aiText.isNotEmpty
-                  ? Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildPredictionNumbers(),
-                            const Divider(),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                child: Text(_aiText),
-                              ),
+              child: ListView(
+                children: [
+                  _aiText.isNotEmpty
+                      ? Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildPredictionNumbers(),
+                                const Divider(),
+                                Text(_aiText),
+                              ],
                             ),
-                          ],
+                          ),
+                        )
+                      : Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: _buildPredictionNumbers(),
+                          ),
                         ),
-                      ),
-                    )
-                  : Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: _buildPredictionNumbers(),
-                      ),
-                    ),
+                  const SizedBox(height: 16),
+                  _buildPredictionRecordsSection(),
+                ],
+              ),
             ),
           ],
         ),
@@ -1192,4 +1639,147 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
+}
+
+class UpdateService {
+  static const String _owner = 'e5sub';
+  static const String _repo = 'mark-six';
+  static const String _apkName = 'app-release.apk';
+  static const String _proxy = 'https://docker.071717.xyz/';
+
+  static Future<void> checkForUpdate(BuildContext context) async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final currentVersion = info.version;
+      final latest = await _fetchLatestRelease();
+      if (latest == null) return;
+
+      final latestVersion = latest.version;
+      if (_compareVersions(latestVersion, currentVersion) <= 0) {
+        return;
+      }
+
+      if (!context.mounted) return;
+      final shouldUpdate = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('发现新版本'),
+              content: Text('最新版本 $latestVersion，是否立即更新？'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('稍后'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('下载更新'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+
+      if (!shouldUpdate || !context.mounted) return;
+      await _downloadAndInstall(context, latest.downloadUrl);
+    } catch (_) {
+      // ignore update errors
+    }
+  }
+
+  static Future<_ReleaseInfo?> _fetchLatestRelease() async {
+    final url =
+        '${_proxy}https://api.github.com/repos/$_owner/$_repo/releases/latest';
+    final response = await Dio().get(url);
+    if (response.statusCode != 200 || response.data is! Map) {
+      return null;
+    }
+    final data = response.data as Map;
+    final tagName = data['tag_name']?.toString() ?? '';
+    final version = tagName.startsWith('v') ? tagName.substring(1) : tagName;
+    final assets = data['assets'] as List<dynamic>? ?? [];
+    Map<String, dynamic>? asset;
+    for (final item in assets) {
+      if (item is Map && item['name']?.toString() == _apkName) {
+        asset = Map<String, dynamic>.from(item as Map);
+        break;
+      }
+    }
+    if (asset == null) return null;
+    final rawUrl = asset['browser_download_url']?.toString();
+    final downloadUrl =
+        rawUrl == null || rawUrl.isEmpty ? null : '$_proxy$rawUrl';
+    if (downloadUrl == null || downloadUrl.isEmpty) return null;
+    return _ReleaseInfo(version: version, downloadUrl: downloadUrl);
+  }
+
+  static Future<void> _downloadAndInstall(
+      BuildContext context, String url) async {
+    final tempDir = await getTemporaryDirectory();
+    final filePath = '${tempDir.path}/$_apkName';
+    double progress = 0;
+    StateSetter? dialogSetState;
+
+    if (!context.mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) {
+          dialogSetState = setState;
+          return AlertDialog(
+            title: const Text('正在下载更新'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(value: progress),
+                const SizedBox(height: 12),
+                Text('${(progress * 100).toStringAsFixed(0)}%'),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    await Dio().download(
+      url,
+      filePath,
+      onReceiveProgress: (received, total) {
+        if (total <= 0) return;
+        progress = received / total;
+        dialogSetState?.call(() {});
+      },
+    );
+
+    if (context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    await OpenFilex.open(filePath);
+  }
+
+  static int _compareVersions(String a, String b) {
+    final aParts = a.split('.').map(_safeParseInt).toList();
+    final bParts = b.split('.').map(_safeParseInt).toList();
+    final maxLen = aParts.length > bParts.length ? aParts.length : bParts.length;
+    for (var i = 0; i < maxLen; i++) {
+      final aVal = i < aParts.length ? aParts[i] : 0;
+      final bVal = i < bParts.length ? bParts[i] : 0;
+      if (aVal != bVal) {
+        return aVal.compareTo(bVal);
+      }
+    }
+    return 0;
+  }
+
+  static int _safeParseInt(String value) {
+    return int.tryParse(value) ?? 0;
+  }
+}
+
+class _ReleaseInfo {
+  _ReleaseInfo({required this.version, required this.downloadUrl});
+
+  final String version;
+  final String downloadUrl;
 }

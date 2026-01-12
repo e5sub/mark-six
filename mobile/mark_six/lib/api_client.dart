@@ -126,10 +126,13 @@ class ApiClient {
     await for (final chunk in _splitByDoubleNewline(textStream)) {
       final trimmed = chunk.trim();
       if (trimmed.isEmpty) continue;
+      final payload =
+          trimmed.startsWith('data:') ? trimmed.substring(5).trim() : trimmed;
+      if (payload.isEmpty) continue;
       try {
-        yield _ensureJsonMap(jsonDecode(trimmed) as Map<String, dynamic>);
+        yield _ensureJsonMap(jsonDecode(payload) as Map<String, dynamic>);
       } catch (_) {
-        yield {'type': 'content', 'content': trimmed};
+        yield {'type': 'content', 'content': payload};
       }
     }
   }
