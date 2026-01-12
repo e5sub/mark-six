@@ -186,8 +186,12 @@ function handleStreamingResponse(response, strategy) {
                                     console.error('获取生肖数据失败:', error);
                                 })
                                 .then(() => {
+                                    savePredictionRecord(finalResult);
                                     return read();
                                 });
+                        } else {
+                            savePredictionRecord(finalResult);
+                            return read();
                         }
                     } else if (data.type === 'error') {
                         // 错误处理
@@ -210,6 +214,33 @@ function handleStreamingResponse(response, strategy) {
     }
 
     return read();
+}
+
+function savePredictionRecord(data) {
+    if (!data || !data.period || !data.normal || !data.special || !data.special.number) {
+        return;
+    }
+
+    const payload = {
+        region: data.region || document.querySelector('.region-btn.active')?.dataset.region,
+        period: data.period,
+        strategy: data.strategy || 'ai',
+        normal_numbers: data.normal,
+        special_number: data.special.number,
+        special_zodiac: data.special.sno_zodiac || '',
+        prediction_text: data.recommendation_text || ''
+    };
+
+    if (!payload.region) {
+        return;
+    }
+
+    fetch('/user/save-prediction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+    }).catch(() => {});
 }
 
 // 显示最终结果（包括号码）

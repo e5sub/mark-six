@@ -364,15 +364,27 @@ def predictions():
 
 @user_bp.route('/save-prediction', methods=['POST'])
 @login_required
-@active_required
 def save_prediction():
     """保存预测记录"""
     try:
         data = request.get_json()
+
+        user = User.query.get(session['user_id'])
+        if not user:
+            return jsonify({
+                'success': False,
+                'message': '用户不存在'
+            })
+
+        if not user.is_active and data.get('strategy') != 'ai':
+            return jsonify({
+                'success': False,
+                'message': '请先激活账号'
+            })
         
         # 检查用户是否已经为当前期生成过预测
         existing = PredictionRecord.query.filter_by(
-            user_id=session['user_id'],
+            user_id=user.id,
             region=data['region'],
             period=data['period']
         ).first()
@@ -385,7 +397,7 @@ def save_prediction():
         
         # 创建预测记录
         prediction = PredictionRecord(
-            user_id=session['user_id'],
+            user_id=user.id,
             region=data['region'],
             strategy=data['strategy'],
             period=data['period'],

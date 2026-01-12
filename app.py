@@ -421,7 +421,59 @@ def get_local_recommendations(strategy, data, region):
     sno_zodiac_info = ""
     return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": sno_zodiac_info}}
 
-def predict_with_ai(data, region):
+def _parse_ai_numbers(full_response):
+    import re
+    normal_numbers = []
+    special_number = ""
+
+    number_pattern = r'推荐号码：\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*特码:\s*\[(\d+)\]'
+    match = re.search(number_pattern, full_response)
+
+    if match:
+        normal_numbers = [int(match.group(i)) for i in range(1, 7)]
+        special_number = match.group(7)
+    else:
+        all_numbers = re.findall(r'\b\d{1,2}\b', full_response)
+        valid_numbers = [int(n) for n in all_numbers if 1 <= int(n) <= 49]
+
+        if len(valid_numbers) >= 7:
+            normal_numbers = sorted(valid_numbers[:6])
+            special_number = str(valid_numbers[6])
+        else:
+            return {"error": "无法从AI回复中提取有效号码"}
+
+    normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
+    if len(normal_numbers) < 6:
+        return {"error": "AI生成的平码数量不足"}
+
+    if not special_number or not (1 <= int(special_number) <= 49):
+        return {"error": "AI生成的特码无效"}
+
+    return {
+        "normal": sorted(normal_numbers[:6]),
+        "special": {"number": special_number, "sno_zodiac": ""},
+        "recommendation_text": full_response
+    }
+
+def _save_ai_prediction(user_id, region, period, result):
+    try:
+        prediction = PredictionRecord(
+            user_id=user_id,
+            region=region,
+            strategy='ai',
+            period=period,
+            normal_numbers=','.join(map(str, result.get('normal', []))),
+            special_number=str(result.get('special', {}).get('number', '')),
+            special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+            prediction_text=result.get('recommendation_text', '')
+        )
+        db.session.add(prediction)
+        db.session.commit()
+    except Exception as e:
+        print(f"保存AI预测记录失败: {e}")
+        db.session.rollback()
+
+def predict_with_ai(data, region, stream=True, user_id=None, is_active=None, period=None):
     ai_config = get_ai_config()
     if not ai_config['api_key'] or "你的" in ai_config['api_key']:
         return {"error": "AI API Key 未配置"}
@@ -460,10 +512,10 @@ def predict_with_ai(data, region):
 3. 请以友好、自然的语言风格进行回复。
 4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
 
-    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "stream": True}
+    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "stream": stream}
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
-        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120, stream=True)
+        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120, stream=stream)
         response.raise_for_status()
 
         def generate():
@@ -490,66 +542,38 @@ def predict_with_ai(data, region):
                         except json.JSONDecodeError:
                             continue
 
-            # 流式传输完成后，提取号码
-            import re
-            normal_numbers = []
-            special_number = ""
-
-            # 尝试匹配格式化的推荐号码
-            number_pattern = r'推荐号码：\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*特码:\s*\[(\d+)\]'
-            match = re.search(number_pattern, full_response)
-
-            if match:
-                normal_numbers = [int(match.group(i)) for i in range(1, 7)]
-                special_number = match.group(7)
-            else:
-                # 如果没有找到格式化的推荐，尝试从文本中提取数字
-                all_numbers = re.findall(r'\b\d{1,2}\b', full_response)
-                valid_numbers = [int(n) for n in all_numbers if 1 <= int(n) <= 49]
-
-                if len(valid_numbers) >= 7:
-                    normal_numbers = sorted(valid_numbers[:6])
-                    special_number = str(valid_numbers[6])
-                else:
-                    # 如果无法从AI回复中提取有效号码，返回错误
-                    yield json.dumps({
-                        'type': 'error',
-                        'error': "无法从AI回复中提取有效号码"
-                    }) + '\n\n'
-                    return
-
-            # 确保所有号码都是有效的
-            normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
-            if len(normal_numbers) < 6:
+            result = _parse_ai_numbers(full_response)
+            if result.get('error'):
                 yield json.dumps({
                     'type': 'error',
-                    'error': "AI生成的平码数量不足"
+                    'error': result.get('error')
                 }) + '\n\n'
                 return
 
-            normal_numbers = sorted(normal_numbers[:6])
+            if user_id and period:
+                _save_ai_prediction(user_id, region, period, result)
 
-            if not special_number or not (1 <= int(special_number) <= 49):
-                yield json.dumps({
-                    'type': 'error',
-                    'error': "AI生成的特码无效"
-                }) + '\n\n'
-                return
-
-            # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
-            # 生肖信息将在API返回数据后更新
-            sno_zodiac = ""
-
-            # 返回最终结果
             yield json.dumps({
                 'type': 'done',
-                'recommendation_text': full_response,
-                'normal': normal_numbers,
-                'special': {
-                    'number': special_number,
-                    'sno_zodiac': sno_zodiac
-                }
+                'recommendation_text': result.get('recommendation_text', ''),
+                'normal': result.get('normal', []),
+                'special': result.get('special', {}),
+                'period': period,
+                'region': region,
+                'strategy': 'ai'
             }) + '\n\n'
+
+        if not stream:
+            data_json = response.json()
+            content = ""
+            if data_json.get("choices"):
+                content = data_json["choices"][0].get("message", {}).get("content", "")
+            result = _parse_ai_numbers(content)
+            if result.get('error'):
+                return result
+            if user_id and period:
+                _save_ai_prediction(user_id, region, period, result)
+            return result
 
         return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
@@ -825,7 +849,8 @@ def unified_predict_api():
 
     # 检查用户是否登录和激活（对于需要保存记录的功能）
     user_id = session.get('user_id')
-    is_active = session.get('is_active', False)
+    user = User.query.get(user_id) if user_id else None
+    is_active = user.is_active if user else False
 
     # 获取下一期期数（使用最近一期的下一期）
     if data:
@@ -863,12 +888,11 @@ def unified_predict_api():
         current_period = f"{current_year}/001"
 
     # 检查用户是否已经为当前期和当前策略生成过预测
-    if user_id and is_active and strategy != 'ai':
+    if user_id:
         existing = PredictionRecord.query.filter_by(
             user_id=user_id,
             region=region,
-            period=current_period,
-            strategy=strategy  # 添加策略作为过滤条件
+            period=current_period
         ).first()
 
         if existing:
@@ -890,7 +914,14 @@ def unified_predict_api():
     # 生成新的预测
     if strategy == 'ai':
         # AI预测使用流式输出
-        ai_response = predict_with_ai(data, region)
+        ai_response = predict_with_ai(
+            data,
+            region,
+            stream=True,
+            user_id=user_id,
+            is_active=is_active,
+            period=current_period
+        )
 
         # 如果返回的是Response对象（流式），直接返回
         if isinstance(ai_response, Response):
@@ -1066,7 +1097,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
                 return
             else:
                 # 确保调用AI API
-                result = predict_with_ai(data, region)
+                result = predict_with_ai(data, region, stream=False)
                 # 如果AI预测失败，直接返回，不使用均衡预测
                 if result.get('error'):
                     print(f"用户 {user.username} 的AI预测失败：{result.get('error')}")

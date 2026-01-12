@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -13,34 +13,38 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            background-attachment: fixed;
             min-height: 100vh;
-            color: #333;
+            color: #111827;
             display: flex;
+            overflow-x: hidden;
         }
         
         .sidebar {
-            width: 260px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            width: 240px;
+            background: rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(255, 255, 255, 0.3);
             position: fixed;
             height: 100vh;
             left: 0;
             top: 0;
             z-index: 1000;
             overflow-y: auto;
+            transition: width 0.3s ease, transform 0.3s ease;
         }
         
         .sidebar-header {
-            padding: 2rem 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1.5rem 1.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
         }
         
         .sidebar-brand {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: white;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #111827;
             text-decoration: none;
         }
         
@@ -51,25 +55,26 @@
         .sidebar-nav a {
             display: flex;
             align-items: center;
-            color: rgba(255, 255, 255, 0.8);
+            color: #111827;
             text-decoration: none;
             padding: 1rem 1.5rem;
             transition: all 0.3s ease;
             border-left: 3px solid transparent;
             font-size: 0.95rem;
+            font-weight: 700;
         }
         
         .sidebar-nav a:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            border-left-color: white;
+            background: rgba(255, 255, 255, 0.5);
+            color: #111827;
+            border-left-color: #667eea;
         }
         
         .sidebar-nav a.active {
-            background: rgba(255, 255, 255, 0.15);
-            color: white;
-            border-left-color: white;
-            font-weight: 500;
+            background: rgba(255, 255, 255, 0.5);
+            color: #111827;
+            border-left-color: #667eea;
+            font-weight: 700;
         }
         
         .sidebar-nav a i {
@@ -77,12 +82,51 @@
             width: 20px;
             text-align: center;
         }
+
+        .sidebar-nav .nav-text {
+            transition: opacity 0.2s ease, width 0.2s ease;
+            white-space: nowrap;
+        }
+
+        body.sidebar-collapsed .sidebar {
+            width: 80px;
+        }
+
+        body.sidebar-collapsed .main-content {
+            margin-left: 80px;
+            width: calc(100% - 80px);
+        }
+
+        body.sidebar-collapsed .sidebar-header {
+            padding: 1.25rem 0.75rem;
+        }
+
+        body.sidebar-collapsed .sidebar-brand {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        body.sidebar-collapsed .sidebar-nav a {
+            justify-content: center;
+            padding: 1rem 0.75rem;
+        }
+
+        body.sidebar-collapsed .sidebar-nav a i {
+            margin-right: 0;
+        }
+
+        body.sidebar-collapsed .sidebar-nav .nav-text {
+            opacity: 0;
+            width: 0;
+            overflow: hidden;
+        }
         
         .main-content {
-            margin-left: 260px;
+            margin-left: 240px;
             flex: 1;
             padding: 2rem;
-            width: calc(100% - 260px);
+            width: calc(100% - 240px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
         }
         
         .top-bar {
@@ -320,19 +364,31 @@
         
         @media (max-width: 768px) {
             .sidebar {
-                transform: translateX(-100%);
-                transition: transform 0.3s ease;
-            }
+            width: 240px;
+            background: rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(255, 255, 255, 0.3);
+            position: fixed;
+            height: 100vh;
+            left: 0;
+            top: 0;
+            z-index: 1000;
+            overflow-y: auto;
+            transition: width 0.3s ease, transform 0.3s ease;
+        }
             
             .sidebar.show {
                 transform: translateX(0);
             }
             
             .main-content {
-                margin-left: 0;
-                width: 100%;
-                padding: 1rem;
-            }
+            margin-left: 240px;
+            flex: 1;
+            padding: 2rem;
+            width: calc(100% - 240px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+        }
             
             .top-bar {
                 flex-direction: column;
@@ -450,3 +506,4 @@
     </script>
 </body>
 </html>
+

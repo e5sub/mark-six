@@ -731,50 +731,145 @@
             }
         }
 
-        /* 导航栏样式 */
-        .navbar {
-            background: var(--primary-gradient);
-            padding: 15px 0;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
+        /* 侧边栏样式 */
+        body.has-sidebar {
+            padding-left: 240px;
+            transition: padding-left 0.3s ease;
         }
 
-        .navbar-content {
-            max-width: 1200px;
-            margin: 0 auto;
+        body.sidebar-collapsed {
+            padding-left: 80px;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(255, 255, 255, 0.3);
+            z-index: 1200;
             display: flex;
+            flex-direction: column;
+            transition: width 0.3s ease, transform 0.3s ease;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
             justify-content: space-between;
-            align-items: center;
-            padding: 0 20px;
+            padding: 1.5rem 1.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
         }
 
-        .navbar-brand {
-            color: white;
-            font-size: 1.5rem;
+        .sidebar-brand {
+            font-size: 1.2rem;
             font-weight: 700;
+            color: #111827;
             text-decoration: none;
         }
 
-        .navbar-nav {
-            display: flex;
-            gap: 20px;
+        .sidebar-toggle {
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            display: inline-flex;
             align-items: center;
-        }
-
-        .nav-link {
-            color: white;
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 20px;
+            justify-content: center;
+            cursor: pointer;
             transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 5px;
+            color: #111827;
         }
 
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
+        .sidebar-toggle:hover {
+            background: rgba(255, 255, 255, 0.85);
+        }
+
+        .sidebar-nav {
+            padding: 1rem 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0.8rem 1.25rem;
+            color: #111827;
+            text-decoration: none;
+            font-weight: 700;
+            border-left: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-nav a:hover {
+            background: rgba(255, 255, 255, 0.5);
+            border-left-color: #667eea;
+        }
+
+        .sidebar-nav .nav-text {
+            transition: opacity 0.2s ease, width 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .sidebar-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.35);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            z-index: 1100;
+        }
+
+        .sidebar-backdrop.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        body.sidebar-collapsed .sidebar {
+            width: 80px;
+        }
+
+        body.sidebar-collapsed .sidebar-header {
+            padding: 1.25rem 0.75rem;
+        }
+
+        body.sidebar-collapsed .sidebar-brand {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        body.sidebar-collapsed .sidebar-nav a {
+            justify-content: center;
+            padding: 0.8rem 0.75rem;
+        }
+
+        body.sidebar-collapsed .sidebar-nav .nav-text {
+            opacity: 0;
+            width: 0;
+            overflow: hidden;
+        }
+
+        @media (max-width: 768px) {
+            body.has-sidebar {
+                padding-left: 0;
+            }
+
+            .sidebar {
+                transform: translateX(-100%);
+            }
+
+            .sidebar.show {
+                transform: translateX(0);
+            }
         }
 
         /* 加载动画 */
@@ -823,30 +918,30 @@
         }
     </style>
 </head>
-<body>
+<body class="{% if session.get('user_id') %}has-sidebar{% endif %}">
     <!-- 动态背景粒子 -->
     <div class="particles" id="particles"></div>
 
-    <!-- 用户导航栏 -->
+    <!-- 用户侧边栏 -->
     {% if session.get('user_id') %}
-    <nav class="navbar">
-        <div class="navbar-content" style="justify-content: center; gap: 30px;">
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 开奖记录
-            </a>
-            <a href="{{ url_for('user.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-tachometer-alt"></i> 用户中心
-            </a>
-            {% if session.get('is_admin') %}
-            <a href="{{ url_for('admin.dashboard') }}" class="nav-link" style="font-size: 1.2rem; background: rgba(255,215,0,0.2);" onmouseover="this.style.background='rgba(255,215,0,0.4)'" onmouseout="this.style.background='rgba(255,215,0,0.2)'">
-                <i class="fas fa-tachometer-alt"></i> 控制台
-            </a>
-            {% endif %}
-            <a href="{{ url_for('auth.logout') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-sign-out-alt"></i> 退出登录
-            </a>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('index') }}" class="sidebar-brand">数据分析</a>
+            <button class="sidebar-toggle" type="button" id="sidebarToggle" aria-label="切换侧边栏">
+                <span>≡</span>
+            </button>
         </div>
-    </nav>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('index') }}"><i class="fas fa-home"></i><span class="nav-text">开奖记录</span></a>
+            <a href="{{ url_for('user.dashboard') }}"><i class="fas fa-tachometer-alt"></i><span class="nav-text">用户中心</span></a>
+            <a href="{{ url_for('chat_page') }}"><i class="fas fa-robot"></i><span class="nav-text">AI 聊天室</span></a>
+            {% if session.get('is_admin') %}
+            <a href="{{ url_for('admin.dashboard') }}"><i class="fas fa-tools"></i><span class="nav-text">控制台</span></a>
+            {% endif %}
+            <a href="{{ url_for('auth.logout') }}"><i class="fas fa-sign-out-alt"></i><span class="nav-text">退出登录</span></a>
+        </nav>
+    </aside>
     {% endif %}
 
     <!-- 通知样式提示 -->
@@ -927,5 +1022,33 @@
         });
         </script>
     </div>
+
+    {% if session.get('user_id') %}
+    <script>
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+
+        function closeSidebarOnMobile() {
+            sidebar.classList.remove('show');
+            sidebarBackdrop.classList.remove('show');
+        }
+
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', () => {
+                if (window.innerWidth <= 768) {
+                    sidebar.classList.toggle('show');
+                    sidebarBackdrop.classList.toggle('show');
+                } else {
+                    document.body.classList.toggle('sidebar-collapsed');
+                }
+            });
+        }
+
+        if (sidebarBackdrop) {
+            sidebarBackdrop.addEventListener('click', closeSidebarOnMobile);
+        }
+    </script>
+    {% endif %}
 </body>
 </html>
