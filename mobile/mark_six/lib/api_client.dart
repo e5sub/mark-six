@@ -150,6 +150,26 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  Future<List<dynamic>> draws({
+    required String region,
+    required String year,
+  }) async {
+    final response = await get('/api/draws', queryParameters: {
+      'region': region,
+      'year': year,
+    });
+    if (response.data is List) {
+      return response.data as List<dynamic>;
+    }
+    if (response.data is String && (response.data as String).isNotEmpty) {
+      final decoded = jsonDecode(response.data as String);
+      if (decoded is List) {
+        return decoded;
+      }
+    }
+    return <dynamic>[];
+  }
+
   Map<String, dynamic> _ensureJsonMap(dynamic data) {
     if (data is Map<String, dynamic>) {
       return data;

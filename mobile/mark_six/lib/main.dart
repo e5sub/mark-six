@@ -1,6 +1,8 @@
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'api_client.dart';
 import 'models.dart';
@@ -28,11 +30,31 @@ class _MarkSixAppState extends State<MarkSixApp> {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = GoogleFonts.notoSansScTextTheme();
+
     return MaterialApp(
-      title: 'Mark Six',
+      title: '??????',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B5E20)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF0B6B4F),
+          secondary: const Color(0xFFF4B547),
+        ),
+        textTheme: textTheme,
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF6F7FB),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFF6F7FB),
+          elevation: 0,
+          centerTitle: true,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+        ),
       ),
       home: AnimatedBuilder(
         animation: _appState,
@@ -85,9 +107,9 @@ class AppState extends ChangeNotifier {
         notifyListeners();
         return null;
       }
-      return res['message']?.toString() ?? 'Login failed';
+      return res['message']?.toString() ?? '????';
     } catch (e) {
-      return 'Login failed: $e';
+      return '????: $e';
     }
   }
 
@@ -109,9 +131,9 @@ class AppState extends ChangeNotifier {
       if (res['success'] == true) {
         return null;
       }
-      return res['message']?.toString() ?? 'Register failed';
+      return res['message']?.toString() ?? '????';
     } catch (e) {
-      return 'Register failed: $e';
+      return '????: $e';
     }
   }
 
@@ -123,9 +145,9 @@ class AppState extends ChangeNotifier {
         notifyListeners();
         return null;
       }
-      return res['message']?.toString() ?? 'Activation failed';
+      return res['message']?.toString() ?? '????';
     } catch (e) {
-      return 'Activation failed: $e';
+      return '????: $e';
     }
   }
 
@@ -194,46 +216,85 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Login')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _username,
-              decoration: const InputDecoration(labelText: 'Username or Email'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _password,
-              decoration: const InputDecoration(labelText: 'Password'),
-              obscureText: true,
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _handleLogin,
-                child: _loading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Login'),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0B6B4F), Color(0xFF0F9D58)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Card(
+              elevation: 6,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '??????',
+                      style:
+                          TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '???????????',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: _username,
+                      decoration: const InputDecoration(labelText: '??????'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _password,
+                      decoration: const InputDecoration(labelText: '??'),
+                      obscureText: true,
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: _loading ? null : _handleLogin,
+                        child: _loading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('??'),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                RegisterScreen(appState: widget.appState),
+                          ),
+                        );
+                      },
+                      child: const Text('?????????'),
+                    ),
+                  ],
+                ),
               ),
             ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => RegisterScreen(appState: widget.appState),
-                  ),
-                );
-              },
-              child: const Text('Create account'),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -287,12 +348,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Registered'),
-        content: const Text('Registration complete. Please login and activate.'),
+        title: const Text('????'),
+        content: const Text('??????????????'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
+            child: const Text('???'),
           ),
         ],
       ),
@@ -311,37 +372,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Register')),
+      appBar: AppBar(title: const Text('????')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             TextField(
               controller: _username,
-              decoration: const InputDecoration(labelText: 'Username'),
+              decoration: const InputDecoration(labelText: '???'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _email,
-              decoration: const InputDecoration(labelText: 'Email'),
+              decoration: const InputDecoration(labelText: '??'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _password,
-              decoration: const InputDecoration(labelText: 'Password'),
+              decoration: const InputDecoration(labelText: '??'),
               obscureText: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _confirmPassword,
-              decoration: const InputDecoration(labelText: 'Confirm password'),
+              decoration: const InputDecoration(labelText: '????'),
               obscureText: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _inviteCode,
               decoration: const InputDecoration(
-                labelText: 'Invite code (optional)',
+                labelText: '???????',
               ),
             ),
             const SizedBox(height: 24),
@@ -355,7 +416,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Register'),
+                    : const Text('??'),
               ),
             ),
           ],
@@ -364,7 +425,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 }
-
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.appState});
 
@@ -380,28 +440,234 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final screens = [
+      const RecordsScreen(),
       PredictScreen(appState: widget.appState),
-      const HistoryScreen(),
-      const AccuracyScreen(),
       ProfileScreen(appState: widget.appState),
     ];
 
     return Scaffold(
       body: screens[_index],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _index,
-        onTap: (value) => setState(() => _index = value),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.auto_graph), label: 'Predict'),
-          BottomNavigationBarItem(icon: Icon(Icons.list), label: 'History'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Accuracy'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (value) => setState(() => _index = value),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.list_alt), label: '????'),
+          NavigationDestination(icon: Icon(Icons.auto_graph), label: '????'),
+          NavigationDestination(icon: Icon(Icons.person), label: '????'),
         ],
       ),
     );
   }
 }
 
+class RecordsScreen extends StatefulWidget {
+  const RecordsScreen({super.key});
+
+  @override
+  State<RecordsScreen> createState() => _RecordsScreenState();
+}
+
+class _RecordsScreenState extends State<RecordsScreen> {
+  List<DrawRecord> _records = [];
+  String _region = 'hk';
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    setState(() => _loading = true);
+    try {
+      final year = DateTime.now().year.toString();
+      final raw = await ApiClient.instance.draws(region: _region, year: year);
+      final records = raw
+          .map((item) => DrawRecord.fromJson(item as Map<String, dynamic>))
+          .take(10)
+          .toList();
+      setState(() => _records = records);
+    } catch (_) {
+      _showMessage('????????');
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Color _ballColor(String number) {
+    final numValue = int.tryParse(number) ?? 0;
+    const red = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46];
+    const blue = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48];
+    if (red.contains(numValue)) return const Color(0xFFE54B4B);
+    if (blue.contains(numValue)) return const Color(0xFF2D6CDF);
+    return const Color(0xFF36B37E);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('????')),
+      body: Column(
+        children: [
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0B6B4F), Color(0xFF0F9D58)],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 12,
+                  offset: Offset(0, 6),
+                )
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '?10???',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _region == 'hk' ? '?????' : '?????',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'hk', label: Text('??')),
+                    ButtonSegment(value: 'macau', label: Text('??')),
+                  ],
+                  selected: {_region},
+                  onSelectionChanged: (value) {
+                    setState(() => _region = value.first);
+                    _fetch();
+                  },
+                  style: ButtonStyle(
+                    foregroundColor: WidgetStateProperty.all(Colors.white),
+                    backgroundColor:
+                        WidgetStateProperty.all(Colors.white24),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: _records.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final record = _records[index];
+                      return Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${record.id}  |  ${record.date}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  ...record.normalNumbers.map(
+                                    (number) => _Ball(number: number, color: _ballColor(number)),
+                                  ),
+                                  _Ball(
+                                    number: record.specialNumber,
+                                    color: _ballColor(record.specialNumber),
+                                    outlined: true,
+                                  ),
+                                ],
+                              ),
+                              if (record.specialZodiac.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    '?????${record.specialZodiac}',
+                                    style: TextStyle(color: Colors.grey.shade600),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Ball extends StatelessWidget {
+  const _Ball({
+    required this.number,
+    required this.color,
+    this.outlined = false,
+  });
+
+  final String number;
+  final Color color;
+  final bool outlined;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: outlined ? Colors.white : color,
+        border: Border.all(color: color, width: 2),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        number,
+        style: TextStyle(
+          color: outlined ? color : Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
 class PredictScreen extends StatefulWidget {
   const PredictScreen({super.key, required this.appState});
 
@@ -419,6 +685,16 @@ class _PredictScreenState extends State<PredictScreen> {
   String _aiText = '';
   Map<String, dynamic>? _result;
   StreamSubscription<Map<String, dynamic>>? _aiSubscription;
+
+  final Map<String, String> _strategyLabels = const {
+    'hybrid': '??',
+    'balanced': '??',
+    'hot': '??',
+    'cold': '??',
+    'trend': '??',
+    'random': '??',
+    'ai': 'AI??',
+  };
 
   @override
   void initState() {
@@ -459,12 +735,12 @@ class _PredictScreenState extends State<PredictScreen> {
           setState(() {
             _loading = false;
           });
-          _showMessage(event['error']?.toString() ?? 'AI error');
+          _showMessage(event['error']?.toString() ?? 'AI????');
         }
       }, onError: (e) {
         if (!mounted) return;
         setState(() => _loading = false);
-        _showMessage('Stream error: $e');
+        _showMessage('AI????: $e');
       }, onDone: () {
         if (!mounted) return;
         setState(() => _loading = false);
@@ -486,7 +762,7 @@ class _PredictScreenState extends State<PredictScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      _showMessage('Predict failed: $e');
+      _showMessage('????: $e');
     }
   }
 
@@ -504,8 +780,8 @@ class _PredictScreenState extends State<PredictScreen> {
     final resultSummary = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (normal != null) Text('Normal: ${normal.join(', ')}'),
-        if (special != null) Text('Special: ${special['number']}'),
+        if (normal != null) Text('???${normal.join(', ')}'),
+        if (special != null) Text('???${special['number']}'),
         if ((_result?['recommendation_text'] as String?)?.isNotEmpty ?? false)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -515,97 +791,114 @@ class _PredictScreenState extends State<PredictScreen> {
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Prediction')),
+      appBar: AppBar(title: const Text('????')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _region,
-                    decoration: const InputDecoration(labelText: 'Region'),
-                    items: const [
-                      DropdownMenuItem(value: 'hk', child: Text('Hong Kong')),
-                      DropdownMenuItem(value: 'macau', child: Text('Macau')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _region = value);
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _year,
-                    decoration: const InputDecoration(labelText: 'Year'),
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _strategy,
-              decoration: const InputDecoration(labelText: 'Strategy'),
-              items: const [
-                DropdownMenuItem(value: 'hybrid', child: Text('Hybrid')),
-                DropdownMenuItem(value: 'balanced', child: Text('Balanced')),
-                DropdownMenuItem(value: 'hot', child: Text('Hot')),
-                DropdownMenuItem(value: 'cold', child: Text('Cold')),
-                DropdownMenuItem(value: 'trend', child: Text('Trend')),
-                DropdownMenuItem(value: 'random', child: Text('Random')),
-                DropdownMenuItem(value: 'ai', child: Text('AI')),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _strategy = value);
-                }
-              },
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _handlePredict,
-                child: _loading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Predict'),
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
-            ),
-            if (!active)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Account not activated. Prediction saving may be limited.',
-                  style: TextStyle(color: Colors.orange),
-                ),
-              ),
-            const SizedBox(height: 16),
-            if (_aiText.isNotEmpty)
-              Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    resultSummary,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(value: 'hk', label: Text('??')),
+                              ButtonSegment(value: 'macau', label: Text('??')),
+                            ],
+                            selected: {_region},
+                            onSelectionChanged: (value) {
+                              setState(() => _region = value.first);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 110,
+                          child: TextField(
+                            controller: _year,
+                            decoration: const InputDecoration(labelText: '??'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Text(_aiText),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 8,
+                        children: _strategyLabels.entries.map((entry) {
+                          final selected = _strategy == entry.key;
+                          return ChoiceChip(
+                            label: Text(entry.value),
+                            selected: selected,
+                            onSelected: (_) {
+                              setState(() => _strategy = entry.key);
+                            },
+                          );
+                        }).toList(),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _loading ? null : _handlePredict,
+                        child: _loading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('????'),
+                      ),
+                    ),
+                    if (!active)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text(
+                          '?????????????????',
+                          style: TextStyle(color: Colors.orange),
+                        ),
+                      ),
                   ],
                 ),
-              )
-            else
-              Expanded(child: resultSummary),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: _aiText.isNotEmpty
+                  ? Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            resultSummary,
+                            const Divider(),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                child: Text(_aiText),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: resultSummary,
+                      ),
+                    ),
+            ),
           ],
         ),
       ),
@@ -613,245 +906,170 @@ class _PredictScreenState extends State<PredictScreen> {
   }
 }
 
-class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
-
-  @override
-  State<HistoryScreen> createState() => _HistoryScreenState();
-}
-
-class _HistoryScreenState extends State<HistoryScreen> {
-  final List<PredictionItem> _items = [];
-  int _page = 1;
-  bool _loading = false;
-  bool _hasMore = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPage();
-  }
-
-  Future<void> _loadPage() async {
-    if (_loading || !_hasMore) return;
-    setState(() => _loading = true);
-    try {
-      final res = await ApiClient.instance.predictions(page: _page);
-      final total = (res['total'] as num?)?.toInt() ?? 0;
-      final items = (res['items'] as List<dynamic>? ?? [])
-          .map((item) => PredictionItem.fromJson(item as Map<String, dynamic>))
-          .toList();
-      setState(() {
-        _items.addAll(items);
-        _page += 1;
-        _hasMore = _items.length < total;
-      });
-    } catch (_) {
-      _showMessage('Failed to load history');
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
-    }
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('History')),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.separated(
-              itemCount: _items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final item = _items[index];
-                return ListTile(
-                  title: Text('${item.region} ? ${item.period} ? ${item.strategy}'),
-                  subtitle: Text(
-                      'Normal: ${item.normalNumbers.join(', ')} | Special: ${item.specialNumber}'),
-                  trailing: Text(item.result),
-                );
-              },
-            ),
-          ),
-          if (_hasMore)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: ElevatedButton(
-                onPressed: _loading ? null : _loadPage,
-                child: _loading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Load more'),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class AccuracyScreen extends StatefulWidget {
-  const AccuracyScreen({super.key});
-
-  @override
-  State<AccuracyScreen> createState() => _AccuracyScreenState();
-}
-
-class _AccuracyScreenState extends State<AccuracyScreen> {
-  AccuracyStats? _overall;
-  Map<String, AccuracyStats> _byStrategy = {};
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final res = await ApiClient.instance.accuracy();
-      if (!mounted) return;
-      setState(() {
-        _overall = AccuracyStats.fromJson(res['overall'] as Map<String, dynamic>);
-        final by = res['by_strategy'] as Map<String, dynamic>;
-        _byStrategy = by.map((key, value) =>
-            MapEntry(key, AccuracyStats.fromJson(value as Map<String, dynamic>)));
-      });
-    } catch (_) {
-      _showMessage('Failed to load accuracy');
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
-    }
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Accuracy')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_overall != null) ...[
-                    Text('Overall: ${_overall!.accuracy}%'),
-                    Text('Total: ${_overall!.total}'),
-                    Text('Special hits: ${_overall!.specialHits}'),
-                    Text('Normal hits: ${_overall!.normalHits}'),
-                    const SizedBox(height: 16),
-                  ],
-                  const Text('By strategy:'),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: ListView(
-                      children: _byStrategy.entries.map((entry) {
-                        return ListTile(
-                          title: Text(entry.key),
-                          subtitle: Text('Accuracy: ${entry.value.accuracy}%'),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-    );
-  }
-}
-
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.appState});
 
   final AppState appState;
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  AccuracyStats? _overall;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAccuracy();
+  }
+
+  Future<void> _loadAccuracy() async {
+    setState(() => _loading = true);
+    try {
+      final res = await ApiClient.instance.accuracy();
+      setState(() {
+        _overall = AccuracyStats.fromJson(res['overall'] as Map<String, dynamic>);
+      });
+    } catch (_) {
+      _showMessage('???????');
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
 
   Future<void> _activate(BuildContext context) async {
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Activate'),
+        title: const Text('????'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: 'Activation code'),
+          decoration: const InputDecoration(labelText: '???'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: const Text('??'),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Activate'),
+            child: const Text('??'),
           ),
         ],
       ),
     );
 
     if (result != null && result.isNotEmpty) {
-      final error = await appState.activate(result);
+      final error = await widget.appState.activate(result);
       if (context.mounted && error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error)),
-        );
+        _showMessage(error);
       }
     }
   }
 
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final user = appState.user;
+    final user = widget.appState.user;
     if (user == null) {
       return const SizedBox.shrink();
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
-      body: Padding(
+      appBar: AppBar(title: const Text('????')),
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Username: ${user.username}'),
-            Text('Email: ${user.email}'),
-            Text('Active: ${user.isActive ? 'Yes' : 'No'}'),
-            if (user.activationExpiresAt != null)
-              Text('Expires: ${user.activationExpiresAt}'),
-            const SizedBox(height: 16),
-            if (!user.isActive)
-              ElevatedButton(
-                onPressed: () => _activate(context),
-                child: const Text('Activate'),
-              ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: () => appState.logout(),
-              child: const Text('Logout'),
+        children: [
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-          ],
-        ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    user.username,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(user.email),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Chip(
+                        label: Text(user.isActive ? '???' : '???'),
+                        backgroundColor:
+                            user.isActive ? Colors.green.shade100 : Colors.orange.shade100,
+                      ),
+                      const SizedBox(width: 8),
+                      if (user.activationExpiresAt != null)
+                        Text('???${user.activationExpiresAt}'),
+                    ],
+                  ),
+                  if (!user.isActive)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: ElevatedButton(
+                        onPressed: () => _activate(context),
+                        child: const Text('?????'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '?????',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (_overall != null) ...[
+                          Text('??????${_overall!.accuracy}%'),
+                          Text('??????${_overall!.total}'),
+                          Text('?????${_overall!.specialHits}'),
+                          Text('?????${_overall!.normalHits}'),
+                        ] else
+                          const Text('????'),
+                      ],
+                    ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton(
+            onPressed: () => widget.appState.logout(),
+            child: const Text('????'),
+          ),
+        ],
       ),
     );
   }

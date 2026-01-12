@@ -93,3 +93,31 @@ class AccuracyStats {
     );
   }
 }
+
+class DrawRecord {
+  DrawRecord({
+    required this.id,
+    required this.date,
+    required this.normalNumbers,
+    required this.specialNumber,
+    required this.specialZodiac,
+  });
+
+  final String id;
+  final String date;
+  final List<String> normalNumbers;
+  final String specialNumber;
+  final String specialZodiac;
+
+  factory DrawRecord.fromJson(Map<String, dynamic> json) {
+    return DrawRecord(
+      id: json['id']?.toString() ?? '',
+      date: json['date']?.toString() ?? '',
+      normalNumbers: (json['no'] as List<dynamic>? ?? [])
+          .map((value) => value.toString())
+          .toList(),
+      specialNumber: json['sno']?.toString() ?? '',
+      specialZodiac: json['sno_zodiac']?.toString() ?? '',
+    );
+  }
+}
