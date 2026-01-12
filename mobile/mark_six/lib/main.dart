@@ -2,7 +2,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'api_client.dart';
 import 'models.dart';
@@ -30,8 +29,6 @@ class _MarkSixAppState extends State<MarkSixApp> {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = GoogleFonts.notoSansScTextTheme();
-
     return MaterialApp(
       title: '??????',
       theme: ThemeData(
@@ -39,7 +36,7 @@ class _MarkSixAppState extends State<MarkSixApp> {
           seedColor: const Color(0xFF0B6B4F),
           secondary: const Color(0xFFF4B547),
         ),
-        textTheme: textTheme,
+        fontFamily: 'NotoSansSC',
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF6F7FB),
         appBarTheme: const AppBarTheme(
