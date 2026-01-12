@@ -11,6 +11,10 @@ from collections import Counter
 from datetime import datetime
 import time
 from apscheduler.schedulers.background import BackgroundScheduler
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 # 导入用户系统模块
 from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw
@@ -1467,6 +1471,36 @@ def update_lottery_data():
             print(f"定时任务执行失败：{e}")
             import traceback
             traceback.print_exc()
+
+SCHEDULER = None
+SCHEDULER_LOCK_HANDLE = None
+
+def start_scheduler_once():
+    """仅在单个进程中启动定时任务，避免多 worker 重复执行。"""
+    global SCHEDULER, SCHEDULER_LOCK_HANDLE
+    if SCHEDULER is not None:
+        return
+    if os.environ.get("ENABLE_SCHEDULER", "0") != "1":
+        return
+    if fcntl is None:
+        print("Scheduler disabled: fcntl not available.")
+        return
+
+    lock_path = "/tmp/mark-six-scheduler.lock"
+    try:
+        lock_file = open(lock_path, "w")
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except Exception:
+        return
+
+    SCHEDULER_LOCK_HANDLE = lock_file
+    timezone = os.environ.get("TZ", "Asia/Shanghai")
+    SCHEDULER = BackgroundScheduler(timezone=timezone)
+    SCHEDULER.add_job(update_lottery_data, "cron", hour=22, minute=0, id="daily_update", replace_existing=True)
+    SCHEDULER.start()
+    print("Scheduler started: daily update at 22:00.")
+
+start_scheduler_once()
 
 if __name__ == '__main__':
     # 初始化数据库

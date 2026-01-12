@@ -1,5 +1,6 @@
 services:
   mark-six:
+    build: .
     image: ghcr.io/e5sub/mark-six:latest
     container_name: mark-six
     environment:
@@ -7,6 +8,7 @@ services:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
       - SECRET_KEY=your-secure-secret-key-change-this  # 设置安全密钥
+      - ENABLE_SCHEDULER=1
     volumes: 
       - ./data:/app/data
     ports:
