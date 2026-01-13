@@ -13,7 +13,7 @@ import time
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord
 from auth import auth_bp
 from admin import admin_bp
 from user import user_bp
@@ -105,6 +105,126 @@ def _get_hk_number_color(number):
         return ""
     except:
         return ""
+
+def _get_color_zh(number):
+    try:
+        num = int(number)
+    except (TypeError, ValueError):
+        return ""
+    if num in RED_BALLS:
+        return "红"
+    if num in BLUE_BALLS:
+        return "蓝"
+    if num in GREEN_BALLS:
+        return "绿"
+    return ""
+
+def _parse_csv_list(value):
+    if not value:
+        return []
+    return [item.strip() for item in str(value).split(',') if item.strip()]
+
+def _settle_manual_bet_record(record, draw):
+    raw_zodiacs = _parse_csv_list(draw.raw_zodiac)
+    special_zodiac = draw.special_zodiac or ""
+    if raw_zodiacs:
+        special_zodiac = raw_zodiacs[-1] or special_zodiac
+
+    special_number = draw.special_number or ""
+    special_color = _get_color_zh(special_number)
+    special_parity = ""
+    try:
+        special_parity = "双" if int(special_number) % 2 == 0 else "单"
+    except (TypeError, ValueError):
+        special_parity = ""
+
+    selected_numbers = [int(n) for n in _parse_csv_list(record.selected_numbers) if n.isdigit()]
+    selected_zodiacs = _parse_csv_list(record.selected_zodiacs)
+    selected_colors = _parse_csv_list(record.selected_colors)
+    selected_parity = _parse_csv_list(record.selected_parity)
+
+    stake_special = record.stake_special or 0
+    stake_common = record.stake_common or 0
+    odds_number = record.odds_number or 0
+    odds_zodiac = record.odds_zodiac or 0
+    odds_color = record.odds_color or 0
+    odds_parity = record.odds_parity or 0
+
+    result_number = None
+    result_zodiac = None
+    result_color = None
+    result_parity = None
+    profit_number = None
+    profit_zodiac = None
+    profit_color = None
+    profit_parity = None
+    total_profit = 0
+
+    if selected_numbers:
+        result_number = special_number.isdigit() and int(special_number) in selected_numbers
+        profit_number = (
+            stake_special * odds_number - stake_special
+            if result_number
+            else -stake_special
+        )
+        total_profit += profit_number
+
+    if selected_zodiacs:
+        result_zodiac = special_zodiac in selected_zodiacs
+        profit_zodiac = (
+            stake_common * odds_zodiac - stake_common
+            if result_zodiac
+            else -stake_common
+        )
+        total_profit += profit_zodiac
+
+    if selected_colors:
+        result_color = special_color in selected_colors
+        profit_color = (
+            stake_common * odds_color - stake_common
+            if result_color
+            else -stake_common
+        )
+        total_profit += profit_color
+
+    if selected_parity:
+        result_parity = special_parity in selected_parity
+        profit_parity = (
+            stake_common * odds_parity - stake_common
+            if result_parity
+            else -stake_common
+        )
+        total_profit += profit_parity
+
+    record.result_number = result_number
+    record.result_zodiac = result_zodiac
+    record.result_color = result_color
+    record.result_parity = result_parity
+    record.profit_number = profit_number
+    record.profit_zodiac = profit_zodiac
+    record.profit_color = profit_color
+    record.profit_parity = profit_parity
+    record.total_profit = total_profit
+    record.special_number = special_number
+    record.special_zodiac = special_zodiac
+    record.special_color = special_color
+    record.special_parity = special_parity
+
+def settle_pending_manual_bets(region, draw_id):
+    if not draw_id:
+        return 0
+    draw = LotteryDraw.query.filter_by(region=region, draw_id=draw_id).first()
+    if not draw:
+        return 0
+    pending_records = ManualBetRecord.query.filter_by(
+        region=region, period=draw_id
+    ).filter(ManualBetRecord.total_profit.is_(None)).all()
+    if not pending_records:
+        return 0
+    for record in pending_records:
+        _settle_manual_bet_record(record, draw)
+    db.session.commit()
+    return len(pending_records)
 
 # --- 数据加载与处理 ---
 def load_hk_data():
@@ -481,6 +601,9 @@ def save_draws_to_database(draws, region):
             # 调用LotteryDraw模型的save_draw方法保存记录
             if LotteryDraw.save_draw(region, draw):
                 count += 1
+                settled = settle_pending_manual_bets(region, draw.get('id'))
+                if settled:
+                    print(f"已自动结算{settled}条手动下注记录，期号: {draw.get('id')}")
         
         print(f"成功保存{count}条{region}地区的开奖记录到数据库")
     except Exception as e:

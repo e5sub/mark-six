@@ -267,6 +267,14 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  Future<Map<String, dynamic>> manualBetSummary({String? region}) async {
+    final response =
+        await get('/api/mobile/manual_bets/summary', queryParameters: {
+      if (region != null && region.isNotEmpty) 'region': region,
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Map<String, dynamic> _ensureJsonMap(dynamic data) {
     if (data is Map<String, dynamic>) {
       return data;

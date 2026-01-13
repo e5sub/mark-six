@@ -1533,6 +1533,64 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  Builder(builder: (context) {
+                    final stakeSpecial =
+                        double.tryParse(_stakeSpecialController.text.trim()) ?? 0;
+                    final stakeCommon =
+                        double.tryParse(_stakeCommonController.text.trim()) ?? 0;
+                    final oddsNumber =
+                        double.tryParse(_numberOddsController.text.trim()) ?? 0;
+                    final oddsZodiac =
+                        double.tryParse(_zodiacOddsController.text.trim()) ?? 0;
+                    final oddsColor =
+                        double.tryParse(_colorOddsController.text.trim()) ?? 0;
+                    final oddsParity =
+                        double.tryParse(_parityOddsController.text.trim()) ?? 0;
+
+                    double win = 0;
+                    double lose = 0;
+                    if (_betType == 'number') {
+                      win = stakeSpecial * oddsNumber - stakeSpecial;
+                      lose = -stakeSpecial;
+                    } else if (_betType == 'zodiac') {
+                      win = stakeCommon * oddsZodiac - stakeCommon;
+                      lose = -stakeCommon;
+                    } else if (_betType == 'color') {
+                      win = stakeCommon * oddsColor - stakeCommon;
+                      lose = -stakeCommon;
+                    } else if (_betType == 'parity') {
+                      win = stakeCommon * oddsParity - stakeCommon;
+                      lose = -stakeCommon;
+                    }
+
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x12000000),
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '预估盈亏',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 6),
+                          Text('命中：${win.toStringAsFixed(2)}'),
+                          Text('未中：${lose.toStringAsFixed(2)}'),
+                        ],
+                      ),
+                    );
+                  }),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -2972,12 +3030,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   AccuracyStats? _overall;
   bool _loading = false;
   String _appVersion = '';
+  Map<String, dynamic>? _betSummary;
+  bool _loadingBetSummary = false;
 
   @override
   void initState() {
     super.initState();
     _loadAccuracy();
     _loadVersion();
+    _loadBetSummary();
   }
 
   Future<void> _loadAccuracy() async {
@@ -3002,6 +3063,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       setState(() => _appVersion = info.version);
     } catch (_) {}
+  }
+
+  Future<void> _loadBetSummary() async {
+    setState(() => _loadingBetSummary = true);
+    try {
+      final res = await ApiClient.instance.manualBetSummary();
+      if (!mounted) return;
+      setState(() {
+        _betSummary = res['summary'] as Map<String, dynamic>?;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _betSummary = null);
+    } finally {
+      if (mounted) {
+        setState(() => _loadingBetSummary = false);
+      }
+    }
   }
 
   Future<void> _activate(BuildContext context) async {
@@ -3131,6 +3210,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           Text('总预测次数：${_overall!.total}'),
                           Text('特码命中：${_overall!.specialHits}'),
                           Text('平码命中：${_overall!.normalHits}'),
+                        ] else
+                          const Text('暂无数据'),
+                      ],
+                    ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: _loadingBetSummary
+                  ? const Center(child: CircularProgressIndicator())
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                '盈亏报表',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed:
+                                  _loadingBetSummary ? null : _loadBetSummary,
+                              icon: const Icon(Icons.refresh),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (_betSummary != null) ...[
+                          Text('已结算：${_betSummary!['settled_count'] ?? 0}'),
+                          Text('待结算：${_betSummary!['pending_count'] ?? 0}'),
+                          Text(
+                            '总下注：${(_betSummary!['total_stake'] ?? 0).toString()}',
+                          ),
+                          Text(
+                            '总盈亏：${(_betSummary!['total_profit'] ?? 0).toString()}',
+                          ),
+                          Text(
+                            '赢/输/平：${_betSummary!['win_count'] ?? 0}/'
+                            '${_betSummary!['lose_count'] ?? 0}/'
+                            '${_betSummary!['draw_count'] ?? 0}',
+                          ),
                         ] else
                           const Text('暂无数据'),
                       ],

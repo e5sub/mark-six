@@ -521,6 +521,43 @@ def api_manual_bets_list():
     return jsonify({"success": True, "items": items})
 
 
+@mobile_api_bp.route("/manual_bets/summary", methods=["GET"])
+def api_manual_bets_summary():
+    user, error = _require_user()
+    if error:
+        return error
+
+    region = (request.args.get("region") or "").strip()
+    query = ManualBetRecord.query.filter_by(user_id=user.id)
+    if region:
+        query = query.filter_by(region=region)
+
+    records = query.all()
+    settled = [r for r in records if r.total_profit is not None]
+    pending = [r for r in records if r.total_profit is None]
+
+    total_stake = sum((r.total_stake or 0) for r in settled)
+    total_profit = sum((r.total_profit or 0) for r in settled)
+    win_count = sum(1 for r in settled if (r.total_profit or 0) > 0)
+    lose_count = sum(1 for r in settled if (r.total_profit or 0) < 0)
+    draw_count = sum(1 for r in settled if (r.total_profit or 0) == 0)
+
+    return jsonify(
+        {
+            "success": True,
+            "summary": {
+                "settled_count": len(settled),
+                "pending_count": len(pending),
+                "total_stake": total_stake,
+                "total_profit": total_profit,
+                "win_count": win_count,
+                "lose_count": lose_count,
+                "draw_count": draw_count,
+            },
+        }
+    )
+
+
 @mobile_api_bp.route("/me", methods=["GET"])
 def api_me():
     user, error = _require_user()
