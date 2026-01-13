@@ -584,20 +584,19 @@ class _ZodiacNumbersScreenState extends State<ZodiacNumbersScreen> {
                     ],
                   )
                 : GridView.builder(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(6),
                     physics: const AlwaysScrollableScrollPhysics(),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 4,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 0.8,
+                      mainAxisSpacing: 6,
+                      crossAxisSpacing: 6,
+                      childAspectRatio: 1.0,
                     ),
                     itemCount: _items.length,
                     itemBuilder: (context, index) {
                       final item = _items[index];
                       final color = ballColor(item.number);
-                      final colorName = ballColorName(item.number);
                       return Container(
                         decoration: BoxDecoration(
                           color: Colors.white,
@@ -621,15 +620,6 @@ class _ZodiacNumbersScreenState extends State<ZodiacNumbersScreen> {
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.grey.shade700,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              colorName,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: color,
                               ),
                             ),
                           ],
