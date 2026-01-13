@@ -1,4 +1,5 @@
-﻿from flask_sqlalchemy import SQLAlchemy
+﻿# -*- coding: utf-8 -*-
+from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import uuid
@@ -29,74 +30,17 @@ class User(db.Model):
     auto_prediction_enabled = db.Column(db.Boolean, default=False)  # 是否启用自动预测
     auto_prediction_strategies = db.Column(db.String(100), default='balanced')  # 自动预测策略，多个策略用逗号分隔
     auto_prediction_regions = db.Column(db.String(20), default='hk,macau')  # 自动预测地区，多个地区用逗号分隔
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta
-import uuid
-import hashlib
-
-db = SQLAlchemy()
-
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    is_active = db.Column(db.Boolean, default=False)
-    is_admin = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
-    
-    # 登录相关字段
-    last_login = db.Column(db.DateTime)  # 最后登录时间
-    login_count = db.Column(db.Integer, default=0)  # 登录次数
-    
-    # 邀请相关字段
-    invited_by = db.Column(db.String(80))  # 邀请人用户名
-    invite_code_used = db.Column(db.String(32))  # 使用的邀请码
-    invite_activated_at = db.Column(db.DateTime)  # 邀请激活时间
-    
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta
-import uuid
-import hashlib
-
-db = SQLAlchemy()
-
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    is_active = db.Column(db.Boolean, default=False)
-    is_admin = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    activation_expires_at = db.Column(db.DateTime)  # 激活到期时间
-    
-    # 登录相关字段
-    last_login = db.Column(db.DateTime)  # 最后登录时间
-    login_count = db.Column(db.Integer, default=0)  # 登录次数
-    
-    # 邀请相关字段
-    invited_by = db.Column(db.String(80))  # 邀请人用户名
-    invite_code_used = db.Column(db.String(32))  # 使用的邀请码
-    invite_activated_at = db.Column(db.DateTime)  # 邀请激活时间
-    
-    # 自动预测相关字段
-    auto_prediction_enabled = db.Column(db.Boolean, default=False)  # 是否启用自动预测
-    auto_prediction_strategies = db.Column(db.String(100), default='balanced')  # 自动预测策略，多个策略用逗号分隔
 
     def set_password(self, password):
         """设置密码"""
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        """检查密码""
+        """检查密码"""
         return check_password_hash(self.password_hash, password)
     
     def is_activation_expired(self):
-        """检查激活是否过期""
+        """检查激活是否过期"""
         if not self.activation_expires_at:
             return False  # 永久激活
         return datetime.now() > self.activation_expires_at
@@ -116,12 +60,12 @@ class User(db.Model):
             self.activation_expires_at = datetime.now() + timedelta(days=days)
     
     def set_permanent_activation(self):
-        """设置永久激活""
+        """设置永久激活"""
         self.activation_expires_at = None
         self.is_active = True
     
     def check_and_update_activation_status(self):
-        """检查并更新激活状态，如果过期则设为未激活""
+        """检查并更新激活状态，如果过期则设为未激活"""
         if self.is_activation_expired():
             self.is_active = False
             db.session.commit()
@@ -148,7 +92,7 @@ class ActivationCode(db.Model):
         return str(uuid.uuid4()).replace('-', '').upper()[:16]
 
     def set_validity(self, validity_type):
-        """设置激活码有效期""
+        """设置激活码有效期"""
         self.validity_type = validity_type
         if validity_type == 'day':
             self.expires_at = datetime.now() + timedelta(days=1)
@@ -173,7 +117,7 @@ class ActivationCode(db.Model):
             if self.is_used:
                 return False, "激活码已被使用"
             else:
-                return False, "激活码已过期
+                return False, "激活码已过期"
         
         # 标记激活码为已使用
         self.is_used = True
@@ -195,7 +139,7 @@ class ActivationCode(db.Model):
                 user.extend_activation(days)
                 user.is_active = True
         
-        return True, "激活成功
+        return True, "激活成功"
 
     def __repr__(self):
         return f'<ActivationCode {self.code}>'
@@ -245,12 +189,12 @@ class InviteCode(db.Model):
         return datetime.utcnow() > self.expires_at
     
     def use_invite_code(self, user):
-        """使用邀请码进行邀请注册""
+        """使用邀请码进行邀请注册"""
         if self.is_used:
             return False, "邀请码已被使用"
         
         if self.is_expired():
-            return False, "邀请码已过期
+            return False, "邀请码已过期"
         
         # 注册时不需要检查是否是自己的邀请码，因为新用户不可能创建邀请码
         # 只有在已有账号的用户使用邀请码时才需要检查
@@ -259,7 +203,7 @@ class InviteCode(db.Model):
         
         # 检查用户是否已经使用过邀请码
         if hasattr(user, 'invite_code_used') and user.invite_code_used:
-            return False, "您已经使用过邀请码，每个用户只能使用一次
+            return False, "您已经使用过邀请码，每个用户只能使用一次"
         
         try:
             # 标记邀请码为已使用
@@ -325,13 +269,13 @@ class SystemConfig(db.Model):
 
     @staticmethod
     def get_config(key, default_value=''):
-        """获取配置项""
+        """获取配置项"""
         config = SystemConfig.query.filter_by(key=key).first()
         return config.value if config else default_value
 
     @staticmethod
     def set_config(key, value, description=''):
-        """设置配置项""
+        """设置配置项"""
         config = SystemConfig.query.filter_by(key=key).first()
         if config:
             config.value = value
@@ -465,7 +409,7 @@ class ZodiacSetting(db.Model):
         return mapping    
     @staticmethod
     def get_zodiac_for_number(year, number):
-        """获取指定年份指定号码的生肖""
+        """获取指定年份指定号码的生肖"""
         try:
             number = int(number)
             settings = ZodiacSetting.query.filter_by(year=year).all()
@@ -514,7 +458,7 @@ class ZodiacSetting(db.Model):
     
     @staticmethod
     def get_zodiac_settings(year):
-        """获取指定年份的所有生肖设置，返回生肖到号码组的映射""
+        """获取指定年份的所有生肖设置，返回生肖到号码组的映射"""
         try:
             settings = ZodiacSetting.query.filter_by(year=year).all()
             
@@ -579,7 +523,7 @@ class ZodiacSetting(db.Model):
     
     @staticmethod
     def get_default_zodiac_for_number(number, year=None):
-        """使用默认规则获取号码对应的生肖""
+        """使用默认规则获取号码对应的生肖"""
         if year is None:
             year = datetime.now().year
 
@@ -664,7 +608,7 @@ class ZodiacSetting(db.Model):
         return table
 
 class LotteryDraw(db.Model):
-    """开奖记录模型""
+    """开奖记录模型"""
     __tablename__ = 'lottery_draws'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -696,7 +640,7 @@ class LotteryDraw(db.Model):
     
     @staticmethod
     def save_draw(region, draw_data):
-        """保存开奖记录到数据库""
+        """保存开奖记录到数据库"""
         try:
             # 检查记录是否已存在
             existing = LotteryDraw.query.filter_by(
