@@ -19,6 +19,7 @@ from admin import admin_bp
 from user import user_bp
 from activation_code_routes import activation_code_bp
 from invite_routes import invite_bp
+from api_mobile import mobile_api_bp
 
 # --- 配置信息 ---
 app = Flask(__name__)
@@ -60,6 +61,7 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(user_bp)
 app.register_blueprint(activation_code_bp)
 app.register_blueprint(invite_bp, url_prefix='/invite')
+app.register_blueprint(mobile_api_bp)
 
 # 获取AI配置的函数
 def get_ai_config():
