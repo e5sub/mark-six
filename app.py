@@ -459,8 +459,8 @@ def draws_api():
     data = get_yearly_data(region, year)
     print(f"获取到{len(data)}条数据")
     
-    # 获取澳门数据，用于提取生肖信息
-    macau_data = get_macau_data(year)
+    # 获取澳门数据，用于提取生肖信息（优先数据库）
+    macau_data = get_yearly_data('macau', year)
     print(f"获取到{len(macau_data)}条澳门数据用于生肖映射")
     
     # 创建号码到生肖的映射
