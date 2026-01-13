@@ -499,52 +499,6 @@ def profile():
     
     return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
 
-@user_bp.route('/save_prediction_settings', methods=['POST'])
-@login_required
-@active_required
-def save_prediction_settings():
-    """保存用户预测设置"""
-    user = User.query.get(session['user_id'])
-    
-    # 获取表单数据
-    auto_prediction_enabled = 'auto_prediction_enabled' in request.form
-    auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
-    auto_prediction_regions = request.form.getlist('auto_prediction_regions')
-    
-    # 验证策略是否有效
-    valid_strategies = []
-    for strategy in auto_prediction_strategies:
-        if strategy in STRATEGY_KEYS:
-            valid_strategies.append(strategy)
-    
-    # 如果没有选择任何有效策略，默认使用均衡策略
-    if not valid_strategies:
-        valid_strategies = ['hybrid']
-    
-    # 验证地区是否有效
-    valid_regions = []
-    for region in auto_prediction_regions:
-        if region in ['hk', 'macau']:
-            valid_regions.append(region)
-    
-    # 如果没有选择任何有效地区，默认使用香港
-    if not valid_regions:
-        valid_regions = ['hk']
-    
-    # 更新用户设置
-    user.auto_prediction_enabled = auto_prediction_enabled
-    user.auto_prediction_strategies = ','.join(valid_strategies)
-    user.auto_prediction_regions = ','.join(valid_regions)
-    
-    try:
-        db.session.commit()
-        flash('预测设置保存成功', 'success')
-    except Exception as e:
-        db.session.rollback()
-        flash(f'保存失败：{str(e)}', 'error')
-    
-    return redirect(url_for('user.profile'))
-
 @user_bp.route('/invite')
 @login_required
 @active_required
@@ -690,53 +644,6 @@ def change_password():
     except Exception as e:
         db.session.rollback()
         flash(f'密码修改失败：{str(e)}', 'error')
-    
-    return redirect(url_for('user.dashboard'))
-
-@user_bp.route('/update_auto_prediction', methods=['POST'])
-@login_required
-@active_required
-def update_auto_prediction():
-    """更新自动预测设置"""
-    try:
-        user = User.query.get(session['user_id'])
-        
-        # 获取表单数据
-        auto_prediction_enabled = 'auto_prediction_enabled' in request.form
-        auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
-        auto_prediction_regions = request.form.getlist('auto_prediction_regions')
-        
-        # 验证策略是否有效
-        valid_strategies = []
-        for strategy in auto_prediction_strategies:
-            if strategy in STRATEGY_KEYS:
-                valid_strategies.append(strategy)
-        
-        # 如果没有选择任何有效策略，默认使用均衡策略
-        if not valid_strategies:
-            valid_strategies = ['hybrid']
-        
-        # 验证地区是否有效
-        valid_regions = []
-        for region in auto_prediction_regions:
-            if region in ['hk', 'macau']:
-                valid_regions.append(region)
-        
-        # 如果没有选择任何有效地区，默认使用香港和澳门
-        if not valid_regions:
-            valid_regions = ['hk', 'macau']
-        
-        # 更新用户设置
-        user.auto_prediction_enabled = auto_prediction_enabled
-        user.auto_prediction_strategies = ','.join(valid_strategies)
-        user.auto_prediction_regions = ','.join(valid_regions)
-        
-        db.session.commit()
-        flash('自动预测设置保存成功', 'success')
-        
-    except Exception as e:
-        db.session.rollback()
-        flash(f'设置保存失败：{str(e)}', 'error')
     
     return redirect(url_for('user.dashboard'))
 

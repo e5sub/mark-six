@@ -85,62 +85,6 @@
     </div>
 </div>
 
-<!-- 自动预测设置 - 紧凑版 -->
-<div class="card-compact">
-    <div class="card-header-compact">
-        <h2 class="card-title-compact">🤖 自动预测设置</h2>
-    </div>
-    
-    <form method="POST" action="{{ url_for('user.update_auto_prediction') }}" class="auto-prediction-form">
-        <div class="setting-row">
-            <!-- 功能开关 -->
-            <div class="setting-group">
-                <label class="setting-label">
-                    <input type="checkbox" name="auto_prediction_enabled" value="1" 
-                           {{ 'checked' if user.auto_prediction_enabled else '' }}>
-                    <span class="setting-text">🎯 启用自动预测</span>
-                </label>
-            </div>
-            
-            <!-- 预测策略 -->
-            <div class="setting-group">
-                <span class="group-title">预测策略：</span>
-                <div class="checkbox-group">
-                    {% for meta in strategy_meta %}
-                    <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_strategies" value="{{ meta.key }}" 
-                               {{ 'checked' if user.auto_prediction_strategies and meta.key in user.auto_prediction_strategies.split(',') else '' }}>
-                        <span>{{ meta.icon }}{{ meta.label }}</span>
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
-            
-            <!-- 预测地区 -->
-            <div class="setting-group">
-                <span class="group-title">预测地区：</span>
-                <div class="checkbox-group">
-                    <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_regions" value="hk" 
-                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'hk' in user.auto_prediction_regions.split(',')) else '' }}>
-                        <span>香港</span>
-                    </label>
-                    <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_regions" value="macau" 
-                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'macau' in user.auto_prediction_regions.split(',')) else '' }}>
-                        <span>澳门</span>
-                    </label>
-                </div>
-            </div>
-            
-            <!-- 保存按钮 -->
-            <div class="setting-group">
-                <button type="submit" class="save-btn">💾 保存</button>
-            </div>
-        </div>
-    </form>
-</div>
-
 <!-- 账户提醒 -->
 {% if not user.is_active %}
 <div class="card-compact alert-card">
@@ -158,20 +102,7 @@
         <h2 class="card-title-compact">📖 使用说明</h2>
     </div>
     
-    <div class="help-grid">
-        <div class="help-item">
-            <span class="help-icon">🎯</span>
-            <span class="help-text">支持香港和澳门六合彩预测，提供多种预测策略</span>
-        </div>
-        <div class="help-item">
-            <span class="help-icon">📊</span>
-            <span class="help-text">自动保存预测记录，支持查看历史预测和统计分析</span>
-        </div>
-        <div class="help-item">
-            <span class="help-icon">🤖</span>
-            <span class="help-text">启用自动预测功能，系统将自动为每期生成预测结果</span>
-        </div>
-        <div class="help-item">
+    <div class="help-grid">        <div class="help-item">
             <span class="help-icon">👥</span>
             <span class="help-text">邀请好友注册，双方都可获得额外有效期奖励</span>
         </div>
@@ -403,86 +334,6 @@
     font-size: 0.85rem;
 }
 
-/* 自动预测设置 */
-.auto-prediction-form {
-    padding: 1rem;
-}
-
-.setting-row {
-    display: grid;
-    grid-template-columns: auto 1fr 1fr auto;
-    gap: 1.5rem;
-    align-items: center;
-}
-
-.setting-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-}
-
-.setting-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    font-weight: 500;
-}
-
-.setting-label input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-}
-
-.setting-text {
-    font-size: 0.9rem;
-    color: #333;
-}
-
-.group-title {
-    font-size: 0.85rem;
-    color: #666;
-    font-weight: 600;
-    margin-bottom: 0.3rem;
-}
-
-.checkbox-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-}
-
-.mini-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    cursor: pointer;
-    font-size: 0.8rem;
-    color: #333;
-}
-
-.mini-checkbox input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-}
-
-.save-btn {
-    padding: 0.5rem 1rem;
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.save-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
 /* 警告卡片 */
 .alert-card {
     background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
@@ -693,4 +544,5 @@ document.addEventListener('keydown', function(event) {
     }
 });
 </script>
+
 

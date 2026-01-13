@@ -780,11 +780,6 @@ def update_prediction_accuracy(data, region):
         # 提交更改
         db.session.commit()
         
-        # 强制触发自动预测功能，确保每次获取数据时都会检查是否需要生成预测
-        if data and len(data) > 0:
-            # 生成新的预测
-            generate_auto_predictions(data, region)
-        
     except Exception as e:
         print(f"更新预测准确率时出错: {e}")
         db.session.rollback()
@@ -925,101 +920,6 @@ def special_color_frequency_api():
     region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
     data = get_yearly_data(region, year)
     return jsonify(analyze_special_color_frequency(data, region))
-
-def generate_auto_predictions(data, region):
-    """为每期自动生成预测"""
-    try:
-        # 获取最新一期数据
-        latest_draw = data[0] if data else None
-        if not latest_draw:
-            return
-            
-        # 计算下一期期数
-        latest_period = latest_draw.get('id', '')
-        next_period = _get_next_period(region, latest_period)
-        
-        if not next_period:
-            print("自动预测失败：无法确定下一期期数")
-            return
-        
-        # 处理用户级自动预测
-        # 查找所有启用了自动预测的活跃用户
-        auto_predict_users = User.query.filter_by(
-            is_active=True,
-            auto_prediction_enabled=True
-        ).all()
-        
-        for user in auto_predict_users:
-            # 获取用户的预测策略列表
-            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['balanced']
-            
-            # 获取用户的预测地区列表
-            regions = user.auto_prediction_regions.split(',') if hasattr(user, 'auto_prediction_regions') and user.auto_prediction_regions else ['hk', 'macau']
-            
-            # 检查当前地区是否在用户选择的地区列表中
-            if region not in regions:
-                continue
-            
-            # 为每个策略生成预测
-            for strategy in strategies:
-                # 检查是否已经为下一期生成过该策略的预测
-                existing = PredictionRecord.query.filter_by(
-                    user_id=user.id,
-                    region=region,
-                    period=next_period,
-                    strategy=strategy
-                ).first()
-                
-                if not existing:
-                    # 生成用户级预测
-                    generate_prediction_for_user(user, region, next_period, strategy, data)
-                
-    except Exception as e:
-        print(f"自动预测出错：{e}")
-        db.session.rollback()
-
-def generate_prediction_for_user(user, region, period, strategy, data):
-    """为指定用户生成预测"""
-    try:
-        # 生成预测
-        if strategy == 'ai':
-            # 强制调用AI API进行预测
-            ai_config = get_ai_config()
-            if not ai_config['api_key'] or "你的" in ai_config['api_key']:
-                print(f"用户 {user.username} 的AI预测失败：AI API Key未配置")
-                # AI API Key未配置，直接返回错误，不进行预测
-                return
-            else:
-                # 确保调用AI API
-                result = predict_with_ai(data, region)
-                # 如果AI预测失败，直接返回，不使用均衡预测
-                if result.get('error'):
-                    print(f"用户 {user.username} 的AI预测失败：{result.get('error')}")
-                    return
-        else:
-            result = get_local_recommendations(strategy, data, region)
-            
-        if result.get('error'):
-            print(f"用户 {user.username} 的自动预测失败：{result.get('error')}")
-            return
-            
-        # 保存预测记录
-        prediction = PredictionRecord(
-            user_id=user.id,
-            region=region,
-            strategy=strategy,
-            period=period,
-            normal_numbers=','.join(map(str, result.get('normal', []))),
-            special_number=str(result.get('special', {}).get('number', '')),
-            special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
-            prediction_text=result.get('recommendation_text', '')
-        )
-        db.session.add(prediction)
-        db.session.commit()
-        print(f"自动预测成功：为用户 {user.username} 的{region}地区第{period}期生成了{strategy}策略的预测")
-    except Exception as e:
-        print(f"为用户 {user.username} 生成预测时出错：{e}")
-        db.session.rollback()
 
 @app.route('/api/get_zodiacs')
 def get_zodiacs_api():
@@ -1341,7 +1241,7 @@ def init_database():
         except Exception as e:
             print(f"创建示例邀请码时出错: {e}")
 
-# 定时任务：每天22:00自动更新数据库中的开奖记录
+# 定时任务：每天21:40自动更新数据库中的开奖记录
 def update_lottery_data():
     """定时任务：更新数据库中的开奖记录"""
     print(f"开始执行定时任务：更新数据库中的开奖记录，时间：{datetime.now()}")
@@ -1363,13 +1263,6 @@ def update_lottery_data():
             macau_data = get_macau_data(current_year)
             save_draws_to_database(macau_data, 'macau')
             print(f"澳门数据更新完成：{len(macau_data)}条")
-            
-            # 触发自动预测功能
-            print("正在生成自动预测...")
-            if hk_filtered:
-                generate_auto_predictions(hk_filtered, 'hk')
-            if macau_data:
-                generate_auto_predictions(macau_data, 'macau')
             
             print(f"定时任务执行完成：成功更新香港数据{len(hk_filtered)}条，澳门数据{len(macau_data)}条")
             
