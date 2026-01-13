@@ -1384,11 +1384,11 @@ if __name__ == '__main__':
     
     # 设置定时任务
     scheduler = BackgroundScheduler()
-    scheduler.add_job(update_lottery_data, 'cron', hour=22, minute=0)
+    scheduler.add_job(update_lottery_data, 'cron', hour=21, minute=40)
     scheduler.start()
     # 只在主进程中打印一次
     if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
-        print("定时任务已启动：每天22:00自动更新数据库中的开奖记录")
+        print("定时任务已启动：每天21:40自动更新数据库中的开奖记录")
     
     try:
         # 启动Flask应用
