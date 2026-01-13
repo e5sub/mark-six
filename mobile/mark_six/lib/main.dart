@@ -1299,7 +1299,10 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        '最新期号：${_latestDraw!.id}  开奖：${_latestDraw!.specialNumber}',
+                        '最新期号：${_latestDraw!.id}  开奖：${_latestDraw!.specialNumber}'
+                        '  生肖：${_latestDraw!.specialZodiac.isNotEmpty ? _latestDraw!.specialZodiac : '-'}'
+                        '  波色：${ballColorName(_latestDraw!.specialNumber)}'
+                        '  单双：${(int.tryParse(_latestDraw!.specialNumber) ?? 0) % 2 == 0 ? '双' : '单'}',
                         style: TextStyle(color: Colors.grey.shade600),
                       ),
                     ),
