@@ -244,6 +244,7 @@ def api_manual_bets():
             return _json_error("record_id is invalid")
     region = (payload.get("region") or "hk").strip()
     period = (payload.get("period") or "").strip()
+    bettor_name = (payload.get("bettor_name") or "").strip()
     if not period:
         return _json_error("period is required")
 
@@ -302,6 +303,7 @@ def api_manual_bets():
             user_id=user.id,
             region=region,
             period=period,
+            bettor_name=bettor_name or None,
             selected_numbers=",".join(str(n) for n in selected_numbers),
             selected_zodiacs=",".join(selected_zodiacs),
             selected_colors=",".join(selected_colors),
@@ -414,6 +416,7 @@ def api_manual_bets():
             user_id=user.id,
             region=region,
             period=period,
+            bettor_name=bettor_name or None,
             selected_numbers=",".join(str(n) for n in selected_numbers),
             selected_zodiacs=",".join(selected_zodiacs),
             selected_colors=",".join(selected_colors),
@@ -491,6 +494,7 @@ def api_manual_bets_list():
                 "id": record.id,
                 "region": record.region,
                 "period": record.period,
+                "bettor_name": record.bettor_name or "",
                 "selected_numbers": record.selected_numbers or "",
                 "selected_zodiacs": record.selected_zodiacs or "",
                 "selected_colors": record.selected_colors or "",

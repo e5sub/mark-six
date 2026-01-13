@@ -114,6 +114,54 @@ def update_database():
             print("✓ zodiac_settings 表创建成功")
         else:
             print("zodiac_settings 表已存在")
+
+        # 检查并创建 manual_bet_records 表
+        if not check_table_exists(cursor, 'manual_bet_records'):
+            print("创建 manual_bet_records 表...")
+            cursor.execute('''
+            CREATE TABLE manual_bet_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                region VARCHAR(10) NOT NULL,
+                period VARCHAR(20) NOT NULL,
+                bettor_name VARCHAR(50),
+                selected_numbers VARCHAR(200),
+                selected_zodiacs VARCHAR(100),
+                selected_colors VARCHAR(50),
+                selected_parity VARCHAR(20),
+                odds_number FLOAT,
+                odds_zodiac FLOAT,
+                odds_color FLOAT,
+                odds_parity FLOAT,
+                stake_special FLOAT,
+                stake_common FLOAT,
+                result_number BOOLEAN,
+                result_zodiac BOOLEAN,
+                result_color BOOLEAN,
+                result_parity BOOLEAN,
+                profit_number FLOAT,
+                profit_zodiac FLOAT,
+                profit_color FLOAT,
+                profit_parity FLOAT,
+                total_profit FLOAT,
+                total_stake FLOAT,
+                special_number VARCHAR(10),
+                special_zodiac VARCHAR(10),
+                special_color VARCHAR(10),
+                special_parity VARCHAR(10),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES user (id)
+            )
+            ''')
+            print("manual_bet_records 表创建成功")
+        else:
+            print("manual_bet_records 表已存在")
+            if not check_column_exists(cursor, 'manual_bet_records', 'bettor_name'):
+                print("添加 manual_bet_records.bettor_name 字段...")
+                cursor.execute('''
+                    ALTER TABLE manual_bet_records ADD COLUMN bettor_name VARCHAR(50)
+                ''')
+                print("manual_bet_records.bettor_name 字段添加成功")
         
         # 验证更新结果
         print("\n验证更新结果:")

@@ -614,6 +614,7 @@ class ManualBetRecord(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     region = db.Column(db.String(10), nullable=False)
     period = db.Column(db.String(20), nullable=False)
+    bettor_name = db.Column(db.String(50))
     selected_numbers = db.Column(db.String(200))
     selected_zodiacs = db.Column(db.String(100))
     selected_colors = db.Column(db.String(50))
