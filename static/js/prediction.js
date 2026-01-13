@@ -1,4 +1,4 @@
-// 获取预测结果
+﻿// 获取预测结果
 function getPrediction(strategy) {
     // 显示预测加载指示器
     document.getElementById('predictionIndicator').style.display = 'block';
@@ -630,3 +630,4 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+

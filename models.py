@@ -607,6 +607,42 @@ class ZodiacSetting(db.Model):
         
         return table
 
+class ManualBetRecord(db.Model):
+    __tablename__ = 'manual_bet_records'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    region = db.Column(db.String(10), nullable=False)
+    period = db.Column(db.String(20), nullable=False)
+    selected_numbers = db.Column(db.String(200))
+    selected_zodiacs = db.Column(db.String(100))
+    selected_colors = db.Column(db.String(50))
+    selected_parity = db.Column(db.String(20))
+    odds_number = db.Column(db.Float)
+    odds_zodiac = db.Column(db.Float)
+    odds_color = db.Column(db.Float)
+    odds_parity = db.Column(db.Float)
+    stake_special = db.Column(db.Float)
+    stake_common = db.Column(db.Float)
+    result_number = db.Column(db.Boolean)
+    result_zodiac = db.Column(db.Boolean)
+    result_color = db.Column(db.Boolean)
+    result_parity = db.Column(db.Boolean)
+    profit_number = db.Column(db.Float)
+    profit_zodiac = db.Column(db.Float)
+    profit_color = db.Column(db.Float)
+    profit_parity = db.Column(db.Float)
+    total_profit = db.Column(db.Float)
+    total_stake = db.Column(db.Float)
+    special_number = db.Column(db.String(10))
+    special_zodiac = db.Column(db.String(10))
+    special_color = db.Column(db.String(10))
+    special_parity = db.Column(db.String(10))
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    def __repr__(self):
+        return f'<ManualBetRecord {self.user_id}-{self.region}-{self.period}>'
+
 class LotteryDraw(db.Model):
     """开奖记录模型"""
     __tablename__ = 'lottery_draws'

@@ -118,6 +118,18 @@ def load_hk_data():
         return []
 
 def get_macau_data(year):
+    db_records = []
+    try:
+        query = LotteryDraw.query.filter_by(region='macau')
+        if year != 'all':
+            query = query.filter(LotteryDraw.draw_date.like(f"{year}%"))
+        db_records = query.order_by(LotteryDraw.draw_date.desc()).all()
+        if db_records:
+            print(f"从数据库获取到{len(db_records)}条澳门{year}年数据")
+            return [record.to_dict() for record in db_records]
+    except Exception as e:
+        print(f"从数据库获取澳门数据失败: {e}")
+
     url = MACAU_API_URL_TEMPLATE.format(year=year)
     try:
         print(f"正在获取澳门数据，URL: {url}")
@@ -206,6 +218,39 @@ def _get_number_to_zodiac_map(year):
                         number_to_zodiac[num] = zodiacs[i]
 
     return number_to_zodiac
+
+def _get_next_period(region, latest_period):
+    if region == 'hk':
+        if latest_period and '/' in latest_period:
+            parts = latest_period.split('/')
+            if len(parts) == 2:
+                year_part, num_part = parts
+                try:
+                    next_num = int(num_part) + 1
+                    year_num = int(year_part)
+                    year_width = max(2, len(year_part))
+                    if next_num > 120:
+                        next_year = year_num + 1
+                        return f"{str(next_year).zfill(year_width)}/001"
+                    return f"{year_part}/{next_num:03d}"
+                except (ValueError, TypeError):
+                    pass
+        current_year = datetime.now().strftime('%y')
+        return f"{current_year}/001"
+
+    if latest_period and latest_period.isdigit():
+        if len(latest_period) >= 7 and latest_period[:4].isdigit():
+            year_part = latest_period[:4]
+            seq_part = latest_period[4:]
+            if seq_part.isdigit():
+                seq = int(seq_part)
+                next_seq = seq + 1
+                if len(seq_part) == 3 and next_seq > 999:
+                    next_year = int(year_part) + 1
+                    return f"{next_year}001"
+                return f"{year_part}{str(next_seq).zfill(len(seq_part))}"
+        return str(int(latest_period) + 1)
+    return datetime.now().strftime('%Y%m%d')
 
 def analyze_special_zodiac_frequency(data, region, year=None):
     zodiacs = []
@@ -634,30 +679,8 @@ def unified_predict_api():
     # 获取下一期期数（使用最近一期的下一期）
     if data:
         try:
-            if region == 'hk':
-                # 香港六合彩期数格式为"年份/期数"，如"25/075"
-                latest_period = data[0].get('id', '')
-                if latest_period and '/' in latest_period:
-                    year_part, num_part = latest_period.split('/')
-                    next_num = int(num_part) + 1
-                    # 如果期数超过120，年份加1，期数重置为1
-                    if next_num > 120:
-                        next_year = int(year_part) + 1
-                        next_period = f"{next_year:02d}/001"
-                    else:
-                        next_period = f"{year_part}/{next_num:03d}"
-                    current_period = next_period
-                else:
-                    current_year = datetime.now().strftime('%y')
-                    current_period = f"{current_year}/001"
-            else:
-                # 澳门六合彩期数格式
-                latest_period = data[0].get('id', '')
-                if latest_period and latest_period.isdigit():
-                    next_period = str(int(latest_period) + 1)
-                    current_period = next_period
-                else:
-                    current_period = datetime.now().strftime('%Y%m%d')
+            latest_period = data[0].get('id', '')
+            current_period = _get_next_period(region, latest_period)
         except (IndexError, ValueError) as e:
             print(f"计算下一期期数时出错: {e}")
             current_year = datetime.now().strftime('%y')
@@ -789,29 +812,8 @@ def generate_auto_predictions(data, region):
             return
             
         # 计算下一期期数
-        next_period = None
-        if region == 'hk':
-            # 香港六合彩期数格式为"年份/期数"，如"25/075"
-            latest_period = latest_draw.get('id', '')
-            if latest_period and '/' in latest_period:
-                year_part, num_part = latest_period.split('/')
-                next_num = int(num_part) + 1
-                # 如果期数超过120，年份加1，期数重置为1
-                if next_num > 120:
-                    next_year = int(year_part) + 1
-                    next_period = f"{next_year:02d}/001"
-                else:
-                    next_period = f"{year_part}/{next_num:03d}"
-            else:
-                current_year = datetime.now().strftime('%y')
-                next_period = f"{current_year}/001"
-        else:
-            # 澳门六合彩期数格式
-            latest_period = latest_draw.get('id', '')
-            if latest_period and latest_period.isdigit():
-                next_period = str(int(latest_period) + 1)
-            else:
-                next_period = datetime.now().strftime('%Y%m%d')
+        latest_period = latest_draw.get('id', '')
+        next_period = _get_next_period(region, latest_period)
         
         if not next_period:
             print("自动预测失败：无法确定下一期期数")

@@ -209,6 +209,62 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  Future<Map<String, dynamic>> createManualBet({
+    required String region,
+    required String period,
+    bool settle = true,
+    int? recordId,
+    required bool betNumber,
+    required bool betZodiac,
+    required bool betColor,
+    required bool betParity,
+    required List<int> numbers,
+    required List<String> zodiacs,
+    required List<String> colors,
+    required List<String> parity,
+    required String stakeSpecial,
+    required String stakeCommon,
+    required String oddsNumber,
+    required String oddsZodiac,
+    required String oddsColor,
+    required String oddsParity,
+  }) async {
+    final response = await post('/api/mobile/manual_bets', data: {
+      'region': region,
+      'period': period,
+      'settle': settle,
+      if (recordId != null) 'record_id': recordId,
+      'bet_number': betNumber,
+      'bet_zodiac': betZodiac,
+      'bet_color': betColor,
+      'bet_parity': betParity,
+      'numbers': numbers,
+      'zodiacs': zodiacs,
+      'colors': colors,
+      'parity': parity,
+      'stake_special': stakeSpecial,
+      'stake_common': stakeCommon,
+      'odds_number': oddsNumber,
+      'odds_zodiac': oddsZodiac,
+      'odds_color': oddsColor,
+      'odds_parity': oddsParity,
+    });
+    return _ensureJsonMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> manualBets({
+    String? region,
+    String? status,
+    int limit = 20,
+  }) async {
+    final response = await get('/api/mobile/manual_bets', queryParameters: {
+      if (region != null && region.isNotEmpty) 'region': region,
+      if (status != null && status.isNotEmpty) 'status': status,
+      'limit': limit.toString(),
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Map<String, dynamic> _ensureJsonMap(dynamic data) {
     if (data is Map<String, dynamic>) {
       return data;
