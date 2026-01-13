@@ -1,4 +1,4 @@
-from flask_sqlalchemy import SQLAlchemy
+﻿from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import uuid
@@ -92,11 +92,11 @@ class User(db.Model):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        """检查密码"""
+        """检查密码""
         return check_password_hash(self.password_hash, password)
     
     def is_activation_expired(self):
-        """检查激活是否过期"""
+        """检查激活是否过期""
         if not self.activation_expires_at:
             return False  # 永久激活
         return datetime.now() > self.activation_expires_at
@@ -111,20 +111,21 @@ class User(db.Model):
                 # 如果没有有效期，从当前时间开始计算
                 self.activation_expires_at = datetime.now() + timedelta(days=days)
         except Exception as e:
-            print(f"延长激活有效期时出错: {e}")
+            print(f"延长激活有效期时出错 {e}")
             # 如果出错，至少设置一个基本的有效期
             self.activation_expires_at = datetime.now() + timedelta(days=days)
     
     def set_permanent_activation(self):
-        """设置永久激活"""
+        """设置永久激活""
         self.activation_expires_at = None
         self.is_active = True
     
     def check_and_update_activation_status(self):
-        """检查并更新激活状态，如果过期则设为未激活"""
+        """检查并更新激活状态，如果过期则设为未激活""
         if self.is_activation_expired():
             self.is_active = False
             db.session.commit()
+            ZodiacSetting._macau_year_match_cache.clear()
             return False  # 已过期
         return True  # 仍然有效
 
@@ -147,7 +148,7 @@ class ActivationCode(db.Model):
         return str(uuid.uuid4()).replace('-', '').upper()[:16]
 
     def set_validity(self, validity_type):
-        """设置激活码有效期"""
+        """设置激活码有效期""
         self.validity_type = validity_type
         if validity_type == 'day':
             self.expires_at = datetime.now() + timedelta(days=1)
@@ -172,7 +173,7 @@ class ActivationCode(db.Model):
             if self.is_used:
                 return False, "激活码已被使用"
             else:
-                return False, "激活码已过期"
+                return False, "激活码已过期
         
         # 标记激活码为已使用
         self.is_used = True
@@ -194,7 +195,7 @@ class ActivationCode(db.Model):
                 user.extend_activation(days)
                 user.is_active = True
         
-        return True, "激活成功"
+        return True, "激活成功
 
     def __repr__(self):
         return f'<ActivationCode {self.code}>'
@@ -215,7 +216,7 @@ class PredictionRecord(db.Model):
     actual_normal_numbers = db.Column(db.String(50))  # 实际开奖正码
     actual_special_number = db.Column(db.String(10))  # 实际开奖特码
     actual_special_zodiac = db.Column(db.String(10))  # 实际开奖特码生肖
-    accuracy_score = db.Column(db.Float)  # 准确率分数 (0-1)
+    accuracy_score = db.Column(db.Float)  # 准确率分数(0-1)
     is_result_updated = db.Column(db.Boolean, default=False)  # 是否已更新开奖结果
 
     def __repr__(self):
@@ -244,12 +245,12 @@ class InviteCode(db.Model):
         return datetime.utcnow() > self.expires_at
     
     def use_invite_code(self, user):
-        """使用邀请码进行邀请注册"""
+        """使用邀请码进行邀请注册""
         if self.is_used:
             return False, "邀请码已被使用"
         
         if self.is_expired():
-            return False, "邀请码已过期"
+            return False, "邀请码已过期
         
         # 注册时不需要检查是否是自己的邀请码，因为新用户不可能创建邀请码
         # 只有在已有账号的用户使用邀请码时才需要检查
@@ -258,7 +259,7 @@ class InviteCode(db.Model):
         
         # 检查用户是否已经使用过邀请码
         if hasattr(user, 'invite_code_used') and user.invite_code_used:
-            return False, "您已经使用过邀请码，每个用户只能使用一次"
+            return False, "您已经使用过邀请码，每个用户只能使用一次
         
         try:
             # 标记邀请码为已使用
@@ -266,7 +267,7 @@ class InviteCode(db.Model):
             self.used_by = user.username
             self.used_at = datetime.now()
             
-            # 更新被邀请人信息（这些字段在User模型中已定义）
+            # 更新被邀请人信息（这些字段在User模型中已定义
             user.invited_by = self.created_by
             user.invite_code_used = self.code
             user.invite_activated_at = datetime.now()
@@ -296,18 +297,18 @@ class InviteCode(db.Model):
                                     bonus_days = max(1, remaining_days // 2)  # 至少1天
                                     inviter.extend_activation(bonus_days)
                             except Exception as e:
-                                print(f"计算额外奖励天数时出错: {e}")
+                                print(f"计算额外奖励天数时出错 {e}")
                                 # 出错时至少给邀请人1天奖励
                                 inviter.extend_activation(1)
             except Exception as e:
-                print(f"处理邀请人奖励时出错: {e}")
+                print(f"处理邀请人奖励时出错 {e}")
                 # 即使处理邀请人奖励出错，也不影响被邀请人的注册
             
             return True, "邀请码使用成功，您和邀请人都获得了1天有效期"
             
         except Exception as e:
             db.session.rollback()
-            return False, f"使用邀请码时出错: {str(e)}"
+            return False, f"使用邀请码时出错 {str(e)}"
     
     def __repr__(self):
         return f'<InviteCode {self.code}>'
@@ -324,13 +325,13 @@ class SystemConfig(db.Model):
 
     @staticmethod
     def get_config(key, default_value=''):
-        """获取配置值"""
+        """获取配置项""
         config = SystemConfig.query.filter_by(key=key).first()
         return config.value if config else default_value
 
     @staticmethod
     def set_config(key, value, description=''):
-        """设置配置值"""
+        """设置配置项""
         config = SystemConfig.query.filter_by(key=key).first()
         if config:
             config.value = value
@@ -357,10 +358,114 @@ class ZodiacSetting(db.Model):
     
     # 创建联合唯一索引，确保每个年份的每个生肖只有一条记录
     __table_args__ = (db.UniqueConstraint('year', 'zodiac', name='uix_year_zodiac'),)
-    
+    _MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
+    _ZODIAC_TRAD_TO_SIMP = {
+        '鼠': '鼠', '牛': '牛', '虎': '虎', '兔': '兔', '龍': '龙', '蛇': '蛇',
+        '馬': '马', '羊': '羊', '猴': '猴', '雞': '鸡', '狗': '狗', '豬': '猪'
+    }
+    _macau_zodiac_cache = {}
+    _macau_year_match_cache = {}
+
+    @staticmethod
+    def _get_macau_zodiac_mapping(year):
+        try:
+            year = int(year)
+        except (TypeError, ValueError):
+            return {}
+
+        cached = ZodiacSetting._macau_zodiac_cache.get(year)
+        if cached:
+            return cached
+
+        try:
+            import requests
+            url = ZodiacSetting._MACAU_API_URL_TEMPLATE.format(year=year)
+            response = requests.get(url, timeout=20)
+            response.raise_for_status()
+            api_data = response.json()
+            records = api_data.get("data") or []
+        except Exception as e:
+            print(f"Failed to fetch Macau zodiac mapping: {e}")
+            return {}
+
+        number_to_zodiac = {}
+        for record in records:
+            raw_numbers = str(record.get("openCode", "")).split(',')
+            raw_zodiacs = str(record.get("zodiac", "")).split(',')
+            if len(raw_numbers) < 7 or len(raw_zodiacs) < 7:
+                continue
+
+            numbers = []
+            for value in raw_numbers[:7]:
+                try:
+                    numbers.append(int(value))
+                except (TypeError, ValueError):
+                    numbers = []
+                    break
+            if not numbers:
+                continue
+
+            zodiacs = [
+                ZodiacSetting._ZODIAC_TRAD_TO_SIMP.get(zodiac, zodiac)
+                for zodiac in raw_zodiacs[:7]
+            ]
+
+            for num, zodiac in zip(numbers, zodiacs):
+                if num not in number_to_zodiac and zodiac:
+                    number_to_zodiac[num] = zodiac
+
+            if len(number_to_zodiac) >= 49:
+                break
+
+        ZodiacSetting._macau_zodiac_cache[year] = number_to_zodiac
+        return number_to_zodiac
+
+    @staticmethod
+    def _get_settings_mapping_for_year(year):
+        settings = ZodiacSetting.query.filter_by(year=year).all()
+        if not settings:
+            return None
+
+        mapping = {}
+        for setting in settings:
+            try:
+                numbers = [int(n) for n in setting.numbers.split(',') if n.strip()]
+            except ValueError:
+                continue
+            for number in numbers:
+                mapping[number] = setting.zodiac
+        return mapping
+
+    @staticmethod
+    def get_mapping_for_macau_year(year):
+        try:
+            year = int(year)
+        except (TypeError, ValueError):
+            return {}
+
+        cached = ZodiacSetting._macau_year_match_cache.get(year)
+        if cached is not None:
+            return cached
+        mapping = ZodiacSetting._get_macau_zodiac_mapping(year)
+        if len(mapping) < 49:
+            ZodiacSetting._macau_year_match_cache[year] = mapping
+            return mapping
+
+        years = [row[0] for row in db.session.query(ZodiacSetting.year).distinct().all()]
+        for candidate_year in years:
+            settings_mapping = ZodiacSetting._get_settings_mapping_for_year(candidate_year)
+            if not settings_mapping or len(settings_mapping) < 49:
+                continue
+            if all(mapping.get(number) == zodiac for number, zodiac in settings_mapping.items()):
+                print(f"Matched Macau zodiac mapping to settings year {candidate_year} for Macau year {year}")
+                ZodiacSetting._macau_year_match_cache[year] = settings_mapping
+                return settings_mapping
+
+        ZodiacSetting._macau_year_match_cache[year] = mapping
+        return mapping    
     @staticmethod
     def get_zodiac_for_number(year, number):
-        """获取指定年份指定号码的生肖"""
+        """获取指定年份指定号码的生肖""
         try:
             number = int(number)
             settings = ZodiacSetting.query.filter_by(year=year).all()
@@ -390,7 +495,7 @@ class ZodiacSetting(db.Model):
                     for number in numbers:
                         number_to_zodiac[number] = zodiac
             else:
-                # 如果数据库中没有设置，使用默认规则生成
+                # 如果数据库中没有设置，使用默认规则生肖
                 for number in range(1, 50):
                     zodiac = ZodiacSetting.get_default_zodiac_for_number(number, year)
                     if zodiac:
@@ -409,7 +514,7 @@ class ZodiacSetting(db.Model):
     
     @staticmethod
     def get_zodiac_settings(year):
-        """获取指定年份的所有生肖设置，返回生肖到号码组的映射"""
+        """获取指定年份的所有生肖设置，返回生肖到号码组的映射""
         try:
             settings = ZodiacSetting.query.filter_by(year=year).all()
             
@@ -417,7 +522,7 @@ class ZodiacSetting(db.Model):
             if settings:
                 return {setting.zodiac: setting.numbers for setting in settings}
             else:
-                # 如果数据库中没有设置，使用默认规则生成
+                # 如果数据库中没有设置，使用默认规则生肖
                 default_settings = {}
                 for zodiac in ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"]:
                     default_settings[zodiac] = []
@@ -466,6 +571,7 @@ class ZodiacSetting(db.Model):
                     db.session.add(new_setting)
             
             db.session.commit()
+            ZodiacSetting._macau_year_match_cache.clear()
             return True, "生肖设置更新成功"
         except Exception as e:
             db.session.rollback()
@@ -473,9 +579,20 @@ class ZodiacSetting(db.Model):
     
     @staticmethod
     def get_default_zodiac_for_number(number, year=None):
-        """使用默认规则获取号码对应的生肖"""
+        """使用默认规则获取号码对应的生肖""
         if year is None:
             year = datetime.now().year
+
+        try:
+            number = int(number)
+        except (ValueError, TypeError):
+            return None
+
+        mapping = ZodiacSetting.get_mapping_for_macau_year(year)
+        if mapping:
+            zodiac = mapping.get(number)
+            if zodiac:
+                return zodiac
             
         # 基础生肖顺序（2025年龙年的顺序）
         base_zodiacs = ["蛇", "龙", "兔", "虎", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马"]
@@ -491,17 +608,12 @@ class ZodiacSetting(db.Model):
         for _ in range(offset):
             # 将最后一个生肖移到第一位，其他生肖整体后移
             zodiacs.insert(0, zodiacs.pop())
-        
+
         # 固定的号码分组（每个生肖对应4个号码，最后一个生肖只有1个号码）
-        try:
-            number = int(number)
-            if 1 <= number <= 49:
-                # 计算生肖索引：(号码 - 1) % 12
-                zodiac_index = (number - 1) % 12
-                return zodiacs[zodiac_index]
-        except (ValueError, TypeError):
-            pass
-            
+        if 1 <= number <= 49:
+            # Zodiac index: (number - 1) % 12
+            zodiac_index = (number - 1) % 12
+            return zodiacs[zodiac_index]            
         return None
     
     @staticmethod
@@ -521,7 +633,12 @@ class ZodiacSetting(db.Model):
         for _ in range(offset):
             # 将最后一个生肖移到第一位，其他生肖整体后移
             zodiacs.insert(0, zodiacs.pop())
-        
+        mapping = ZodiacSetting.get_mapping_for_macau_year(year)
+        if mapping:
+            mapped_zodiacs = [mapping.get(number, "") for number in range(1, 13)]
+            if all(mapped_zodiacs):
+                zodiacs = mapped_zodiacs
+
         # 生成对照表
         table = {
             'zodiacs': zodiacs,
@@ -539,7 +656,7 @@ class ZodiacSetting(db.Model):
                     row_data.append(None)
             table['rows'].append(row_data)
         
-        # 添加第5行（只有49号）
+        # 添加一行（只有49号）
         last_row = [None] * 12
         last_row[0] = 49
         table['rows'].append(last_row)
@@ -547,7 +664,7 @@ class ZodiacSetting(db.Model):
         return table
 
 class LotteryDraw(db.Model):
-    """开奖记录模型"""
+    """开奖记录模型""
     __tablename__ = 'lottery_draws'
     
     id = db.Column(db.Integer, primary_key=True)
@@ -579,7 +696,7 @@ class LotteryDraw(db.Model):
     
     @staticmethod
     def save_draw(region, draw_data):
-        """保存开奖记录到数据库"""
+        """保存开奖记录到数据库""
         try:
             # 检查记录是否已存在
             existing = LotteryDraw.query.filter_by(
@@ -654,12 +771,34 @@ class LotteryDraw(db.Model):
                 db.session.add(new_draw)
             
             db.session.commit()
+            ZodiacSetting._macau_year_match_cache.clear()
             return True
         except Exception as e:
-            print(f"保存开奖记录失败: {e}")
+            print(f"保存开奖记录失败 {e}")
             db.session.rollback()
             return False
     
     def __repr__(self):
         return f'<LotteryDraw {self.region}-{self.draw_id}>'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

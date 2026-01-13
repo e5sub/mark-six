@@ -452,6 +452,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final screens = [
       const RecordsScreen(),
+      const ZodiacNumbersScreen(),
       PredictScreen(appState: widget.appState),
       ProfileScreen(appState: widget.appState),
     ];
@@ -463,6 +464,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (value) => setState(() => _index = value),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.list_alt), label: '开奖记录'),
+          NavigationDestination(icon: Icon(Icons.grid_view), label: '生肖号码'),
           NavigationDestination(icon: Icon(Icons.auto_graph), label: '号码预测'),
           NavigationDestination(icon: Icon(Icons.person), label: '个人中心'),
         ],
@@ -478,6 +480,176 @@ Color ballColor(String number) {
   if (red.contains(numValue)) return const Color(0xFFE54B4B);
   if (blue.contains(numValue)) return const Color(0xFF2D6CDF);
   return const Color(0xFF36B37E);
+}
+
+String ballColorName(String number) {
+  final numValue = int.tryParse(number) ?? 0;
+  const red = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46];
+  const blue = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48];
+  if (red.contains(numValue)) return '红';
+  if (blue.contains(numValue)) return '蓝';
+  return '绿';
+}
+
+class ZodiacNumbersScreen extends StatefulWidget {
+  const ZodiacNumbersScreen({super.key});
+
+  @override
+  State<ZodiacNumbersScreen> createState() => _ZodiacNumbersScreenState();
+}
+
+class _ZodiacNumbersScreenState extends State<ZodiacNumbersScreen> {
+  List<_ZodiacNumberItem> _items = [];
+  bool _loading = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    final numbers = List.generate(49, (index) => '${index + 1}');
+    try {
+      final res = await ApiClient.instance.getZodiacs(
+        numbers: numbers,
+        region: 'hk',
+        year: DateTime.now().year.toString(),
+      );
+      final normal =
+          (res['normal_zodiacs'] as List<dynamic>? ?? []).map((e) {
+        return e.toString();
+      }).toList();
+      final special = res['special_zodiac']?.toString() ?? '';
+      final items = <_ZodiacNumberItem>[];
+      for (var i = 0; i < numbers.length; i++) {
+        String zodiac = '';
+        if (i < numbers.length - 1) {
+          zodiac = i < normal.length ? normal[i] : '';
+        } else {
+          zodiac = special;
+        }
+        items.add(
+          _ZodiacNumberItem(
+            number: numbers[i],
+            zodiac: zodiac.isEmpty ? '-' : zodiac,
+          ),
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorMessage = '获取生肖号码失败: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('生肖号码')),
+      body: RefreshIndicator(
+        onRefresh: _fetch,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _errorMessage != null
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      const SizedBox(height: 120),
+                      Center(
+                        child: Text(
+                          _errorMessage!,
+                          style: TextStyle(color: Colors.red.shade400),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: ElevatedButton(
+                          onPressed: _fetch,
+                          child: const Text('重试'),
+                        ),
+                      ),
+                    ],
+                  )
+                : GridView.builder(
+                    padding: const EdgeInsets.all(16),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 0.8,
+                    ),
+                    itemCount: _items.length,
+                    itemBuilder: (context, index) {
+                      final item = _items[index];
+                      final color = ballColor(item.number);
+                      final colorName = ballColorName(item.number);
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _Ball(number: item.number, color: color),
+                            const SizedBox(height: 6),
+                            Text(
+                              item.zodiac,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              colorName,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: color,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+      ),
+    );
+  }
+}
+
+class _ZodiacNumberItem {
+  const _ZodiacNumberItem({
+    required this.number,
+    required this.zodiac,
+  });
+
+  final String number;
+  final String zodiac;
 }
 
 class RecordsScreen extends StatefulWidget {
