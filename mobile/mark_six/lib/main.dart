@@ -87,6 +87,15 @@ class AppState extends ChangeNotifier {
   UserProfile? user;
   bool initialized = false;
 
+  bool get activationValid {
+    final current = user;
+    if (current == null) return false;
+    if (!current.isActive) return false;
+    final expiresAt = current.activationExpiresAt;
+    if (expiresAt == null) return true;
+    return !expiresAt.isBefore(DateTime.now());
+  }
+
   Future<void> init() async {
     await ApiClient.instance.init();
     await loadMe();
@@ -169,6 +178,48 @@ class AppState extends ChangeNotifier {
       user = null;
       notifyListeners();
     }
+  }
+}
+
+Future<void> showActivationDialog(
+  BuildContext context,
+  AppState appState,
+) async {
+  final controller = TextEditingController();
+  String? result;
+  try {
+    result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('激活账号'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: '激活码'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('激活'),
+          ),
+        ],
+      ),
+    );
+  } finally {
+    controller.dispose();
+  }
+
+  if (result == null || result.isEmpty) return;
+  final error = await appState.activate(result);
+  if (!context.mounted) return;
+  if (error != null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error)),
+    );
   }
 }
 
@@ -453,7 +504,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final screens = [
       const RecordsScreen(),
       const ZodiacNumbersScreen(),
-      const ManualPickScreen(),
+      ManualPickScreen(appState: widget.appState),
       PredictScreen(appState: widget.appState),
       ProfileScreen(appState: widget.appState),
     ];
@@ -650,7 +701,9 @@ class _ZodiacNumberItem {
 }
 
 class ManualPickScreen extends StatefulWidget {
-  const ManualPickScreen({super.key});
+  const ManualPickScreen({super.key, required this.appState});
+
+  final AppState appState;
 
   @override
   State<ManualPickScreen> createState() => _ManualPickScreenState();
@@ -722,6 +775,24 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   double _totalProfit = 0;
   bool _loadingBets = false;
   List<Map<String, dynamic>> _manualBets = [];
+
+  bool get _activationValid => widget.appState.activationValid;
+
+  Future<bool> _requireActivation() async {
+    if (_activationValid) return true;
+    await showActivationDialog(context, widget.appState);
+    if (mounted) {
+      setState(() {});
+    }
+    return _activationValid;
+  }
+
+  Future<void> _promptActivation() async {
+    await showActivationDialog(context, widget.appState);
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   String _betType = 'number';
 
@@ -873,6 +944,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   }
 
   Future<void> _settleBet() async {
+    if (!await _requireActivation()) return;
     setState(() {
       _settling = true;
       _statusMessage = null;
@@ -1077,6 +1149,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   }
 
   Future<void> _submitBet() async {
+    if (!await _requireActivation()) return;
     setState(() {
       _settling = true;
       _statusMessage = null;
@@ -1234,6 +1307,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final activationValid = _activationValid;
     return Scaffold(
       appBar: AppBar(title: const Text('手动选号')),
       body: _loading
@@ -1243,6 +1317,33 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (!activationValid) ...[
+                    Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.lock, color: Colors.orange),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                '账号未激活或已过期，请先激活后使用手动选号功能。',
+                                style: TextStyle(color: Colors.orange),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _promptActivation,
+                              child: const Text('去激活'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   Row(
                     children: [
                       Expanded(
@@ -1599,14 +1700,22 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: _settling ? null : _submitBet,
+                          onPressed: _settling
+                              ? null
+                              : activationValid
+                                  ? _submitBet
+                                  : _promptActivation,
                           child: const Text('提交下注'),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: _settling ? null : _settleBet,
+                          onPressed: _settling
+                              ? null
+                              : activationValid
+                                  ? _settleBet
+                                  : _promptActivation,
                           child: _settling
                               ? const SizedBox(
                                   width: 20,
@@ -2407,46 +2516,54 @@ class _PredictScreenState extends State<PredictScreen> {
     final selected = _strategy == key;
     final gradient = _strategyGradient(key);
     final borderColor = gradient?.colors.first ?? Colors.grey.shade400;
+    final activationValid = widget.appState.activationValid;
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         if (_loading) return;
+        if (!activationValid) {
+          await _promptActivation();
+          return;
+        }
         setState(() => _strategy = key);
         _handlePredict();
       },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          gradient: selected ? gradient : null,
-          color: selected ? null : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: selected ? Colors.transparent : borderColor),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: borderColor.withOpacity(0.35),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : [],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (selected)
-              const Padding(
-                padding: EdgeInsets.only(right: 6),
-                child: Icon(Icons.check, size: 16, color: Colors.white),
+      child: Opacity(
+        opacity: activationValid ? 1 : 0.5,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            gradient: selected ? gradient : null,
+            color: selected ? null : Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: selected ? Colors.transparent : borderColor),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: borderColor.withOpacity(0.35),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : [],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (selected)
+                const Padding(
+                  padding: EdgeInsets.only(right: 6),
+                  child: Icon(Icons.check, size: 16, color: Colors.white),
+                ),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.white : Colors.black87,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -2498,6 +2615,10 @@ class _PredictScreenState extends State<PredictScreen> {
   }
 
   Future<void> _handlePredict() async {
+    if (!widget.appState.activationValid) {
+      await _promptActivation();
+      return;
+    }
     setState(() {
       _loading = true;
       _resetPrediction();
@@ -2614,6 +2735,13 @@ class _PredictScreenState extends State<PredictScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  Future<void> _promptActivation() async {
+    await showActivationDialog(context, widget.appState);
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Widget _buildPredictionNumbers() {
@@ -2897,7 +3025,7 @@ class _PredictScreenState extends State<PredictScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final active = widget.appState.user?.isActive ?? false;
+    final activationValid = widget.appState.activationValid;
 
     return Scaffold(
       appBar: AppBar(title: const Text('号码预测')),
@@ -2952,12 +3080,20 @@ class _PredictScreenState extends State<PredictScreen> {
                         '点击策略自动生成预测',
                         style: TextStyle(color: Colors.grey.shade600),
                       ),
-                    if (!active)
+                    if (!activationValid)
                       const Padding(
                         padding: EdgeInsets.only(top: 8),
                         child: Text(
-                          '账号未激活，预测记录可能无法保存。',
+                          '账号未激活或已过期，请先激活后使用号码预测功能。',
                           style: TextStyle(color: Colors.orange),
+                        ),
+                      ),
+                    if (!activationValid)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _promptActivation,
+                          child: const Text('去激活'),
                         ),
                       ),
                   ],
@@ -3086,37 +3222,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _activate(BuildContext context) async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('激活账号'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: '激活码'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('激活'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null && result.isNotEmpty) {
-      final error = await widget.appState.activate(result);
-      if (context.mounted && error != null) {
-        _showMessage(error);
-      }
-    }
-  }
-
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
@@ -3129,6 +3234,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (user == null) {
       return const SizedBox.shrink();
     }
+    final activationValid = widget.appState.activationValid;
+    final activationExpired =
+        user.isActive && user.activationExpiresAt != null && !activationValid;
 
     return Scaffold(
       appBar: AppBar(title: const Text('个人中心')),
@@ -3157,20 +3265,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Row(
                     children: [
                       Chip(
-                        label: Text(user.isActive ? '已激活' : '未激活'),
+                        label: Text(
+                          activationValid
+                              ? '已激活'
+                              : activationExpired
+                                  ? '已过期'
+                                  : '未激活',
+                        ),
                         backgroundColor:
-                            user.isActive ? Colors.green.shade100 : Colors.orange.shade100,
+                            activationValid
+                                ? Colors.green.shade100
+                                : activationExpired
+                                    ? Colors.red.shade100
+                                    : Colors.orange.shade100,
                       ),
                       const SizedBox(width: 8),
                       if (user.activationExpiresAt != null)
                         Text('到期：${user.activationExpiresAt}'),
                     ],
                   ),
-                  if (!user.isActive)
+                  if (!activationValid)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: ElevatedButton(
-                        onPressed: () => _activate(context),
+                        onPressed: () =>
+                            showActivationDialog(context, widget.appState),
                         child: const Text('输入激活码'),
                       ),
                     ),
