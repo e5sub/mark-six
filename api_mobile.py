@@ -400,6 +400,31 @@ def api_manual_bets():
         total_stake += stake_common
 
     if not settle:
+        if bet_number and number_stakes and not (bet_zodiac or bet_color or bet_parity):
+            existing = ManualBetRecord.query.filter_by(
+                user_id=user.id,
+                region=region,
+                period=period,
+            ).filter(
+                ManualBetRecord.total_profit.is_(None)
+            ).first()
+            if existing and not any([
+                (existing.selected_zodiacs or "").strip(),
+                (existing.selected_colors or "").strip(),
+                (existing.selected_parity or "").strip(),
+            ]) and float(existing.odds_number or 0) == odds_number:
+                existing_stakes = _parse_number_stakes(existing.selected_numbers)
+                if existing_stakes:
+                    for number, amount in number_stakes.items():
+                        existing_stakes[number] = existing_stakes.get(number, 0) + amount
+                    merged_total = sum(existing_stakes.values())
+                    existing.selected_numbers = _serialize_number_stakes(existing_stakes)
+                    existing.odds_number = odds_number
+                    existing.stake_special = merged_total
+                    existing.total_stake = merged_total
+                    db.session.commit()
+                    return jsonify({"success": True, "record_id": existing.id})
+
         record_numbers = (
             _serialize_number_stakes(number_stakes)
             if number_stakes

@@ -300,11 +300,6 @@ class _LoginScreenState extends State<LoginScreen> {
     return '${value.toStringAsFixed(0)}元';
   }
 
-  String _formatYuan(num? value) {
-    if (value == null) return '-';
-    return '${value.toStringAsFixed(0)}元';
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -459,6 +454,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  String _formatYuan(num? value) {
+    if (value == null) return '-';
+    return '${value.toStringAsFixed(0)}元';
   }
 
   @override
@@ -3806,7 +3806,7 @@ class UpdateService {
               children: [
                 LinearProgressIndicator(value: progress),
                 const SizedBox(height: 12),
-                Text('${(progress * 100).toStringAsFixed(0)}%'),
+                Text('${(progress * 100).toStringAsFixed(0)}元'),
               ],
             ),
           );
@@ -3863,4 +3863,11 @@ class _ReleaseInfo {
   final String version;
   final String downloadUrl;
 }
+
+
+
+
+
+
+
 
