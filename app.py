@@ -704,6 +704,8 @@ def predict_with_ai(data, region):
     try:
         response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120)
         response.raise_for_status()
+        if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+            response.encoding = "utf-8"
         ai_response = response.json()['choices'][0]['message']['content']
         
         result, error = _finalize_ai_result(ai_response)
@@ -723,6 +725,8 @@ def _iter_ai_stream(ai_config, prompt):
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     response = requests.post(ai_config["api_url"], json=payload, headers=headers, stream=True, timeout=120)
     response.raise_for_status()
+    if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+        response.encoding = "utf-8"
     for line in response.iter_lines(decode_unicode=True):
         if not line:
             continue
@@ -1423,6 +1427,8 @@ def handle_chat():
     try:
         response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=60)
         response.raise_for_status()
+        if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+            response.encoding = "utf-8"
         ai_reply = response.json()['choices'][0]['message']['content']
         return jsonify({"reply": ai_reply})
     except Exception as e:
@@ -1606,6 +1612,8 @@ def init_database():
         except Exception as e:
             print(f"创建示例邀请码时出错: {e}")
 
+_scheduler = None
+
 # 定时任务：每天21:40自动更新数据库中的开奖记录
 def update_lottery_data():
     """定时任务：更新数据库中的开奖记录"""
@@ -1643,23 +1651,41 @@ def update_lottery_data():
             import traceback
             traceback.print_exc()
 
+def start_scheduler(force=False):
+    """Start the APScheduler job if enabled and not already running."""
+    global _scheduler
+    if _scheduler and _scheduler.running:
+        return _scheduler
+
+    enabled = os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on")
+    if not enabled:
+        print("定时任务未启动：ENABLE_SCHEDULER=0")
+        return None
+
+    # Avoid double-start when Flask debug reloader spawns a parent process.
+    if not force and app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return None
+
+    _scheduler = BackgroundScheduler()
+    _scheduler.add_job(update_lottery_data, 'cron', hour=21, minute=40)
+    _scheduler.start()
+    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        print("定时任务已启动：每天21:40自动更新数据库中的开奖记录")
+    return _scheduler
+
 if __name__ == '__main__':
     # 初始化数据库
     init_database()
     
     # 设置定时任务
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(update_lottery_data, 'cron', hour=21, minute=40)
-    scheduler.start()
-    # 只在主进程中打印一次
-    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
-        print("定时任务已启动：每天21:40自动更新数据库中的开奖记录")
+    scheduler = start_scheduler()
     
     try:
         # 启动Flask应用
         app.run(debug=True, port=5000)
     except (KeyboardInterrupt, SystemExit):
         # 关闭定时任务
-        scheduler.shutdown()
+        if scheduler and scheduler.running:
+            scheduler.shutdown()
 
 

@@ -6,7 +6,7 @@
 
 import os
 import sys
-from app import app, init_database
+from app import app, init_database, start_scheduler
 
 def main():
     """主函数"""
@@ -18,6 +18,7 @@ def main():
         # 初始化数据库
         print("正在初始化数据库...")
         init_database()
+        start_scheduler(force=True)
         print("✓ 数据库初始化完成")
         
         # 香港六合彩数据将在首次访问时自动从API获取
