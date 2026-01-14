@@ -869,8 +869,9 @@ def user_invites():
 def zodiac_settings():
     """生肖号码对照表页面"""
     try:
-        # 获取当前年份
-        current_year = request.args.get('year', datetime.now().year, type=int)
+        # 获取当前年份（按农历新年切换）
+        zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+        current_year = request.args.get('year', zodiac_year, type=int)
         
         # 获取当前年份的生肖对照表
         zodiac_table = ZodiacSetting.get_zodiac_table_for_year(current_year)

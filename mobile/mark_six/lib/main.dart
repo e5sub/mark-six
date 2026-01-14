@@ -1121,7 +1121,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       final odds = double.tryParse(_numberOddsController.text.trim()) ?? 0;
       final numberStakes = _collectNumberStakes();
       final totalNumberStake =
-          numberStakes.values.fold(0, (sum, value) => sum + value);
+          numberStakes.values.fold(0.0, (sum, value) => sum + value);
       final hitStake = numberStakes[int.tryParse(specialNumber)] ?? 0;
       final win = hitStake > 0;
       final profit = hitStake * odds - totalNumberStake;
@@ -1647,44 +1647,43 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                           )
                         else
                           Column(
-                            children: _selectedNumbers.toList()
-                              ..sort()
-                              ..map(
-                                (number) {
-                                  final controller =
-                                      _numberStakeControllers[number] ??
-                                          TextEditingController(text: '10');
-                                  _numberStakeControllers[number] = controller;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Row(
-                                      children: [
-                                        _Ball(
-                                          number: number.toString(),
-                                          color: ballColor(number.toString()),
-                                          size: 26,
-                                          fontSize: 11,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: TextField(
-                                            controller: controller,
-                                            onChanged: (_) => setState(_clearPending),
-                                            keyboardType:
-                                                const TextInputType.numberWithOptions(
-                                                  decimal: true,
-                                                ),
-                                            decoration: const InputDecoration(
-                                              labelText: '金额',
-                                              border: OutlineInputBorder(),
-                                            ),
+                            children: (() {
+                              final numbers = _selectedNumbers.toList()..sort();
+                              return numbers.map((number) {
+                                final controller =
+                                    _numberStakeControllers[number] ??
+                                        TextEditingController(text: '10');
+                                _numberStakeControllers[number] = controller;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Row(
+                                    children: [
+                                      _Ball(
+                                        number: number.toString(),
+                                        color: ballColor(number.toString()),
+                                        size: 26,
+                                        fontSize: 11,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: TextField(
+                                          controller: controller,
+                                          onChanged: (_) => setState(_clearPending),
+                                          keyboardType:
+                                              const TextInputType.numberWithOptions(
+                                                decimal: true,
+                                              ),
+                                          decoration: const InputDecoration(
+                                            labelText: '金额',
+                                            border: OutlineInputBorder(),
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ).toList(),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList();
+                            })(),
                           ),
                         const SizedBox(height: 8),
                         Row(
@@ -1821,7 +1820,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     if (_betType == 'number') {
                       final numberStakes = _collectNumberStakes();
                       final totalNumberStake =
-                          numberStakes.values.fold(0, (sum, value) => sum + value);
+                          numberStakes.values.fold(0.0, (sum, value) => sum + value);
                       final maxStake = numberStakes.isEmpty
                           ? 0
                           : numberStakes.values.reduce(
