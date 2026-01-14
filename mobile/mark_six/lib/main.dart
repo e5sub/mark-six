@@ -950,6 +950,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     final status = item['status']?.toString() ?? 'pending';
     final bettor = item['bettor_name']?.toString() ?? '';
     final createdAt = item['created_at']?.toString() ?? '';
+    final recordId = item['id'];
     final numbers = _formatNumberStakesText(
       item['selected_numbers']?.toString() ?? '',
     );
@@ -1010,6 +1011,13 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   ),
                 ),
               ),
+              IconButton(
+                tooltip: '删除',
+                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                onPressed: recordId == null
+                    ? null
+                    : () => _confirmDeleteManualBet(recordId),
+              ),
             ],
           ),
           if (numbers.isNotEmpty) Text('号码：$numbers'),
@@ -1025,6 +1033,47 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDeleteManualBet(int recordId) async {
+    final shouldDelete = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('删除下注记录'),
+            content: const Text('确定要删除这条下注记录吗？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('删除'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!shouldDelete) return;
+    await _deleteManualBet(recordId);
+  }
+
+  Future<void> _deleteManualBet(int recordId) async {
+    try {
+      final res = await ApiClient.instance.deleteManualBet(id: recordId);
+      if (!mounted) return;
+      if (res['success'] == true) {
+        setState(() {
+          _manualBets.removeWhere(
+              (item) => item['id']?.toString() == recordId.toString());
+        });
+      } else {
+        _showMessage(res['message']?.toString() ?? '删除失败');
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('删除失败');
+    }
   }
 
   @override
@@ -1102,6 +1151,12 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         setState(() => _loadingBets = false);
       }
     }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   Future<DrawRecord?> _fetchLatestDraw() async {

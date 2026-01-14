@@ -1,4 +1,4 @@
-{% extends "admin/base.html" %}
+﻿{% extends "admin/base.html" %}
 
 {% block page_title %}下注记录{% endblock %}
 
@@ -106,6 +106,7 @@
                     <th>盈亏</th>
                     <th>状态</th>
                     <th>时间</th>
+                    <th>操作</th>
                 </tr>
             </thead>
             <tbody>
@@ -216,11 +217,16 @@
                                 -
                             {% endif %}
                         </td>
+                        <td>
+                            <form method="POST" action="{{ url_for('admin.delete_bet', bet_id=record.id) }}" onsubmit="return confirm('确定删除该下注记录吗？')">
+                                <button type="submit" class="btn btn-sm" style="background: #f8d7da; color: #721c24;">删除</button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 {% else %}
                     <tr>
-                        <td colspan="8" style="text-align: center; color: #999;">暂无记录</td>
+                        <td colspan="9" style="text-align: center; color: #999;">暂无记录</td>
                     </tr>
                 {% endif %}
             </tbody>
@@ -241,3 +247,6 @@
     </div>
 </div>
 {% endblock %}
+
+
+

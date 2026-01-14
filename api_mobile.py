@@ -1063,6 +1063,26 @@ def api_manual_bets_summary():
     )
 
 
+@mobile_api_bp.route("/manual_bets/<int:record_id>", methods=["DELETE"])
+def api_manual_bets_delete(record_id):
+    user, error = _require_user()
+    if error:
+        return error
+
+    record = ManualBetRecord.query.filter_by(id=record_id, user_id=user.id).first()
+    if not record:
+        return _json_error("record not found", status=404, code="not_found")
+
+    try:
+        db.session.delete(record)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return _json_error(f"delete failed: {e}", status=500, code="delete_failed")
+
+    return jsonify({"success": True})
+
+
 @mobile_api_bp.route("/me", methods=["GET"])
 def api_me():
     user, error = _require_user()

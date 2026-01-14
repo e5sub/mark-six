@@ -12,7 +12,8 @@ function getPrediction(strategy) {
     console.log(`正在获取${strategy}预测结果: 地区=${region}, 年份=${year}`);
 
     // 发送请求获取预测结果
-    fetch(`/api/predict?region=${region}&strategy=${strategy}&year=${year}`)
+    const streamParam = strategy === 'ai' ? '&stream=1' : '';
+    fetch(`/api/predict?region=${region}&strategy=${strategy}&year=${year}${streamParam}`)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP错误! 状态: ${response.status}`);
@@ -186,11 +187,15 @@ function handleStreamingResponse(response, strategy) {
                                     console.error('获取生肖数据失败:', error);
                                 })
                                 .then(() => {
-                                    savePredictionRecord(finalResult);
+                                    if (!finalResult.saved) {
+                                        savePredictionRecord(finalResult);
+                                    }
                                     return read();
                                 });
                         } else {
-                            savePredictionRecord(finalResult);
+                            if (!finalResult.saved) {
+                                savePredictionRecord(finalResult);
+                            }
                             return read();
                         }
                     } else if (data.type === 'error') {

@@ -600,6 +600,22 @@ def bets():
             end_date=end_date
         )
 
+@admin_bp.route('/bets/<int:bet_id>/delete', methods=['POST'])
+@admin_required
+def delete_bet(bet_id):
+    try:
+        record = ManualBetRecord.query.get(bet_id)
+        if not record:
+            flash('下注记录不存在', 'error')
+            return redirect(request.referrer or url_for('admin.bets'))
+        db.session.delete(record)
+        db.session.commit()
+        flash('下注记录删除成功', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'删除下注记录失败: {str(e)}', 'error')
+    return redirect(request.referrer or url_for('admin.bets'))
+
 @admin_bp.route('/prediction/<int:prediction_id>/delete', methods=['POST'])
 @admin_required
 def delete_prediction(prediction_id):

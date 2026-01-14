@@ -43,6 +43,11 @@ class ApiClient {
     return _dio.post(path, data: data);
   }
 
+  Future<Response<dynamic>> delete(String path,
+      {Map<String, dynamic>? data}) {
+    return _dio.delete(path, data: data);
+  }
+
   Future<Map<String, dynamic>> register({
     required String username,
     required String email,
@@ -223,6 +228,11 @@ class ApiClient {
       'region': region,
       'year': year,
     });
+    return _ensureJsonMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> deleteManualBet({required int id}) async {
+    final response = await delete('/api/mobile/manual_bets/$id');
     return _ensureJsonMap(response.data);
   }
 

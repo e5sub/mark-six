@@ -1,4 +1,5 @@
 ﻿from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask import Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
 import os
@@ -162,6 +163,46 @@ def _parse_common_stake_entries(value):
             entries.append((key, amount))
     return entries
 
+def _dedupe_keep_order(values):
+    seen = set()
+    result = []
+    for item in values:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+def _finalize_ai_result(ai_response):
+    normal_numbers, special_number = _extract_ai_numbers(ai_response)
+    if not normal_numbers or not special_number:
+        return None, "无法从AI回复中提取有效号码"
+
+    normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
+    if len(normal_numbers) < 6:
+        return None, "AI生成的平码数量不足"
+
+    try:
+        special_num_value = int(special_number)
+    except (TypeError, ValueError):
+        special_num_value = None
+    if special_num_value is not None:
+        normal_numbers = [n for n in normal_numbers if n != special_num_value]
+    normal_numbers = _dedupe_keep_order(normal_numbers)[:6]
+
+    if not special_number or not (1 <= int(special_number) <= 49):
+        return None, "AI生成的特码无效"
+
+    sno_zodiac = ""
+    return {
+        "recommendation_text": ai_response,
+        "normal": normal_numbers,
+        "special": {
+            "number": special_number,
+            "sno_zodiac": sno_zodiac
+        }
+    }, None
+
 def _extract_ai_numbers(ai_response):
     if not ai_response:
         return None, None
@@ -191,17 +232,18 @@ def _extract_ai_numbers(ai_response):
     special_number = None
 
     for pattern in list_patterns:
-        match = re.search(pattern, normalized, flags=re.IGNORECASE)
-        if not match:
+        matches = list(re.finditer(pattern, normalized, flags=re.IGNORECASE))
+        if not matches:
             continue
+        match = matches[-1]
         normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', match.group(1))]
         break
 
     for pattern in special_patterns:
-        match = re.search(pattern, normalized, flags=re.IGNORECASE)
-        if not match:
+        matches = list(re.finditer(pattern, normalized, flags=re.IGNORECASE))
+        if not matches:
             continue
-        special_number = match.group(1)
+        special_number = matches[-1].group(1)
         break
 
     if normal_numbers and special_number:
@@ -210,7 +252,7 @@ def _extract_ai_numbers(ai_response):
     lines = [line.strip() for line in normalized.splitlines() if line.strip()]
     candidate_lines = [
         line for line in lines
-        if any(k in line for k in ("推荐", "号码", "特码"))
+        if any(k in line for k in ("推荐号码", "号码推荐", "特码"))
     ]
 
     for line in candidate_lines:
@@ -604,11 +646,8 @@ def get_local_recommendations(strategy, data, region):
     sno_zodiac_info = ""
     return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": sno_zodiac_info}}
 
-def predict_with_ai(data, region):
-    ai_config = get_ai_config()
-    if not ai_config['api_key'] or "你的" in ai_config['api_key']: 
-        return {"error": "AI API Key 未配置"}
-    history_lines, prompt = [], ""
+def _build_ai_prompt(data, region):
+    history_lines = []
     recent_data = data[:10]
     if region == 'hk':
         year = datetime.now().year
@@ -620,7 +659,9 @@ def predict_with_ai(data, region):
         number_to_zodiac = _get_number_to_zodiac_map(year)
         for d in recent_data:
             zodiac = number_to_zodiac.get(str(d.get('sno')), '')
-            history_lines.append(f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特别号码: {d.get('sno')}({zodiac})")
+            history_lines.append(
+                f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特别号码: {d.get('sno')}({zodiac})"
+            )
         recent_history = "\n".join(history_lines)
         prompt = f"""你是一位精通香港六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含号码和生肖），为下一期提供一份详细的分析和号码推荐。
 
@@ -636,7 +677,9 @@ def predict_with_ai(data, region):
     else:
         for d in recent_data:
             all_numbers = d.get('no', []) + ([d.get('sno')] if d.get('sno') else [])
-            history_lines.append(f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}")
+            history_lines.append(
+                f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}"
+            )
         recent_history = "\n".join(history_lines)
         prompt = f"""你是一位精通澳门六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含开奖号码、波色和生肖），为下一期提供一份详细的分析和号码推荐。
 
@@ -649,7 +692,13 @@ def predict_with_ai(data, region):
    推荐号码：[平码1, 平码2, 平码3, 平码4, 平码5, 平码6] 特码: [特码]
 3. 请以友好、自然的语言风格进行回复。
 4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
-    
+    return prompt
+
+def predict_with_ai(data, region):
+    ai_config = get_ai_config()
+    if not ai_config['api_key'] or "你的" in ai_config['api_key']:
+        return {"error": "AI API Key 未配置"}
+    prompt = _build_ai_prompt(data, region)
     payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
@@ -657,34 +706,45 @@ def predict_with_ai(data, region):
         response.raise_for_status()
         ai_response = response.json()['choices'][0]['message']['content']
         
-        # 从AI回复中提取号码
-        normal_numbers, special_number = _extract_ai_numbers(ai_response)
-        if not normal_numbers or not special_number:
-            return {"error": "无法从AI回复中提取有效号码"}
-        
-        # 确保所有号码都是有效的
-        normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
-        if len(normal_numbers) < 6:
-            return {"error": "AI生成的平码数量不足"}
-        normal_numbers = sorted(normal_numbers[:6])  # 只取前6个号码
-        
-        if not special_number or not (1 <= int(special_number) <= 49):
-            return {"error": "AI生成的特码无效"}
-        
-        # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
-        # 生肖信息将在API返回数据后更新
-        sno_zodiac = ""
-        
-        return {
-            "recommendation_text": ai_response,
-            "normal": normal_numbers,
-            "special": {
-                "number": special_number,
-                "sno_zodiac": sno_zodiac
-            }
-        }
+        result, error = _finalize_ai_result(ai_response)
+        if error:
+            return {"error": error}
+        return result
     except Exception as e:
         return {"error": f"调用AI API时出错: {e}"}
+
+def _iter_ai_stream(ai_config, prompt):
+    payload = {
+        "model": ai_config["model"],
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.8,
+        "stream": True
+    }
+    headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
+    response = requests.post(ai_config["api_url"], json=payload, headers=headers, stream=True, timeout=120)
+    response.raise_for_status()
+    for line in response.iter_lines(decode_unicode=True):
+        if not line:
+            continue
+        if line.startswith("data:"):
+            line = line[5:].strip()
+        if line == "[DONE]":
+            break
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        choices = data.get("choices") or []
+        if not choices:
+            continue
+        delta = choices[0].get("delta") or {}
+        content = delta.get("content")
+        if content is None:
+            content = choices[0].get("message", {}).get("content")
+        if content is None:
+            content = choices[0].get("text")
+        if content:
+            yield content
 
 # --- Flask 路由 ---
 @app.route('/')
@@ -1018,6 +1078,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
 @app.route('/api/predict')
 def unified_predict_api():
     region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
+    stream_response = request.args.get('stream') == '1'
     data = get_yearly_data(region, year)
     if not data: return jsonify({"error": f"无法加载{year}年的数据"}), 404
     
@@ -1061,10 +1122,85 @@ def unified_predict_api():
             }
             if existing.prediction_text:
                 result["recommendation_text"] = existing.prediction_text
+            if stream_response and strategy == 'ai':
+                payload = {
+                    "type": "done",
+                    "region": region,
+                    "strategy": strategy,
+                    "period": current_period,
+                    "saved": True,
+                    **result
+                }
+                def generate_existing():
+                    yield json.dumps(payload, ensure_ascii=False) + "\n\n"
+                return Response(stream_with_context(generate_existing()), mimetype='text/event-stream')
             return jsonify(result)
     
     # 生成新的预测
-    if strategy == 'ai': 
+    if strategy == 'ai':
+        if stream_response:
+            def generate_stream():
+                ai_config = get_ai_config()
+                if not ai_config['api_key'] or "你的" in ai_config['api_key']:
+                    yield json.dumps({"type": "error", "error": "AI API Key 未配置"}, ensure_ascii=False) + "\n\n"
+                    return
+                prompt = _build_ai_prompt(data, region)
+                full_text = ""
+                try:
+                    for chunk in _iter_ai_stream(ai_config, prompt):
+                        full_text += chunk
+                        yield json.dumps({
+                            "type": "content",
+                            "content": chunk,
+                            "full_text": full_text
+                        }, ensure_ascii=False) + "\n\n"
+                except Exception as e:
+                    yield json.dumps({"type": "error", "error": f"调用AI API时出错: {e}"}, ensure_ascii=False) + "\n\n"
+                    return
+
+                if not full_text:
+                    fallback = predict_with_ai(data, region)
+                    if fallback.get("error"):
+                        yield json.dumps({"type": "error", "error": fallback.get("error")}, ensure_ascii=False) + "\n\n"
+                        return
+                    result = fallback
+                else:
+                    result, error = _finalize_ai_result(full_text)
+                    if error:
+                        yield json.dumps({"type": "error", "error": error}, ensure_ascii=False) + "\n\n"
+                        return
+
+                result.update({
+                    "type": "done",
+                    "region": region,
+                    "strategy": strategy,
+                    "period": current_period
+                })
+
+                if user_id and is_active:
+                    try:
+                        prediction = PredictionRecord(
+                            user_id=user_id,
+                            region=region,
+                            strategy=strategy,
+                            period=current_period,
+                            normal_numbers=','.join(map(str, result.get('normal', []))),
+                            special_number=str(result.get('special', {}).get('number', '')),
+                            special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+                            prediction_text=result.get('recommendation_text', '')
+                        )
+                        db.session.add(prediction)
+                        db.session.commit()
+                        result["saved"] = True
+                    except Exception as e:
+                        db.session.rollback()
+                        result["saved"] = False
+                        result["save_error"] = str(e)
+
+                yield json.dumps(result, ensure_ascii=False) + "\n\n"
+
+            return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
+
         result = predict_with_ai(data, region)
         # 检查AI预测是否失败
         if result.get('error'):
@@ -1525,4 +1661,5 @@ if __name__ == '__main__':
     except (KeyboardInterrupt, SystemExit):
         # 关闭定时任务
         scheduler.shutdown()
+
 
