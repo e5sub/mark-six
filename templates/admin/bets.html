@@ -140,8 +140,6 @@
                             {% if record.selected_parity %}单双：{{ record.selected_parity }}{% endif %}
                         </td>
                         <td>
-                            特码：{{ (record.stake_special or 0)|int }}元<br>
-                            共用：{{ (record.stake_common or 0)|int }}元<br>
                             总额：{{ (record.total_stake or 0)|int }}元
                         </td>
                         <td>{% if record.total_profit is not none %}{{ record.total_profit|int }}元{% else %}-{% endif %}</td>
