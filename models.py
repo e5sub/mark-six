@@ -309,6 +309,70 @@ class ZodiacSetting(db.Model):
     }
     _macau_zodiac_cache = {}
     _macau_year_match_cache = {}
+    _LUNAR_NEW_YEAR_DATES = {
+        2020: datetime(2020, 1, 25).date(),
+        2021: datetime(2021, 2, 12).date(),
+        2022: datetime(2022, 2, 1).date(),
+        2023: datetime(2023, 1, 22).date(),
+        2024: datetime(2024, 2, 10).date(),
+        2025: datetime(2025, 1, 29).date(),
+        2026: datetime(2026, 2, 17).date(),
+        2027: datetime(2027, 2, 6).date(),
+        2028: datetime(2028, 1, 26).date(),
+        2029: datetime(2029, 2, 13).date(),
+        2030: datetime(2030, 2, 3).date(),
+        2031: datetime(2031, 1, 23).date(),
+        2032: datetime(2032, 2, 11).date(),
+        2033: datetime(2033, 1, 31).date(),
+        2034: datetime(2034, 2, 19).date(),
+        2035: datetime(2035, 2, 8).date(),
+    }
+
+    @staticmethod
+    def get_zodiac_year_for_date(value):
+        if value is None:
+            return datetime.now().year
+
+        dt = None
+        if isinstance(value, datetime):
+            dt = value
+        elif isinstance(value, str):
+            for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
+                try:
+                    dt = datetime.strptime(value.strip(), fmt)
+                    break
+                except ValueError:
+                    continue
+            if dt is None:
+                try:
+                    dt = datetime.fromisoformat(value.strip())
+                except ValueError:
+                    dt = None
+
+        if dt is None:
+            return datetime.now().year
+
+        try:
+            from lunardate import LunarDate
+        except Exception:
+            LunarDate = None
+
+        if LunarDate is not None:
+            try:
+                lunar = LunarDate.fromSolarDate(dt.year, dt.month, dt.day)
+                return lunar.year
+            except Exception:
+                pass
+
+        base_year = dt.year
+        lunar_new_year = ZodiacSetting._LUNAR_NEW_YEAR_DATES.get(base_year)
+        if lunar_new_year:
+            return base_year - 1 if dt.date() < lunar_new_year else base_year
+
+        # fallback: use Feb 4 as rough boundary when no table entry
+        if (dt.month, dt.day) < (2, 4):
+            return base_year - 1
+        return base_year
 
     @staticmethod
     def _get_macau_zodiac_mapping(year):
@@ -685,12 +749,9 @@ class LotteryDraw(db.Model):
                 draw_id=draw_data.get('id')
             ).first()
             
-            # 获取当前年份
+            # 获取生肖年份（按农历新年切换）
             draw_date = draw_data.get('date', '')
-            try:
-                current_year = int(draw_date.split('-')[0]) if '-' in draw_date else int(draw_date[:4])
-            except (ValueError, IndexError):
-                current_year = datetime.now().year
+            current_year = ZodiacSetting.get_zodiac_year_for_date(draw_date)
             
             # 获取号码列表
             normal_numbers = draw_data.get('no', [])

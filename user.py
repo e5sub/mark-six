@@ -188,8 +188,8 @@ def get_number_zodiac(number):
     """
     try:
         from models import ZodiacSetting
-        current_year = datetime.now().year
-        return ZodiacSetting.get_zodiac_for_number(current_year, number) or ""
+        zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+        return ZodiacSetting.get_zodiac_for_number(zodiac_year, number) or ""
     except Exception as e:
         print(f"获取号码生肖失败: {e}")
         return ""

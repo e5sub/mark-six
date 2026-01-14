@@ -693,25 +693,34 @@ def api_predictions():
         .all()
     )
 
-    zodiac_map = {}
+    zodiac_map_cache = {}
     if include_zodiacs:
         try:
-            target_year = int(year_param) if year_param else datetime.now().year
-            zodiac_map = ZodiacSetting.get_all_settings_for_year(target_year) or {}
+            _ = int(year_param) if year_param else None
         except (ValueError, TypeError):
-            zodiac_map = {}
+            pass
 
     items = []
     for record in records:
         normal_numbers = record.normal_numbers.split(",") if record.normal_numbers else []
         normal_zodiacs = []
+        mapped_special = record.special_zodiac
+        zodiac_map = None
+        if include_zodiacs:
+            zodiac_year = ZodiacSetting.get_zodiac_year_for_date(
+                record.created_at or datetime.now()
+            )
+            zodiac_map = zodiac_map_cache.get(zodiac_year)
+            if zodiac_map is None:
+                zodiac_map = ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+                zodiac_map_cache[zodiac_year] = zodiac_map
+
         if zodiac_map and normal_numbers:
             for value in normal_numbers:
                 try:
                     normal_zodiacs.append(zodiac_map.get(int(value), ""))
                 except (TypeError, ValueError):
                     normal_zodiacs.append("")
-        mapped_special = record.special_zodiac
         if zodiac_map and record.special_number:
             try:
                 mapped_special = zodiac_map.get(
