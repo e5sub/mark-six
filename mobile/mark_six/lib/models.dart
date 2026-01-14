@@ -33,6 +33,7 @@ class PredictionItem {
     required this.strategy,
     required this.period,
     required this.normalNumbers,
+    required this.normalZodiacs,
     required this.specialNumber,
     required this.specialZodiac,
     required this.actualSpecialNumber,
@@ -46,6 +47,7 @@ class PredictionItem {
   final String strategy;
   final String period;
   final List<String> normalNumbers;
+  final List<String> normalZodiacs;
   final String specialNumber;
   final String specialZodiac;
   final String actualSpecialNumber;
@@ -60,6 +62,9 @@ class PredictionItem {
       strategy: json['strategy'] as String? ?? '',
       period: json['period'] as String? ?? '',
       normalNumbers: (json['normal_numbers'] as List<dynamic>? ?? [])
+          .map((value) => value.toString())
+          .toList(),
+      normalZodiacs: (json['normal_zodiacs'] as List<dynamic>? ?? [])
           .map((value) => value.toString())
           .toList(),
       specialNumber: json['special_number'] as String? ?? '',

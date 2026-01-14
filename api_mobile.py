@@ -10,6 +10,7 @@ from models import (
     ManualBetRecord,
     PredictionRecord,
     User,
+    ZodiacSetting,
     db,
 )
 
@@ -629,6 +630,8 @@ def api_predictions():
     period = request.args.get("period", "").strip()
     strategy = request.args.get("strategy", "").strip()
     result = request.args.get("result", "").strip()
+    include_zodiacs = request.args.get("include_zodiacs", "").strip() == "1"
+    year_param = request.args.get("year", "").strip()
 
     query = PredictionRecord.query.filter_by(user_id=user.id)
     if region:
@@ -690,19 +693,42 @@ def api_predictions():
         .all()
     )
 
+    zodiac_map = {}
+    if include_zodiacs:
+        try:
+            target_year = int(year_param) if year_param else datetime.now().year
+            zodiac_map = ZodiacSetting.get_all_settings_for_year(target_year) or {}
+        except (ValueError, TypeError):
+            zodiac_map = {}
+
     items = []
     for record in records:
+        normal_numbers = record.normal_numbers.split(",") if record.normal_numbers else []
+        normal_zodiacs = []
+        if zodiac_map and normal_numbers:
+            for value in normal_numbers:
+                try:
+                    normal_zodiacs.append(zodiac_map.get(int(value), ""))
+                except (TypeError, ValueError):
+                    normal_zodiacs.append("")
+        mapped_special = record.special_zodiac
+        if zodiac_map and record.special_number:
+            try:
+                mapped_special = zodiac_map.get(
+                    int(record.special_number), record.special_zodiac
+                )
+            except (TypeError, ValueError):
+                mapped_special = record.special_zodiac
         items.append(
             {
                 "id": record.id,
                 "region": record.region,
                 "strategy": record.strategy,
                 "period": record.period,
-                "normal_numbers": record.normal_numbers.split(",")
-                if record.normal_numbers
-                else [],
+                "normal_numbers": normal_numbers,
+                "normal_zodiacs": normal_zodiacs,
                 "special_number": record.special_number,
-                "special_zodiac": record.special_zodiac,
+                "special_zodiac": mapped_special,
                 "prediction_text": record.prediction_text,
                 "actual_special_number": record.actual_special_number,
                 "actual_special_zodiac": record.actual_special_zodiac,

@@ -173,6 +173,8 @@ class ApiClient {
     String? region,
     String? strategy,
     String? result,
+    bool includeZodiacs = false,
+    String? year,
   }) async {
     final response = await get('/api/mobile/predictions', queryParameters: {
       'page': page.toString(),
@@ -180,6 +182,8 @@ class ApiClient {
       if (region != null && region.isNotEmpty) 'region': region,
       if (strategy != null && strategy.isNotEmpty) 'strategy': strategy,
       if (result != null && result.isNotEmpty) 'result': result,
+      if (includeZodiacs) 'include_zodiacs': '1',
+      if (year != null && year.isNotEmpty) 'year': year,
     });
     return _ensureJsonMap(response.data);
   }

@@ -2819,6 +2819,8 @@ class _PredictScreenState extends State<PredictScreen> {
         page: 1,
         pageSize: 10,
         region: _region,
+        includeZodiacs: true,
+        year: _currentYear,
       );
       final items = (res['items'] as List<dynamic>? ?? [])
           .map((value) => PredictionItem.fromJson(value as Map<String, dynamic>))
@@ -2826,9 +2828,19 @@ class _PredictScreenState extends State<PredictScreen> {
       if (!mounted) return;
       setState(() {
         _predictionRecords = items;
+        for (final item in items) {
+          if (item.normalZodiacs.isNotEmpty) {
+            _recordNormalZodiacs[item.id] = item.normalZodiacs;
+          }
+          if (item.specialZodiac.isNotEmpty) {
+            _recordSpecialZodiacs[item.id] = item.specialZodiac;
+          }
+        }
       });
       for (final item in items) {
-        await _loadRecordZodiacs(item);
+        if (!_recordNormalZodiacs.containsKey(item.id)) {
+          await _loadRecordZodiacs(item);
+        }
       }
     } catch (_) {
       if (!mounted) return;
