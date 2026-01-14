@@ -1133,9 +1133,35 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(response => {
             typingIndicator.remove();
             if (!response.ok) {
-                throw new Error('服务器响应错误');
+                return response.json().then(data => {
+                    throw new Error(data.reply || data.message || data.error || '服务器响应错误');
+                }).catch(() => {
+                    throw new Error('服务器响应错误');
+                });
             }
-            return handleStreamingResponse(response);
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('text/event-stream')) {
+                return handleStreamingResponse(response);
+            }
+            if (contentType.includes('application/json')) {
+                return response.json().then(data => {
+                    if (data.reply) {
+                        appendMessage(data.reply, 'ai');
+                        return;
+                    }
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    appendMessage('AI回复为空', 'ai', false, true);
+                });
+            }
+            return response.text().then(text => {
+                if (text.trim()) {
+                    appendMessage(text, 'ai');
+                    return;
+                }
+                appendMessage('AI回复为空', 'ai', false, true);
+            });
         })
         .then(() => {
             // 显示成功提示
@@ -1170,6 +1196,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             messageContent.querySelectorAll('pre code').forEach((block) => {
                                 hljs.highlightElement(block);
                             });
+                        } else if (!fullText) {
+                            appendMessage('AI回复为空', 'ai', false, true);
                         }
                         resolve();
                         return;
