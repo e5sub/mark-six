@@ -412,7 +412,7 @@ def api_manual_bets():
                 (existing.selected_zodiacs or "").strip(),
                 (existing.selected_colors or "").strip(),
                 (existing.selected_parity or "").strip(),
-            ]) and float(existing.odds_number or 0) == odds_number:
+            ]) and float(existing.odds_number or 0) == odds_number and (existing.bettor_name or "") == bettor_name:
                 existing_stakes = _parse_number_stakes(existing.selected_numbers)
                 if existing_stakes:
                     for number, amount in number_stakes.items():
