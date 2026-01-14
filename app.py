@@ -1613,6 +1613,56 @@ def init_database():
             print(f"创建示例邀请码时出错: {e}")
 
 _scheduler = None
+_scheduler_lock_path = None
+_scheduler_lock_acquired = False
+
+def _pid_is_running(pid):
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+def _try_acquire_scheduler_lock():
+    import tempfile
+    global _scheduler_lock_path, _scheduler_lock_acquired
+    if _scheduler_lock_acquired:
+        return True
+    lock_path = os.path.join(tempfile.gettempdir(), "mark-six-scheduler.lock")
+    pid = os.getpid()
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w") as f:
+            f.write(str(pid))
+        _scheduler_lock_path = lock_path
+        _scheduler_lock_acquired = True
+        return True
+    except FileExistsError:
+        try:
+            with open(lock_path, "r") as f:
+                existing_pid = int((f.read() or "").strip() or "0")
+        except Exception:
+            existing_pid = 0
+        if existing_pid and _pid_is_running(existing_pid):
+            return False
+        try:
+            os.remove(lock_path)
+        except OSError:
+            return False
+        return _try_acquire_scheduler_lock()
+
+def _release_scheduler_lock():
+    global _scheduler_lock_path, _scheduler_lock_acquired
+    if not _scheduler_lock_acquired or not _scheduler_lock_path:
+        return
+    try:
+        os.remove(_scheduler_lock_path)
+    except OSError:
+        pass
+    _scheduler_lock_path = None
+    _scheduler_lock_acquired = False
 
 # 定时任务：每天21:40自动更新数据库中的开奖记录
 def update_lottery_data():
@@ -1666,12 +1716,25 @@ def start_scheduler(force=False):
     if not force and app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         return None
 
+    if not _try_acquire_scheduler_lock():
+        print("定时任务未启动：已有实例在运行")
+        return None
+
+    import atexit
+    atexit.register(_release_scheduler_lock)
+
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(update_lottery_data, 'cron', hour=21, minute=40)
     _scheduler.start()
     if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
         print("定时任务已启动：每天21:40自动更新数据库中的开奖记录")
     return _scheduler
+
+if os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on"):
+    try:
+        start_scheduler()
+    except Exception as e:
+        print(f"定时任务启动失败: {e}")
 
 if __name__ == '__main__':
     # 初始化数据库
