@@ -295,6 +295,11 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  String _formatYuan(num? value) {
+    if (value == null) return '-';
+    return '${value.toStringAsFixed(0)}元';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -870,6 +875,11 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       formatted.add('${items[0]}(${items[1]})');
     }
     return formatted.join(', ');
+  }
+
+  String _formatYuan(num? value) {
+    if (value == null) return '-';
+    return '${value.toStringAsFixed(0)}元';
   }
 
   @override
@@ -1859,8 +1869,8 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 6),
-                          Text('命中：${win.toStringAsFixed(2)}'),
-                          Text('未中：${lose.toStringAsFixed(2)}'),
+                          Text('命中：${_formatYuan(win)}'),
+                          Text('未中：${_formatYuan(lose)}'),
                         ],
                       ),
                     );
@@ -2012,7 +2022,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                               if (status == 'settled')
                                 Text('开奖结果：$special  生肖：$specialZodiac'),
                               Text(
-                                '下注：${stake?.toStringAsFixed(2) ?? '-'}  盈亏：${profit?.toStringAsFixed(2) ?? '-'}',
+                                '下注：${_formatYuan(stake)}  盈亏：${_formatYuan(profit)}',
                               ),
                             ],
                           ),
@@ -2045,7 +2055,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                '${item.label} 赔率 ${item.odds.toStringAsFixed(2)}',
+                                '${item.label} 赔率 ${item.odds.toStringAsFixed(0)}',
                                 style: const TextStyle(fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -2058,7 +2068,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                             ),
                             const SizedBox(width: 12),
                             Text(
-                              item.profit.toStringAsFixed(2),
+                              _formatYuan(item.profit),
                               style: TextStyle(
                                 color: item.profit >= 0
                                     ? const Color(0xFF0B6B4F)
@@ -2072,7 +2082,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '总下注：${_totalStake.toStringAsFixed(2)}  盈亏：${_totalProfit.toStringAsFixed(2)}',
+                      '总下注：${_formatYuan(_totalStake)}  盈亏：${_formatYuan(_totalProfit)}',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -3658,10 +3668,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           Text('已结算：${_betSummary!['settled_count'] ?? 0}'),
                           Text('待结算：${_betSummary!['pending_count'] ?? 0}'),
                           Text(
-                            '总下注：${(_betSummary!['total_stake'] ?? 0).toString()}',
+                            '总下注：${_formatYuan((_betSummary!['total_stake'] as num?) ?? 0)}',
                           ),
                           Text(
-                            '总盈亏：${(_betSummary!['total_profit'] ?? 0).toString()}',
+                            '总盈亏：${_formatYuan((_betSummary!['total_profit'] as num?) ?? 0)}',
                           ),
                           Text(
                             '赢/输/平：${_betSummary!['win_count'] ?? 0}/'

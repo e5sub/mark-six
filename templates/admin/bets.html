@@ -62,11 +62,11 @@
             <div class="stat-label">总记录数</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number">{{ summary.total_stake }}</div>
+            <div class="stat-number">{{ summary.total_stake|int }}元</div>
             <div class="stat-label">总下注</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number">{{ summary.total_profit }}</div>
+            <div class="stat-number">{{ summary.total_profit|int }}元</div>
             <div class="stat-label">总盈亏</div>
         </div>
         <div class="stat-card">
@@ -117,17 +117,34 @@
                         <td>{{ record.period }}</td>
                         <td>
                             {% if record.bettor_name %}下注人：{{ record.bettor_name }}<br>{% endif %}
-                            {% if record.selected_numbers %}号码：{{ record.selected_numbers }}<br>{% endif %}
+                            {% if record.selected_numbers %}
+                                {% if ':' in record.selected_numbers %}
+                                    {% set parts = record.selected_numbers.split(',') %}
+                                    {% set formatted = [] %}
+                                    {% for part in parts %}
+                                        {% set piece = part.strip() %}
+                                        {% if ':' in piece %}
+                                            {% set pair = piece.split(':') %}
+                                            {% if pair|length >= 2 %}
+                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ pair[1].strip() ~ ')') %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    号码：{{ formatted|join(', ') }}<br>
+                                {% else %}
+                                    号码：{{ record.selected_numbers }}<br>
+                                {% endif %}
+                            {% endif %}
                             {% if record.selected_zodiacs %}生肖：{{ record.selected_zodiacs }}<br>{% endif %}
                             {% if record.selected_colors %}波色：{{ record.selected_colors }}<br>{% endif %}
                             {% if record.selected_parity %}单双：{{ record.selected_parity }}{% endif %}
                         </td>
                         <td>
-                            特码：{{ record.stake_special or 0 }}<br>
-                            共用：{{ record.stake_common or 0 }}<br>
-                            总额：{{ record.total_stake or 0 }}
+                            特码：{{ (record.stake_special or 0)|int }}元<br>
+                            共用：{{ (record.stake_common or 0)|int }}元<br>
+                            总额：{{ (record.total_stake or 0)|int }}元
                         </td>
-                        <td>{{ record.total_profit if record.total_profit is not none else '-' }}</td>
+                        <td>{% if record.total_profit is not none %}{{ record.total_profit|int }}元{% else %}-{% endif %}</td>
                         <td>
                             {% if record.total_profit is none %}
                                 待结算
