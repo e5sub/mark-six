@@ -321,6 +321,67 @@
 
 
 
+<!-- 预测设置 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">预测设置</h2>
+    </div>
+    
+    <form method="POST" action="{{ url_for('user.save_prediction_settings') }}" style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
+            <h3 style="margin: 0 0 1rem 0; color: #17a2b8; font-size: 1.1rem;">自动预测设置</h3>
+            
+            <div style="display: grid; gap: 1rem;">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="auto_prediction_enabled" 
+                               {{ 'checked' if user.auto_prediction_enabled else '' }}>
+                        启用自动预测功能
+                    </label>
+                    <small style="color: #666; display: block; margin-top: 0.5rem;">启用后，系统将为每期自动生成预测结果</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>自动预测策略（可多选）</label>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+                        {% for meta in auto_strategy_meta %}
+                        <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal;">
+                            <input type="checkbox" name="auto_prediction_strategies" value="{{ meta.key }}" 
+                                   {{ 'checked' if user.auto_prediction_strategies and meta.key in user.auto_prediction_strategies.split(',') else '' }}>
+                            {{ meta.icon }}{{ meta.label }}预测
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <small style="color: #666; display: block; margin-top: 0.5rem;">选择自动预测使用的策略（可多选）</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>自动预测地区（可多选）</label>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal;">
+                            <input type="checkbox" name="auto_prediction_regions" value="hk" 
+                                   {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'hk' in user.auto_prediction_regions.split(',')) else '' }}>
+                            香港六合彩
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal;">
+                            <input type="checkbox" name="auto_prediction_regions" value="macau" 
+                                   {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'macau' in user.auto_prediction_regions.split(',')) else '' }}>
+                            澳门六合彩
+                        </label>
+                    </div>
+                    <small style="color: #666; display: block; margin-top: 0.5rem;">选择需要自动预测的地区（可多选）</small>
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: center;">
+            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
+                保存预测设置
+            </button>
+        </div>
+    </form>
+</div>
+
 <!-- 账户操作 -->
 <div class="card">
     <div class="card-header">
@@ -457,4 +518,5 @@
 }
 </style>
 {% endblock %}
+
 

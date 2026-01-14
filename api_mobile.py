@@ -201,6 +201,32 @@ def api_logout():
     return jsonify({"success": True, "message": "logged out"})
 
 
+@mobile_api_bp.route("/change_password", methods=["POST"])
+def api_change_password():
+    user, error = _require_user()
+    if error:
+        return error
+
+    payload = request.get_json(silent=True) or {}
+    current_password = payload.get("current_password") or ""
+    new_password = payload.get("new_password") or ""
+    confirm_password = payload.get("confirm_password") or ""
+
+    if not all([current_password, new_password, confirm_password]):
+        return _json_error("missing required fields")
+    if not user.check_password(current_password):
+        return _json_error("invalid current password", status=401, code="invalid_credentials")
+    if new_password != confirm_password:
+        return _json_error("passwords do not match")
+    if len(new_password) < 6:
+        return _json_error("password must be at least 6 characters")
+
+    user.set_password(new_password)
+    db.session.commit()
+
+    return jsonify({"success": True, "message": "password updated"})
+
+
 @mobile_api_bp.route("/activate", methods=["POST"])
 def api_activate():
     user, error = _require_user()

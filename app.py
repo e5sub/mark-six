@@ -783,9 +783,86 @@ def update_prediction_accuracy(data, region):
         
         # 提交更改
         db.session.commit()
+
+        # 触发自动预测（排除 AI 策略）
+        if data and len(data) > 0:
+            generate_auto_predictions(data, region)
         
     except Exception as e:
         print(f"更新预测准确率时出错: {e}")
+        db.session.rollback()
+
+def generate_auto_predictions(data, region):
+    """为每期自动生成预测（排除 AI 策略）"""
+    try:
+        latest_draw = data[0] if data else None
+        if not latest_draw:
+            return
+
+        latest_period = latest_draw.get('id', '')
+        next_period = _get_next_period(region, latest_period)
+
+        if not next_period:
+            print("自动预测失败：无法确定下一期期数")
+            return
+
+        auto_predict_users = User.query.filter_by(
+            is_active=True,
+            auto_prediction_enabled=True
+        ).all()
+
+        for user in auto_predict_users:
+            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['balanced']
+            regions = user.auto_prediction_regions.split(',') if hasattr(user, 'auto_prediction_regions') and user.auto_prediction_regions else ['hk', 'macau']
+
+            if region not in regions:
+                continue
+
+            for strategy in strategies:
+                if strategy == 'ai':
+                    continue
+
+                existing = PredictionRecord.query.filter_by(
+                    user_id=user.id,
+                    region=region,
+                    period=next_period,
+                    strategy=strategy
+                ).first()
+
+                if not existing:
+                    generate_prediction_for_user(user, region, next_period, strategy, data)
+    except Exception as e:
+        print(f"自动预测出错：{e}")
+        db.session.rollback()
+
+def generate_prediction_for_user(user, region, period, strategy, data):
+    """为指定用户生成预测（排除 AI 策略）"""
+    try:
+        if strategy == 'ai':
+            print(f"已跳过用户 {user.username} 的AI自动预测")
+            return
+
+        result = get_local_recommendations(strategy, data, region)
+
+        if result.get('error'):
+            print(f"用户 {user.username} 的自动预测失败：{result.get('error')}")
+            return
+
+        prediction = PredictionRecord(
+            user_id=user.id,
+            region=region,
+            strategy=strategy,
+            period=period,
+            normal_numbers=','.join(map(str, result.get('normal', []))),
+            special_number=str(result.get('special', {}).get('number', '')),
+            special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+            prediction_text=result.get('recommendation_text', '')
+        )
+        db.session.add(prediction)
+        db.session.commit()
+        print(f"自动预测成功：为用户 {user.username} 的{region}地区第{period}期生成了{strategy}策略的预测")
+    except Exception as e:
+        print(f"为用户 {user.username} 生成预测时出错：{e}")
         db.session.rollback()
 
 @app.route('/api/predict')
@@ -1267,6 +1344,13 @@ def update_lottery_data():
             macau_data = get_macau_data(current_year, force_api=True)
             save_draws_to_database(macau_data, 'macau')
             print(f"澳门数据更新完成：{len(macau_data)}条")
+
+            # 触发自动预测功能（排除 AI 策略）
+            print("正在生成自动预测...")
+            if hk_filtered:
+                generate_auto_predictions(hk_filtered, 'hk')
+            if macau_data:
+                generate_auto_predictions(macau_data, 'macau')
             
             print(f"定时任务执行完成：成功更新香港数据{len(hk_filtered)}条，澳门数据{len(macau_data)}条")
             

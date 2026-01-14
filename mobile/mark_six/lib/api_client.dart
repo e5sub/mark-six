@@ -76,6 +76,19 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  Future<Map<String, dynamic>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final response = await post('/api/mobile/change_password', data: {
+      'current_password': currentPassword,
+      'new_password': newPassword,
+      'confirm_password': confirmPassword,
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Future<Map<String, dynamic>> activate({required String code}) async {
     final response = await post('/api/mobile/activate', data: {
       'activation_code': code,

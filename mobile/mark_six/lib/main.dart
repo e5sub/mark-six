@@ -179,6 +179,26 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<String?> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    try {
+      final res = await ApiClient.instance.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
+      );
+      if (res['success'] == true) {
+        return null;
+      }
+      return res['message']?.toString() ?? '修改密码失败';
+    } catch (e) {
+      return '修改密码失败: $e';
+    }
+  }
 }
 
 Future<void> showActivationDialog(
@@ -3228,6 +3248,107 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _showChangePasswordDialog() async {
+    final currentController = TextEditingController();
+    final newController = TextEditingController();
+    final confirmController = TextEditingController();
+    bool saving = false;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('修改密码'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: currentController,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: '当前密码'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: newController,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: '新密码'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: confirmController,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: '确认新密码'),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: saving
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('取消'),
+                  ),
+                  ElevatedButton(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final current = currentController.text.trim();
+                            final next = newController.text.trim();
+                            final confirm = confirmController.text.trim();
+
+                            if (current.isEmpty || next.isEmpty || confirm.isEmpty) {
+                              _showMessage('请填写完整');
+                              return;
+                            }
+                            if (next.length < 6) {
+                              _showMessage('新密码至少6位');
+                              return;
+                            }
+                            if (next != confirm) {
+                              _showMessage('两次输入的新密码不一致');
+                              return;
+                            }
+
+                            setDialogState(() => saving = true);
+                            final error = await widget.appState.changePassword(
+                              currentPassword: current,
+                              newPassword: next,
+                              confirmPassword: confirm,
+                            );
+                            if (!mounted) return;
+                            setDialogState(() => saving = false);
+
+                            if (error == null) {
+                              Navigator.of(dialogContext).pop();
+                              _showMessage('密码修改成功');
+                            } else {
+                              _showMessage(error);
+                            }
+                          },
+                    child: saving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('保存'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      currentController.dispose();
+      newController.dispose();
+      confirmController.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = widget.appState.user;
@@ -3390,6 +3511,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 16),
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('修改密码'),
+              subtitle: const Text('更新登录密码'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _showChangePasswordDialog,
+            ),
+          ),
+          const SizedBox(height: 12),
           OutlinedButton(
             onPressed: () => widget.appState.logout(),
             child: const Text('退出登录'),

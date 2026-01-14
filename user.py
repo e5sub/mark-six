@@ -16,6 +16,7 @@ STRATEGY_META = [
     {"key": "ai", "label": "AI", "icon": "🤖"},
 ]
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
+AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
 
 def login_required(f):
     """登录验证装饰器"""
@@ -167,6 +168,7 @@ def dashboard():
                           user=user, 
                           stats=stats,
                           strategy_meta=STRATEGY_META,
+                          auto_strategy_meta=AUTO_STRATEGY_META,
                           strategy_accuracy=strategy_accuracy,
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac)
@@ -287,55 +289,49 @@ def predictions():
     predictions = query.order_by(PredictionRecord.created_at.desc()).paginate(
         page=page, per_page=20, error_out=False
     )
-    
-    # 计算总体预测命中率
-    total_predictions = PredictionRecord.query.filter_by(user_id=session['user_id']).count()
-    updated_predictions = PredictionRecord.query.filter_by(
-        user_id=session['user_id'],
-        is_result_updated=True
-    ).filter(
-        PredictionRecord.actual_special_number != None
-    ).count()
-    
-    # 特码命中的预测
-    special_hit_predictions = PredictionRecord.query.filter_by(
-        user_id=session['user_id'],
-        is_result_updated=True
-    ).filter(
-        PredictionRecord.actual_special_number != None,
-        PredictionRecord.special_number == PredictionRecord.actual_special_number
-    ).count()
-    
-    # 平码命中的预测（不包括特码命中的）
-    normal_hit_predictions = PredictionRecord.query.filter_by(
-        user_id=session['user_id'],
-        is_result_updated=True
-    ).filter(
-        PredictionRecord.actual_special_number != None,
-        PredictionRecord.special_number != PredictionRecord.actual_special_number,
-        db.or_(
-            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-        )
-    ).count()
-    
+
+    # 预先加载生肖映射，避免模板内大量重复查询
+    try:
+        from models import ZodiacSetting
+        current_year = datetime.now().year
+        zodiac_map = ZodiacSetting.get_all_settings_for_year(current_year) or {}
+    except Exception as e:
+        print(f"获取生肖映射失败: {e}")
+        zodiac_map = {}
+
+    def get_number_zodiac_cached(number):
+        try:
+            return zodiac_map.get(int(number), "")
+        except (TypeError, ValueError):
+            return ""
+
+    actual_special = PredictionRecord.actual_special_number
+    normal_numbers = PredictionRecord.normal_numbers
+    special_number = PredictionRecord.special_number
+    actual_as_string = db.cast(actual_special, db.String)
+    actual_in_normal = db.or_(
+        normal_numbers.contains(',' + actual_as_string + ','),
+        normal_numbers.startswith(actual_as_string + ','),
+        normal_numbers.endswith(',' + actual_as_string)
+    )
+
+    # 聚合统计，减少多次扫描
+    stats_row = db.session.query(
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, actual_in_normal), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~actual_in_normal), 1), else_=0))
+    ).filter(PredictionRecord.user_id == session['user_id']).one()
+
+    total_predictions = stats_row[0] or 0
+    updated_predictions = stats_row[1] or 0
+    special_hit_predictions = stats_row[2] or 0
+    normal_hit_predictions = stats_row[3] or 0
+    wrong_predictions = stats_row[4] or 0
+
     # 总命中数（特码命中 + 平码命中）
     accurate_predictions = special_hit_predictions + normal_hit_predictions
-    
-    # 未命中的预测
-    wrong_predictions = PredictionRecord.query.filter_by(
-        user_id=session['user_id'],
-        is_result_updated=True
-    ).filter(
-        PredictionRecord.actual_special_number != None,
-        (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-        ~db.or_(
-            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-        )
-    ).count()
     
     # 计算命中率（分开统计特码/平码）
     accuracy_rate = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
@@ -352,7 +348,7 @@ def predictions():
                           strategy=strategy,
                           result=result,
                           get_number_color=get_number_color,
-                          get_number_zodiac=get_number_zodiac,
+                          get_number_zodiac=get_number_zodiac_cached,
                           correct_predictions=accurate_predictions,
                           special_hit_count=special_hit_predictions,
                           normal_hit_count=normal_hit_predictions,
@@ -468,26 +464,26 @@ def profile():
         # 验证当前密码
         if not user.check_password(current_password):
             flash('当前密码错误', 'error')
-            return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
+            return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             
         # 更新邮箱（仅管理员可修改）
         if new_email and new_email != user.email:
             if not user.is_admin:
                 flash('普通用户无权修改邮箱地址，如需修改请联系管理员', 'error')
-                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             if User.query.filter_by(email=new_email).first():
                 flash('邮箱已被其他用户使用', 'error')
-                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             user.email = new_email
         
         # 更新密码
         if new_password:
             if new_password != confirm_password:
                 flash('两次输入的新密码不一致', 'error')
-                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             if len(new_password) < 6:
                 flash('新密码长度至少6位', 'error')
-                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             user.set_password(new_password)
         
         try:
@@ -497,7 +493,87 @@ def profile():
             db.session.rollback()
             flash(f'更新失败：{str(e)}', 'error')
     
-    return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META)
+    return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+
+@user_bp.route('/save_prediction_settings', methods=['POST'])
+@login_required
+@active_required
+def save_prediction_settings():
+    """保存用户预测设置"""
+    user = User.query.get(session['user_id'])
+
+    auto_prediction_enabled = 'auto_prediction_enabled' in request.form
+    auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
+    auto_prediction_regions = request.form.getlist('auto_prediction_regions')
+
+    valid_strategies = []
+    for strategy in auto_prediction_strategies:
+        if strategy in STRATEGY_KEYS and strategy != 'ai':
+            valid_strategies.append(strategy)
+
+    if not valid_strategies:
+        valid_strategies = ['hybrid']
+
+    valid_regions = []
+    for region in auto_prediction_regions:
+        if region in ['hk', 'macau']:
+            valid_regions.append(region)
+
+    if not valid_regions:
+        valid_regions = ['hk']
+
+    user.auto_prediction_enabled = auto_prediction_enabled
+    user.auto_prediction_strategies = ','.join(valid_strategies)
+    user.auto_prediction_regions = ','.join(valid_regions)
+
+    try:
+        db.session.commit()
+        flash('预测设置保存成功', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'保存失败：{str(e)}', 'error')
+
+    return redirect(url_for('user.profile'))
+
+@user_bp.route('/update_auto_prediction', methods=['POST'])
+@login_required
+@active_required
+def update_auto_prediction():
+    """更新自动预测设置"""
+    try:
+        user = User.query.get(session['user_id'])
+
+        auto_prediction_enabled = 'auto_prediction_enabled' in request.form
+        auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
+        auto_prediction_regions = request.form.getlist('auto_prediction_regions')
+
+        valid_strategies = []
+        for strategy in auto_prediction_strategies:
+            if strategy in STRATEGY_KEYS and strategy != 'ai':
+                valid_strategies.append(strategy)
+
+        if not valid_strategies:
+            valid_strategies = ['hybrid']
+
+        valid_regions = []
+        for region in auto_prediction_regions:
+            if region in ['hk', 'macau']:
+                valid_regions.append(region)
+
+        if not valid_regions:
+            valid_regions = ['hk', 'macau']
+
+        user.auto_prediction_enabled = auto_prediction_enabled
+        user.auto_prediction_strategies = ','.join(valid_strategies)
+        user.auto_prediction_regions = ','.join(valid_regions)
+
+        db.session.commit()
+        flash('自动预测设置保存成功', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'设置保存失败：{str(e)}', 'error')
+
+    return redirect(url_for('user.dashboard'))
 
 @user_bp.route('/invite')
 @login_required
