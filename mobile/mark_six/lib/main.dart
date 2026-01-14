@@ -1950,88 +1950,66 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       ),
                     )
                   else
-                    ..._manualBets.map(
-                      (item) {
-                        final status = item['status']?.toString() ?? 'pending';
-                        final period = item['period']?.toString() ?? '';
-                        final bettor = item['bettor_name']?.toString() ?? '';
-                        final createdAt = item['created_at']?.toString() ?? '';
-                        final numbers = _formatNumberStakesText(
-                          item['selected_numbers']?.toString() ?? '',
-                        );
-                        final zodiacs = item['selected_zodiacs']?.toString() ?? '';
-                        final colors = item['selected_colors']?.toString() ?? '';
-                        final parity = item['selected_parity']?.toString() ?? '';
-                        final profit = (item['total_profit'] as num?)?.toDouble();
-                        final stake = (item['total_stake'] as num?)?.toDouble();
-                        final special = item['special_number']?.toString() ?? '';
-                        final specialZodiac =
-                            item['special_zodiac']?.toString() ?? '';
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x12000000),
-                                blurRadius: 6,
-                                offset: Offset(0, 2),
+                    Builder(
+                      builder: (context) {
+                        final grouped =
+                            <String, List<Map<String, dynamic>>>{};
+                        final orderedPeriods = <String>[];
+                        for (final item in _manualBets) {
+                          final period = item['period']?.toString() ?? '';
+                          if (!grouped.containsKey(period)) {
+                            grouped[period] = [];
+                            orderedPeriods.add(period);
+                          }
+                          grouped[period]!.add(item);
+                        }
+
+                        return Column(
+                          children: orderedPeriods.map((period) {
+                            final items = grouped[period] ?? [];
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF7FAF9),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
                               ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Expanded(
-                                    child: Text(
-                                      '期号：$period  时间：$createdAt',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '期号：$period',
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                       ),
-                                    ),
+                                      Text(
+                                        '共${items.length}条',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: status == 'settled'
-                                          ? const Color(0xFFE8F5E9)
-                                          : const Color(0xFFFFF3E0),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      status == 'settled' ? '已结算' : '待结算',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: status == 'settled'
-                                            ? const Color(0xFF0B6B4F)
-                                            : Colors.orange,
-                                      ),
-                                    ),
+                                  const SizedBox(height: 8),
+                                  Column(
+                                    children: items
+                                        .map(_buildManualBetItem)
+                                        .toList(),
                                   ),
                                 ],
                               ),
-                              if (numbers.isNotEmpty)
-                                Text('号码：$numbers'),
-                              if (bettor.isNotEmpty)
-                                Text('下注人：$bettor'),
-                              if (zodiacs.isNotEmpty)
-                                Text('生肖：$zodiacs'),
-                              if (colors.isNotEmpty)
-                                Text('波色：$colors'),
-                              if (parity.isNotEmpty)
-                                Text('单双：$parity'),
-                              if (status == 'settled')
-                                Text('开奖结果：$special  生肖：$specialZodiac'),
-                              Text(
-                                '下注：${_formatYuan(stake)}  盈亏：${_formatYuan(profit)}',
-                              ),
-                            ],
-                          ),
+                            );
+                          }).toList(),
                         );
                       },
                     ),
@@ -3070,6 +3048,27 @@ class _PredictScreenState extends State<PredictScreen> {
     }
   }
 
+  Color _strategyColor(String value) {
+    switch (value) {
+      case 'hot':
+        return const Color(0xFFE53935);
+      case 'cold':
+        return const Color(0xFF1E88E5);
+      case 'trend':
+        return const Color(0xFF43A047);
+      case 'hybrid':
+        return const Color(0xFF6A1B9A);
+      case 'balanced':
+        return const Color(0xFFFB8C00);
+      case 'random':
+        return const Color(0xFF00897B);
+      case 'ai':
+        return const Color(0xFF5E35B1);
+      default:
+        return Colors.black87;
+    }
+  }
+
   Widget _buildPredictionRecordItem(PredictionItem item) {
     final normalZodiacs = _recordNormalZodiacs[item.id] ??
         List.filled(item.normalNumbers.length, '');
@@ -3102,8 +3101,21 @@ class _PredictScreenState extends State<PredictScreen> {
             children: [
               Expanded(
                 child: Text(
-                  '期号：${item.period}  预测时间：$createdAt  策略：$strategyLabel',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  RichText(
+                    text: TextSpan(
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                      children: [
+                        TextSpan(text: '预测时间：$createdAt  策略：'),
+                        TextSpan(
+                          text: strategyLabel,
+                          style: TextStyle(color: _strategyColor(item.strategy)),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
               Container(
@@ -3475,6 +3487,84 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _formatYuan(num? value) {
     if (value == null) return '-';
     return '${value.toStringAsFixed(0)}元';
+  }
+
+  Widget _buildManualBetItem(Map<String, dynamic> item) {
+    final status = item['status']?.toString() ?? 'pending';
+    final bettor = item['bettor_name']?.toString() ?? '';
+    final createdAt = item['created_at']?.toString() ?? '';
+    final numbers = _formatNumberStakesText(
+      item['selected_numbers']?.toString() ?? '',
+    );
+    final zodiacs = item['selected_zodiacs']?.toString() ?? '';
+    final colors = item['selected_colors']?.toString() ?? '';
+    final parity = item['selected_parity']?.toString() ?? '';
+    final profit = (item['total_profit'] as num?)?.toDouble();
+    final stake = (item['total_stake'] as num?)?.toDouble();
+    final special = item['special_number']?.toString() ?? '';
+    final specialZodiac = item['special_zodiac']?.toString() ?? '';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '时间：$createdAt',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: status == 'settled'
+                      ? const Color(0xFFE8F5E9)
+                      : const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  status == 'settled' ? '已结算' : '待结算',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: status == 'settled'
+                        ? const Color(0xFF0B6B4F)
+                        : Colors.orange,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (numbers.isNotEmpty) Text('号码：$numbers'),
+          if (bettor.isNotEmpty) Text('下注人：$bettor'),
+          if (zodiacs.isNotEmpty) Text('生肖：$zodiacs'),
+          if (colors.isNotEmpty) Text('波色：$colors'),
+          if (parity.isNotEmpty) Text('单双：$parity'),
+          if (status == 'settled')
+            Text('开奖结果：$special  生肖：$specialZodiac'),
+          Text(
+            '下注：${_formatYuan(stake)}  盈亏：${_formatYuan(profit)}',
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showChangePasswordDialog() async {

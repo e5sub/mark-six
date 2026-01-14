@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, session
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 
 from models import (
     ActivationCode,
@@ -401,18 +401,30 @@ def api_manual_bets():
 
     if not settle:
         if bet_number and number_stakes and not (bet_zodiac or bet_color or bet_parity):
-            existing = ManualBetRecord.query.filter_by(
+            merge_query = ManualBetRecord.query.filter_by(
                 user_id=user.id,
                 region=region,
                 period=period,
             ).filter(
                 ManualBetRecord.total_profit.is_(None)
-            ).first()
+            )
+            if bettor_name:
+                merge_query = merge_query.filter(
+                    ManualBetRecord.bettor_name == bettor_name
+                )
+            else:
+                merge_query = merge_query.filter(
+                    or_(
+                        ManualBetRecord.bettor_name.is_(None),
+                        ManualBetRecord.bettor_name == "",
+                    )
+                )
+            existing = merge_query.first()
             if existing and not any([
                 (existing.selected_zodiacs or "").strip(),
                 (existing.selected_colors or "").strip(),
                 (existing.selected_parity or "").strip(),
-            ]) and float(existing.odds_number or 0) == odds_number and (existing.bettor_name or "") == bettor_name:
+            ]) and float(existing.odds_number or 0) == odds_number:
                 existing_stakes = _parse_number_stakes(existing.selected_numbers)
                 if existing_stakes:
                     for number, amount in number_stakes.items():
