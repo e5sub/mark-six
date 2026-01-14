@@ -227,29 +227,18 @@ def settle_pending_manual_bets(region, draw_id):
     return len(pending_records)
 
 # --- 数据加载与处理 ---
-def load_hk_data():
+def load_hk_data(force_refresh=False):
     # 直接从URL获取数据
     try:
-        response = requests.get(HK_DATA_SOURCE_URL, timeout=15)
+        params = {"_": int(time.time())} if force_refresh else None
+        response = requests.get(HK_DATA_SOURCE_URL, params=params, timeout=15)
         response.raise_for_status()
         return response.json()
     except Exception as e:
         print(f"从URL获取香港数据失败: {e}")
         return []
 
-def get_macau_data(year):
-    db_records = []
-    try:
-        query = LotteryDraw.query.filter_by(region='macau')
-        if year != 'all':
-            query = query.filter(LotteryDraw.draw_date.like(f"{year}%"))
-        db_records = query.order_by(LotteryDraw.draw_date.desc()).all()
-        if db_records:
-            print(f"从数据库获取到{len(db_records)}条澳门{year}年数据")
-            return [record.to_dict() for record in db_records]
-    except Exception as e:
-        print(f"从数据库获取澳门数据失败: {e}")
-
+def _fetch_macau_data_from_api(year):
     url = MACAU_API_URL_TEMPLATE.format(year=year)
     try:
         print(f"正在获取澳门数据，URL: {url}")
@@ -308,6 +297,21 @@ def get_macau_data(year):
     except Exception as e:
         print(f"Error in get_macau_data for year {year}: {e}")
         return []
+
+def get_macau_data(year, force_api=False):
+    if not force_api:
+        try:
+            query = LotteryDraw.query.filter_by(region='macau')
+            if year != 'all':
+                query = query.filter(LotteryDraw.draw_date.like(f"{year}%"))
+            db_records = query.order_by(LotteryDraw.draw_date.desc()).all()
+            if db_records:
+                print(f"从数据库获取到{len(db_records)}条澳门{year}年数据")
+                return [record.to_dict() for record in db_records]
+        except Exception as e:
+            print(f"从数据库获取澳门数据失败: {e}")
+
+    return _fetch_macau_data_from_api(year)
 
 def analyze_special_number_frequency(data):
     special_numbers = []
@@ -881,14 +885,14 @@ def update_data_api():
         
         if region == 'all' or region == 'hk':
             # 更新香港数据
-            hk_data = load_hk_data()
+            hk_data = load_hk_data(force_refresh=True)
             hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
             save_draws_to_database(hk_filtered, 'hk')
             print(f"手动更新：成功更新香港数据{len(hk_filtered)}条")
         
         if region == 'all' or region == 'macau':
             # 更新澳门数据
-            macau_data = get_macau_data(current_year)
+            macau_data = get_macau_data(current_year, force_api=True)
             save_draws_to_database(macau_data, 'macau')
             print(f"手动更新：成功更新澳门数据{len(macau_data)}条")
         
@@ -1253,14 +1257,14 @@ def update_lottery_data():
             
             # 更新香港数据
             print("正在获取香港数据...")
-            hk_data = load_hk_data()
+            hk_data = load_hk_data(force_refresh=True)
             hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
             save_draws_to_database(hk_filtered, 'hk')
             print(f"香港数据更新完成：{len(hk_filtered)}条")
             
             # 更新澳门数据
             print("正在获取澳门数据...")
-            macau_data = get_macau_data(current_year)
+            macau_data = get_macau_data(current_year, force_api=True)
             save_draws_to_database(macau_data, 'macau')
             print(f"澳门数据更新完成：{len(macau_data)}条")
             
