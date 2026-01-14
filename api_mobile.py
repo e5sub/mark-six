@@ -466,7 +466,20 @@ def api_manual_bets():
                 region=region,
                 period=period,
             ).filter(
-                ManualBetRecord.total_profit.is_(None)
+                ManualBetRecord.total_profit.is_(None),
+                ManualBetRecord.odds_number == odds_number,
+                or_(
+                    ManualBetRecord.selected_zodiacs.is_(None),
+                    ManualBetRecord.selected_zodiacs == "",
+                ),
+                or_(
+                    ManualBetRecord.selected_colors.is_(None),
+                    ManualBetRecord.selected_colors == "",
+                ),
+                or_(
+                    ManualBetRecord.selected_parity.is_(None),
+                    ManualBetRecord.selected_parity == "",
+                ),
             )
             if bettor_name:
                 merge_query = merge_query.filter(
@@ -480,11 +493,7 @@ def api_manual_bets():
                     )
                 )
             existing = merge_query.first()
-            if existing and not any([
-                (existing.selected_zodiacs or "").strip(),
-                (existing.selected_colors or "").strip(),
-                (existing.selected_parity or "").strip(),
-            ]) and float(existing.odds_number or 0) == odds_number:
+            if existing:
                 existing_stakes = _parse_number_stakes(existing.selected_numbers)
                 if existing_stakes:
                     for number, amount in number_stakes.items():
@@ -503,7 +512,20 @@ def api_manual_bets():
                 region=region,
                 period=period,
             ).filter(
-                ManualBetRecord.total_profit.is_(None)
+                ManualBetRecord.total_profit.is_(None),
+                ManualBetRecord.odds_zodiac == odds_zodiac,
+                or_(
+                    ManualBetRecord.selected_numbers.is_(None),
+                    ManualBetRecord.selected_numbers == "",
+                ),
+                or_(
+                    ManualBetRecord.selected_colors.is_(None),
+                    ManualBetRecord.selected_colors == "",
+                ),
+                or_(
+                    ManualBetRecord.selected_parity.is_(None),
+                    ManualBetRecord.selected_parity == "",
+                ),
             )
             if bettor_name:
                 merge_query = merge_query.filter(
@@ -517,11 +539,7 @@ def api_manual_bets():
                     )
                 )
             existing = merge_query.first()
-            if existing and not any([
-                (existing.selected_numbers or "").strip(),
-                (existing.selected_colors or "").strip(),
-                (existing.selected_parity or "").strip(),
-            ]) and float(existing.odds_zodiac or 0) == odds_zodiac:
+            if existing:
                 existing_entries = _parse_common_stake_entries(existing.selected_zodiacs)
                 if not existing_entries:
                     existing_items = _parse_list(existing.selected_zodiacs)
@@ -546,7 +564,20 @@ def api_manual_bets():
                 region=region,
                 period=period,
             ).filter(
-                ManualBetRecord.total_profit.is_(None)
+                ManualBetRecord.total_profit.is_(None),
+                ManualBetRecord.odds_color == odds_color,
+                or_(
+                    ManualBetRecord.selected_numbers.is_(None),
+                    ManualBetRecord.selected_numbers == "",
+                ),
+                or_(
+                    ManualBetRecord.selected_zodiacs.is_(None),
+                    ManualBetRecord.selected_zodiacs == "",
+                ),
+                or_(
+                    ManualBetRecord.selected_parity.is_(None),
+                    ManualBetRecord.selected_parity == "",
+                ),
             )
             if bettor_name:
                 merge_query = merge_query.filter(
@@ -560,11 +591,7 @@ def api_manual_bets():
                     )
                 )
             existing = merge_query.first()
-            if existing and not any([
-                (existing.selected_numbers or "").strip(),
-                (existing.selected_zodiacs or "").strip(),
-                (existing.selected_parity or "").strip(),
-            ]) and float(existing.odds_color or 0) == odds_color:
+            if existing:
                 existing_entries = _parse_common_stake_entries(existing.selected_colors)
                 if not existing_entries:
                     existing_items = _parse_list(existing.selected_colors)
@@ -589,7 +616,20 @@ def api_manual_bets():
                 region=region,
                 period=period,
             ).filter(
-                ManualBetRecord.total_profit.is_(None)
+                ManualBetRecord.total_profit.is_(None),
+                ManualBetRecord.odds_parity == odds_parity,
+                or_(
+                    ManualBetRecord.selected_numbers.is_(None),
+                    ManualBetRecord.selected_numbers == "",
+                ),
+                or_(
+                    ManualBetRecord.selected_zodiacs.is_(None),
+                    ManualBetRecord.selected_zodiacs == "",
+                ),
+                or_(
+                    ManualBetRecord.selected_colors.is_(None),
+                    ManualBetRecord.selected_colors == "",
+                ),
             )
             if bettor_name:
                 merge_query = merge_query.filter(
@@ -603,11 +643,7 @@ def api_manual_bets():
                     )
                 )
             existing = merge_query.first()
-            if existing and not any([
-                (existing.selected_numbers or "").strip(),
-                (existing.selected_zodiacs or "").strip(),
-                (existing.selected_colors or "").strip(),
-            ]) and float(existing.odds_parity or 0) == odds_parity:
+            if existing:
                 existing_entries = _parse_common_stake_entries(existing.selected_parity)
                 if not existing_entries:
                     existing_items = _parse_list(existing.selected_parity)

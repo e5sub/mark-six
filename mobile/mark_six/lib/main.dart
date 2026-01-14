@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'api_client.dart';
@@ -804,6 +805,52 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
 
   bool get _activationValid => widget.appState.activationValid;
 
+  String _oddsPrefKey(String name) {
+    final user = widget.appState.user;
+    final suffix = user == null ? 'guest' : 'user_${user.id}';
+    return 'manual_odds_${name}_$suffix';
+  }
+
+  Future<void> _loadOddsPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final number = prefs.getString(_oddsPrefKey('number'));
+    final zodiac = prefs.getString(_oddsPrefKey('zodiac'));
+    final color = prefs.getString(_oddsPrefKey('color'));
+    final parity = prefs.getString(_oddsPrefKey('parity'));
+    if (number != null && number.isNotEmpty) {
+      _numberOddsController.text = number;
+    }
+    if (zodiac != null && zodiac.isNotEmpty) {
+      _zodiacOddsController.text = zodiac;
+    }
+    if (color != null && color.isNotEmpty) {
+      _colorOddsController.text = color;
+    }
+    if (parity != null && parity.isNotEmpty) {
+      _parityOddsController.text = parity;
+    }
+  }
+
+  Future<void> _saveOddsPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _oddsPrefKey('number'),
+      _numberOddsController.text.trim(),
+    );
+    await prefs.setString(
+      _oddsPrefKey('zodiac'),
+      _zodiacOddsController.text.trim(),
+    );
+    await prefs.setString(
+      _oddsPrefKey('color'),
+      _colorOddsController.text.trim(),
+    );
+    await prefs.setString(
+      _oddsPrefKey('parity'),
+      _parityOddsController.text.trim(),
+    );
+  }
+
   Future<bool> _requireActivation() async {
     if (_activationValid) return true;
     await showActivationDialog(context, widget.appState);
@@ -984,6 +1031,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     super.initState();
     _loadLatestDraw();
     _loadManualBets();
+    _loadOddsPrefs();
   }
 
   @override
@@ -1157,6 +1205,8 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       });
       return;
     }
+
+    await _saveOddsPrefs();
 
     final stakeSpecial =
         double.tryParse(_stakeSpecialController.text.trim()) ?? 0;
@@ -1349,6 +1399,8 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       });
       return;
     }
+
+    await _saveOddsPrefs();
 
     final stakeSpecial =
         double.tryParse(_stakeSpecialController.text.trim()) ?? 0;
