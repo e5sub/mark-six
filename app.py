@@ -176,21 +176,42 @@ def _extract_ai_numbers(ai_response):
         .replace("特碼", "特码")
     )
 
-    patterns = [
-        r'推荐号码\s*[:：]\s*\[?\s*(\d{1,2}(?:\s*[,，]\s*\d{1,2}){5})\s*\]?\s*特?码\s*[:：]\s*\[?\s*(\d{1,2})\s*\]?',
-        r'号码推荐\s*[:：]\s*\[?\s*(\d{1,2}(?:\s*[,，]\s*\d{1,2}){5})\s*\]?\s*特?码\s*[:：]\s*\[?\s*(\d{1,2})\s*\]?',
+    list_patterns = [
+        r'推荐号码\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
+        r'号码推荐\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
+        r'推荐号码\s*[:：]\s*([0-9\s,，]{5,})',
+        r'号码推荐\s*[:：]\s*([0-9\s,，]{5,})',
+    ]
+    special_patterns = [
+        r'特?码\s*[:：]\s*\[\s*(\d{1,2})(?:\s*[^\d\]]+)?\s*\]',
+        r'特?码\s*[:：]\s*(\d{1,2})(?:\s*[^\d]+)?',
     ]
 
-    for pattern in patterns:
+    normal_numbers = None
+    special_number = None
+
+    for pattern in list_patterns:
         match = re.search(pattern, normalized, flags=re.IGNORECASE)
         if not match:
             continue
         normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', match.group(1))]
-        special_number = match.group(2)
+        break
+
+    for pattern in special_patterns:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not match:
+            continue
+        special_number = match.group(1)
+        break
+
+    if normal_numbers and special_number:
         return normal_numbers, special_number
 
     lines = [line.strip() for line in normalized.splitlines() if line.strip()]
-    candidate_lines = [line for line in lines if any(k in line for k in ("推荐", "号码", "特码"))]
+    candidate_lines = [
+        line for line in lines
+        if any(k in line for k in ("推荐", "号码", "特码"))
+    ]
 
     for line in candidate_lines:
         if "特码" not in line:
