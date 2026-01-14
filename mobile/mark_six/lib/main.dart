@@ -295,11 +295,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  String _formatYuan(num? value) {
-    if (value == null) return '-';
-    return '${value.toStringAsFixed(0)}元';
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -883,9 +878,105 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     return formatted.join(', ');
   }
 
+  String _formatCommonStakesText(String raw) {
+    if (!raw.contains(':')) return raw;
+    final parts = raw.split(',');
+    final formatted = <String>[];
+    for (final part in parts) {
+      final trimmed = part.trim();
+      if (trimmed.isEmpty || !trimmed.contains(':')) continue;
+      final items = trimmed.split(':');
+      if (items.length < 2) continue;
+      final amount = double.tryParse(items[1]) ?? 0;
+      formatted.add('${items[0]}(${amount.toStringAsFixed(0)}元)');
+    }
+    return formatted.join(', ');
+  }
+
   String _formatYuan(num? value) {
     if (value == null) return '-';
     return '${value.toStringAsFixed(0)}元';
+  }
+
+  Widget _buildManualBetItem(Map<String, dynamic> item) {
+    final status = item['status']?.toString() ?? 'pending';
+    final bettor = item['bettor_name']?.toString() ?? '';
+    final createdAt = item['created_at']?.toString() ?? '';
+    final numbers = _formatNumberStakesText(
+      item['selected_numbers']?.toString() ?? '',
+    );
+    final zodiacs =
+        _formatCommonStakesText(item['selected_zodiacs']?.toString() ?? '');
+    final colors =
+        _formatCommonStakesText(item['selected_colors']?.toString() ?? '');
+    final parity =
+        _formatCommonStakesText(item['selected_parity']?.toString() ?? '');
+    final profit = (item['total_profit'] as num?)?.toDouble();
+    final stake = (item['total_stake'] as num?)?.toDouble();
+    final special = item['special_number']?.toString() ?? '';
+    final specialZodiac = item['special_zodiac']?.toString() ?? '';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '时间：$createdAt',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: status == 'settled'
+                      ? const Color(0xFFE8F5E9)
+                      : const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  status == 'settled' ? '已结算' : '待结算',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: status == 'settled'
+                        ? const Color(0xFF0B6B4F)
+                        : Colors.orange,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (numbers.isNotEmpty) Text('号码：$numbers'),
+          if (bettor.isNotEmpty) Text('下注人：$bettor'),
+          if (zodiacs.isNotEmpty) Text('生肖：$zodiacs'),
+          if (colors.isNotEmpty) Text('波色：$colors'),
+          if (parity.isNotEmpty) Text('单双：$parity'),
+          if (status == 'settled')
+            Text('开奖结果：$special  生肖：$specialZodiac'),
+          Text(
+            '下注：${_formatYuan(stake)}  盈亏：${_formatYuan(profit)}',
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -3100,21 +3191,19 @@ class _PredictScreenState extends State<PredictScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  RichText(
-                    text: TextSpan(
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                      children: [
-                        TextSpan(text: '预测时间：$createdAt  策略：'),
-                        TextSpan(
-                          text: strategyLabel,
-                          style: TextStyle(color: _strategyColor(item.strategy)),
-                        ),
-                      ],
+                child: RichText(
+                  text: TextSpan(
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
                     ),
+                    children: [
+                      TextSpan(text: '预测时间：$createdAt  策略：'),
+                      TextSpan(
+                        text: strategyLabel,
+                        style: TextStyle(color: _strategyColor(item.strategy)),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -3487,84 +3576,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _formatYuan(num? value) {
     if (value == null) return '-';
     return '${value.toStringAsFixed(0)}元';
-  }
-
-  Widget _buildManualBetItem(Map<String, dynamic> item) {
-    final status = item['status']?.toString() ?? 'pending';
-    final bettor = item['bettor_name']?.toString() ?? '';
-    final createdAt = item['created_at']?.toString() ?? '';
-    final numbers = _formatNumberStakesText(
-      item['selected_numbers']?.toString() ?? '',
-    );
-    final zodiacs = item['selected_zodiacs']?.toString() ?? '';
-    final colors = item['selected_colors']?.toString() ?? '';
-    final parity = item['selected_parity']?.toString() ?? '';
-    final profit = (item['total_profit'] as num?)?.toDouble();
-    final stake = (item['total_stake'] as num?)?.toDouble();
-    final special = item['special_number']?.toString() ?? '';
-    final specialZodiac = item['special_zodiac']?.toString() ?? '';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x12000000),
-            blurRadius: 6,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '时间：$createdAt',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: status == 'settled'
-                      ? const Color(0xFFE8F5E9)
-                      : const Color(0xFFFFF3E0),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  status == 'settled' ? '已结算' : '待结算',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: status == 'settled'
-                        ? const Color(0xFF0B6B4F)
-                        : Colors.orange,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (numbers.isNotEmpty) Text('号码：$numbers'),
-          if (bettor.isNotEmpty) Text('下注人：$bettor'),
-          if (zodiacs.isNotEmpty) Text('生肖：$zodiacs'),
-          if (colors.isNotEmpty) Text('波色：$colors'),
-          if (parity.isNotEmpty) Text('单双：$parity'),
-          if (status == 'settled')
-            Text('开奖结果：$special  生肖：$specialZodiac'),
-          Text(
-            '下注：${_formatYuan(stake)}  盈亏：${_formatYuan(profit)}',
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _showChangePasswordDialog() async {
@@ -4002,6 +4013,7 @@ class _ReleaseInfo {
   final String version;
   final String downloadUrl;
 }
+
 
 
 

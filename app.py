@@ -142,6 +142,25 @@ def _parse_number_stakes_from_string(value):
             stakes[number] = amount
     return stakes
 
+
+def _parse_common_stake_entries(value):
+    if not value:
+        return []
+    entries = []
+    for part in str(value).split(","):
+        piece = part.strip()
+        if not piece or ":" not in piece:
+            continue
+        key, amount_text = piece.split(":", 1)
+        key = key.strip()
+        try:
+            amount = float(amount_text.strip())
+        except (TypeError, ValueError):
+            continue
+        if key and amount > 0:
+            entries.append((key, amount))
+    return entries
+
 def _settle_manual_bet_record(record, draw):
     raw_zodiacs = _parse_csv_list(draw.raw_zodiac)
     special_zodiac = draw.special_zodiac or ""
@@ -161,9 +180,24 @@ def _settle_manual_bet_record(record, draw):
         selected_numbers = list(number_stakes.keys())
     else:
         selected_numbers = [int(n) for n in _parse_csv_list(record.selected_numbers) if n.isdigit()]
-    selected_zodiacs = _parse_csv_list(record.selected_zodiacs)
-    selected_colors = _parse_csv_list(record.selected_colors)
-    selected_parity = _parse_csv_list(record.selected_parity)
+    zodiac_entries = _parse_common_stake_entries(record.selected_zodiacs)
+    color_entries = _parse_common_stake_entries(record.selected_colors)
+    parity_entries = _parse_common_stake_entries(record.selected_parity)
+    selected_zodiacs = (
+        [value for value, _ in zodiac_entries]
+        if zodiac_entries
+        else _parse_csv_list(record.selected_zodiacs)
+    )
+    selected_colors = (
+        [value for value, _ in color_entries]
+        if color_entries
+        else _parse_csv_list(record.selected_colors)
+    )
+    selected_parity = (
+        [value for value, _ in parity_entries]
+        if parity_entries
+        else _parse_csv_list(record.selected_parity)
+    )
 
     stake_special = record.stake_special or 0
     stake_common = record.stake_common or 0
@@ -198,30 +232,57 @@ def _settle_manual_bet_record(record, draw):
             total_profit += profit_number
 
     if selected_zodiacs:
-        result_zodiac = special_zodiac in selected_zodiacs
-        profit_zodiac = (
-            stake_common * odds_zodiac - stake_common
-            if result_zodiac
-            else -stake_common
-        )
+        if zodiac_entries:
+            result_zodiac = any(value == special_zodiac for value, _ in zodiac_entries)
+            profit_zodiac = 0
+            for value, amount in zodiac_entries:
+                if value == special_zodiac:
+                    profit_zodiac += amount * odds_zodiac - amount
+                else:
+                    profit_zodiac += -amount
+        else:
+            result_zodiac = special_zodiac in selected_zodiacs
+            profit_zodiac = (
+                stake_common * odds_zodiac - stake_common
+                if result_zodiac
+                else -stake_common
+            )
         total_profit += profit_zodiac
 
     if selected_colors:
-        result_color = special_color in selected_colors
-        profit_color = (
-            stake_common * odds_color - stake_common
-            if result_color
-            else -stake_common
-        )
+        if color_entries:
+            result_color = any(value == special_color for value, _ in color_entries)
+            profit_color = 0
+            for value, amount in color_entries:
+                if value == special_color:
+                    profit_color += amount * odds_color - amount
+                else:
+                    profit_color += -amount
+        else:
+            result_color = special_color in selected_colors
+            profit_color = (
+                stake_common * odds_color - stake_common
+                if result_color
+                else -stake_common
+            )
         total_profit += profit_color
 
     if selected_parity:
-        result_parity = special_parity in selected_parity
-        profit_parity = (
-            stake_common * odds_parity - stake_common
-            if result_parity
-            else -stake_common
-        )
+        if parity_entries:
+            result_parity = any(value == special_parity for value, _ in parity_entries)
+            profit_parity = 0
+            for value, amount in parity_entries:
+                if value == special_parity:
+                    profit_parity += amount * odds_parity - amount
+                else:
+                    profit_parity += -amount
+        else:
+            result_parity = special_parity in selected_parity
+            profit_parity = (
+                stake_common * odds_parity - stake_common
+                if result_parity
+                else -stake_common
+            )
         total_profit += profit_parity
 
     record.result_number = result_number
@@ -236,8 +297,18 @@ def _settle_manual_bet_record(record, draw):
     if number_stakes and record.total_stake is None:
         total_stake_number = sum(number_stakes.values())
         extra_common = 0
-        if selected_zodiacs or selected_colors or selected_parity:
-            extra_common = stake_common
+        if zodiac_entries:
+            extra_common += sum(amount for _, amount in zodiac_entries)
+        elif selected_zodiacs:
+            extra_common += stake_common
+        if color_entries:
+            extra_common += sum(amount for _, amount in color_entries)
+        elif selected_colors:
+            extra_common += stake_common
+        if parity_entries:
+            extra_common += sum(amount for _, amount in parity_entries)
+        elif selected_parity:
+            extra_common += stake_common
         record.total_stake = total_stake_number + extra_common
     record.special_number = special_number
     record.special_zodiac = special_zodiac

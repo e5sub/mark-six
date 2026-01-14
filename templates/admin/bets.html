@@ -136,9 +136,63 @@
                                     号码：{{ record.selected_numbers }}<br>
                                 {% endif %}
                             {% endif %}
-                            {% if record.selected_zodiacs %}生肖：{{ record.selected_zodiacs }}<br>{% endif %}
-                            {% if record.selected_colors %}波色：{{ record.selected_colors }}<br>{% endif %}
-                            {% if record.selected_parity %}单双：{{ record.selected_parity }}{% endif %}
+                            {% if record.selected_zodiacs %}
+                                {% if ':' in record.selected_zodiacs %}
+                                    {% set parts = record.selected_zodiacs.split(',') %}
+                                    {% set formatted = [] %}
+                                    {% for part in parts %}
+                                        {% set piece = part.strip() %}
+                                        {% if ':' in piece %}
+                                            {% set pair = piece.split(':') %}
+                                            {% if pair|length >= 2 %}
+                                                {% set amount = pair[1].strip()|float|int %}
+                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ amount ~ '元)') %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    生肖：{{ formatted|join(', ') }}<br>
+                                {% else %}
+                                    生肖：{{ record.selected_zodiacs }}<br>
+                                {% endif %}
+                            {% endif %}
+                            {% if record.selected_colors %}
+                                {% if ':' in record.selected_colors %}
+                                    {% set parts = record.selected_colors.split(',') %}
+                                    {% set formatted = [] %}
+                                    {% for part in parts %}
+                                        {% set piece = part.strip() %}
+                                        {% if ':' in piece %}
+                                            {% set pair = piece.split(':') %}
+                                            {% if pair|length >= 2 %}
+                                                {% set amount = pair[1].strip()|float|int %}
+                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ amount ~ '元)') %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    波色：{{ formatted|join(', ') }}<br>
+                                {% else %}
+                                    波色：{{ record.selected_colors }}<br>
+                                {% endif %}
+                            {% endif %}
+                            {% if record.selected_parity %}
+                                {% if ':' in record.selected_parity %}
+                                    {% set parts = record.selected_parity.split(',') %}
+                                    {% set formatted = [] %}
+                                    {% for part in parts %}
+                                        {% set piece = part.strip() %}
+                                        {% if ':' in piece %}
+                                            {% set pair = piece.split(':') %}
+                                            {% if pair|length >= 2 %}
+                                                {% set amount = pair[1].strip()|float|int %}
+                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ amount ~ '元)') %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    单双：{{ formatted|join(', ') }}
+                                {% else %}
+                                    单双：{{ record.selected_parity }}
+                                {% endif %}
+                            {% endif %}
                         </td>
                         <td>
                             总额：{{ (record.total_stake or 0)|int }}元

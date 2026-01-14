@@ -100,6 +100,60 @@ def _parse_number_stakes(value):
     return {}
 
 
+def _parse_common_stake_entries(value):
+    if not value:
+        return []
+    if isinstance(value, str):
+        entries = []
+        for part in value.split(","):
+            piece = part.strip()
+            if not piece or ":" not in piece:
+                continue
+            key, amount_text = piece.split(":", 1)
+            key = key.strip()
+            try:
+                amount = float(amount_text.strip())
+            except (TypeError, ValueError):
+                continue
+            if key and amount > 0:
+                entries.append((key, amount))
+        return entries
+    return []
+
+
+def _serialize_common_stakes(entries):
+    return ",".join(f"{key}:{amount}" for key, amount in entries)
+
+
+def _build_common_stakes(items, amount):
+    try:
+        stake = float(amount)
+    except (TypeError, ValueError):
+        return []
+    if stake <= 0:
+        return []
+    entries = []
+    for item in items:
+        value = str(item).strip()
+        if value:
+            entries.append((value, stake))
+    return entries
+
+
+def _calc_common_entries(entries, match_value, odds):
+    profit = 0
+    total = 0
+    win = False
+    for value, amount in entries:
+        total += amount
+        if value == match_value:
+            win = True
+            profit += amount * odds - amount
+        else:
+            profit += -amount
+    return win, profit, total
+
+
 def _serialize_number_stakes(number_stakes):
     parts = []
     for number, amount in number_stakes.items():
@@ -392,12 +446,18 @@ def api_manual_bets():
             stake_special = total_stake
         else:
             total_stake += stake_special
-    if bet_zodiac:
-        total_stake += stake_common
-    if bet_color:
-        total_stake += stake_common
-    if bet_parity:
-        total_stake += stake_common
+
+    zodiac_entries = _build_common_stakes(selected_zodiacs, stake_common) if bet_zodiac else []
+    color_entries = _build_common_stakes(selected_colors, stake_common) if bet_color else []
+    parity_entries = _build_common_stakes(selected_parity, stake_common) if bet_parity else []
+    common_total = (
+        sum(amount for _, amount in zodiac_entries)
+        + sum(amount for _, amount in color_entries)
+        + sum(amount for _, amount in parity_entries)
+    )
+    total_stake += common_total
+    if common_total > 0:
+        stake_common = common_total
 
     if not settle:
         if bet_number and number_stakes and not (bet_zodiac or bet_color or bet_parity):
@@ -437,10 +497,154 @@ def api_manual_bets():
                     db.session.commit()
                     return jsonify({"success": True, "record_id": existing.id})
 
+        if bet_zodiac and not (bet_number or bet_color or bet_parity):
+            merge_query = ManualBetRecord.query.filter_by(
+                user_id=user.id,
+                region=region,
+                period=period,
+            ).filter(
+                ManualBetRecord.total_profit.is_(None)
+            )
+            if bettor_name:
+                merge_query = merge_query.filter(
+                    ManualBetRecord.bettor_name == bettor_name
+                )
+            else:
+                merge_query = merge_query.filter(
+                    or_(
+                        ManualBetRecord.bettor_name.is_(None),
+                        ManualBetRecord.bettor_name == "",
+                    )
+                )
+            existing = merge_query.first()
+            if existing and not any([
+                (existing.selected_numbers or "").strip(),
+                (existing.selected_colors or "").strip(),
+                (existing.selected_parity or "").strip(),
+            ]) and float(existing.odds_zodiac or 0) == odds_zodiac:
+                existing_entries = _parse_common_stake_entries(existing.selected_zodiacs)
+                if not existing_entries:
+                    existing_items = _parse_list(existing.selected_zodiacs)
+                    if existing_items and float(existing.stake_common or 0) > 0:
+                        existing_entries = _build_common_stakes(
+                            existing_items,
+                            float(existing.stake_common or 0),
+                        )
+                new_entries = _build_common_stakes(selected_zodiacs, stake_common)
+                merged_entries = existing_entries + new_entries
+                merged_total = sum(amount for _, amount in merged_entries)
+                existing.selected_zodiacs = _serialize_common_stakes(merged_entries)
+                existing.odds_zodiac = odds_zodiac
+                existing.stake_common = merged_total
+                existing.total_stake = merged_total
+                db.session.commit()
+                return jsonify({"success": True, "record_id": existing.id})
+
+        if bet_color and not (bet_number or bet_zodiac or bet_parity):
+            merge_query = ManualBetRecord.query.filter_by(
+                user_id=user.id,
+                region=region,
+                period=period,
+            ).filter(
+                ManualBetRecord.total_profit.is_(None)
+            )
+            if bettor_name:
+                merge_query = merge_query.filter(
+                    ManualBetRecord.bettor_name == bettor_name
+                )
+            else:
+                merge_query = merge_query.filter(
+                    or_(
+                        ManualBetRecord.bettor_name.is_(None),
+                        ManualBetRecord.bettor_name == "",
+                    )
+                )
+            existing = merge_query.first()
+            if existing and not any([
+                (existing.selected_numbers or "").strip(),
+                (existing.selected_zodiacs or "").strip(),
+                (existing.selected_parity or "").strip(),
+            ]) and float(existing.odds_color or 0) == odds_color:
+                existing_entries = _parse_common_stake_entries(existing.selected_colors)
+                if not existing_entries:
+                    existing_items = _parse_list(existing.selected_colors)
+                    if existing_items and float(existing.stake_common or 0) > 0:
+                        existing_entries = _build_common_stakes(
+                            existing_items,
+                            float(existing.stake_common or 0),
+                        )
+                new_entries = _build_common_stakes(selected_colors, stake_common)
+                merged_entries = existing_entries + new_entries
+                merged_total = sum(amount for _, amount in merged_entries)
+                existing.selected_colors = _serialize_common_stakes(merged_entries)
+                existing.odds_color = odds_color
+                existing.stake_common = merged_total
+                existing.total_stake = merged_total
+                db.session.commit()
+                return jsonify({"success": True, "record_id": existing.id})
+
+        if bet_parity and not (bet_number or bet_zodiac or bet_color):
+            merge_query = ManualBetRecord.query.filter_by(
+                user_id=user.id,
+                region=region,
+                period=period,
+            ).filter(
+                ManualBetRecord.total_profit.is_(None)
+            )
+            if bettor_name:
+                merge_query = merge_query.filter(
+                    ManualBetRecord.bettor_name == bettor_name
+                )
+            else:
+                merge_query = merge_query.filter(
+                    or_(
+                        ManualBetRecord.bettor_name.is_(None),
+                        ManualBetRecord.bettor_name == "",
+                    )
+                )
+            existing = merge_query.first()
+            if existing and not any([
+                (existing.selected_numbers or "").strip(),
+                (existing.selected_zodiacs or "").strip(),
+                (existing.selected_colors or "").strip(),
+            ]) and float(existing.odds_parity or 0) == odds_parity:
+                existing_entries = _parse_common_stake_entries(existing.selected_parity)
+                if not existing_entries:
+                    existing_items = _parse_list(existing.selected_parity)
+                    if existing_items and float(existing.stake_common or 0) > 0:
+                        existing_entries = _build_common_stakes(
+                            existing_items,
+                            float(existing.stake_common or 0),
+                        )
+                new_entries = _build_common_stakes(selected_parity, stake_common)
+                merged_entries = existing_entries + new_entries
+                merged_total = sum(amount for _, amount in merged_entries)
+                existing.selected_parity = _serialize_common_stakes(merged_entries)
+                existing.odds_parity = odds_parity
+                existing.stake_common = merged_total
+                existing.total_stake = merged_total
+                db.session.commit()
+                return jsonify({"success": True, "record_id": existing.id})
+
         record_numbers = (
             _serialize_number_stakes(number_stakes)
             if number_stakes
             else ",".join(str(n) for n in selected_numbers)
+        )
+        record_zodiacs = (
+            _serialize_common_stakes(zodiac_entries)
+            if zodiac_entries
+            else ",".join(selected_zodiacs)
+        )
+        record_colors = (
+            _serialize_common_stakes(color_entries)
+            if color_entries
+            else ",".join(selected_colors)
+        )
+        record_parity = (
+            _serialize_common_stakes(parity_entries)
+            if parity_entries
+            else ",".join(selected_parity)
         )
         record = ManualBetRecord(
             user_id=user.id,
@@ -448,9 +652,9 @@ def api_manual_bets():
             period=period,
             bettor_name=bettor_name or None,
             selected_numbers=record_numbers,
-            selected_zodiacs=",".join(selected_zodiacs),
-            selected_colors=",".join(selected_colors),
-            selected_parity=",".join(selected_parity),
+            selected_zodiacs=record_zodiacs,
+            selected_colors=record_colors,
+            selected_parity=record_parity,
             odds_number=odds_number,
             odds_zodiac=odds_zodiac,
             odds_color=odds_color,
@@ -483,13 +687,28 @@ def api_manual_bets():
             if number_stakes
             else _parse_int_list(record.selected_numbers)
         )
-        selected_zodiacs = _parse_list(record.selected_zodiacs)
-        selected_colors = _parse_list(record.selected_colors)
-        selected_parity = _parse_list(record.selected_parity)
+        zodiac_entries = _parse_common_stake_entries(record.selected_zodiacs)
+        color_entries = _parse_common_stake_entries(record.selected_colors)
+        parity_entries = _parse_common_stake_entries(record.selected_parity)
+        selected_zodiacs = (
+            [value for value, _ in zodiac_entries]
+            if zodiac_entries
+            else _parse_list(record.selected_zodiacs)
+        )
+        selected_colors = (
+            [value for value, _ in color_entries]
+            if color_entries
+            else _parse_list(record.selected_colors)
+        )
+        selected_parity = (
+            [value for value, _ in parity_entries]
+            if parity_entries
+            else _parse_list(record.selected_parity)
+        )
         bet_number = bool(selected_numbers)
-        bet_zodiac = bool(selected_zodiacs)
-        bet_color = bool(selected_colors)
-        bet_parity = bool(selected_parity)
+        bet_zodiac = bool(zodiac_entries or selected_zodiacs)
+        bet_color = bool(color_entries or selected_colors)
+        bet_parity = bool(parity_entries or selected_parity)
         stake_special = record.stake_special or 0
         stake_common = record.stake_common or 0
         odds_number = record.odds_number or 0
@@ -526,14 +745,19 @@ def api_manual_bets():
     profit_parity = None
     total_profit = 0
 
+    total_number_stake = 0
+    common_total = 0
+
     if bet_number:
         result_number = special_number.isdigit() and int(
             special_number
         ) in selected_numbers
         if number_stakes:
+            total_number_stake = sum(number_stakes.values())
             hit_stake = number_stakes.get(int(special_number), 0)
-            profit_number = hit_stake * odds_number - total_stake
+            profit_number = hit_stake * odds_number - total_number_stake
         else:
+            total_number_stake = stake_special
             profit_number = (
                 stake_special * odds_number - stake_special
                 if result_number
@@ -542,42 +766,92 @@ def api_manual_bets():
         total_profit += profit_number
 
     if bet_zodiac:
-        result_zodiac = special_zodiac in selected_zodiacs
-        profit_zodiac = (
-            stake_common * odds_zodiac - stake_common
-            if result_zodiac
-            else -stake_common
-        )
+        if zodiac_entries:
+            result_zodiac, profit_zodiac, zodiac_total = _calc_common_entries(
+                zodiac_entries,
+                special_zodiac,
+                odds_zodiac,
+            )
+            common_total += zodiac_total
+        else:
+            result_zodiac = special_zodiac in selected_zodiacs
+            profit_zodiac = (
+                stake_common * odds_zodiac - stake_common
+                if result_zodiac
+                else -stake_common
+            )
+            common_total += stake_common
         total_profit += profit_zodiac
 
     if bet_color:
-        result_color = special_color in selected_colors
-        profit_color = (
-            stake_common * odds_color - stake_common
-            if result_color
-            else -stake_common
-        )
+        if color_entries:
+            result_color, profit_color, color_total = _calc_common_entries(
+                color_entries,
+                special_color,
+                odds_color,
+            )
+            common_total += color_total
+        else:
+            result_color = special_color in selected_colors
+            profit_color = (
+                stake_common * odds_color - stake_common
+                if result_color
+                else -stake_common
+            )
+            common_total += stake_common
         total_profit += profit_color
 
     if bet_parity:
-        result_parity = special_parity in selected_parity
-        profit_parity = (
-            stake_common * odds_parity - stake_common
-            if result_parity
-            else -stake_common
-        )
+        if parity_entries:
+            result_parity, profit_parity, parity_total = _calc_common_entries(
+                parity_entries,
+                special_parity,
+                odds_parity,
+            )
+            common_total += parity_total
+        else:
+            result_parity = special_parity in selected_parity
+            profit_parity = (
+                stake_common * odds_parity - stake_common
+                if result_parity
+                else -stake_common
+            )
+            common_total += stake_common
         total_profit += profit_parity
 
+    if total_number_stake or common_total:
+        total_stake = total_number_stake + common_total
+
     if record is None:
+        record_zodiacs = (
+            _serialize_common_stakes(zodiac_entries)
+            if zodiac_entries
+            else ",".join(selected_zodiacs)
+        )
+        record_colors = (
+            _serialize_common_stakes(color_entries)
+            if color_entries
+            else ",".join(selected_colors)
+        )
+        record_parity = (
+            _serialize_common_stakes(parity_entries)
+            if parity_entries
+            else ",".join(selected_parity)
+        )
+        record_numbers = (
+            _serialize_number_stakes(number_stakes)
+            if number_stakes
+            else ",".join(str(n) for n in selected_numbers)
+        )
         record = ManualBetRecord(
             user_id=user.id,
             region=region,
             period=period,
             bettor_name=bettor_name or None,
-            selected_numbers=",".join(str(n) for n in selected_numbers),
-            selected_zodiacs=",".join(selected_zodiacs),
-            selected_colors=",".join(selected_colors),
-            selected_parity=",".join(selected_parity),
+            selected_numbers=record_numbers,
+            selected_zodiacs=record_zodiacs,
+            selected_colors=record_colors,
+            selected_parity=record_parity,
             odds_number=odds_number,
             odds_zodiac=odds_zodiac,
             odds_color=odds_color,
@@ -587,6 +861,11 @@ def api_manual_bets():
             total_stake=total_stake,
         )
         db.session.add(record)
+
+    if common_total:
+        record.stake_common = common_total
+    if total_stake:
+        record.total_stake = total_stake
 
     record.result_number = result_number
     record.result_zodiac = result_zodiac
