@@ -3212,10 +3212,54 @@ class _PredictScreenState extends State<PredictScreen> {
                 child: Text('暂无预测记录'),
               )
             else
-              Column(
-                children: _predictionRecords
-                    .map(_buildPredictionRecordItem)
-                    .toList(),
+              Builder(
+                builder: (context) {
+                  final grouped = <String, List<PredictionItem>>{};
+                  final orderedPeriods = <String>[];
+                  for (final item in _predictionRecords) {
+                    final period = item.period;
+                    if (!grouped.containsKey(period)) {
+                      grouped[period] = [];
+                      orderedPeriods.add(period);
+                    }
+                    grouped[period]!.add(item);
+                  }
+
+                  return Column(
+                    children: orderedPeriods.map((period) {
+                      final items = grouped[period] ?? [];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7FAF9),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: const Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '期号：$period',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Column(
+                              children: items
+                                  .map(_buildPredictionRecordItem)
+                                  .toList(),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  );
+                },
               ),
           ],
         ),
@@ -3426,6 +3470,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  String _formatYuan(num? value) {
+    if (value == null) return '-';
+    return '${value.toStringAsFixed(0)}元';
   }
 
   Future<void> _showChangePasswordDialog() async {
