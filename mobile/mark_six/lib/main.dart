@@ -300,6 +300,11 @@ class _LoginScreenState extends State<LoginScreen> {
     return '${value.toStringAsFixed(0)}元';
   }
 
+  String _formatYuan(num? value) {
+    if (value == null) return '-';
+    return '${value.toStringAsFixed(0)}元';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -872,7 +877,8 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       if (trimmed.isEmpty || !trimmed.contains(':')) continue;
       final items = trimmed.split(':');
       if (items.length < 2) continue;
-      formatted.add('${items[0]}(${items[1]})');
+      final amount = double.tryParse(items[1]) ?? 0;
+      formatted.add('${items[0]}(${amount.toStringAsFixed(0)}元)');
     }
     return formatted.join(', ');
   }

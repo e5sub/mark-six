@@ -126,7 +126,8 @@
                                         {% if ':' in piece %}
                                             {% set pair = piece.split(':') %}
                                             {% if pair|length >= 2 %}
-                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ pair[1].strip() ~ ')') %}
+                                                {% set amount = pair[1].strip()|float|int %}
+                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ amount ~ '元)') %}
                                             {% endif %}
                                         {% endif %}
                                     {% endfor %}
