@@ -802,6 +802,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   double _totalProfit = 0;
   bool _loadingBets = false;
   List<Map<String, dynamic>> _manualBets = [];
+  bool _showAllManualBetPeriods = false;
 
   bool get _activationValid => widget.appState.activationValid;
 
@@ -1086,10 +1087,16 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
           .whereType<Map<String, dynamic>>()
           .toList();
       if (!mounted) return;
-      setState(() => _manualBets = items);
+      setState(() {
+        _manualBets = items;
+        _showAllManualBetPeriods = false;
+      });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _manualBets = []);
+      setState(() {
+        _manualBets = [];
+        _showAllManualBetPeriods = false;
+      });
     } finally {
       if (mounted) {
         setState(() => _loadingBets = false);
@@ -2107,52 +2114,78 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                           grouped[period]!.add(item);
                         }
 
+                        final visiblePeriods = _showAllManualBetPeriods
+                            ? orderedPeriods
+                            : orderedPeriods.take(2).toList();
+
                         return Column(
-                          children: orderedPeriods.map((period) {
-                            final items = grouped[period] ?? [];
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF7FAF9),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: const Color(0xFFE2E8F0),
+                          children: [
+                            ...visiblePeriods.map((period) {
+                              final items = grouped[period] ?? [];
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF7FAF9),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
                                 ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '期号：$period',
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '期号：$period',
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      Text(
-                                        '共${items.length}条',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade600,
+                                        Text(
+                                          '共${items.length}条',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Column(
-                                    children: items
-                                        .map(_buildManualBetItem)
-                                        .toList(),
-                                  ),
-                                ],
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Column(
+                                      children: items
+                                          .map(_buildManualBetItem)
+                                          .toList(),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                            if (!_showAllManualBetPeriods &&
+                                orderedPeriods.length > 2)
+                              TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _showAllManualBetPeriods = true;
+                                  });
+                                },
+                                child: const Text('显示更多'),
                               ),
-                            );
-                          }).toList(),
+                            if (_showAllManualBetPeriods &&
+                                orderedPeriods.length > 2)
+                              TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _showAllManualBetPeriods = false;
+                                  });
+                                },
+                                child: const Text('收起'),
+                              ),
+                          ],
                         );
                       },
                     ),
@@ -2773,6 +2806,7 @@ class _PredictScreenState extends State<PredictScreen> {
   String _specialZodiac = '';
   bool _loadingRecords = false;
   List<PredictionItem> _predictionRecords = [];
+  bool _showAllPredictionPeriods = false;
   final Map<int, List<String>> _recordNormalZodiacs = {};
   final Map<int, String> _recordSpecialZodiacs = {};
   StreamSubscription<Map<String, dynamic>>? _aiSubscription;
@@ -3117,6 +3151,7 @@ class _PredictScreenState extends State<PredictScreen> {
       if (!mounted) return;
       setState(() {
         _predictionRecords = items;
+        _showAllPredictionPeriods = false;
         for (final item in items) {
           if (item.normalZodiacs.isNotEmpty) {
             _recordNormalZodiacs[item.id] = item.normalZodiacs;
@@ -3378,39 +3413,65 @@ class _PredictScreenState extends State<PredictScreen> {
                     grouped[period]!.add(item);
                   }
 
+                  final visiblePeriods = _showAllPredictionPeriods
+                      ? orderedPeriods
+                      : orderedPeriods.take(2).toList();
+
                   return Column(
-                    children: orderedPeriods.map((period) {
-                      final items = grouped[period] ?? [];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF7FAF9),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: const Color(0xFFE2E8F0),
+                    children: [
+                      ...visiblePeriods.map((period) {
+                        final items = grouped[period] ?? [];
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF7FAF9),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: const Color(0xFFE2E8F0),
+                            ),
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '期号：$period',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '期号：$period',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Column(
-                              children: items
-                                  .map(_buildPredictionRecordItem)
-                                  .toList(),
-                            ),
-                          ],
+                              const SizedBox(height: 8),
+                              Column(
+                                children: items
+                                    .map(_buildPredictionRecordItem)
+                                    .toList(),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      if (!_showAllPredictionPeriods &&
+                          orderedPeriods.length > 2)
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _showAllPredictionPeriods = true;
+                            });
+                          },
+                          child: const Text('显示更多'),
                         ),
-                      );
-                    }).toList(),
+                      if (_showAllPredictionPeriods &&
+                          orderedPeriods.length > 2)
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _showAllPredictionPeriods = false;
+                            });
+                          },
+                          child: const Text('收起'),
+                        ),
+                    ],
                   );
                 },
               ),
@@ -4065,6 +4126,8 @@ class _ReleaseInfo {
   final String version;
   final String downloadUrl;
 }
+
+
 
 
 
