@@ -154,6 +154,18 @@ def _calc_common_entries(entries, match_value, odds):
     return win, profit, total
 
 
+def _odds_match(existing_value, incoming_value):
+    try:
+        existing = float(existing_value or 0)
+    except (TypeError, ValueError):
+        existing = 0
+    try:
+        incoming = float(incoming_value or 0)
+    except (TypeError, ValueError):
+        incoming = 0
+    return abs(existing - incoming) < 0.0001
+
+
 def _serialize_number_stakes(number_stakes):
     parts = []
     for number, amount in number_stakes.items():
@@ -467,7 +479,6 @@ def api_manual_bets():
                 period=period,
             ).filter(
                 ManualBetRecord.total_profit.is_(None),
-                ManualBetRecord.odds_number == odds_number,
                 or_(
                     ManualBetRecord.selected_zodiacs.is_(None),
                     ManualBetRecord.selected_zodiacs == "",
@@ -492,9 +503,22 @@ def api_manual_bets():
                         ManualBetRecord.bettor_name == "",
                     )
                 )
-            existing = merge_query.first()
+            existing = None
+            for candidate in merge_query.order_by(ManualBetRecord.created_at.desc()).all():
+                if _odds_match(candidate.odds_number, odds_number):
+                    existing = candidate
+                    break
             if existing:
                 existing_stakes = _parse_number_stakes(existing.selected_numbers)
+                if not existing_stakes:
+                    fallback_numbers = _parse_int_list(existing.selected_numbers)
+                    if fallback_numbers and float(existing.stake_special or 0) > 0:
+                        each_amount = float(existing.stake_special or 0) / len(
+                            fallback_numbers
+                        )
+                        existing_stakes = {
+                            number: each_amount for number in fallback_numbers
+                        }
                 if existing_stakes:
                     for number, amount in number_stakes.items():
                         existing_stakes[number] = existing_stakes.get(number, 0) + amount
@@ -513,7 +537,6 @@ def api_manual_bets():
                 period=period,
             ).filter(
                 ManualBetRecord.total_profit.is_(None),
-                ManualBetRecord.odds_zodiac == odds_zodiac,
                 or_(
                     ManualBetRecord.selected_numbers.is_(None),
                     ManualBetRecord.selected_numbers == "",
@@ -538,7 +561,11 @@ def api_manual_bets():
                         ManualBetRecord.bettor_name == "",
                     )
                 )
-            existing = merge_query.first()
+            existing = None
+            for candidate in merge_query.order_by(ManualBetRecord.created_at.desc()).all():
+                if _odds_match(candidate.odds_zodiac, odds_zodiac):
+                    existing = candidate
+                    break
             if existing:
                 existing_entries = _parse_common_stake_entries(existing.selected_zodiacs)
                 if not existing_entries:
@@ -565,7 +592,6 @@ def api_manual_bets():
                 period=period,
             ).filter(
                 ManualBetRecord.total_profit.is_(None),
-                ManualBetRecord.odds_color == odds_color,
                 or_(
                     ManualBetRecord.selected_numbers.is_(None),
                     ManualBetRecord.selected_numbers == "",
@@ -590,7 +616,11 @@ def api_manual_bets():
                         ManualBetRecord.bettor_name == "",
                     )
                 )
-            existing = merge_query.first()
+            existing = None
+            for candidate in merge_query.order_by(ManualBetRecord.created_at.desc()).all():
+                if _odds_match(candidate.odds_color, odds_color):
+                    existing = candidate
+                    break
             if existing:
                 existing_entries = _parse_common_stake_entries(existing.selected_colors)
                 if not existing_entries:
@@ -617,7 +647,6 @@ def api_manual_bets():
                 period=period,
             ).filter(
                 ManualBetRecord.total_profit.is_(None),
-                ManualBetRecord.odds_parity == odds_parity,
                 or_(
                     ManualBetRecord.selected_numbers.is_(None),
                     ManualBetRecord.selected_numbers == "",
@@ -642,7 +671,11 @@ def api_manual_bets():
                         ManualBetRecord.bettor_name == "",
                     )
                 )
-            existing = merge_query.first()
+            existing = None
+            for candidate in merge_query.order_by(ManualBetRecord.created_at.desc()).all():
+                if _odds_match(candidate.odds_parity, odds_parity):
+                    existing = candidate
+                    break
             if existing:
                 existing_entries = _parse_common_stake_entries(existing.selected_parity)
                 if not existing_entries:
