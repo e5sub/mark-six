@@ -53,6 +53,60 @@ def _parse_int_list(value):
     return result
 
 
+def _parse_number_stakes(value):
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        result = {}
+        for key, stake in value.items():
+            try:
+                number = int(str(key).strip())
+                amount = float(stake)
+            except (TypeError, ValueError):
+                continue
+            if number > 0 and amount > 0:
+                result[number] = amount
+        return result
+    if isinstance(value, list):
+        result = {}
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            try:
+                number = int(str(item.get("number", "")).strip())
+                amount = float(item.get("stake"))
+            except (TypeError, ValueError):
+                continue
+            if number > 0 and amount > 0:
+                result[number] = amount
+        return result
+    if isinstance(value, str):
+        result = {}
+        for chunk in value.split(","):
+            part = chunk.strip()
+            if not part:
+                continue
+            if ":" not in part:
+                continue
+            num_str, stake_str = part.split(":", 1)
+            try:
+                number = int(num_str.strip())
+                amount = float(stake_str.strip())
+            except (TypeError, ValueError):
+                continue
+            if number > 0 and amount > 0:
+                result[number] = amount
+        return result
+    return {}
+
+
+def _serialize_number_stakes(number_stakes):
+    parts = []
+    for number, amount in number_stakes.items():
+        parts.append(f"{number}:{amount}")
+    return ",".join(parts)
+
+
 def _validate_bet_payload(
     bet_number,
     bet_zodiac,
@@ -62,21 +116,29 @@ def _validate_bet_payload(
     selected_zodiacs,
     selected_colors,
     selected_parity,
+    number_stakes,
     stake_special,
     stake_common,
 ):
     if not (bet_number or bet_zodiac or bet_color or bet_parity):
         return "请选择下注类型"
-    if bet_number and not selected_numbers:
-        return "请选择号码"
+    if bet_number:
+        if number_stakes:
+            if not selected_numbers:
+                return "请选择号码"
+            if any(amount <= 0 for amount in number_stakes.values()):
+                return "每个号码的下注金额需大于0"
+        else:
+            if not selected_numbers:
+                return "请选择号码"
+            if stake_special <= 0:
+                return "请输入有效的特码下注金额"
     if bet_zodiac and not selected_zodiacs:
         return "请选择生肖"
     if bet_color and not selected_colors:
         return "请选择波色"
     if bet_parity and not selected_parity:
         return "请选择单双"
-    if bet_number and stake_special <= 0:
-        return "请输入有效的特码下注金额"
     if (bet_zodiac or bet_color or bet_parity) and stake_common <= 0:
         return "请输入有效的共用下注金额"
     return ""
@@ -280,8 +342,15 @@ def api_manual_bets():
     bet_color = bool(payload.get("bet_color"))
     bet_parity = bool(payload.get("bet_parity"))
 
+    number_stakes = (
+        _parse_number_stakes(payload.get("number_stakes"))
+        if bet_number
+        else {}
+    )
     selected_numbers = (
-        _parse_int_list(payload.get("numbers")) if bet_number else []
+        sorted(number_stakes.keys())
+        if number_stakes
+        else (_parse_int_list(payload.get("numbers")) if bet_number else [])
     )
     selected_zodiacs = (
         _parse_list(payload.get("zodiacs")) if bet_zodiac else []
@@ -309,6 +378,7 @@ def api_manual_bets():
         selected_zodiacs,
         selected_colors,
         selected_parity,
+        number_stakes,
         stake_special,
         stake_common,
     )
@@ -317,7 +387,11 @@ def api_manual_bets():
 
     total_stake = 0
     if bet_number:
-        total_stake += stake_special
+        if number_stakes:
+            total_stake += sum(number_stakes.values())
+            stake_special = total_stake
+        else:
+            total_stake += stake_special
     if bet_zodiac:
         total_stake += stake_common
     if bet_color:
@@ -326,12 +400,17 @@ def api_manual_bets():
         total_stake += stake_common
 
     if not settle:
+        record_numbers = (
+            _serialize_number_stakes(number_stakes)
+            if number_stakes
+            else ",".join(str(n) for n in selected_numbers)
+        )
         record = ManualBetRecord(
             user_id=user.id,
             region=region,
             period=period,
             bettor_name=bettor_name or None,
-            selected_numbers=",".join(str(n) for n in selected_numbers),
+            selected_numbers=record_numbers,
             selected_zodiacs=",".join(selected_zodiacs),
             selected_colors=",".join(selected_colors),
             selected_parity=",".join(selected_parity),
@@ -361,7 +440,12 @@ def api_manual_bets():
         if record.total_profit is not None:
             return _json_error("record already settled", status=400, code="record_settled")
 
-        selected_numbers = _parse_int_list(record.selected_numbers)
+        number_stakes = _parse_number_stakes(record.selected_numbers)
+        selected_numbers = (
+            sorted(number_stakes.keys())
+            if number_stakes
+            else _parse_int_list(record.selected_numbers)
+        )
         selected_zodiacs = _parse_list(record.selected_zodiacs)
         selected_colors = _parse_list(record.selected_colors)
         selected_parity = _parse_list(record.selected_parity)
@@ -375,7 +459,12 @@ def api_manual_bets():
         odds_zodiac = record.odds_zodiac or 0
         odds_color = record.odds_color or 0
         odds_parity = record.odds_parity or 0
-        total_stake = record.total_stake or total_stake
+        if record.total_stake is not None:
+            total_stake = record.total_stake
+        elif number_stakes:
+            total_stake = sum(number_stakes.values())
+        else:
+            total_stake = total_stake
 
     raw_zodiacs = draw.raw_zodiac.split(",") if draw.raw_zodiac else []
     special_zodiac = draw.special_zodiac or ""
@@ -404,11 +493,15 @@ def api_manual_bets():
         result_number = special_number.isdigit() and int(
             special_number
         ) in selected_numbers
-        profit_number = (
-            stake_special * odds_number - stake_special
-            if result_number
-            else -stake_special
-        )
+        if number_stakes:
+            hit_stake = number_stakes.get(int(special_number), 0)
+            profit_number = hit_stake * odds_number - total_stake
+        else:
+            profit_number = (
+                stake_special * odds_number - stake_special
+                if result_number
+                else -stake_special
+            )
         total_profit += profit_number
 
     if bet_zodiac:

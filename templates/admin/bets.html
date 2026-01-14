@@ -1,0 +1,173 @@
+{% extends "admin/base.html" %}
+
+{% block page_title %}下注记录{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">筛选条件</h2>
+    </div>
+    <form method="GET" action="{{ url_for('admin.bets') }}">
+        <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;">
+            <div class="form-group">
+                <label>用户（ID/用户名/邮箱）</label>
+                <input class="form-control" name="user" value="{{ user_query }}">
+            </div>
+            <div class="form-group">
+                <label>地区</label>
+                <select class="form-control" name="region">
+                    <option value="">全部</option>
+                    <option value="hk" {% if region == 'hk' %}selected{% endif %}>香港</option>
+                    <option value="macau" {% if region == 'macau' %}selected{% endif %}>澳门</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>期号</label>
+                <input class="form-control" name="period" value="{{ period }}">
+            </div>
+            <div class="form-group">
+                <label>状态</label>
+                <select class="form-control" name="status">
+                    <option value="">全部</option>
+                    <option value="pending" {% if status == 'pending' %}selected{% endif %}>待结算</option>
+                    <option value="settled" {% if status == 'settled' %}selected{% endif %}>已结算</option>
+                    <option value="win" {% if status == 'win' %}selected{% endif %}>盈利</option>
+                    <option value="lose" {% if status == 'lose' %}selected{% endif %}>亏损</option>
+                    <option value="draw" {% if status == 'draw' %}selected{% endif %}>持平</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>开始日期</label>
+                <input class="form-control" type="date" name="start_date" value="{{ start_date }}">
+            </div>
+            <div class="form-group">
+                <label>结束日期</label>
+                <input class="form-control" type="date" name="end_date" value="{{ end_date }}">
+            </div>
+        </div>
+        <div style="margin-top: 1rem; display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn">查询</button>
+            <a class="btn btn-success" href="{{ url_for('admin.bets') }}">重置</a>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">统计信息</h2>
+    </div>
+    <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.total }}</div>
+            <div class="stat-label">总记录数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.total_stake }}</div>
+            <div class="stat-label">总下注</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.total_profit }}</div>
+            <div class="stat-label">总盈亏</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.pending_count }}</div>
+            <div class="stat-label">待结算</div>
+        </div>
+    </div>
+    <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem;">
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.win_count }}</div>
+            <div class="stat-label">盈利次数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.lose_count }}</div>
+            <div class="stat-label">亏损次数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.draw_count }}</div>
+            <div class="stat-label">持平次数</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">下注记录</h2>
+    </div>
+    <div style="overflow-x: auto;">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>用户</th>
+                    <th>地区</th>
+                    <th>期号</th>
+                    <th>下注内容</th>
+                    <th>下注金额</th>
+                    <th>盈亏</th>
+                    <th>状态</th>
+                    <th>时间</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if bets.items %}
+                    {% for record in bets.items %}
+                    <tr>
+                        <td>{{ user_map.get(record.user_id, '未知用户') }}</td>
+                        <td>{{ '香港' if record.region == 'hk' else '澳门' }}</td>
+                        <td>{{ record.period }}</td>
+                        <td>
+                            {% if record.bettor_name %}下注人：{{ record.bettor_name }}<br>{% endif %}
+                            {% if record.selected_numbers %}号码：{{ record.selected_numbers }}<br>{% endif %}
+                            {% if record.selected_zodiacs %}生肖：{{ record.selected_zodiacs }}<br>{% endif %}
+                            {% if record.selected_colors %}波色：{{ record.selected_colors }}<br>{% endif %}
+                            {% if record.selected_parity %}单双：{{ record.selected_parity }}{% endif %}
+                        </td>
+                        <td>
+                            特码：{{ record.stake_special or 0 }}<br>
+                            共用：{{ record.stake_common or 0 }}<br>
+                            总额：{{ record.total_stake or 0 }}
+                        </td>
+                        <td>{{ record.total_profit if record.total_profit is not none else '-' }}</td>
+                        <td>
+                            {% if record.total_profit is none %}
+                                待结算
+                            {% elif record.total_profit > 0 %}
+                                盈利
+                            {% elif record.total_profit < 0 %}
+                                亏损
+                            {% else %}
+                                持平
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if record.created_at %}
+                                {{ record.created_at.strftime('%Y-%m-%d %H:%M') }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="8" style="text-align: center; color: #999;">暂无记录</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>共 {{ bets.total }} 条记录</div>
+        <div style="display: flex; gap: 0.5rem;">
+            {% if bets.has_prev %}
+                <a class="btn btn-sm" href="{{ url_for('admin.bets', page=bets.prev_num, user=user_query, region=region, period=period, status=status, start_date=start_date, end_date=end_date) }}">上一页</a>
+            {% endif %}
+            <span style="line-height: 36px;">第 {{ bets.page }} / {{ bets.pages }} 页</span>
+            {% if bets.has_next %}
+                <a class="btn btn-sm" href="{{ url_for('admin.bets', page=bets.next_num, user=user_query, region=region, period=period, status=status, start_date=start_date, end_date=end_date) }}">下一页</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

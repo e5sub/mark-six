@@ -782,6 +782,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       TextEditingController(text: '2');
   final TextEditingController _parityOddsController =
       TextEditingController(text: '2');
+  final Map<int, TextEditingController> _numberStakeControllers = {};
 
   String _region = 'hk';
   DrawRecord? _latestDraw;
@@ -822,6 +823,55 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     }
   }
 
+  void _syncNumberStakeControllers() {
+    final removed = _numberStakeControllers.keys
+        .where((number) => !_selectedNumbers.contains(number))
+        .toList();
+    for (final number in removed) {
+      _numberStakeControllers.remove(number)?.dispose();
+    }
+    for (final number in _selectedNumbers) {
+      _numberStakeControllers.putIfAbsent(
+        number,
+        () => TextEditingController(text: _stakeSpecialController.text.trim()),
+      );
+    }
+  }
+
+  Map<int, double> _collectNumberStakes() {
+    final result = <int, double>{};
+    for (final number in _selectedNumbers) {
+      final controller = _numberStakeControllers[number];
+      final amount = double.tryParse(controller?.text.trim() ?? '') ?? 0;
+      if (amount > 0) {
+        result[number] = amount;
+      }
+    }
+    return result;
+  }
+
+  List<Map<String, dynamic>> _buildNumberStakePayload() {
+    final payload = <Map<String, dynamic>>[];
+    for (final entry in _collectNumberStakes().entries) {
+      payload.add({'number': entry.key, 'stake': entry.value});
+    }
+    return payload;
+  }
+
+  String _formatNumberStakesText(String raw) {
+    if (!raw.contains(':')) return raw;
+    final parts = raw.split(',');
+    final formatted = <String>[];
+    for (final part in parts) {
+      final trimmed = part.trim();
+      if (trimmed.isEmpty || !trimmed.contains(':')) continue;
+      final items = trimmed.split(':');
+      if (items.length < 2) continue;
+      formatted.add('${items[0]}(${items[1]})');
+    }
+    return formatted.join(', ');
+  }
+
   @override
   void initState() {
     super.initState();
@@ -839,6 +889,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     _zodiacOddsController.dispose();
     _colorOddsController.dispose();
     _parityOddsController.dispose();
+    for (final controller in _numberStakeControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -1007,10 +1060,10 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     final betColor = _betType == 'color';
     final betParity = _betType == 'parity';
 
-    if (betNumber && stakeSpecial <= 0) {
+    if (betNumber && _selectedNumbers.isEmpty) {
       setState(() {
         _settling = false;
-        _statusMessage = '请输入有效的特码下注金额';
+        _statusMessage = '请选择号码';
       });
       return;
     }
@@ -1022,12 +1075,15 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       return;
     }
 
-    if (betNumber && _selectedNumbers.isEmpty) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '请选择号码';
-      });
-      return;
+    if (betNumber) {
+      final numberStakes = _collectNumberStakes();
+      if (numberStakes.length != _selectedNumbers.length) {
+        setState(() {
+          _settling = false;
+          _statusMessage = '请为每个号码填写下注金额';
+        });
+        return;
+      }
     }
     if (betZodiac && _selectedZodiacs.isEmpty) {
       setState(() {
@@ -1063,17 +1119,20 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
 
     if (betNumber) {
       final odds = double.tryParse(_numberOddsController.text.trim()) ?? 0;
-      final win = _selectedNumbers.contains(int.tryParse(specialNumber));
-      final profit =
-          win ? stakeSpecial * odds - stakeSpecial : -stakeSpecial;
+      final numberStakes = _collectNumberStakes();
+      final totalNumberStake =
+          numberStakes.values.fold(0, (sum, value) => sum + value);
+      final hitStake = numberStakes[int.tryParse(specialNumber)] ?? 0;
+      final win = hitStake > 0;
+      final profit = hitStake * odds - totalNumberStake;
       outcomes.add(_ManualBetOutcome(
         label: '号码',
         win: win,
         profit: profit,
-        stake: stakeSpecial,
+        stake: totalNumberStake,
         odds: odds,
       ));
-      totalStake += stakeSpecial;
+      totalStake += totalNumberStake;
       totalProfit += profit;
     }
     if (betZodiac) {
@@ -1135,6 +1194,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         betColor: betColor,
         betParity: betParity,
         numbers: betNumber ? _selectedNumbers.toList() : <int>[],
+        numberStakes: betNumber ? _buildNumberStakePayload() : null,
         zodiacs: betZodiac ? _selectedZodiacs.toList() : <String>[],
         colors: betColor ? _selectedColors.toList() : <String>[],
         parity: betParity ? _selectedParity.toList() : <String>[],
@@ -1192,10 +1252,10 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     final betColor = _betType == 'color';
     final betParity = _betType == 'parity';
 
-    if (betNumber && stakeSpecial <= 0) {
+    if (betNumber && _selectedNumbers.isEmpty) {
       setState(() {
         _settling = false;
-        _statusMessage = '请输入有效的特码下注金额';
+        _statusMessage = '请选择号码';
       });
       return;
     }
@@ -1206,12 +1266,15 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       });
       return;
     }
-    if (betNumber && _selectedNumbers.isEmpty) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '请选择号码';
-      });
-      return;
+    if (betNumber) {
+      final numberStakes = _collectNumberStakes();
+      if (numberStakes.length != _selectedNumbers.length) {
+        setState(() {
+          _settling = false;
+          _statusMessage = '请为每个号码填写下注金额';
+        });
+        return;
+      }
     }
     if (betZodiac && _selectedZodiacs.isEmpty) {
       setState(() {
@@ -1246,6 +1309,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         betColor: betColor,
         betParity: betParity,
         numbers: betNumber ? _selectedNumbers.toList() : <int>[],
+        numberStakes: betNumber ? _buildNumberStakePayload() : null,
         zodiacs: betZodiac ? _selectedZodiacs.toList() : <String>[],
         colors: betColor ? _selectedColors.toList() : <String>[],
         parity: betParity ? _selectedParity.toList() : <String>[],
@@ -1297,9 +1361,11 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
             setState(() {
               if (selected) {
                 _selectedNumbers.remove(number);
+                _numberStakeControllers.remove(number)?.dispose();
               } else {
                 _selectedNumbers.add(number);
               }
+              _syncNumberStakeControllers();
               _clearPending();
             });
           },
@@ -1566,26 +1632,104 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   ),
                   const SizedBox(height: 8),
                   if (_betType == 'number') ...[
-                    TextField(
-                      controller: _stakeSpecialController,
-                      onChanged: (_) => setState(_clearPending),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '特码下注金额',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _numberOddsController,
-                      onChanged: (_) => setState(_clearPending),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '号码赔率',
-                        border: OutlineInputBorder(),
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '号码下注金额',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        if (_selectedNumbers.isEmpty)
+                          Text(
+                            '请选择号码后设置金额',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          )
+                        else
+                          Column(
+                            children: _selectedNumbers.toList()
+                              ..sort()
+                              ..map(
+                                (number) {
+                                  final controller =
+                                      _numberStakeControllers[number] ??
+                                          TextEditingController(text: '10');
+                                  _numberStakeControllers[number] = controller;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Row(
+                                      children: [
+                                        _Ball(
+                                          number: number.toString(),
+                                          color: ballColor(number.toString()),
+                                          size: 26,
+                                          fontSize: 11,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: controller,
+                                            onChanged: (_) => setState(_clearPending),
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                            decoration: const InputDecoration(
+                                              labelText: '金额',
+                                              border: OutlineInputBorder(),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ).toList(),
+                          ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _stakeSpecialController,
+                                onChanged: (_) => setState(_clearPending),
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(
+                                  labelText: '默认金额',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: _selectedNumbers.isEmpty
+                                  ? null
+                                  : () {
+                                      final value =
+                                          _stakeSpecialController.text.trim();
+                                      for (final controller
+                                          in _numberStakeControllers.values) {
+                                        controller.text = value;
+                                      }
+                                      setState(_clearPending);
+                                    },
+                              child: const Text('应用全部'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _numberOddsController,
+                          onChanged: (_) => setState(_clearPending),
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: '号码赔率',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                   if (_betType == 'zodiac') ...[
@@ -1675,8 +1819,15 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     double win = 0;
                     double lose = 0;
                     if (_betType == 'number') {
-                      win = stakeSpecial * oddsNumber - stakeSpecial;
-                      lose = -stakeSpecial;
+                      final numberStakes = _collectNumberStakes();
+                      final totalNumberStake =
+                          numberStakes.values.fold(0, (sum, value) => sum + value);
+                      final maxStake = numberStakes.isEmpty
+                          ? 0
+                          : numberStakes.values.reduce(
+                              (value, element) => value > element ? value : element);
+                      win = maxStake * oddsNumber - totalNumberStake;
+                      lose = -totalNumberStake;
                     } else if (_betType == 'zodiac') {
                       win = stakeCommon * oddsZodiac - stakeCommon;
                       lose = -stakeCommon;
@@ -1790,7 +1941,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                         final period = item['period']?.toString() ?? '';
                         final bettor = item['bettor_name']?.toString() ?? '';
                         final createdAt = item['created_at']?.toString() ?? '';
-                        final numbers = item['selected_numbers']?.toString() ?? '';
+                        final numbers = _formatNumberStakesText(
+                          item['selected_numbers']?.toString() ?? '',
+                        );
                         final zodiacs = item['selected_zodiacs']?.toString() ?? '';
                         final colors = item['selected_colors']?.toString() ?? '';
                         final parity = item['selected_parity']?.toString() ?? '';

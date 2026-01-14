@@ -1,10 +1,11 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from functools import wraps
-from models import db, User, ActivationCode, PredictionRecord, SystemConfig, InviteCode, ZodiacSetting
+from models import db, User, ActivationCode, PredictionRecord, SystemConfig, InviteCode, ZodiacSetting, ManualBetRecord
 from datetime import datetime, timedelta
 import csv
 import json
 import io
+from sqlalchemy import func, case
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -455,6 +456,149 @@ def predictions():
         
         empty_predictions = EmptyPagination()
         return render_template('admin/predictions.html', predictions=empty_predictions)
+
+@admin_bp.route('/bets')
+@admin_required
+def bets():
+    try:
+        page = request.args.get('page', 1, type=int)
+        user_query = request.args.get('user', '').strip()
+        region = request.args.get('region', '').strip()
+        period = request.args.get('period', '').strip()
+        status = request.args.get('status', '').strip()
+        start_date = request.args.get('start_date', '').strip()
+        end_date = request.args.get('end_date', '').strip()
+
+        query = ManualBetRecord.query
+        filters = []
+
+        if user_query:
+            if user_query.isdigit():
+                filters.append(ManualBetRecord.user_id == int(user_query))
+            else:
+                search_term = f"%{user_query}%"
+                user_ids = User.query.filter(
+                    (User.username.like(search_term)) | (User.email.like(search_term))
+                ).with_entities(User.id)
+                filters.append(ManualBetRecord.user_id.in_(user_ids))
+
+        if region:
+            filters.append(ManualBetRecord.region == region)
+
+        if period:
+            filters.append(ManualBetRecord.period.contains(period))
+
+        if start_date:
+            try:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+                filters.append(ManualBetRecord.created_at >= start_date_obj)
+            except ValueError:
+                flash('开始日期格式不正确', 'error')
+
+        if end_date:
+            try:
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+                end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59)
+                filters.append(ManualBetRecord.created_at <= end_date_obj)
+            except ValueError:
+                flash('结束日期格式不正确', 'error')
+
+        if status:
+            if status == 'pending':
+                filters.append(ManualBetRecord.total_profit.is_(None))
+            elif status == 'settled':
+                filters.append(ManualBetRecord.total_profit.isnot(None))
+            elif status == 'win':
+                filters.append(ManualBetRecord.total_profit > 0)
+            elif status == 'lose':
+                filters.append(ManualBetRecord.total_profit < 0)
+            elif status == 'draw':
+                filters.append(ManualBetRecord.total_profit == 0)
+
+        if filters:
+            query = query.filter(*filters)
+
+        stats_row = db.session.query(
+            func.count(ManualBetRecord.id),
+            func.sum(ManualBetRecord.total_stake),
+            func.sum(ManualBetRecord.total_profit),
+            func.sum(case((ManualBetRecord.total_profit > 0, 1), else_=0)),
+            func.sum(case((ManualBetRecord.total_profit < 0, 1), else_=0)),
+            func.sum(case((ManualBetRecord.total_profit == 0, 1), else_=0)),
+            func.sum(case((ManualBetRecord.total_profit.is_(None), 1), else_=0))
+        )
+        if filters:
+            stats_row = stats_row.filter(*filters)
+
+        stats = stats_row.one()
+
+        bets = query.order_by(ManualBetRecord.created_at.desc()).paginate(
+            page=page, per_page=20, error_out=False
+        )
+
+        user_ids = {record.user_id for record in bets.items}
+        user_map = {}
+        if user_ids:
+            users = User.query.filter(User.id.in_(user_ids)).all()
+            user_map = {user.id: user.username for user in users}
+
+        summary = {
+            'total': stats[0] or 0,
+            'total_stake': stats[1] or 0,
+            'total_profit': stats[2] or 0,
+            'win_count': stats[3] or 0,
+            'lose_count': stats[4] or 0,
+            'draw_count': stats[5] or 0,
+            'pending_count': stats[6] or 0
+        }
+
+        return render_template(
+            'admin/bets.html',
+            bets=bets,
+            user_map=user_map,
+            summary=summary,
+            user_query=user_query,
+            region=region,
+            period=period,
+            status=status,
+            start_date=start_date,
+            end_date=end_date
+        )
+    except Exception as e:
+        flash(f'加载下注记录失败: {str(e)}', 'error')
+        class EmptyPagination:
+            def __init__(self):
+                self.items = []
+                self.page = 1
+                self.per_page = 20
+                self.total = 0
+                self.pages = 0
+                self.has_prev = False
+                self.has_next = False
+                self.prev_num = None
+                self.next_num = None
+
+        empty_bets = EmptyPagination()
+        return render_template(
+            'admin/bets.html',
+            bets=empty_bets,
+            user_map={},
+            summary={
+                'total': 0,
+                'total_stake': 0,
+                'total_profit': 0,
+                'win_count': 0,
+                'lose_count': 0,
+                'draw_count': 0,
+                'pending_count': 0
+            },
+            user_query=user_query,
+            region=region,
+            period=period,
+            status=status,
+            start_date=start_date,
+            end_date=end_date
+        )
 
 @admin_bp.route('/prediction/<int:prediction_id>/delete', methods=['POST'])
 @admin_required
