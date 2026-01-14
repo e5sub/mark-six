@@ -8,6 +8,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import Counter
+import re
 from datetime import datetime
 import time
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -160,6 +161,54 @@ def _parse_common_stake_entries(value):
         if key and amount > 0:
             entries.append((key, amount))
     return entries
+
+def _extract_ai_numbers(ai_response):
+    if not ai_response:
+        return None, None
+
+    normalized = (
+        str(ai_response)
+        .replace("：", ":")
+        .replace("，", ",")
+        .replace("、", ",")
+        .replace("【", "[")
+        .replace("】", "]")
+        .replace("特碼", "特码")
+    )
+
+    patterns = [
+        r'推荐号码\s*[:：]\s*\[?\s*(\d{1,2}(?:\s*[,，]\s*\d{1,2}){5})\s*\]?\s*特?码\s*[:：]\s*\[?\s*(\d{1,2})\s*\]?',
+        r'号码推荐\s*[:：]\s*\[?\s*(\d{1,2}(?:\s*[,，]\s*\d{1,2}){5})\s*\]?\s*特?码\s*[:：]\s*\[?\s*(\d{1,2})\s*\]?',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not match:
+            continue
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', match.group(1))]
+        special_number = match.group(2)
+        return normal_numbers, special_number
+
+    lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+    candidate_lines = [line for line in lines if any(k in line for k in ("推荐", "号码", "特码"))]
+
+    for line in candidate_lines:
+        if "特码" not in line:
+            continue
+        parts = re.split(r'特码', line, maxsplit=1)
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', parts[0])]
+        special_candidates = re.findall(r'\d{1,2}', parts[1]) if len(parts) > 1 else []
+        if len(normal_numbers) >= 6 and special_candidates:
+            return normal_numbers[:6], special_candidates[0]
+
+    scoped_numbers = []
+    for line in candidate_lines:
+        scoped_numbers.extend(re.findall(r'\d{1,2}', line))
+    valid_numbers = [int(n) for n in scoped_numbers if 1 <= int(n) <= 49]
+    if len(valid_numbers) >= 7:
+        return valid_numbers[:6], str(valid_numbers[6])
+
+    return None, None
 
 def _settle_manual_bet_record(record, draw):
     raw_zodiacs = _parse_csv_list(draw.raw_zodiac)
@@ -588,28 +637,9 @@ def predict_with_ai(data, region):
         ai_response = response.json()['choices'][0]['message']['content']
         
         # 从AI回复中提取号码
-        import re
-        normal_numbers = []
-        special_number = ""
-        
-        # 尝试匹配格式化的推荐号码
-        number_pattern = r'推荐号码：\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*特码:\s*\[(\d+)\]'
-        match = re.search(number_pattern, ai_response)
-        
-        if match:
-            normal_numbers = [int(match.group(i)) for i in range(1, 7)]
-            special_number = match.group(7)
-        else:
-            # 如果没有找到格式化的推荐，尝试从文本中提取数字
-            all_numbers = re.findall(r'\b\d{1,2}\b', ai_response)
-            valid_numbers = [int(n) for n in all_numbers if 1 <= int(n) <= 49]
-            
-            if len(valid_numbers) >= 7:
-                normal_numbers = sorted(valid_numbers[:6])
-                special_number = str(valid_numbers[6])
-            else:
-                # 如果无法从AI回复中提取有效号码，返回错误
-                return {"error": "无法从AI回复中提取有效号码"}
+        normal_numbers, special_number = _extract_ai_numbers(ai_response)
+        if not normal_numbers or not special_number:
+            return {"error": "无法从AI回复中提取有效号码"}
         
         # 确保所有号码都是有效的
         normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
