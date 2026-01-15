@@ -9,6 +9,14 @@ services:
       - PYTHONUNBUFFERED=1
       - SECRET_KEY=your-secure-secret-key-change-this  # 设置安全密钥
       - ENABLE_SCHEDULER=1
+      # MySQL support (optional)
+      # - DB_TYPE=mysql
+      # - DB_HOST=127.0.0.1
+      # - DB_PORT=3306
+      # - DB_NAME=mark_six
+      # - DB_USER=root
+      # - DB_PASSWORD=your_password
+      # or use a full DATABASE_URL, e.g. mysql+pymysql://user:pass@host:3306/mark_six?charset=utf8mb4
     volumes: 
       - ./data:/app/data
     ports:

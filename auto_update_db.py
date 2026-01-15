@@ -11,6 +11,13 @@ from datetime import datetime
 
 # 数据库文件路径
 DB_PATH = os.path.join(os.getcwd(), 'data', 'lottery_system.db')
+DB_TYPE = os.environ.get("DB_TYPE", "sqlite").lower()
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+def _using_mysql():
+    if DB_TYPE in ("mysql", "mariadb"):
+        return True
+    return DATABASE_URL.lower().startswith("mysql")
 
 def check_database_exists():
     """检查数据库是否存在"""
@@ -29,6 +36,9 @@ def check_table_exists(cursor, table_name):
 
 def update_database():
     """更新数据库结构和数据"""
+    if _using_mysql():
+        print("MySQL configured, skipping sqlite auto update.")
+        return True
     if not check_database_exists():
         print(f"数据库文件不存在: {DB_PATH}")
         print("请先运行 create_db.py 创建数据库")

@@ -10,6 +10,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import Counter
 import re
+from urllib.parse import quote_plus
 from datetime import datetime
 import time
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -33,15 +34,35 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
+def _build_database_uri(db_path):
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        return db_url
+
+    db_type = os.environ.get("DB_TYPE", "sqlite").lower()
+    if db_type in ("mysql", "mariadb"):
+        host = os.environ.get("DB_HOST", "localhost")
+        port = os.environ.get("DB_PORT", "3306")
+        name = os.environ.get("DB_NAME", "mark_six")
+        user = os.environ.get("DB_USER", "root")
+        password = quote_plus(os.environ.get("DB_PASSWORD", ""))
+        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
+
+    return f"sqlite:///{db_path}"
+
+def _mask_db_uri(uri):
+    return re.sub(r'//([^:/@]+):([^@]+)@', r'//\1:***@', uri)
+
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+app.config['SQLALCHEMY_DATABASE_URI'] = _build_database_uri(db_path)
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {"pool_pre_ping": True}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 只在主进程中打印一次
 if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
     print(f"数据库路径: {db_path}")
-    print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+    print(f"数据库URI: {_mask_db_uri(app.config['SQLALCHEMY_DATABASE_URI'])}")
 
 # 初始化数据库
 # 初始化数据库

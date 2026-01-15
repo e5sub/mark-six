@@ -12,6 +12,13 @@ from datetime import datetime
 import hashlib
 import uuid
 
+DB_TYPE = os.environ.get("DB_TYPE", "sqlite").lower()
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+if DB_TYPE in ("mysql", "mariadb") or DATABASE_URL.lower().startswith("mysql"):
+    print("MySQL configured, skipping sqlite database creation.")
+    sys.exit(0)
+
 # 打印当前工作目录
 print(f"当前工作目录: {os.getcwd()}")
 
