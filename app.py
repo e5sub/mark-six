@@ -35,6 +35,66 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
+_startup_log_lock_path = None
+_startup_log_lock_acquired = False
+
+def _pid_is_running(pid):
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+def _try_acquire_startup_log_lock():
+    import tempfile
+    global _startup_log_lock_path, _startup_log_lock_acquired
+    if _startup_log_lock_acquired:
+        return True
+    lock_path = os.path.join(tempfile.gettempdir(), "mark-six-startup.log.lock")
+    pid = os.getpid()
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w") as f:
+            f.write(str(pid))
+        _startup_log_lock_path = lock_path
+        _startup_log_lock_acquired = True
+        return True
+    except FileExistsError:
+        try:
+            with open(lock_path, "r") as f:
+                existing_pid = int((f.read() or "").strip() or "0")
+        except Exception:
+            existing_pid = 0
+        if existing_pid and _pid_is_running(existing_pid):
+            return False
+        try:
+            os.remove(lock_path)
+        except OSError:
+            return False
+        return _try_acquire_startup_log_lock()
+
+def _release_startup_log_lock():
+    global _startup_log_lock_path, _startup_log_lock_acquired
+    if not _startup_log_lock_acquired or not _startup_log_lock_path:
+        return
+    try:
+        os.remove(_startup_log_lock_path)
+    except OSError:
+        pass
+    _startup_log_lock_path = None
+    _startup_log_lock_acquired = False
+
+def _should_log_startup():
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        return False
+    if not _try_acquire_startup_log_lock():
+        return False
+    import atexit
+    atexit.register(_release_startup_log_lock)
+    return True
+
 def _build_database_uri(db_path):
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
@@ -61,7 +121,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {"pool_pre_ping": True}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 只在主进程中打印一次
-if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+if _should_log_startup():
     print(f"数据库路径: {db_path}")
     print(f"数据库URI: {_mask_db_uri(app.config['SQLALCHEMY_DATABASE_URI'])}")
 
@@ -99,7 +159,7 @@ def get_ai_config():
 # MACAU_API_URL_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}"
 MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
 # 只在主进程中打印一次
-if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+if _should_log_startup():
     print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
 # 香港数据API
 HK_DATA_SOURCE_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/data/all.json"
@@ -200,6 +260,12 @@ _last_draw_sync_times = {
     'hk': datetime.min,
     'macau': datetime.min
 }
+_last_sync_window_skip_date = None
+
+def _is_within_sync_window(now):
+    if now.hour != 21:
+        return False
+    return 32 <= now.minute <= 40
 
 def _finalize_ai_result(ai_response):
     normal_numbers, special_number = _extract_ai_numbers(ai_response)
@@ -859,6 +925,13 @@ def save_draws_to_database(draws, region):
 def sync_draws_from_api(region, year=None, force=False):
     """从远程接口同步开奖记录并保存到数据库"""
     now = datetime.now()
+    if not _is_within_sync_window(now):
+        global _last_sync_window_skip_date
+        today = now.date()
+        if _last_sync_window_skip_date != today:
+            print("当前不在开奖同步时间窗内，跳过同步。")
+            _last_sync_window_skip_date = today
+        return []
     last_sync = _last_draw_sync_times.get(region)
     if not force and last_sync and now - last_sync < _DRAW_SYNC_INTERVAL:
         return []
@@ -1669,15 +1742,6 @@ _scheduler = None
 _scheduler_lock_path = None
 _scheduler_lock_acquired = False
 
-def _pid_is_running(pid):
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
 def _try_acquire_scheduler_lock():
     import tempfile
     global _scheduler_lock_path, _scheduler_lock_acquired
@@ -1759,7 +1823,8 @@ def start_scheduler(force=False):
 
     enabled = os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on")
     if not enabled:
-        print("定时任务未启动：ENABLE_SCHEDULER=0")
+        if _should_log_startup():
+            print("定时任务未启动：ENABLE_SCHEDULER=0")
         return None
 
     # Avoid double-start when Flask debug reloader spawns a parent process.
@@ -1767,7 +1832,8 @@ def start_scheduler(force=False):
         return None
 
     if not _try_acquire_scheduler_lock():
-        print("定时任务未启动：已有实例在运行")
+        if _should_log_startup():
+            print("定时任务未启动：已有实例在运行")
         return None
 
     import atexit
@@ -1794,7 +1860,7 @@ def start_scheduler(force=False):
         coalesce=True
     )
     _scheduler.start()
-    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+    if _should_log_startup():
         print("定时任务已启动：每天21:40自动更新数据库中的开奖记录")
     return _scheduler
 
