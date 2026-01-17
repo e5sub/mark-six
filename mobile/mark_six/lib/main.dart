@@ -2674,33 +2674,35 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              Wrap(
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                spacing: 8,
-                                runSpacing: 8,
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
                                     '平码：',
                                     style: TextStyle(fontWeight: FontWeight.w600),
                                   ),
-                                  ...record.normalNumbers.asMap().entries.map(
-                                        (entry) => _NumberZodiacTile(
-                                          number: entry.value,
-                                          zodiac: normalZodiacs[entry.key],
-                                          color: ballColor(entry.value),
-                                        ),
-                                      ),
-                                  const SizedBox(width: 4),
-                                  const Text(
-                                    '特码：',
-                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                  const SizedBox(height: 8),
+                                  _buildNumberGrid(
+                                    numbers: record.normalNumbers,
+                                    zodiacs: normalZodiacs,
                                   ),
-                                  _NumberZodiacTile(
-                                    number: record.specialNumber,
-                                    zodiac: specialZodiac,
-                                    color: ballColor(record.specialNumber),
-                                    outlined: true,
-                                    highlight: true,
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      const Text(
+                                        '特码：',
+                                        style: TextStyle(fontWeight: FontWeight.w600),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _NumberZodiacTile(
+                                        number: record.specialNumber,
+                                        zodiac: specialZodiac,
+                                        color: ballColor(record.specialNumber),
+                                        outlined: true,
+                                        highlight: true,
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -2803,6 +2805,41 @@ class _NumberZodiacTile extends StatelessWidget {
       ],
     );
   }
+}
+
+Widget _buildNumberGrid({
+  required List<String> numbers,
+  required List<String> zodiacs,
+  double ballSize = 46,
+  double numberFontSize = 16,
+  double zodiacFontSize = 12,
+  double gap = 4,
+  double childAspectRatio = 0.75,
+}) {
+  return GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 6,
+      crossAxisSpacing: 8,
+      mainAxisSpacing: 8,
+      childAspectRatio: childAspectRatio,
+    ),
+    itemCount: numbers.length,
+    itemBuilder: (context, index) {
+      final zodiac = index < zodiacs.length ? zodiacs[index] : '';
+      final number = numbers[index];
+      return _NumberZodiacTile(
+        number: number,
+        zodiac: zodiac,
+        color: ballColor(number),
+        ballSize: ballSize,
+        numberFontSize: numberFontSize,
+        zodiacFontSize: zodiacFontSize,
+        gap: gap,
+      );
+    },
+  );
 }
 
 class _Ball extends StatelessWidget {
@@ -3368,42 +3405,46 @@ class _PredictScreenState extends State<PredictScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 8,
-            runSpacing: 8,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
                 '平码：',
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
-              ...item.normalNumbers.asMap().entries.map(
-                    (entry) => _NumberZodiacTile(
-                      number: entry.value,
-                      zodiac: normalZodiacs[entry.key],
-                      color: ballColor(entry.value),
+              const SizedBox(height: 8),
+              _buildNumberGrid(
+                numbers: item.normalNumbers,
+                zodiacs: normalZodiacs,
+                ballSize: 36,
+                numberFontSize: 13,
+                zodiacFontSize: 11,
+                gap: 3,
+                childAspectRatio: 0.85,
+              ),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Text(
+                    '特码：',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(width: 8),
+                  if (item.specialNumber.isNotEmpty)
+                    _NumberZodiacTile(
+                      number: item.specialNumber,
+                      zodiac: specialZodiac,
+                      color: ballColor(item.specialNumber),
+                      outlined: true,
+                      highlight: true,
                       ballSize: 36,
                       numberFontSize: 13,
                       zodiacFontSize: 11,
                       gap: 3,
                     ),
-                  ),
-              const Text(
-                '特码：',
-                style: TextStyle(fontWeight: FontWeight.w600),
+                ],
               ),
-              if (item.specialNumber.isNotEmpty)
-                _NumberZodiacTile(
-                  number: item.specialNumber,
-                  zodiac: specialZodiac,
-                  color: ballColor(item.specialNumber),
-                  outlined: true,
-                  highlight: true,
-                  ballSize: 36,
-                  numberFontSize: 13,
-                  zodiacFontSize: 11,
-                  gap: 3,
-                ),
             ],
           ),
           const SizedBox(height: 8),
