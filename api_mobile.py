@@ -992,6 +992,7 @@ def api_manual_bets_list():
 
     records = query.order_by(ManualBetRecord.created_at.desc()).limit(limit).all()
     items = []
+    updated_records = []
     for record in records:
         record_status = "settled" if record.total_profit is not None else "pending"
         items.append(
@@ -1116,6 +1117,39 @@ def _prediction_result(record):
     return "wrong"
 
 
+def _resolve_actual_special_zodiac(record, zodiac_map_cache, draw_cache):
+    if record.actual_special_zodiac:
+        return record.actual_special_zodiac
+    if not record.actual_special_number:
+        return ""
+
+    cache_key = (record.region, record.period)
+    draw = draw_cache.get(cache_key)
+    if draw is None:
+        draw = LotteryDraw.query.filter_by(
+            region=record.region, draw_id=record.period
+        ).first()
+        draw_cache[cache_key] = draw or False
+    if draw:
+        if draw.special_zodiac:
+            return draw.special_zodiac
+
+    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(
+        draw.draw_date if draw else record.created_at or datetime.now()
+    )
+    zodiac_map = zodiac_map_cache.get(zodiac_year)
+    if zodiac_map is None:
+        zodiac_map = ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+        zodiac_map_cache[zodiac_year] = zodiac_map
+    if not zodiac_map:
+        return ""
+
+    try:
+        return zodiac_map.get(int(record.actual_special_number), "")
+    except (TypeError, ValueError):
+        return ""
+
+
 @mobile_api_bp.route("/predictions", methods=["GET"])
 def api_predictions():
     user, error = _require_user()
@@ -1192,6 +1226,7 @@ def api_predictions():
     )
 
     zodiac_map_cache = {}
+    draw_cache = {}
     if include_zodiacs:
         try:
             _ = int(year_param) if year_param else None
@@ -1226,6 +1261,12 @@ def api_predictions():
                 )
             except (TypeError, ValueError):
                 mapped_special = record.special_zodiac
+        actual_special_zodiac = _resolve_actual_special_zodiac(
+            record, zodiac_map_cache, draw_cache
+        )
+        if actual_special_zodiac and not record.actual_special_zodiac:
+            record.actual_special_zodiac = actual_special_zodiac
+            updated_records.append(record)
         items.append(
             {
                 "id": record.id,
@@ -1238,7 +1279,7 @@ def api_predictions():
                 "special_zodiac": mapped_special,
                 "prediction_text": record.prediction_text,
                 "actual_special_number": record.actual_special_number,
-                "actual_special_zodiac": record.actual_special_zodiac,
+                "actual_special_zodiac": actual_special_zodiac,
                 "accuracy_score": record.accuracy_score,
                 "is_result_updated": record.is_result_updated,
                 "result": _prediction_result(record),
@@ -1247,6 +1288,12 @@ def api_predictions():
                 else None,
             }
         )
+
+    if updated_records:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     return jsonify(
         {
