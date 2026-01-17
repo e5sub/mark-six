@@ -11,7 +11,7 @@ from email.mime.multipart import MIMEMultipart
 from collections import Counter
 import re
 from urllib.parse import quote_plus
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -193,6 +193,12 @@ def _dedupe_keep_order(values):
         seen.add(item)
         result.append(item)
     return result
+
+_DRAW_SYNC_INTERVAL = timedelta(minutes=5)
+_last_draw_sync_times = {
+    'hk': datetime.min,
+    'macau': datetime.min
+}
 
 def _finalize_ai_result(ai_response):
     normal_numbers, special_number = _extract_ai_numbers(ai_response)
@@ -813,27 +819,21 @@ def get_yearly_data(region, year):
         if db_records:
             print(f"从数据库获取到{len(db_records)}条{region}地区{year}年的数据")
             # 将数据库记录转换为API格式
+            synced_draws = sync_draws_from_api(region, year, force=False)
+            if synced_draws:
+                db_records = query.order_by(LotteryDraw.draw_date.desc()).all()
             return [record.to_dict() for record in db_records]
     except Exception as e:
         print(f"从数据库获取数据失败: {e}")
     
     # 如果数据库中没有数据，则从API获取
     if region == 'hk':
-        all_data = load_hk_data()
-        filtered_data = [rec for rec in all_data if rec.get('date', '').startswith(str(year))]
-        print(f"从API获取香港数据: 总数={len(all_data)}, 过滤后={len(filtered_data)}")
-        
-        # 保存数据到数据库
-        save_draws_to_database(filtered_data, 'hk')
-        
+        filtered_data = sync_draws_from_api('hk', year, force=True)
+        print(f"从API获取香港数据: 过滤后={len(filtered_data)}")
         return filtered_data
     if region == 'macau':
-        macau_data = get_macau_data(year)
+        macau_data = sync_draws_from_api('macau', year, force=True)
         print(f"从API获取澳门数据: 总数={len(macau_data)}")
-        
-        # 保存数据到数据库
-        save_draws_to_database(macau_data, 'macau')
-        
         return macau_data
     print(f"未知地区: {region}")
     return []
@@ -854,6 +854,37 @@ def save_draws_to_database(draws, region):
     except Exception as e:
         print(f"保存开奖记录到数据库失败: {e}")
         db.session.rollback()
+
+def sync_draws_from_api(region, year=None, force=False):
+    """从远程接口同步开奖记录并保存到数据库"""
+    now = datetime.now()
+    last_sync = _last_draw_sync_times.get(region)
+    if not force and last_sync and now - last_sync < _DRAW_SYNC_INTERVAL:
+        return []
+
+    if year is None or str(year).lower() == 'all':
+        year_str = str(now.year)
+    else:
+        year_str = str(year).strip()
+
+    remote_draws = []
+    if region == 'hk':
+        remote_data = load_hk_data(force_refresh=True)
+        remote_draws = [rec for rec in remote_data if rec.get('date', '').startswith(year_str)]
+    elif region == 'macau':
+        remote_draws = get_macau_data(year_str, force_api=True)
+    else:
+        return []
+
+    _last_draw_sync_times[region] = now
+
+    if not remote_draws:
+        print(f"{region}地区未获取到{year_str}年记录，跳过同步。")
+        return []
+
+    print(f"同步{region}地区{year_str}年开奖数据：{len(remote_draws)}条")
+    save_draws_to_database(remote_draws, region)
+    return remote_draws
 
 @app.route('/api/draws')
 def draws_api():
@@ -1696,22 +1727,19 @@ def update_lottery_data():
             current_year = str(datetime.now().year)
             
             # 更新香港数据
-            print("正在获取香港数据...")
-            hk_data = load_hk_data(force_refresh=True)
-            hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
-            save_draws_to_database(hk_filtered, 'hk')
-            print(f"香港数据更新完成：{len(hk_filtered)}条")
+            print("正在同步香港数据...")
+            hk_data = sync_draws_from_api('hk', current_year, force=True)
+            print(f"香港数据更新完成：{len(hk_data)}条")
             
             # 更新澳门数据
-            print("正在获取澳门数据...")
-            macau_data = get_macau_data(current_year, force_api=True)
-            save_draws_to_database(macau_data, 'macau')
+            print("正在同步澳门数据...")
+            macau_data = sync_draws_from_api('macau', current_year, force=True)
             print(f"澳门数据更新完成：{len(macau_data)}条")
 
             # 触发自动预测功能（排除 AI 策略）
             print("正在生成自动预测...")
-            if hk_filtered:
-                generate_auto_predictions(hk_filtered, 'hk')
+            if hk_data:
+                generate_auto_predictions(hk_data, 'hk')
             if macau_data:
                 generate_auto_predictions(macau_data, 'macau')
             
