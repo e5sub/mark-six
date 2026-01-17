@@ -4124,7 +4124,7 @@ class UpdateService {
               children: [
                 LinearProgressIndicator(value: progress),
                 const SizedBox(height: 12),
-                Text('${(progress * 100).toStringAsFixed(0)}元'),
+                Text('${(progress * 100).toStringAsFixed(0)}%'),
               ],
             ),
           );

@@ -1012,14 +1012,15 @@ def draws_api():
                 if not mapping:
                     mapping = fallback_number_to_zodiac
 
+            normalized_mapping = {str(key): value for key, value in mapping.items()}
             sno = record.get('sno')
-            record['sno_zodiac'] = mapping.get(sno, '')
+            record['sno_zodiac'] = normalized_mapping.get(str(sno), '')
             
             normal_numbers = record.get('no', [])
             normal_zodiacs = []
             for num in normal_numbers:
-                normal_zodiacs.append(mapping.get(num, ''))
-            record['raw_zodiac'] = ','.join(normal_zodiacs + [mapping.get(sno, '')])
+                normal_zodiacs.append(normalized_mapping.get(str(num), ''))
+            record['raw_zodiac'] = ','.join(normal_zodiacs + [normalized_mapping.get(str(sno), '')])
             
             details_breakdown = []
             all_numbers = record.get('no', []) + [record.get('sno')]
