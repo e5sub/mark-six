@@ -992,8 +992,6 @@ def api_manual_bets_list():
 
     records = query.order_by(ManualBetRecord.created_at.desc()).limit(limit).all()
     items = []
-    updated_records = []
-    updated_records = []
     for record in records:
         record_status = "settled" if record.total_profit is not None else "pending"
         items.append(
@@ -1235,6 +1233,7 @@ def api_predictions():
             pass
 
     items = []
+    updated_records = []
     for record in records:
         normal_numbers = record.normal_numbers.split(",") if record.normal_numbers else []
         normal_zodiacs = []
