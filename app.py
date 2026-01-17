@@ -14,6 +14,7 @@ from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 import time
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 
 # 导入用户系统模块
 from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord
@@ -1773,7 +1774,25 @@ def start_scheduler(force=False):
     atexit.register(_release_scheduler_lock)
 
     _scheduler = BackgroundScheduler()
-    _scheduler.add_job(update_lottery_data, 'cron', hour=21, minute=40)
+
+    def _log_scheduler_event(event):
+        if event.code == EVENT_JOB_MISSED:
+            print(f"定时任务补跑触发：{event.job_id} 原定时间已错过")
+        elif event.code == EVENT_JOB_EXECUTED:
+            if event.exception:
+                print(f"定时任务执行失败：{event.job_id} {event.exception}")
+            else:
+                print(f"定时任务执行完成：{event.job_id}")
+
+    _scheduler.add_listener(_log_scheduler_event, EVENT_JOB_MISSED | EVENT_JOB_EXECUTED)
+    _scheduler.add_job(
+        update_lottery_data,
+        'cron',
+        hour=21,
+        minute=40,
+        misfire_grace_time=300,
+        coalesce=True
+    )
     _scheduler.start()
     if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
         print("定时任务已启动：每天21:40自动更新数据库中的开奖记录")
