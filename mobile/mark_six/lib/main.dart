@@ -3346,10 +3346,6 @@ class _PredictScreenState extends State<PredictScreen> {
     final actualSpecialNumber = item.actualSpecialNumber;
     final actualSpecialZodiac = item.actualSpecialZodiac;
     final strategyLabel = _strategyLabels[item.strategy] ?? item.strategy;
-    final createdAt = item.createdAt == null
-        ? ''
-        : '${item.createdAt!.year}-${item.createdAt!.month.toString().padLeft(2, '0')}-${item.createdAt!.day.toString().padLeft(2, '0')}';
-
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
@@ -3377,7 +3373,7 @@ class _PredictScreenState extends State<PredictScreen> {
                       color: Colors.black87,
                     ),
                     children: [
-                      TextSpan(text: '预测时间：$createdAt  策略：'),
+                      const TextSpan(text: '策略：'),
                       TextSpan(
                         text: strategyLabel,
                         style: TextStyle(color: _strategyColor(item.strategy)),
