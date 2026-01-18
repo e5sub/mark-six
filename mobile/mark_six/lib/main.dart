@@ -876,6 +876,19 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     }
   }
 
+  void _resetBetSelection() {
+    _betType = 'number';
+    _selectedNumbers.clear();
+    _selectedZodiacs.clear();
+    _selectedColors.clear();
+    _selectedParity.clear();
+    for (final controller in _numberStakeControllers.values) {
+      controller.dispose();
+    }
+    _numberStakeControllers.clear();
+    _bettorController.clear();
+  }
+
   void _syncNumberStakeControllers() {
     final removed = _numberStakeControllers.keys
         .where((number) => !_selectedNumbers.contains(number))
@@ -886,7 +899,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     for (final number in _selectedNumbers) {
       _numberStakeControllers.putIfAbsent(
         number,
-        () => TextEditingController(text: _stakeSpecialController.text.trim()),
+        () => TextEditingController(text: ''),
       );
     }
   }
@@ -1545,6 +1558,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         setState(() {
           _pendingRecordId = response['record_id'] as int?;
           _statusMessage = '已保存下注记录';
+          _resetBetSelection();
         });
         _loadManualBets();
       } else {
@@ -1873,7 +1887,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                               return numbers.map((number) {
                                 final controller =
                                     _numberStakeControllers[number] ??
-                                        TextEditingController(text: '10');
+                                        TextEditingController(text: '');
                                 _numberStakeControllers[number] = controller;
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 8),
@@ -1906,38 +1920,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                               }).toList();
                             })(),
                           ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _stakeSpecialController,
-                                onChanged: (_) => setState(_clearPending),
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(
-                                  labelText: '默认金额',
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            ElevatedButton(
-                              onPressed: _selectedNumbers.isEmpty
-                                  ? null
-                                  : () {
-                                      final value =
-                                          _stakeSpecialController.text.trim();
-                                      for (final controller
-                                          in _numberStakeControllers.values) {
-                                        controller.text = value;
-                                      }
-                                      setState(_clearPending);
-                                    },
-                              child: const Text('应用全部'),
-                            ),
-                          ],
-                        ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: _numberOddsController,
@@ -3601,7 +3583,10 @@ class _PredictScreenState extends State<PredictScreen> {
                             ],
                             selected: {_region},
                             onSelectionChanged: (value) {
-                              setState(() => _region = value.first);
+                              setState(() {
+                                _region = value.first;
+                                _resetPrediction();
+                              });
                               _loadPredictionRecords();
                             },
                           ),
