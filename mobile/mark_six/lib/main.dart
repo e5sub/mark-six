@@ -939,6 +939,23 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     return formatted.join(', ');
   }
 
+  List<Map<String, dynamic>> _parseNumberStakeEntries(String raw) {
+    if (!raw.contains(':')) return [];
+    final parts = raw.split(',');
+    final entries = <Map<String, dynamic>>[];
+    for (final part in parts) {
+      final trimmed = part.trim();
+      if (trimmed.isEmpty || !trimmed.contains(':')) continue;
+      final items = trimmed.split(':');
+      if (items.length < 2) continue;
+      final number = items[0].trim();
+      final amount = double.tryParse(items[1].trim()) ?? 0;
+      if (number.isEmpty) continue;
+      entries.add({'number': number, 'amount': amount});
+    }
+    return entries;
+  }
+
   String _formatCommonStakesText(String raw) {
     if (!raw.contains(':')) return raw;
     final parts = raw.split(',');
@@ -964,9 +981,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     final bettor = item['bettor_name']?.toString() ?? '';
     final createdAt = item['created_at']?.toString() ?? '';
     final recordId = item['id'];
-    final numbers = _formatNumberStakesText(
-      item['selected_numbers']?.toString() ?? '',
-    );
+    final numbersRaw = item['selected_numbers']?.toString() ?? '';
+    final numbers = _formatNumberStakesText(numbersRaw);
+    final numberEntries = _parseNumberStakeEntries(numbersRaw);
     final zodiacs =
         _formatCommonStakesText(item['selected_zodiacs']?.toString() ?? '');
     final colors =
@@ -1033,7 +1050,43 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
               ),
             ],
           ),
-          if (numbers.isNotEmpty) Text('号码：$numbers'),
+          if (numberEntries.isNotEmpty)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('号码：'),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: numberEntries.map((entry) {
+                    final number = entry['number']?.toString() ?? '';
+                    final amount = (entry['amount'] as num?) ?? 0;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _Ball(
+                          number: number,
+                          color: ballColor(number),
+                          size: 26,
+                          fontSize: 11,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatYuan(amount),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ],
+            )
+          else if (numbers.isNotEmpty)
+            Text('号码：$numbers'),
           if (bettor.isNotEmpty) Text('下注人：$bettor'),
           if (zodiacs.isNotEmpty) Text('生肖：$zodiacs'),
           if (colors.isNotEmpty) Text('波色：$colors'),
@@ -2079,23 +2132,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                                   ? _submitBet
                                   : _promptActivation,
                           child: const Text('提交下注'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _settling
-                              ? null
-                              : activationValid
-                                  ? _settleBet
-                                  : _promptActivation,
-                          child: _settling
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Text('计算盈亏'),
                         ),
                       ),
                     ],
