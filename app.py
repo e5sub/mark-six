@@ -632,6 +632,133 @@ def analyze_special_number_frequency(data):
     counts = Counter(special_numbers)
     return {str(i): counts.get(str(i), 0) for i in range(1, 50)}
 
+def _clamp(value, low, high):
+    return max(low, min(high, value))
+
+def _strategy_config_key(region, strategy):
+    return f"strategy_config_{region}_{strategy}"
+
+def _default_strategy_config(strategy):
+    defaults = {
+        "hot": {"window": 50, "pool": 16, "last_accuracy": 0.0, "last_total": 0},
+        "cold": {"window": 50, "pool": 16, "last_accuracy": 0.0, "last_total": 0},
+        "trend": {"window": 15, "pool": 18, "last_accuracy": 0.0, "last_total": 0},
+        "balanced": {"window": 60, "pool": 16, "bucket_counts": [2, 2, 2], "last_accuracy": 0.0, "last_total": 0},
+        "hybrid": {
+            "window": 50,
+            "pool": 16,
+            "trend_window": 15,
+            "mix": {"hot": 2, "cold": 2, "trend": 2},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+    }
+    return defaults.get(strategy, {})
+
+def _load_strategy_config(strategy, region):
+    key = _strategy_config_key(region, strategy)
+    raw = SystemConfig.get_config(key, "")
+    stored = {}
+    if raw:
+        try:
+            stored = json.loads(raw)
+        except Exception:
+            stored = {}
+    default = _default_strategy_config(strategy)
+    merged = {**default, **stored}
+    if "updated_at" not in merged:
+        merged["updated_at"] = datetime.now().isoformat()
+    return merged
+
+def _save_strategy_config(strategy, region, config):
+    key = _strategy_config_key(region, strategy)
+    payload = json.dumps(config, ensure_ascii=True)
+    SystemConfig.set_config(key, payload, f"Auto-tuned config for {strategy} ({region})")
+
+def _calculate_strategy_accuracy(region, strategy, limit=200):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy=strategy,
+        is_result_updated=True
+    ).filter(PredictionRecord.actual_special_number != None)
+    query = query.order_by(PredictionRecord.created_at.desc())
+    if limit:
+        query = query.limit(limit)
+    predictions = query.all()
+    if not predictions:
+        return 0.0, 0
+
+    correct = 0
+    for pred in predictions:
+        actual = pred.actual_special_number
+        if not actual:
+            continue
+        if pred.special_number == actual:
+            correct += 1
+            continue
+        if pred.normal_numbers:
+            normal_numbers = [n.strip() for n in pred.normal_numbers.split(',') if n.strip()]
+            if actual in normal_numbers:
+                correct += 1
+    total = len(predictions)
+    return (correct / total) if total else 0.0, total
+
+def _tune_strategy_config(strategy, region):
+    accuracy, total = _calculate_strategy_accuracy(region, strategy)
+    config = _load_strategy_config(strategy, region)
+
+    config["last_accuracy"] = round(accuracy, 4)
+    config["last_total"] = total
+    config["updated_at"] = datetime.now().isoformat()
+
+    if total <= 0:
+        _save_strategy_config(strategy, region, config)
+        return
+
+    if strategy in ("hot", "cold"):
+        config["window"] = _clamp(int(30 + accuracy * 40), 20, 80)
+        config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
+    elif strategy == "trend":
+        config["window"] = _clamp(int(8 + accuracy * 20), 8, 30)
+        config["pool"] = _clamp(int(10 + accuracy * 8), 8, 20)
+    elif strategy == "balanced":
+        high_count = _clamp(int(2 + accuracy * 2), 1, 4)
+        low_count = _clamp(int(2 + (1 - accuracy) * 2), 1, 4)
+        mid_count = 6 - high_count - low_count
+        if mid_count < 1:
+            mid_count = 1
+            if high_count >= low_count:
+                high_count = 6 - low_count - mid_count
+            else:
+                low_count = 6 - high_count - mid_count
+        config["bucket_counts"] = [low_count, mid_count, high_count]
+        config["window"] = _clamp(int(40 + accuracy * 40), 30, 90)
+        config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
+    elif strategy == "hybrid":
+        hot_count = _clamp(int(2 + accuracy * 2), 1, 4)
+        cold_count = _clamp(int(2 + (1 - accuracy) * 2), 1, 4)
+        trend_count = 6 - hot_count - cold_count
+        if trend_count < 1:
+            trend_count = 1
+            if hot_count >= cold_count:
+                hot_count = 6 - cold_count - trend_count
+            else:
+                cold_count = 6 - hot_count - trend_count
+        config["mix"] = {"hot": hot_count, "cold": cold_count, "trend": trend_count}
+        config["window"] = _clamp(int(40 + accuracy * 40), 30, 90)
+        config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
+        config["trend_window"] = _clamp(int(8 + accuracy * 20), 8, 30)
+
+    _save_strategy_config(strategy, region, config)
+
+def update_strategy_configs(region):
+    strategies = ["hot", "cold", "trend", "balanced", "hybrid"]
+    for strategy in strategies:
+        try:
+            _tune_strategy_config(strategy, region)
+        except Exception as e:
+            print(f"Strategy tuning failed for {strategy} ({region}): {e}")
+
 def _get_number_to_zodiac_map(year):
     number_to_zodiac = {}
     try:
@@ -722,17 +849,70 @@ def analyze_special_color_frequency(data, region):
 
 def get_local_recommendations(strategy, data, region):
     all_numbers = list(range(1, 50))
-    if strategy == 'random':
+    if not data:
+        normal = sorted(random.sample(all_numbers, 6))
+    elif strategy == 'random':
         normal = sorted(random.sample(all_numbers, 6))
     else:
         try:
-            freq = analyze_special_number_frequency(data)
-            if not any(v > 0 for v in freq.values()): raise ValueError("No frequency data")
+            config = _load_strategy_config(strategy, region)
+            window = int(config.get("window") or 0)
+            if window > 0:
+                recent_data = data[:window]
+            else:
+                recent_data = data
+
+            freq = analyze_special_number_frequency(recent_data)
+            if not any(v > 0 for v in freq.values()):
+                raise ValueError("No frequency data")
+
             sorted_freq = sorted(freq.items(), key=lambda item: item[1])
-            low_freq, mid_freq, high_freq = [int(k) for k, v in sorted_freq[:16]], [int(k) for k, v in sorted_freq[16:33]], [int(k) for k, v in sorted_freq[33:]]
-            normal = sorted(random.sample(low_freq, 2) + random.sample(mid_freq, 2) + random.sample(high_freq, 2))
+            pool_size = int(config.get("pool") or 16)
+            pool_size = _clamp(pool_size, 8, 24)
+
+            low_pool = [int(k) for k, _ in sorted_freq[:pool_size]]
+            high_pool = [int(k) for k, _ in sorted_freq[-pool_size:]]
+            mid_pool = [int(k) for k, _ in sorted_freq[pool_size:-pool_size]]
+            if not mid_pool:
+                mid_pool = [n for n in all_numbers if n not in low_pool and n not in high_pool]
+
+            def sample_pool(pool, count, exclude=None):
+                if exclude:
+                    pool = [n for n in pool if n not in exclude]
+                if len(pool) < count:
+                    raise ValueError("Pool too small")
+                return random.sample(pool, count)
+
+            if strategy == 'hot':
+                normal = sorted(sample_pool(high_pool, 6))
+            elif strategy == 'cold':
+                normal = sorted(sample_pool(low_pool, 6))
+            elif strategy == 'trend':
+                normal = sorted(sample_pool(high_pool, 6))
+            elif strategy == 'hybrid':
+                mix = config.get("mix") or {"hot": 2, "cold": 2, "trend": 2}
+                trend_window = int(config.get("trend_window") or window or 15)
+                trend_data = data[:trend_window] if data else []
+                trend_freq = analyze_special_number_frequency(trend_data) if trend_data else {}
+                if not trend_freq:
+                    raise ValueError("No trend data")
+                trend_sorted = sorted(trend_freq.items(), key=lambda item: item[1])
+                trend_pool = [int(k) for k, _ in trend_sorted[-pool_size:]]
+                normal = []
+                normal += sample_pool(high_pool, int(mix.get("hot", 2)))
+                normal += sample_pool(low_pool, int(mix.get("cold", 2)), exclude=normal)
+                normal += sample_pool(trend_pool, int(mix.get("trend", 2)), exclude=normal)
+                normal = sorted(normal)
+            else:
+                bucket_counts = config.get("bucket_counts") or [2, 2, 2]
+                low_count, mid_count, high_count = bucket_counts
+                normal = []
+                normal += sample_pool(low_pool, int(low_count))
+                normal += sample_pool(mid_pool, int(mid_count), exclude=normal)
+                normal += sample_pool(high_pool, int(high_count), exclude=normal)
+                normal = sorted(normal)
         except Exception as e:
-            print(f"Balanced recommendation failed, falling back to random. Reason: {e}")
+            print(f"{strategy} recommendation failed, falling back to random. Reason: {e}")
             return get_local_recommendations('random', data, region)
     special_num = random.choice([n for n in all_numbers if n not in normal])
     # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
@@ -1124,6 +1304,9 @@ def update_prediction_accuracy(data, region):
         
         # 提交更改
         db.session.commit()
+
+        # 根据最新准确率调整策略参数
+        update_strategy_configs(region)
 
         # 触发自动预测（排除 AI 策略）
         if data and len(data) > 0:
