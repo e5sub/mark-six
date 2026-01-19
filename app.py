@@ -652,6 +652,7 @@ def _default_strategy_config(strategy):
             "last_accuracy": 0.0,
             "last_total": 0
         },
+        "ai": {"history_window": 10, "temperature": 0.8, "last_accuracy": 0.0, "last_total": 0},
     }
     return defaults.get(strategy, {})
 
@@ -748,11 +749,14 @@ def _tune_strategy_config(strategy, region):
         config["window"] = _clamp(int(40 + accuracy * 40), 30, 90)
         config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
         config["trend_window"] = _clamp(int(8 + accuracy * 20), 8, 30)
+    elif strategy == "ai":
+        config["temperature"] = round(_clamp(0.9 - accuracy * 0.4, 0.5, 0.9), 2)
+        config["history_window"] = _clamp(int(10 + (0.5 - accuracy) * 6), 6, 15)
 
     _save_strategy_config(strategy, region, config)
 
 def update_strategy_configs(region):
-    strategies = ["hot", "cold", "trend", "balanced", "hybrid"]
+    strategies = ["hot", "cold", "trend", "balanced", "hybrid", "ai"]
     for strategy in strategies:
         try:
             _tune_strategy_config(strategy, region)
@@ -870,6 +874,15 @@ def get_local_recommendations(strategy, data, region):
             pool_size = int(config.get("pool") or 16)
             pool_size = _clamp(pool_size, 8, 24)
 
+            ai_config = _load_strategy_config("ai", region)
+            ai_accuracy = float(ai_config.get("last_accuracy") or 0.0)
+            if window > 0:
+                window = _clamp(int(window + (ai_accuracy - 0.5) * 20), 10, 90)
+                recent_data = data[:window]
+                freq = analyze_special_number_frequency(recent_data)
+                sorted_freq = sorted(freq.items(), key=lambda item: item[1])
+            pool_size = _clamp(int(pool_size + (0.5 - ai_accuracy) * 6), 8, 24)
+
             low_pool = [int(k) for k, _ in sorted_freq[:pool_size]]
             high_pool = [int(k) for k, _ in sorted_freq[-pool_size:]]
             mid_pool = [int(k) for k, _ in sorted_freq[pool_size:-pool_size]]
@@ -920,9 +933,9 @@ def get_local_recommendations(strategy, data, region):
     sno_zodiac_info = ""
     return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": sno_zodiac_info}}
 
-def _build_ai_prompt(data, region):
+def _build_ai_prompt(data, region, history_window=10):
     history_lines = []
-    recent_data = data[:10]
+    recent_data = data[:history_window]
     if region == 'hk':
         year = datetime.now().year
         if recent_data:
@@ -972,8 +985,11 @@ def predict_with_ai(data, region):
     ai_config = get_ai_config()
     if not ai_config['api_key'] or "你的" in ai_config['api_key']:
         return {"error": "AI API Key 未配置"}
-    prompt = _build_ai_prompt(data, region)
-    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
+    tuned = _load_strategy_config("ai", region)
+    history_window = int(tuned.get("history_window") or 10)
+    temperature = float(tuned.get("temperature") or 0.8)
+    prompt = _build_ai_prompt(data, region, history_window=history_window)
+    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": temperature}
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
         response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120)
@@ -989,11 +1005,11 @@ def predict_with_ai(data, region):
     except Exception as e:
         return {"error": f"调用AI API时出错: {e}"}
 
-def _iter_ai_stream(ai_config, prompt):
+def _iter_ai_stream(ai_config, prompt, temperature=0.8):
     payload = {
         "model": ai_config["model"],
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.8,
+        "temperature": temperature,
         "stream": True
     }
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
@@ -1458,10 +1474,13 @@ def unified_predict_api():
                 if not ai_config['api_key'] or "你的" in ai_config['api_key']:
                     yield json.dumps({"type": "error", "error": "AI API Key 未配置"}, ensure_ascii=False) + "\n\n"
                     return
-                prompt = _build_ai_prompt(data, region)
+                tuned = _load_strategy_config("ai", region)
+                history_window = int(tuned.get("history_window") or 10)
+                temperature = float(tuned.get("temperature") or 0.8)
+                prompt = _build_ai_prompt(data, region, history_window=history_window)
                 full_text = ""
                 try:
-                    for chunk in _iter_ai_stream(ai_config, prompt):
+                    for chunk in _iter_ai_stream(ai_config, prompt, temperature=temperature):
                         full_text += chunk
                         yield json.dumps({
                             "type": "content",
