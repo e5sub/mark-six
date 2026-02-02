@@ -208,9 +208,12 @@ def edit_user(user_id):
             # 保存原始用户名，用于判断是否是admin账号
             original_username = user.username
 
-            # 对于admin账号，如果checkbox被disabled，则保持当前激活状态
+            print(f"DEBUG: original_username={original_username}, is_active={is_active}, user.is_active={user.is_active}")
+
+            # 对于admin账号，强制保持激活状态
             if original_username == 'admin':
-                is_active = user.is_active
+                is_active = True
+                print(f"DEBUG: 设置admin用户is_active=True")
 
             # 防止停用admin账号
             if original_username == 'admin' and not is_active:
