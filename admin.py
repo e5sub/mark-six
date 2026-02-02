@@ -204,19 +204,22 @@ def edit_user(user_id):
             new_password = request.form.get('new_password')
             is_active = 'is_active' in request.form
             is_admin = 'is_admin' in request.form
-            
+
+            # 保存原始用户名，用于判断是否是admin账号
+            original_username = user.username
+
             # 防止停用admin账号
-            if user.username == 'admin' and not is_active:
+            if original_username == 'admin' and not is_active:
                 flash('不能停用admin账号', 'error')
                 return render_template('admin/edit_user.html', user=user)
-            
+
             # 更新用户信息
             user.username = new_username
             user.email = new_email
             user.is_active = is_active
-            
+
             # 如果是admin账号，保持管理员权限
-            if user.username == 'admin':
+            if original_username == 'admin':
                 user.is_admin = True
             else:
                 user.is_admin = is_admin
