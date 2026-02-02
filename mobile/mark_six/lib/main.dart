@@ -2339,6 +2339,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
   List<DrawRecord> _allRecords = [];
   String _region = 'hk';
   bool _loading = false;
+  bool _nextDrawLoading = false;
+  String? _nextDrawTime;
   final TextEditingController _yearController = TextEditingController();
   final TextEditingController _monthController = TextEditingController();
   final TextEditingController _periodController = TextEditingController();
@@ -2350,6 +2352,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
     super.initState();
     _yearController.text = DateTime.now().year.toString();
     _fetch();
+    _fetchNextDrawTime();
   }
 
   @override
@@ -2385,10 +2388,118 @@ class _RecordsScreenState extends State<RecordsScreen> {
     }
   }
 
+  Future<void> _fetchNextDrawTime() async {
+    if (_region != 'hk') {
+      if (!mounted) return;
+      setState(() {
+        _nextDrawTime = null;
+        _nextDrawLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _nextDrawLoading = true;
+    });
+
+    try {
+      final dio = Dio();
+      final response = await dio.get<String>(
+        'https://api3.marksix6.net/',
+        options: Options(responseType: ResponseType.plain),
+      );
+      final body = response.data ?? '';
+      final match =
+          RegExp(r'下期时间[:：]\s*([^\n\r<]+)').firstMatch(body);
+      final normalized = _normalizeDateTimeString(match?.group(1)?.trim());
+      if (!mounted) return;
+      setState(() {
+        _nextDrawTime = normalized;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _nextDrawTime = null;
+      });
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _nextDrawLoading = false;
+      });
+    }
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  String _formatDateTime(DateTime value) {
+    final year = value.year.toString().padLeft(4, '0');
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$year-$month-$day $hour:$minute';
+  }
+
+  String? _normalizeDateTimeString(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final match = RegExp(
+      r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})',
+    ).firstMatch(raw);
+    if (match == null) return null;
+    final year = int.tryParse(match.group(1) ?? '');
+    final month = int.tryParse(match.group(2) ?? '');
+    final day = int.tryParse(match.group(3) ?? '');
+    final hour = int.tryParse(match.group(4) ?? '');
+    final minute = int.tryParse(match.group(5) ?? '');
+    if (year == null ||
+        month == null ||
+        day == null ||
+        hour == null ||
+        minute == null) {
+      return null;
+    }
+    final value = DateTime(year, month, day, hour, minute);
+    return _formatDateTime(value);
+  }
+
+  DateTime _nextMacauDrawTime() {
+    final now = DateTime.now();
+    final todayDraw = DateTime(now.year, now.month, now.day, 21, 32);
+    if (now.isBefore(todayDraw)) {
+      return todayDraw;
+    }
+    return todayDraw.add(const Duration(days: 1));
+  }
+
+  DateTime _nextHkDrawTime() {
+    final now = DateTime.now();
+    const drawHour = 21;
+    const drawMinute = 32;
+    final todayDraw = DateTime(now.year, now.month, now.day, drawHour, drawMinute);
+
+    const drawDays = <int>{2, 4, 6}; // Tue, Thu, Sat
+    final todayIsDrawDay = drawDays.contains(now.weekday);
+    if (todayIsDrawDay && now.isBefore(todayDraw)) {
+      return todayDraw;
+    }
+
+    for (var i = 1; i <= 7; i++) {
+      final candidate = now.add(Duration(days: i));
+      if (drawDays.contains(candidate.weekday)) {
+        return DateTime(
+          candidate.year,
+          candidate.month,
+          candidate.day,
+          drawHour,
+          drawMinute,
+        );
+      }
+    }
+    return todayDraw.add(const Duration(days: 2));
   }
 
   void _applyFilters() {
@@ -2617,6 +2728,25 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     ],
                   ),
                 ),
+                Expanded(
+                  child: Text(
+                    _region == 'macau'
+                        ? '下期时间: ${_formatDateTime(_nextMacauDrawTime())}'
+                        : _nextDrawLoading
+                            ? '下期时间: 加载中...'
+                            : _nextDrawTime != null && _nextDrawTime!.isNotEmpty
+                                ? '下期时间: $_nextDrawTime'
+                                : '下期时间: ${_formatDateTime(_nextHkDrawTime())}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
                 SegmentedButton<String>(
                   segments: const [
                     ButtonSegment(value: 'hk', label: Text('香港')),
@@ -2626,6 +2756,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   onSelectionChanged: (value) {
                     setState(() => _region = value.first);
                     _fetch();
+                    _fetchNextDrawTime();
                   },
                   style: ButtonStyle(
                     foregroundColor: WidgetStateProperty.all(Colors.white),
