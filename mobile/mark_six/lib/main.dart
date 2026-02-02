@@ -2,7 +2,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -2403,23 +2402,17 @@ class _RecordsScreenState extends State<RecordsScreen> {
     });
 
     try {
-      final dio = Dio();
-      final response = await dio.get<String>(
-        'https://api3.marksix6.net/',
-        options: Options(responseType: ResponseType.plain),
-      );
-      final body = response.data ?? '';
-      final match =
-          RegExp(r'下期时间[:：]\s*([^\n\r<]+)').firstMatch(body);
-      final normalized = _normalizeDateTimeString(match?.group(1)?.trim());
+      final data = await ApiClient.instance.nextDrawTime(region: 'hk');
+      final raw = data['next_time']?.toString().trim();
+      final normalized = _normalizeDateTimeString(raw);
       if (!mounted) return;
       setState(() {
-        _nextDrawTime = normalized;
+        _nextDrawTime = normalized ?? raw;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _nextDrawTime = null;
+        _nextDrawTime = _formatDateTime(_nextHkDrawTime());
       });
     } finally {
       if (!mounted) return;

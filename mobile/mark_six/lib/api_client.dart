@@ -218,6 +218,15 @@ class ApiClient {
     return <dynamic>[];
   }
 
+  Future<Map<String, dynamic>> nextDrawTime({
+    required String region,
+  }) async {
+    final response = await get('/api/next_draw_time', queryParameters: {
+      'region': region,
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Future<Map<String, dynamic>> getZodiacs({
     required List<String> numbers,
     required String region,

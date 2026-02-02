@@ -163,6 +163,7 @@ if _should_log_startup():
     print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
 # 香港数据API
 HK_DATA_SOURCE_URL = "https://api3.marksix6.net/lottery_api.php?type=hk"
+HK_NEXT_DRAW_TIME_URL = "https://api3.marksix6.net/"
 
 # --- 号码属性计算与映射 ---
 ZODIAC_MAPPING_SEQUENCE = ("虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马")
@@ -266,6 +267,118 @@ def _is_within_sync_window(now):
     if now.hour != 21:
         return False
     return 32 <= now.minute <= 40
+
+def _format_datetime_ymdhm(value):
+    return value.strftime("%Y-%m-%d %H:%M")
+
+def _normalize_datetime_string(value):
+    if not value:
+        return None
+    match = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})', value)
+    if not match:
+        return None
+    year, month, day, hour, minute = match.groups()
+    try:
+        dt = datetime(int(year), int(month), int(day), int(hour), int(minute))
+    except ValueError:
+        return None
+    return _format_datetime_ymdhm(dt)
+
+def _parse_hk_next_draw_time_from_text(text):
+    if not text:
+        return None
+    match = re.search(r'下期时间[:：]\s*([^\n\r<]+)', text)
+    if not match:
+        return None
+    raw = match.group(1).strip()
+    return _normalize_datetime_string(raw) or raw
+
+def _compute_next_hk_draw_time(now=None):
+    now = now or datetime.now()
+    draw_hour = 21
+    draw_minute = 32
+    draw_days = {1, 3, 5}  # Tue, Thu, Sat (Python: Mon=0)
+    today_draw = datetime(now.year, now.month, now.day, draw_hour, draw_minute)
+    if now.weekday() in draw_days and now < today_draw:
+        return today_draw
+    for i in range(1, 8):
+        candidate = now + timedelta(days=i)
+        if candidate.weekday() in draw_days:
+            return datetime(candidate.year, candidate.month, candidate.day, draw_hour, draw_minute)
+    return today_draw + timedelta(days=2)
+
+def _compute_next_macau_draw_time(now=None):
+    now = now or datetime.now()
+    draw_hour = 21
+    draw_minute = 32
+    today_draw = datetime(now.year, now.month, now.day, draw_hour, draw_minute)
+    if now < today_draw:
+        return today_draw
+    return today_draw + timedelta(days=1)
+
+def update_hk_next_draw_time_cache(force=False):
+    now = datetime.now()
+    if not force:
+        cached_at = SystemConfig.get_config('hk_next_draw_time_cached_at', '').strip()
+        if cached_at:
+            try:
+                cached_dt = datetime.fromisoformat(cached_at)
+                if now - cached_dt < timedelta(minutes=30):
+                    return
+            except ValueError:
+                pass
+
+    value = None
+    try:
+        response = requests.get(HK_NEXT_DRAW_TIME_URL, timeout=10)
+        if response.ok:
+            if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+                response.encoding = "utf-8"
+            value = _parse_hk_next_draw_time_from_text(response.text)
+    except Exception as e:
+        print(f"获取香港下期时间失败: {e}")
+
+    if not value:
+        value = _format_datetime_ymdhm(_compute_next_hk_draw_time(now))
+
+    SystemConfig.set_config('hk_next_draw_time', value, '香港下期时间')
+    SystemConfig.set_config(
+        'hk_next_draw_time_cached_at',
+        now.isoformat(timespec='seconds'),
+        '香港下期时间缓存更新时间'
+    )
+
+@app.route('/api/next_draw_time')
+def next_draw_time_api():
+    region = request.args.get('region', 'hk').strip().lower()
+    now = datetime.now()
+    if region == 'hk':
+        update_hk_next_draw_time_cache(force=False)
+        value = SystemConfig.get_config('hk_next_draw_time', '').strip()
+        if not value:
+            value = _format_datetime_ymdhm(_compute_next_hk_draw_time(now))
+            SystemConfig.set_config('hk_next_draw_time', value, '香港下期时间')
+            SystemConfig.set_config(
+                'hk_next_draw_time_cached_at',
+                now.isoformat(timespec='seconds'),
+                '香港下期时间缓存更新时间'
+            )
+        return jsonify({
+            "success": True,
+            "region": "hk",
+            "next_time": value
+        })
+    if region == 'macau':
+        value = _format_datetime_ymdhm(_compute_next_macau_draw_time(now))
+        return jsonify({
+            "success": True,
+            "region": "macau",
+            "next_time": value
+        })
+    return jsonify({
+        "success": False,
+        "message": "未知地区"
+    }), 400
 
 def _finalize_ai_result(ai_response):
     normal_numbers, special_number = _extract_ai_numbers(ai_response)
@@ -1647,6 +1760,7 @@ def update_data_api():
             hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
             save_draws_to_database(hk_filtered, 'hk')
             print(f"手动更新：成功更新香港数据{len(hk_filtered)}条")
+            update_hk_next_draw_time_cache(force=True)
         
         if region == 'all' or region == 'macau':
             # 更新澳门数据
@@ -2060,6 +2174,7 @@ def update_lottery_data():
             print("正在同步香港数据...")
             hk_data = sync_draws_from_api('hk', current_year, force=True)
             print(f"香港数据更新完成：{len(hk_data)}条")
+            update_hk_next_draw_time_cache(force=True)
             
             # 更新澳门数据
             print("正在同步澳门数据...")
