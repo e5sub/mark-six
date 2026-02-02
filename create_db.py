@@ -199,6 +199,21 @@ conn.commit()
 conn.close()
 
 print(f"✓ 数据库文件已成功创建: {DB_PATH}")
+
+# 自动运行数据库更新脚本
+print("\n正在运行数据库自动更新...")
+try:
+    # 导入并执行更新
+    import auto_update_db
+    update_success = auto_update_db.update_database()
+    if update_success:
+        print("✓ 数据库自动更新完成")
+    else:
+        print("⚠ 数据库更新失败，请手动执行 auto_update_db.py")
+except Exception as e:
+    print(f"⚠ 自动更新失败: {str(e)}")
+    print("请手动执行 python auto_update_db.py")
+
 print("\n系统信息:")
 print("- 默认管理员账号: admin")
 print("- 默认管理员密码: admin123")
