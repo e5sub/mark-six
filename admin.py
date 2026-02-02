@@ -208,6 +208,10 @@ def edit_user(user_id):
             # 保存原始用户名，用于判断是否是admin账号
             original_username = user.username
 
+            # 对于admin账号，如果checkbox被disabled，则保持当前激活状态
+            if original_username == 'admin':
+                is_active = user.is_active
+
             # 防止停用admin账号
             if original_username == 'admin' and not is_active:
                 flash('不能停用admin账号', 'error')
