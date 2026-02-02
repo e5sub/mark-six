@@ -162,7 +162,7 @@ MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}
 if _should_log_startup():
     print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
 # 香港数据API
-HK_DATA_SOURCE_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/data/all.json"
+HK_DATA_SOURCE_URL = "https://api3.marksix6.net/lottery_api.php?type=hk"
 
 # --- 号码属性计算与映射 ---
 ZODIAC_MAPPING_SEQUENCE = ("虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马")
@@ -539,12 +539,74 @@ def settle_pending_manual_bets(region, draw_id):
 
 # --- 数据加载与处理 ---
 def load_hk_data(force_refresh=False):
-    # 直接从URL获取数据
+    """从新接口获取香港开奖数据"""
     try:
+        print(f"正在获取香港数据，URL: {HK_DATA_SOURCE_URL}")
         params = {"_": int(time.time())} if force_refresh else None
         response = requests.get(HK_DATA_SOURCE_URL, params=params, timeout=15)
         response.raise_for_status()
-        return response.json()
+        api_data = response.json()
+        
+        # 标准化数据格式
+        normalized_data = []
+        
+        # 如果返回的是单条数据，转换为列表
+        if isinstance(api_data, dict):
+            api_data = [api_data]
+        elif isinstance(api_data, list):
+            pass
+        else:
+            print(f"香港API返回数据格式错误: {api_data}")
+            return []
+        
+        for record in api_data:
+            raw_numbers_str = record.get("openCode", "").split(',')
+            try:
+                numbers = [str(int(n)) for n in raw_numbers_str]
+            except (ValueError, TypeError):
+                continue
+            
+            traditional_zodiacs = record.get("zodiac", "").split(',')
+            if len(numbers) < 7:
+                continue
+            
+            # 简化生肖
+            simplified_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in traditional_zodiacs]
+            
+            # 提取波浪（颜色）信息
+            wave = record.get("wave", "").split(',')
+            
+            normalized_data.append({
+                "id": record.get("expect"),
+                "date": record.get("openTime"),
+                "no": numbers[:6],
+                "sno": numbers[6],
+                "sno_zodiac": simplified_zodiacs[6] if len(simplified_zodiacs) >= 7 else "",
+                "raw_zodiac": ",".join(simplified_zodiacs),
+                "raw_wave": ",".join(wave)
+            })
+        
+        print(f"香港API返回数据条数: {len(normalized_data)}")
+        
+        # 去重
+        unique_data = []
+        seen_ids = set()
+        for record in normalized_data:
+            record_id = record.get("id")
+            if record_id and record_id not in seen_ids:
+                unique_data.append(record)
+                seen_ids.add(record_id)
+        
+        print(f"去重后数据条数: {len(unique_data)}")
+        
+        # 按日期和期号排序（降序）
+        result = sorted(unique_data, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+        
+        if len(result) > 0:
+            print(f"最新一期数据: {result[0]}")
+        
+        return result
+        
     except Exception as e:
         print(f"从URL获取香港数据失败: {e}")
         return []
