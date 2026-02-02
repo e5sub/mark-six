@@ -211,8 +211,8 @@ function showToast(message, type = 'success') {
 }
 
 // 添加动画样式
-const style = document.createElement('style');
-style.textContent = `
+const toastStyle = document.createElement('style');
+toastStyle.textContent = `
     @keyframes slideIn {
         from { transform: translateX(100%); opacity: 0; }
         to { transform: translateX(0); opacity: 1; }
@@ -222,6 +222,6 @@ style.textContent = `
         to { transform: translateX(100%); opacity: 0; }
     }
 `;
-document.head.appendChild(style);
+document.head.appendChild(toastStyle);
 </script>
 {% endblock %}
