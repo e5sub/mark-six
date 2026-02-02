@@ -254,6 +254,48 @@ def edit_user(user_id):
         flash(f'编辑用户失败: {str(e)}', 'error')
         return redirect(url_for('admin.users'))
 
+@admin_bp.route('/users/add', methods=['POST'])
+@admin_required
+def add_user():
+    """添加新用户"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'message': '无效的数据格式'})
+
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        is_admin = data.get('is_admin', False)
+
+        # 验证输入
+        if not username:
+            return jsonify({'success': False, 'message': '用户名不能为空'})
+        if not email:
+            return jsonify({'success': False, 'message': '邮箱不能为空'})
+        if not password or len(password) < 6:
+            return jsonify({'success': False, 'message': '密码长度不能少于6个字符'})
+
+        # 检查用户名是否已存在
+        if User.query.filter_by(username=username).first():
+            return jsonify({'success': False, 'message': '用户名已存在'})
+
+        # 检查邮箱是否已存在
+        if User.query.filter_by(email=email).first():
+            return jsonify({'success': False, 'message': '邮箱已被使用'})
+
+        # 创建新用户
+        user = User(username=username, email=email, is_active=True, is_admin=is_admin)
+        user.set_password(password)
+
+        db.session.add(user)
+        db.session.commit()
+
+        return jsonify({'success': True, 'message': '用户添加成功'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)})
+
 @admin_bp.route('/users/<int:user_id>/activate', methods=['POST'])
 @admin_required
 def activate_user(user_id):
