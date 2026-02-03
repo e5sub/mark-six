@@ -2703,41 +2703,24 @@ class _RecordsScreenState extends State<RecordsScreen> {
             child: Row(
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '本年度开奖',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _region == 'macau'
+                          ? '下期时间: ${_formatDateTime(_nextMacauDrawTime())}'
+                          : _nextDrawLoading
+                              ? '下期时间: 加载中...'
+                              : _nextDrawTime != null && _nextDrawTime!.isNotEmpty
+                                  ? '下期时间: $_nextDrawTime'
+                                  : '下期时间: ${_formatDateTime(_nextHkDrawTime())}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.left,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _region == 'hk' ? '香港六合彩' : '澳门六合彩',
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    _region == 'macau'
-                        ? '下期时间: ${_formatDateTime(_nextMacauDrawTime())}'
-                        : _nextDrawLoading
-                            ? '下期时间: 加载中...'
-                            : _nextDrawTime != null && _nextDrawTime!.isNotEmpty
-                                ? '下期时间: $_nextDrawTime'
-                                : '下期时间: ${_formatDateTime(_nextHkDrawTime())}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
