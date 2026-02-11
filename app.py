@@ -1610,15 +1610,15 @@ def unified_predict_api():
     is_active = session.get('is_active', False)
     
     # 获取下一期期数（使用最近一期的下一期）
-        if data:
-            try:
-                latest_period = data[0].get('id', '')
-                current_period = _get_next_period(region, latest_period)
-            except (IndexError, ValueError) as e:
-                print(f"计算下一期期数时出错: {e}")
-                current_period = _default_period(region)
-        else:
+    if data:
+        try:
+            latest_period = data[0].get('id', '')
+            current_period = _get_next_period(region, latest_period)
+        except (IndexError, ValueError) as e:
+            print(f"计算下一期期数时出错: {e}")
             current_period = _default_period(region)
+    else:
+        current_period = _default_period(region)
     
     # 检查用户是否已经为当前期和当前策略生成过预测
     if user_id and is_active:
