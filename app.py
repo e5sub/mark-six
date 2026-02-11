@@ -976,8 +976,19 @@ def _get_next_period(region, latest_period):
                     return f"{year_part}/{next_num:03d}"
                 except (ValueError, TypeError):
                     pass
-        current_year = datetime.now().strftime('%y')
-        return f"{current_year}/001"
+        if latest_period and latest_period.isdigit():
+            if len(latest_period) >= 7 and latest_period[:4].isdigit():
+                year_part = latest_period[:4]
+                seq_part = latest_period[4:]
+                if seq_part.isdigit():
+                    seq = int(seq_part)
+                    next_seq = seq + 1
+                    if len(seq_part) == 3 and next_seq > 999:
+                        next_year = int(year_part) + 1
+                        return f"{next_year}001"
+                    return f"{year_part}{str(next_seq).zfill(len(seq_part))}"
+            return str(int(latest_period) + 1)
+        return _default_period(region)
 
     if latest_period and latest_period.isdigit():
         if len(latest_period) >= 7 and latest_period[:4].isdigit():
@@ -992,6 +1003,13 @@ def _get_next_period(region, latest_period):
                 return f"{year_part}{str(next_seq).zfill(len(seq_part))}"
         return str(int(latest_period) + 1)
     return datetime.now().strftime('%Y%m%d')
+
+def _default_period(region):
+    if region == 'hk':
+        current_year = datetime.now().strftime('%Y')
+        return f"{current_year}001"
+    current_year = datetime.now().strftime('%y')
+    return f"{current_year}/001"
 
 def analyze_special_zodiac_frequency(data, region, year=None):
     zodiacs = []
@@ -1592,17 +1610,15 @@ def unified_predict_api():
     is_active = session.get('is_active', False)
     
     # 获取下一期期数（使用最近一期的下一期）
-    if data:
-        try:
-            latest_period = data[0].get('id', '')
-            current_period = _get_next_period(region, latest_period)
-        except (IndexError, ValueError) as e:
-            print(f"计算下一期期数时出错: {e}")
-            current_year = datetime.now().strftime('%y')
-            current_period = f"{current_year}/001"
-    else:
-        current_year = datetime.now().strftime('%y')
-        current_period = f"{current_year}/001"
+        if data:
+            try:
+                latest_period = data[0].get('id', '')
+                current_period = _get_next_period(region, latest_period)
+            except (IndexError, ValueError) as e:
+                print(f"计算下一期期数时出错: {e}")
+                current_period = _default_period(region)
+        else:
+            current_period = _default_period(region)
     
     # 检查用户是否已经为当前期和当前策略生成过预测
     if user_id and is_active:
