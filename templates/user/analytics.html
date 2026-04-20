@@ -312,6 +312,40 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <style>
+.card-compact {
+    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(102, 126, 234, 0.1);
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.card-header-compact {
+    padding: 0.8rem 1.2rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.card-title-compact {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.stat-card-compact {
+    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(102, 126, 234, 0.1);
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
 .analytics-stats {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
