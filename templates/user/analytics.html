@@ -5,6 +5,50 @@
 {% block content %}
 <div class="card-compact">
     <div class="card-header-compact">
+        <h2 class="card-title-compact">📊 统计总览</h2>
+    </div>
+
+    <div class="stats-grid analytics-stats">
+        <div class="stat-card-compact clickable-stat" data-filter="all">
+            <div class="stat-icon" style="color: #667eea;">📊</div>
+            <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
+            <div class="stat-label">总预测次数</div>
+        </div>
+
+        <div class="stat-card-compact clickable-stat" data-filter="special_hit">
+            <div class="stat-icon" style="color: #28a745;">🎯</div>
+            <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
+            <div class="stat-label">特码命中</div>
+        </div>
+
+        <div class="stat-card-compact clickable-stat" data-filter="normal_hit">
+            <div class="stat-icon" style="color: #17a2b8;">✅</div>
+            <div class="stat-number">{{ stats.normal_hit_count or 0 }}</div>
+            <div class="stat-label">平码命中</div>
+        </div>
+
+        <div class="stat-card-compact clickable-stat" data-filter="wrong">
+            <div class="stat-icon" style="color: #dc3545;">❌</div>
+            <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
+            <div class="stat-label">未命中</div>
+        </div>
+
+        <div class="stat-card-compact">
+            <div class="stat-icon" style="color: #ffc107;">🎲</div>
+            <div class="stat-number">{{ "%.1f"|format(stats.special_hit_rate or 0) }}%</div>
+            <div class="stat-label">特码命中率</div>
+        </div>
+
+        <div class="stat-card-compact">
+            <div class="stat-icon" style="color: #6f42c1;">📈</div>
+            <div class="stat-number">{{ "%.1f"|format(stats.normal_hit_rate or 0) }}%</div>
+            <div class="stat-label">平码命中率</div>
+        </div>
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
         <h2 class="card-title-compact">🧠 智能优选与回测</h2>
     </div>
 
@@ -81,44 +125,6 @@
             {% endif %}
         </div>
         {% endfor %}
-    </div>
-</div>
-
-<div class="stats-grid analytics-stats">
-    <div class="stat-card-compact clickable-stat" data-filter="all">
-        <div class="stat-icon" style="color: #667eea;">📊</div>
-        <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
-        <div class="stat-label">总预测次数</div>
-    </div>
-
-    <div class="stat-card-compact clickable-stat" data-filter="special_hit">
-        <div class="stat-icon" style="color: #28a745;">🎯</div>
-        <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
-        <div class="stat-label">特码命中</div>
-    </div>
-
-    <div class="stat-card-compact clickable-stat" data-filter="normal_hit">
-        <div class="stat-icon" style="color: #17a2b8;">✅</div>
-        <div class="stat-number">{{ stats.normal_hit_count or 0 }}</div>
-        <div class="stat-label">平码命中</div>
-    </div>
-
-    <div class="stat-card-compact clickable-stat" data-filter="wrong">
-        <div class="stat-icon" style="color: #dc3545;">❌</div>
-        <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
-        <div class="stat-label">未命中</div>
-    </div>
-
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #ffc107;">🎲</div>
-        <div class="stat-number">{{ "%.1f"|format(stats.special_hit_rate or 0) }}%</div>
-        <div class="stat-label">特码命中率</div>
-    </div>
-
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #6f42c1;">📈</div>
-        <div class="stat-number">{{ "%.1f"|format(stats.normal_hit_rate or 0) }}%</div>
-        <div class="stat-label">平码命中率</div>
     </div>
 </div>
 
@@ -456,21 +462,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
 .clickable-stat {
     position: relative;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.clickable-stat::after {
-    content: '->';
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    font-size: 0.9rem;
-    opacity: 0.6;
-    transition: all 0.3s ease;
-}
-
-.clickable-stat:hover::after {
-    opacity: 1;
-    transform: translate(2px, -2px);
+.clickable-stat:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(102, 126, 234, 0.12);
 }
 
 .strategy-header,
