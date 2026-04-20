@@ -3030,20 +3030,20 @@ class _PredictScreenState extends State<PredictScreen> {
   StreamSubscription<Map<String, dynamic>>? _aiSubscription;
 
   final Map<String, String> _strategyLabels = const {
+    'smart': '智能优选',
     'hybrid': '综合',
     'balanced': '均衡',
     'hot': '热门',
     'cold': '冷门',
     'trend': '走势',
-    'random': '随机',
     'ai': 'AI智能',
   };
 
   LinearGradient? _strategyGradient(String key) {
     switch (key) {
-      case 'random':
+      case 'smart':
         return const LinearGradient(
-          colors: [Color(0xFF28A745), Color(0xFF20C997)],
+          colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
         );
       case 'hot':
         return const LinearGradient(
@@ -3456,8 +3456,8 @@ class _PredictScreenState extends State<PredictScreen> {
         return const Color(0xFF6A1B9A);
       case 'balanced':
         return const Color(0xFFFB8C00);
-      case 'random':
-        return const Color(0xFF00897B);
+      case 'smart':
+        return const Color(0xFF1E88E5);
       case 'ai':
         return const Color(0xFF5E35B1);
       default:

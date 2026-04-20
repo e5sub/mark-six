@@ -1,40 +1,57 @@
-{% extends "user/base.html" %}
+﻿{% extends "user/base.html" %}
 
 {% block page_title %}预测记录{% endblock %}
 
+{% macro strategy_badge(strategy) -%}
+    {% if strategy == 'hot' %}
+        🔥 热门预测
+    {% elif strategy == 'cold' %}
+        🧊 冷门预测
+    {% elif strategy == 'trend' %}
+        📈 走势预测
+    {% elif strategy == 'hybrid' %}
+        ♻️ 综合预测
+    {% elif strategy == 'balanced' %}
+        ⚖️ 均衡预测
+    {% elif strategy == 'random' %}
+        🎲 随机预测
+    {% else %}
+        🤖 AI预测
+    {% endif %}
+{%- endmacro %}
+
 {% block content %}
-<!-- 统计信息 -->
 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;">
     <div class="stat-card clickable-stat" data-filter="all">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
         <div class="stat-number">{{ total_predictions }}</div>
         <div class="stat-label">总预测次数</div>
     </div>
-    
+
     <div class="stat-card clickable-stat" data-filter="special_hit">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">🎯</div>
         <div class="stat-number">{{ special_hit_count or 0 }}</div>
         <div class="stat-label">特码命中次数</div>
     </div>
-    
+
     <div class="stat-card clickable-stat" data-filter="normal_hit">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">✅</div>
         <div class="stat-number">{{ normal_hit_count or 0 }}</div>
         <div class="stat-label">平码命中次数</div>
     </div>
-    
+
     <div class="stat-card clickable-stat" data-filter="wrong">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">❌</div>
         <div class="stat-number">{{ wrong_predictions or 0 }}</div>
         <div class="stat-label">未命中次数</div>
     </div>
-    
+
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">🎯</div>
         <div class="stat-number">{{ special_hit_rate or 0 }}%</div>
         <div class="stat-label">特码命中率</div>
     </div>
-    
+
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #6f42c1;">✅</div>
         <div class="stat-number">{{ normal_hit_rate or 0 }}%</div>
@@ -42,11 +59,9 @@
     </div>
 </div>
 
-<!-- 预测记录列表 -->
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">📋 预测记录</h2>
-        <!-- 查询条件整合到标题栏 -->
+        <h2 class="card-title">📒 预测记录</h2>
         <form method="GET" class="inline-search-form">
             <div class="search-controls">
                 <select name="region" class="compact-select" title="地区">
@@ -61,7 +76,6 @@
                     <option value="trend" {% if request.args.get('strategy') == 'trend' %}selected{% endif %}>走势预测</option>
                     <option value="hybrid" {% if request.args.get('strategy') == 'hybrid' %}selected{% endif %}>综合预测</option>
                     <option value="balanced" {% if request.args.get('strategy') == 'balanced' %}selected{% endif %}>均衡预测</option>
-                    <option value="random" {% if request.args.get('strategy') == 'random' %}selected{% endif %}>随机预测</option>
                     <option value="ai" {% if request.args.get('strategy') == 'ai' %}selected{% endif %}>AI智能</option>
                 </select>
                 <select name="result" class="compact-select" title="预测结果">
@@ -72,38 +86,21 @@
                     <option value="pending" {% if request.args.get('result') == 'pending' %}selected{% endif %}>待开奖</option>
                 </select>
                 <button type="submit" class="compact-btn btn-search" title="查询">🔍</button>
-                <a href="{{ url_for('user.predictions') }}" class="compact-btn btn-reset" title="重置">🔄</a>
+                <a href="{{ url_for('user.predictions') }}" class="compact-btn btn-reset" title="重置">↺</a>
             </div>
         </form>
     </div>
-    
+
     {% if predictions and predictions.items %}
     <div class="predictions-list">
         {% set display_count = 9 %}
         {% set total_count = predictions.items|length %}
         {% for prediction in predictions.items[:display_count] %}
         <div class="prediction-card-compact">
-            <!-- 左侧：预测记录信息 -->
             <div class="prediction-left">
                 <div class="prediction-title-compact">
                     {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
-                    <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">
-                        {% if prediction.strategy == 'hot' %}
-                        🔥 热门预测
-                        {% elif prediction.strategy == 'cold' %}
-                        🧊 冷门预测
-                        {% elif prediction.strategy == 'trend' %}
-                        📈 走势预测
-                        {% elif prediction.strategy == 'hybrid' %}
-                        ⚙️ 综合预测
-                        {% elif prediction.strategy == 'balanced' %}
-                        ⚖️ 均衡预测
-                        {% elif prediction.strategy == 'random' %}
-                        🎲 随机预测
-                        {% else %}
-                        🤖 AI预测
-                        {% endif %}
-                    </span>
+                    <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">{{ strategy_badge(prediction.strategy) }}</span>
                 </div>
                 <div class="prediction-numbers-compact">
                     {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
@@ -113,115 +110,19 @@
                         <div class="zodiac-indicator">{{ get_number_zodiac(num) }}</div>
                     </div>
                     {% endfor %}
-                    
+
                     {% set special_color = get_number_color(prediction.special_number) %}
                     <div class="number-ball-compact ball-{{ special_color }} special-ball-compact">
                         {{ prediction.special_number }}
                         <div class="zodiac-indicator special-zodiac">{{ get_number_zodiac(prediction.special_number) }}</div>
                     </div>
                 </div>
-                
+
                 <div class="zodiac-info-compact">
-                    <div class="special-zodiac-info">🐲 特码生肖: {{ get_number_zodiac(prediction.special_number) }}</div>
+                    <div class="special-zodiac-info">🐲 特码生肖：{{ get_number_zodiac(prediction.special_number) }}</div>
                 </div>
             </div>
-            
-            <!-- 中间：开奖特码和预测结果 -->
-                <div class="prediction-center">
-                    {% if prediction.is_result_updated and prediction.actual_special_number %}
-                    <div class="draw-result-container-centered">
-                        <div class="draw-result-label-large">开奖特码</div>
-                        {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
-                        <div class="number-ball-large ball-{{ actual_special_color }} actual-special-ball-large">
-                            {{ prediction.actual_special_number }}
-                        </div>
-                        <div class="zodiac-indicator-large">{{ get_number_zodiac(prediction.actual_special_number) }}</div>
-                    </div>
-                    
-                    <div class="result-badge-container">
-                        {% if prediction.special_number == prediction.actual_special_number %}
-                            <div class="result-badge-compact result-success">
-                                🎯 特码命中
-                            </div>
-                        {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
-                            <div class="result-badge-compact result-partial">
-                                ✅ 平码命中
-                            </div>
-                        {% else %}
-                            <div class="result-badge-compact result-failed">
-                                ❌ 未命中
-                            </div>
-                        {% endif %}
-                    </div>
-                    {% else %}
-                    <div class="result-badge-compact result-pending">
-                        ⏳ 待开奖
-                    </div>
-                    {% endif %}
-                </div>
-            
-            <!-- 右侧：时间 -->
-            <div class="prediction-right">
-                <div class="prediction-time-compact">
-                    🕐 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-        
-        {% if total_count > display_count %}
-        <div class="show-more-container">
-            <button id="show-all-btn" class="btn btn-primary">显示全部</button>
-        </div>
-        
-        <!-- 隐藏的额外记录 -->
-        <div id="hidden-predictions" style="display: none;">
-            {% for prediction in predictions.items[display_count:] %}
-            <div class="prediction-card-compact">
-                <!-- 左侧：预测记录信息 -->
-                <div class="prediction-left">
-                    <div class="prediction-title-compact">
-                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
-                        <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">
-                            {% if prediction.strategy == 'hot' %}
-                            🔥 热门预测
-                            {% elif prediction.strategy == 'cold' %}
-                            🧊 冷门预测
-                            {% elif prediction.strategy == 'trend' %}
-                            📈 走势预测
-                            {% elif prediction.strategy == 'hybrid' %}
-                            ⚙️ 综合预测
-                            {% elif prediction.strategy == 'balanced' %}
-                            ⚖️ 均衡预测
-                            {% elif prediction.strategy == 'random' %}
-                            🎲 随机预测
-                            {% else %}
-                            🤖 AI预测
-                            {% endif %}
-                        </span>
-                    </div>
-                    <div class="prediction-numbers-compact">
-                        {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
-                        {% set color = get_number_color(num) %}
-                        <div class="number-ball-compact ball-{{ color }}">
-                            {{ num }}
-                            <div class="zodiac-indicator">{{ get_number_zodiac(num) }}</div>
-                        </div>
-                        {% endfor %}
-                        
-                        {% set special_color = get_number_color(prediction.special_number) %}
-                        <div class="number-ball-compact ball-{{ special_color }} special-ball-compact">
-                            {{ prediction.special_number }}
-                            <div class="zodiac-indicator special-zodiac">{{ prediction.special_zodiac }}</div>
-                        </div>
-                    </div>
-                    
-                    <div class="zodiac-info-compact">
-                        <div class="special-zodiac-info">🐲 特码生肖: {{ get_number_zodiac(prediction.special_number) }}</div>
-                    </div>
-                </div>
-                
-            <!-- 中间：开奖特码和预测结果 -->
+
             <div class="prediction-center">
                 {% if prediction.is_result_updated and prediction.actual_special_number %}
                 <div class="draw-result-container-centered">
@@ -232,34 +133,88 @@
                     </div>
                     <div class="zodiac-indicator-large">{{ get_number_zodiac(prediction.actual_special_number) }}</div>
                 </div>
-                
+
                 <div class="result-badge-container">
                     {% if prediction.special_number == prediction.actual_special_number %}
-                        <div class="result-badge-compact result-success">
-                            🎯 特码命中
-                        </div>
+                    <div class="result-badge-compact result-success">🎯 特码命中</div>
                     {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
-                        <div class="result-badge-compact result-partial">
-                            ✅ 平码命中
-                        </div>
+                    <div class="result-badge-compact result-partial">✅ 平码命中</div>
                     {% else %}
-                        <div class="result-badge-compact result-failed">
-                            ❌ 未命中
-                        </div>
+                    <div class="result-badge-compact result-failed">❌ 未命中</div>
                     {% endif %}
                 </div>
                 {% else %}
-                <div class="result-badge-compact result-pending">
-                    ⏳ 待开奖
-                </div>
+                <div class="result-badge-compact result-pending">⏳ 待开奖</div>
                 {% endif %}
             </div>
-                
-                <!-- 右侧：时间 -->
-                <div class="prediction-right">
-                    <div class="prediction-time-compact">
-                        🕐 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}
+
+            <div class="prediction-right">
+                <div class="prediction-time-compact">🕒 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            </div>
+        </div>
+        {% endfor %}
+
+        {% if total_count > display_count %}
+        <div class="show-more-container">
+            <button id="show-all-btn" class="btn btn-primary">显示全部</button>
+        </div>
+
+        <div id="hidden-predictions" style="display: none;">
+            {% for prediction in predictions.items[display_count:] %}
+            <div class="prediction-card-compact">
+                <div class="prediction-left">
+                    <div class="prediction-title-compact">
+                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
+                        <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">{{ strategy_badge(prediction.strategy) }}</span>
                     </div>
+                    <div class="prediction-numbers-compact">
+                        {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
+                        {% set color = get_number_color(num) %}
+                        <div class="number-ball-compact ball-{{ color }}">
+                            {{ num }}
+                            <div class="zodiac-indicator">{{ get_number_zodiac(num) }}</div>
+                        </div>
+                        {% endfor %}
+
+                        {% set special_color = get_number_color(prediction.special_number) %}
+                        <div class="number-ball-compact ball-{{ special_color }} special-ball-compact">
+                            {{ prediction.special_number }}
+                            <div class="zodiac-indicator special-zodiac">{{ get_number_zodiac(prediction.special_number) }}</div>
+                        </div>
+                    </div>
+
+                    <div class="zodiac-info-compact">
+                        <div class="special-zodiac-info">🐲 特码生肖：{{ get_number_zodiac(prediction.special_number) }}</div>
+                    </div>
+                </div>
+
+                <div class="prediction-center">
+                    {% if prediction.is_result_updated and prediction.actual_special_number %}
+                    <div class="draw-result-container-centered">
+                        <div class="draw-result-label-large">开奖特码</div>
+                        {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
+                        <div class="number-ball-large ball-{{ actual_special_color }} actual-special-ball-large">
+                            {{ prediction.actual_special_number }}
+                        </div>
+                        <div class="zodiac-indicator-large">{{ get_number_zodiac(prediction.actual_special_number) }}</div>
+                    </div>
+
+                    <div class="result-badge-container">
+                        {% if prediction.special_number == prediction.actual_special_number %}
+                        <div class="result-badge-compact result-success">🎯 特码命中</div>
+                        {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
+                        <div class="result-badge-compact result-partial">✅ 平码命中</div>
+                        {% else %}
+                        <div class="result-badge-compact result-failed">❌ 未命中</div>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="result-badge-compact result-pending">⏳ 待开奖</div>
+                    {% endif %}
+                </div>
+
+                <div class="prediction-right">
+                    <div class="prediction-time-compact">🕒 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
                 </div>
             </div>
             {% endfor %}
@@ -268,80 +223,72 @@
     </div>
     {% else %}
     <div class="empty-state">
-        <div class="empty-icon">📊</div>
+        <div class="empty-icon">📭</div>
         {% if request.args.get('result') or request.args.get('region') or request.args.get('strategy') %}
-            <h3>没有符合条件的记录</h3>
-            <p>尝试更改筛选条件或清除筛选</p>
-            <a href="{{ url_for('user.predictions') }}" class="btn btn-primary">
-                🔄 清除筛选
-            </a>
+        <h3>没有符合条件的记录</h3>
+        <p>可以尝试修改筛选条件，或者直接清空筛选重新查看。</p>
+        <a href="{{ url_for('user.predictions') }}" class="btn btn-primary">↺ 清空筛选</a>
         {% else %}
-            <h3>暂无预测记录</h3>
-            <p>开始您的第一次预测吧！</p>
-            <a href="{{ url_for('index') }}" class="btn btn-primary">
-                🎯 开始预测
-            </a>
+        <h3>暂无预测记录</h3>
+        <p>从首页开始生成第一条预测吧。</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary">🎯 开始预测</a>
         {% endif %}
     </div>
     {% endif %}
 </div>
 
-
-<!-- 操作说明 -->
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">📖 使用说明</h2>
+        <h2 class="card-title">📘 使用说明</h2>
     </div>
-    
+
     <div class="help-grid">
         <div class="help-card help-search">
             <h3>🔍 筛选功能</h3>
             <ul>
-                <li>可以按地区筛选预测记录</li>
-                <li>可以按预测策略筛选记录</li>
-                <li>可以按预测结果筛选记录</li>
-                <li>点击"重置"按钮清除所有筛选条件</li>
+                <li>可以按地区筛选预测记录。</li>
+                <li>可以按预测策略筛选记录。</li>
+                <li>可以按预测结果筛选记录。</li>
+                <li>点击“重置”可以清空所有筛选条件。</li>
             </ul>
         </div>
-        
+
         <div class="help-card help-numbers">
-            <h3>📊 号码说明</h3>
+            <h3>🔢 号码说明</h3>
             <ul>
-                <li>🔴 红色球代表红波号码</li>
-                <li>🔵 蓝色球代表蓝波号码</li>
-                <li>🟢 绿色球代表绿波号码</li>
-                <li>✨ 金边球代表特码号码</li>
-                <li>🌟 带闪光效果的球代表开奖特码</li>
+                <li>红色球表示红波号码。</li>
+                <li>蓝色球表示蓝波号码。</li>
+                <li>绿色球表示绿波号码。</li>
+                <li>金边球表示预测的特码号码。</li>
+                <li>高亮发光球表示实际开奖特码。</li>
             </ul>
         </div>
-        
+
         <div class="help-card help-strategy">
             <h3>🎯 预测策略</h3>
             <ul>
-                <li><strong>🔥 热门预测</strong>：优先选择近期高频号码</li>
-                <li><strong>🧊 冷门预测</strong>：优先选择近期低频号码</li>
-                <li><strong>📈 走势预测</strong>：强调近期走势变化</li>
-                <li><strong>⚙️ 综合预测</strong>：频率+间隔+趋势综合评分</li>
-                <li><strong>⚖️ 均衡预测</strong>：冷热搭配分层选择</li>
-                <li><strong>🎲 随机预测</strong>：完全随机生成号码</li>
-                <li><strong>🤖 AI智能</strong>：使用人工智能算法预测</li>
+                <li><strong>热门预测</strong>：优先选择近期高频号码。</li>
+                <li><strong>冷门预测</strong>：优先选择近期低频号码。</li>
+                <li><strong>走势预测</strong>：重点参考近期走势变化。</li>
+                <li><strong>综合预测</strong>：频率、遗漏和趋势综合评分。</li>
+                <li><strong>均衡预测</strong>：冷热搭配，分层筛选号码。</li>
+                <li><strong>AI智能</strong>：基于 AI 分析生成预测。</li>
             </ul>
         </div>
-        
+
         <div class="help-card help-accuracy">
-            <h3>🎯 准确率说明</h3>
+            <h3>📈 准确率说明</h3>
             <ul>
-                <li><strong>特码命中</strong>：预测的特码与开奖特码完全一致</li>
-                <li><strong>平码命中</strong>：预测的平码中包含开奖特码</li>
-                <li><strong>未命中</strong>：预测的号码均未命中开奖特码</li>
-                <li><strong>命中率</strong>：分别统计特码命中率和平码命中率</li>
+                <li><strong>特码命中</strong>：预测的特码与实际开奖特码完全一致。</li>
+                <li><strong>平码命中</strong>：预测的平码中包含实际开奖特码。</li>
+                <li><strong>未命中</strong>：预测号码都未命中实际开奖特码。</li>
+                <li><strong>命中率</strong>：分别统计特码和平码的命中表现。</li>
             </ul>
         </div>
     </div>
 </div>
 
 <style>
-/* 可点击统计卡片样式 */
 .stat-card {
     background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
     border-radius: 12px;
@@ -387,7 +334,6 @@
     box-shadow: 0 8px 30px rgba(102, 126, 234, 0.2);
 }
 
-/* 紧凑型搜索表单样式 */
 .inline-search-form {
     margin-left: auto;
 }
@@ -399,7 +345,7 @@
     flex-wrap: wrap;
 }
 
-.compact-input, .compact-select {
+.compact-select {
     padding: 0.4rem 0.6rem;
     border: 1px solid #ddd;
     border-radius: 6px;
@@ -409,7 +355,7 @@
     min-width: 120px;
 }
 
-.compact-input:focus, .compact-select:focus {
+.compact-select:focus {
     outline: none;
     border-color: #667eea;
     box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
@@ -449,7 +395,6 @@
     box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
 }
 
-/* 调整卡片标题栏布局 */
 .card-header {
     display: flex;
     justify-content: space-between;
@@ -483,17 +428,6 @@
     box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
 }
 
-.btn-secondary {
-    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
-    color: white;
-}
-
-.btn-secondary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(108, 117, 125, 0.3);
-}
-
-/* 预测记录列表样式 - 三段式布局 */
 .predictions-list {
     display: grid;
     gap: 0.8rem;
@@ -531,7 +465,6 @@
     box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
 }
 
-/* 左侧：预测记录信息 */
 .prediction-left {
     display: flex;
     flex-direction: column;
@@ -638,13 +571,6 @@
     box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
-.number-ball-compact:hover .zodiac-indicator {
-    font-weight: bold;
-    background-color: rgba(255, 255, 255, 0.95);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-    transform: translateX(-50%) scale(1.1);
-}
-
 .special-zodiac {
     background-color: rgba(255, 215, 0, 0.2);
     border: 1px solid rgba(255, 215, 0, 0.5);
@@ -666,45 +592,9 @@
     font-weight: 600;
 }
 
-.draw-result-container {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-left: auto;
-}
-
-.draw-result-label {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: #333;
-}
-
-.actual-special-ball {
-    width: 36px;
-    height: 36px;
-    font-size: 1.1rem;
-    border: 2px solid #ff5722;
-    box-shadow: 0 0 15px rgba(255, 87, 34, 0.6);
-    position: relative;
-}
-
-.actual-zodiac-info {
-    color: #ff5722;
-    font-weight: 600;
-    margin-left: 0.5rem;
-}
-
-.ball-red {
-    background: linear-gradient(135deg, #ff4b4b 0%, #dc3545 100%);
-}
-
-.ball-blue {
-    background: linear-gradient(135deg, #4b83ff 0%, #007bff 100%);
-}
-
-.ball-green {
-    background: linear-gradient(135deg, #4bff91 0%, #28a745 100%);
-}
+.ball-red { background: linear-gradient(135deg, #ff4b4b 0%, #dc3545 100%); }
+.ball-blue { background: linear-gradient(135deg, #4b83ff 0%, #007bff 100%); }
+.ball-green { background: linear-gradient(135deg, #4bff91 0%, #28a745 100%); }
 
 .special-ball-compact {
     border: 2px solid #ffd700;
@@ -712,47 +602,6 @@
     animation: glow-compact 2s ease-in-out infinite alternate;
 }
 
-.actual-special-ball {
-    border: 2px solid #ff5722;
-    box-shadow: 0 0 15px rgba(255, 87, 34, 0.6), 0 2px 8px rgba(0, 0, 0, 0.15);
-    animation: actual-glow-compact 2s ease-in-out infinite alternate;
-}
-
-.draw-result-label {
-    margin: 0 0.5rem;
-    font-weight: 600;
-    color: #555;
-    font-size: 0.85rem;
-}
-
-@keyframes glow-compact {
-    from {
-        box-shadow: 0 0 12px rgba(255, 215, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.12);
-    }
-    to {
-        box-shadow: 0 0 18px rgba(255, 215, 0, 0.7), 0 3px 8px rgba(0, 0, 0, 0.18);
-    }
-}
-
-@keyframes actual-glow-compact {
-    from {
-        box-shadow: 0 0 15px rgba(255, 87, 34, 0.6), 0 2px 8px rgba(0, 0, 0, 0.15);
-    }
-    to {
-        box-shadow: 0 0 22px rgba(255, 87, 34, 0.8), 0 3px 10px rgba(0, 0, 0, 0.2);
-    }
-}
-
-.zodiac-info-compact {
-    color: #666;
-    font-size: 0.8rem;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-}
-
-/* 中间：预测结果和开奖特码 */
 .prediction-center {
     display: flex;
     flex-direction: column;
@@ -762,7 +611,6 @@
     gap: 0.8rem;
 }
 
-/* 开奖特码中央显示样式 */
 .draw-result-container-centered {
     display: flex;
     flex-direction: column;
@@ -814,15 +662,6 @@
     text-align: center;
 }
 
-@keyframes actual-glow-large {
-    from {
-        box-shadow: 0 0 20px rgba(255, 87, 34, 0.7), 0 4px 12px rgba(0, 0, 0, 0.2);
-    }
-    to {
-        box-shadow: 0 0 30px rgba(255, 87, 34, 0.9), 0 6px 16px rgba(0, 0, 0, 0.25);
-    }
-}
-
 .result-badge-container {
     margin-top: 0.5rem;
 }
@@ -841,27 +680,11 @@
     text-align: center;
 }
 
-.result-success {
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-    color: white;
-}
+.result-success { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; }
+.result-partial { background: linear-gradient(135deg, #17a2b8 0%, #0056b3 100%); color: white; }
+.result-failed { background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%); color: white; }
+.result-pending { background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%); color: white; }
 
-.result-partial {
-    background: linear-gradient(135deg, #17a2b8 0%, #0056b3 100%);
-    color: white;
-}
-
-.result-failed {
-    background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);
-    color: white;
-}
-
-.result-pending {
-    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
-    color: white;
-}
-
-/* 右侧：时间 */
 .prediction-right {
     display: flex;
     justify-content: flex-end;
@@ -882,7 +705,6 @@
     white-space: nowrap;
 }
 
-/* 空状态样式 */
 .empty-state {
     text-align: center;
     padding: 4rem 2rem;
@@ -905,8 +727,6 @@
     font-size: 1.1rem;
 }
 
-
-/* 帮助说明样式 */
 .help-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -920,25 +740,10 @@
     border-left: 4px solid;
 }
 
-.help-search {
-    background: rgba(23, 162, 184, 0.05);
-    border-left-color: #17a2b8;
-}
-
-.help-numbers {
-    background: rgba(40, 167, 69, 0.05);
-    border-left-color: #28a745;
-}
-
-.help-strategy {
-    background: rgba(255, 193, 7, 0.05);
-    border-left-color: #ffc107;
-}
-
-.help-accuracy {
-    background: rgba(102, 126, 234, 0.05);
-    border-left-color: #667eea;
-}
+.help-search { background: rgba(23, 162, 184, 0.05); border-left-color: #17a2b8; }
+.help-numbers { background: rgba(40, 167, 69, 0.05); border-left-color: #28a745; }
+.help-strategy { background: rgba(255, 193, 7, 0.05); border-left-color: #ffc107; }
+.help-accuracy { background: rgba(102, 126, 234, 0.05); border-left-color: #667eea; }
 
 .help-card h3 {
     margin: 0 0 1rem 0;
@@ -946,21 +751,10 @@
     font-weight: 700;
 }
 
-.help-search h3 {
-    color: #17a2b8;
-}
-
-.help-numbers h3 {
-    color: #28a745;
-}
-
-.help-strategy h3 {
-    color: #ffc107;
-}
-
-.help-accuracy h3 {
-    color: #667eea;
-}
+.help-search h3 { color: #17a2b8; }
+.help-numbers h3 { color: #28a745; }
+.help-strategy h3 { color: #ffc107; }
+.help-accuracy h3 { color: #667eea; }
 
 .help-card ul {
     margin: 0;
@@ -969,11 +763,8 @@
     line-height: 1.6;
 }
 
-.help-card li {
-    margin-bottom: 0.5rem;
-}
+.help-card li { margin-bottom: 0.5rem; }
 
-/* 显示全部按钮容器 */
 .show-more-container {
     display: flex;
     justify-content: center;
@@ -995,68 +786,77 @@
     box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
 }
 
-/* 响应式设计 */
+@keyframes glow-compact {
+    from { box-shadow: 0 0 12px rgba(255, 215, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.12); }
+    to { box-shadow: 0 0 18px rgba(255, 215, 0, 0.7), 0 3px 8px rgba(0, 0, 0, 0.18); }
+}
+
+@keyframes actual-glow-large {
+    from { box-shadow: 0 0 20px rgba(255, 87, 34, 0.7), 0 4px 12px rgba(0, 0, 0, 0.2); }
+    to { box-shadow: 0 0 30px rgba(255, 87, 34, 0.9), 0 6px 16px rgba(0, 0, 0, 0.25); }
+}
+
 @media (max-width: 768px) {
     .card-header {
         flex-direction: column;
         align-items: flex-start;
         gap: 0.8rem;
     }
-    
+
     .inline-search-form {
         margin-left: 0;
         width: 100%;
     }
-    
+
     .search-controls {
         justify-content: flex-start;
         gap: 0.4rem;
     }
-    
-    .compact-input, .compact-select {
+
+    .compact-select {
         min-width: 100px;
         font-size: 0.8rem;
     }
-    
+
     .prediction-card-compact {
         grid-template-columns: 1fr;
         gap: 1rem;
         text-align: center;
     }
-    
+
     .prediction-center, .prediction-right {
         justify-content: center;
         min-width: auto;
     }
-    
+
     .prediction-numbers-compact {
         justify-content: center;
     }
-    
+
     .number-ball-compact {
         width: 30px;
         height: 30px;
         font-size: 0.85rem;
     }
-    
+
     .number-ball-large {
         width: 42px;
         height: 42px;
         font-size: 1.2rem;
     }
-    
+
     .draw-result-container-centered {
         padding: 0.6rem;
     }
-    
+
     .draw-result-label-large {
         font-size: 1rem;
     }
-    
+
     .zodiac-indicator-large {
         font-size: 0.85rem;
     }
-    
+
     .help-grid {
         grid-template-columns: 1fr;
     }
@@ -1067,56 +867,52 @@
         flex-direction: column;
         align-items: stretch;
     }
-    
-    .compact-input, .compact-select {
-        min-width: auto;
-        width: 100%;
-    }
-    
+
+    .compact-select,
     .compact-btn {
         width: 100%;
     }
-    
+
     .prediction-card-compact {
         padding: 0.8rem;
         min-height: auto;
     }
-    
+
     .prediction-title-compact {
         font-size: 0.9rem;
         text-align: center;
     }
-    
+
     .strategy-badge-compact {
         font-size: 0.7rem;
     }
-    
+
     .result-badge-compact {
         font-size: 0.8rem;
         padding: 0.4rem 0.8rem;
     }
-    
+
     .prediction-time-compact {
         font-size: 0.75rem;
     }
-    
+
     .number-ball-large {
         width: 38px;
         height: 38px;
         font-size: 1.1rem;
     }
-    
+
     .draw-result-container-centered {
         padding: 0.5rem;
         width: 100%;
         max-width: 160px;
         margin: 0 auto;
     }
-    
+
     .draw-result-label-large {
         font-size: 0.95rem;
     }
-    
+
     .zodiac-indicator-large {
         font-size: 0.8rem;
         padding: 1px 6px;
@@ -1126,64 +922,44 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // 显示全部按钮点击事件
     const showAllBtn = document.getElementById('show-all-btn');
     if (showAllBtn) {
         showAllBtn.addEventListener('click', function() {
-            // 显示隐藏的预测记录
             const hiddenPredictions = document.getElementById('hidden-predictions');
             if (hiddenPredictions) {
-                // 获取所有隐藏的预测记录
                 const hiddenCards = hiddenPredictions.querySelectorAll('.prediction-card-compact');
-                
-                // 将隐藏的预测记录移动到主列表中
                 const predictionsList = document.querySelector('.predictions-list');
                 hiddenCards.forEach(card => {
                     predictionsList.insertBefore(card, hiddenPredictions);
                 });
-                
-                // 隐藏"显示全部"按钮和空的隐藏容器
                 document.querySelector('.show-more-container').style.display = 'none';
                 hiddenPredictions.style.display = 'none';
             }
         });
     }
-    
-    // 点击统计卡片筛选功能
-    const clickableStats = document.querySelectorAll('.clickable-stat');
-    if (clickableStats) {
-        clickableStats.forEach(stat => {
-            stat.addEventListener('click', function() {
-                const filterType = this.getAttribute('data-filter');
-                if (filterType) {
-                    // 构建筛选URL
-                    const currentUrl = new URL(window.location.href);
-                    const searchParams = currentUrl.searchParams;
-                    
-                    if (filterType === 'all') {
-                        // 清除所有筛选条件，显示全部记录
-                        searchParams.delete('result');
-                        searchParams.delete('region');
-                        searchParams.delete('strategy');
-                        searchParams.delete('period');
-                        searchParams.delete('zodiac');
-                        searchParams.delete('start_date');
-                        searchParams.delete('end_date');
-                    } else {
-                        // 设置result参数
-                        searchParams.set('result', filterType);
-                    }
-                    
-                    // 跳转到筛选后的页面
-                    window.location.href = currentUrl.toString();
-                }
-            });
-            
-            // 添加鼠标悬停效果
-            stat.style.cursor = 'pointer';
-            stat.title = '点击查看相关记录';
+
+    document.querySelectorAll('.clickable-stat').forEach(stat => {
+        stat.addEventListener('click', function() {
+            const filterType = this.getAttribute('data-filter');
+            if (!filterType) return;
+
+            const currentUrl = new URL(window.location.href);
+            const searchParams = currentUrl.searchParams;
+
+            if (filterType === 'all') {
+                ['result', 'region', 'strategy', 'period', 'zodiac', 'start_date', 'end_date'].forEach(key => {
+                    searchParams.delete(key);
+                });
+            } else {
+                searchParams.set('result', filterType);
+            }
+
+            window.location.href = currentUrl.toString();
         });
-    }
+
+        stat.style.cursor = 'pointer';
+        stat.title = '点击查看相关记录';
+    });
 });
 </script>
 {% endblock %}

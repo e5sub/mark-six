@@ -137,9 +137,9 @@
             {% if current %}
                 {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced'] if current.get(strategy_key) %}
                 <div style="padding:0.55rem 0; border-top:1px dashed #e6ebf2;">
-                    <div style="font-weight:600;">{{ current[strategy_key].last_accuracy }}% {{ strategy_key }}</div>
+                    <div style="font-weight:600;">{{ strategy_label_map.get(strategy_key, strategy_key) }}：{{ current[strategy_key].last_accuracy }}%</div>
                     <div style="font-size:0.84rem; color:#667;">
-                        window={{ current[strategy_key].window or '-' }}, pool={{ current[strategy_key].pool or '-' }}, special_pool={{ current[strategy_key].special_pool or '-' }}, samples={{ current[strategy_key].last_total or 0 }}
+                        参考期数={{ current[strategy_key].window or '-' }}，平码候选池={{ current[strategy_key].pool or '-' }}，特码候选池={{ current[strategy_key].special_pool or '-' }}，学习样本={{ current[strategy_key].last_total or 0 }}
                     </div>
                 </div>
                 {% endfor %}

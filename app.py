@@ -150,6 +150,30 @@ STRATEGY_LABELS = {
 def _get_strategy_label(strategy):
     return STRATEGY_LABELS.get(strategy, strategy or '未知策略')
 
+def _build_strategy_note(requested_strategy, resolved_strategy):
+    if requested_strategy == 'smart':
+        return f"智能优选（本期采用：{_get_strategy_label(resolved_strategy)}）"
+    return _get_strategy_label(resolved_strategy)
+
+def _decorate_recommendation_text(requested_strategy, resolved_strategy, recommendation_text):
+    if requested_strategy != 'smart':
+        return recommendation_text or ''
+
+    strategy_note = _build_strategy_note(requested_strategy, resolved_strategy)
+    if not recommendation_text:
+        return strategy_note
+    if recommendation_text.startswith(strategy_note):
+        return recommendation_text
+    return f"{strategy_note}\n{recommendation_text}"
+
+def _get_email_strategy_display(prediction):
+    raw_text = (prediction.prediction_text or '').strip()
+    if raw_text.startswith('智能优选（本期采用：'):
+        first_line = raw_text.splitlines()[0].strip()
+        if first_line:
+            return first_line
+    return _get_strategy_label(prediction.strategy)
+
 LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "random"]
 
 # 数据库配置
@@ -2082,7 +2106,11 @@ def unified_predict_api():
                             normal_numbers=','.join(map(str, result.get('normal', []))),
                             special_number=str(result.get('special', {}).get('number', '')),
                             special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
-                            prediction_text=result.get('recommendation_text', '')
+                            prediction_text=_decorate_recommendation_text(
+                                strategy,
+                                resolved_strategy,
+                                result.get('recommendation_text', '')
+                            )
                         )
                         db.session.add(prediction)
                         db.session.commit()
@@ -2120,7 +2148,11 @@ def unified_predict_api():
                 normal_numbers=','.join(map(str, result.get('normal', []))),
                 special_number=str(result.get('special', {}).get('number', '')),
                 special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
-                prediction_text=result.get('recommendation_text', '')
+                prediction_text=_decorate_recommendation_text(
+                    strategy,
+                    resolved_strategy,
+                    result.get('recommendation_text', '')
+                )
             )
             db.session.add(prediction)
             db.session.commit()
@@ -2346,7 +2378,7 @@ def send_winning_notification_email(user, prediction, region):
     
     # 准备邮件内容
     region_name = '香港' if region == 'hk' else '澳门'
-    strategy_name = _get_strategy_label(prediction.strategy)
+    strategy_name = _get_email_strategy_display(prediction)
     
     subject = f"恭喜您！{region_name}第{prediction.period}期特码预测命中"
     

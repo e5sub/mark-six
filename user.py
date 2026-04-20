@@ -12,7 +12,6 @@ STRATEGY_META = [
     {"key": "trend", "label": "走势", "icon": "📈"},
     {"key": "hybrid", "label": "综合", "icon": "♻️"},
     {"key": "balanced", "label": "均衡", "icon": "⚖️"},
-    {"key": "random", "label": "随机", "icon": "🎲"},
     {"key": "ai", "label": "AI", "icon": "🤖"},
 ]
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
@@ -21,7 +20,7 @@ AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
 STRATEGY_META.insert(0, {"key": "smart", "label": "智能优选", "icon": "🧠"})
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
 AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
-LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "random"]
+LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced"]
 
 def _strategy_label_map():
     return {item["key"]: item["label"] for item in STRATEGY_META}
@@ -292,6 +291,7 @@ def dashboard():
                           stats=stats,
                           strategy_meta=STRATEGY_META,
                           auto_strategy_meta=AUTO_STRATEGY_META,
+                          strategy_label_map=_strategy_label_map(),
                           strategy_accuracy=strategy_accuracy,
                           strategy_backtests=strategy_backtests,
                           recommended_strategy=recommended_strategy,
@@ -1048,6 +1048,7 @@ def analytics():
                           stats=stats,
                           strategy_stats=strategy_stats,
                           strategy_meta=STRATEGY_META,
+                          strategy_label_map=_strategy_label_map(),
                           best_strategy=best_strategy,
                           recommended_strategy=recommended_strategy,
                           top_strategies=top_strategies,

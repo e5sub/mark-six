@@ -1,4 +1,4 @@
-{% extends "user/base.html" %}
+﻿{% extends "user/base.html" %}
 
 {% block page_title %}数据分析{% endblock %}
 
@@ -13,11 +13,11 @@
             <div class="hero-label">系统当前推荐策略</div>
             <div class="hero-title">{{ recommended_strategy.label }}</div>
             <div class="hero-desc">综合评分 {{ recommended_strategy.score }}，回测样本 {{ recommended_strategy.samples }} 期</div>
-            <div class="hero-tip">自动预测支持“智能优选”，系统会按近 20 / 50 / 100 期回测自动选择更优策略。</div>
+            <div class="hero-tip">自动预测支持“智能优选”，系统会按照近 20 / 50 / 100 期回测结果自动选择更优策略。</div>
         </div>
 
         <div class="hero-card hero-card-secondary">
-            <div class="hero-label">最近表现最佳</div>
+            <div class="hero-label">最近表现最好</div>
             {% for item in top_strategies %}
             <div class="hero-rank-row">
                 <span>{{ loop.index }}. {{ item.label }}</span>
@@ -32,9 +32,9 @@
             <thead>
                 <tr>
                     <th>策略</th>
-                    <th>近20期</th>
-                    <th>近50期</th>
-                    <th>近100期</th>
+                    <th>近 20 期</th>
+                    <th>近 50 期</th>
+                    <th>近 100 期</th>
                 </tr>
             </thead>
             <tbody>
@@ -67,12 +67,12 @@
             {% if current %}
                 {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced'] if current.get(strategy_key) %}
                 <div class="learning-row">
-                    <div class="learning-name">{{ strategy_key }}: {{ current[strategy_key].last_accuracy }}%</div>
+                    <div class="learning-name">{{ strategy_label_map.get(strategy_key, strategy_key) }}：{{ current[strategy_key].last_accuracy }}%</div>
                     <div class="learning-meta">
-                        window={{ current[strategy_key].window or '-' }},
-                        pool={{ current[strategy_key].pool or '-' }},
-                        special_pool={{ current[strategy_key].special_pool or '-' }},
-                        samples={{ current[strategy_key].last_total or 0 }}
+                        参考期数 {{ current[strategy_key].window or '-' }}，
+                        平码候选池 {{ current[strategy_key].pool or '-' }}，
+                        特码候选池 {{ current[strategy_key].special_pool or '-' }}，
+                        学习样本 {{ current[strategy_key].last_total or 0 }}
                     </div>
                 </div>
                 {% endfor %}
@@ -110,7 +110,7 @@
     </div>
 
     <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #ffc107;">🏆</div>
+        <div class="stat-icon" style="color: #ffc107;">🎲</div>
         <div class="stat-number">{{ "%.1f"|format(stats.special_hit_rate or 0) }}%</div>
         <div class="stat-label">特码命中率</div>
     </div>
@@ -197,12 +197,12 @@
 
 <div class="card-compact">
     <div class="card-header-compact">
-        <h2 class="card-title-compact">📆 预测趋势分析</h2>
+        <h2 class="card-title-compact">📅 预测趋势分析</h2>
     </div>
 
-    <div class="trend-analysis">
+    <div class="trend-analysis trend-analysis-columns">
         <div class="trend-item">
-            <div class="trend-period">最近7天</div>
+            <div class="trend-period">最近 7 天</div>
             <div class="trend-stats">
                 <div class="trend-count">{{ trend_data|selectattr('count')|sum(attribute='count') or 0 }} 次预测</div>
                 <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
@@ -220,7 +220,7 @@
         <div class="trend-item">
             <div class="trend-period">总计</div>
             <div class="trend-stats">
-                <div class="trend-count">{{ stats.total or 0 }} 次预测</div>
+                <div class="trend-count">{{ stats.total_predictions or 0 }} 次预测</div>
                 <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
             </div>
         </div>
@@ -238,7 +238,7 @@
             <span class="suggestion-icon">🎯</span>
             <div class="suggestion-content">
                 <h4>开始您的预测之旅</h4>
-                <p>您还没有进行任何预测，建议先尝试不同的预测策略，积累数据后再查看分析结果。</p>
+                <p>您还没有进行任何预测，建议先尝试不同的预测策略，等积累一定数据后再查看分析结果。</p>
             </div>
         </div>
         {% else %}
@@ -247,7 +247,7 @@
             <span class="suggestion-icon">{{ best_strategy.icon }}</span>
             <div class="suggestion-content">
                 <h4>{{ best_strategy.label }}策略表现更好</h4>
-                <p>当前综合命中率最高的是 {{ best_strategy.label }} 策略，建议优先尝试该策略并持续观察数据变化。</p>
+                <p>当前综合命中率最高的是 {{ best_strategy.label }} 策略，建议优先尝试，并持续观察后续表现。</p>
             </div>
         </div>
         {% endif %}
@@ -256,18 +256,18 @@
             {% if region_stats.hk.accuracy and region_stats.macau.accuracy %}
                 {% if region_stats.hk.accuracy > region_stats.macau.accuracy %}
                 <div class="suggestion-item">
-                    <span class="suggestion-icon">🌟</span>
+                    <span class="suggestion-icon">📍</span>
                     <div class="suggestion-content">
-                        <h4>香港地区预测更准确</h4>
-                        <p>您在香港六合彩的预测准确率（{{ "%.1f"|format(region_stats.hk.accuracy) }}%）高于澳门地区，可以重点关注。</p>
+                        <h4>香港地区预测更稳定</h4>
+                        <p>您在香港六合彩的预测准确率为 {{ "%.1f"|format(region_stats.hk.accuracy) }}%，目前高于澳门，可优先关注香港数据。</p>
                     </div>
                 </div>
                 {% elif region_stats.macau.accuracy > region_stats.hk.accuracy %}
                 <div class="suggestion-item">
-                    <span class="suggestion-icon">🌟</span>
+                    <span class="suggestion-icon">📍</span>
                     <div class="suggestion-content">
-                        <h4>澳门地区预测更准确</h4>
-                        <p>您在澳门六合彩的预测准确率（{{ "%.1f"|format(region_stats.macau.accuracy) }}%）高于香港地区，可以重点关注。</p>
+                        <h4>澳门地区预测更稳定</h4>
+                        <p>您在澳门六合彩的预测准确率为 {{ "%.1f"|format(region_stats.macau.accuracy) }}%，目前高于香港，可优先关注澳门数据。</p>
                     </div>
                 </div>
                 {% endif %}
@@ -278,8 +278,8 @@
         <div class="suggestion-item">
             <span class="suggestion-icon">🧪</span>
             <div class="suggestion-content">
-                <h4>建议多样化策略</h4>
-                <p>当前整体准确率较低，建议尝试不同的预测策略，找到更适合您的方法。</p>
+                <h4>建议多样化尝试策略</h4>
+                <p>当前整体准确率偏低，可以尝试不同的预测策略，逐步找到更适合自己的方式。</p>
             </div>
         </div>
         {% endif %}
@@ -289,22 +289,19 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const clickableStats = document.querySelectorAll('.clickable-stat');
-    if (clickableStats) {
-        clickableStats.forEach(stat => {
-            stat.addEventListener('click', function() {
-                const filterType = this.getAttribute('data-filter');
-                if (!filterType) return;
-                if (filterType === 'all') {
-                    window.location.href = "{{ url_for('user.predictions') }}";
-                } else {
-                    window.location.href = "{{ url_for('user.predictions') }}?result=" + filterType;
-                }
-            });
-            stat.style.cursor = 'pointer';
-            stat.title = '点击查看相关记录';
+    document.querySelectorAll('.clickable-stat').forEach(stat => {
+        stat.addEventListener('click', function() {
+            const filterType = this.getAttribute('data-filter');
+            if (!filterType) return;
+            if (filterType === 'all') {
+                window.location.href = "{{ url_for('user.predictions') }}";
+            } else {
+                window.location.href = "{{ url_for('user.predictions') }}?result=" + filterType;
+            }
         });
-    }
+        stat.style.cursor = 'pointer';
+        stat.title = '点击查看相关记录';
+    });
 });
 </script>
 
@@ -316,16 +313,38 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 
 .hero-grid,
-.learning-grid {
+.learning-grid,
+.strategy-analysis,
+.region-analysis,
+.trend-analysis-columns {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
 }
 
+.hero-grid,
+.learning-grid,
+.region-analysis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.strategy-analysis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.trend-analysis-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .hero-card,
-.learning-card {
+.learning-card,
+.strategy-item,
+.region-item,
+.trend-item,
+.suggestion-item {
     padding: 1rem;
     border-radius: 12px;
+    background: #fff;
+    border: 1px solid #eef2f6;
 }
 
 .hero-card-primary {
@@ -369,8 +388,11 @@ document.addEventListener('DOMContentLoaded', function() {
     border-bottom: 1px dashed #dbe6f3;
 }
 
+.hero-rank-row:last-child {
+    border-bottom: 0;
+}
+
 .learning-card {
-    border: 1px solid #edf0f4;
     background: #fbfcfe;
 }
 
@@ -386,13 +408,21 @@ document.addEventListener('DOMContentLoaded', function() {
     border-bottom: 0;
 }
 
+.learning-row:first-of-type {
+    border-top: 0;
+}
+
 .learning-name {
     font-weight: 600;
 }
 
 .learning-meta,
 .table-sub,
-.empty-text {
+.empty-text,
+.region-details,
+.trend-count,
+.trend-accuracy,
+.suggestion-content p {
     font-size: 0.84rem;
     color: #667;
 }
@@ -411,6 +441,7 @@ document.addEventListener('DOMContentLoaded', function() {
     padding: 0.7rem 0.6rem;
     text-align: left;
     border-top: 1px solid #eef2f6;
+    white-space: nowrap;
 }
 
 .analytics-table thead th {
@@ -428,7 +459,7 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 
 .clickable-stat::after {
-    content: '↗';
+    content: '->';
     position: absolute;
     top: 10px;
     right: 10px;
@@ -440,22 +471,6 @@ document.addEventListener('DOMContentLoaded', function() {
 .clickable-stat:hover::after {
     opacity: 1;
     transform: translate(2px, -2px);
-}
-
-.strategy-analysis {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
-}
-
-.strategy-item,
-.region-item,
-.trend-item,
-.suggestion-item {
-    background: #fff;
-    border: 1px solid #eef2f6;
-    border-radius: 12px;
-    padding: 1rem;
 }
 
 .strategy-header,
@@ -510,17 +525,16 @@ document.addEventListener('DOMContentLoaded', function() {
     background: linear-gradient(90deg, #0b6b4f, #f4b547);
 }
 
-.trend-analysis,
-.suggestions {
-    display: grid;
-    gap: 1rem;
-}
-
 .trend-stats {
     display: flex;
     justify-content: space-between;
     gap: 1rem;
     margin-top: 0.5rem;
+}
+
+.suggestions {
+    display: grid;
+    gap: 1rem;
 }
 
 .suggestion-item {
@@ -534,15 +548,27 @@ document.addEventListener('DOMContentLoaded', function() {
     line-height: 1;
 }
 
+.suggestion-content h4 {
+    margin: 0 0 0.35rem 0;
+}
+
+.suggestion-content p {
+    margin: 0;
+    line-height: 1.6;
+}
+
 @media (max-width: 960px) {
     .analytics-stats,
     .hero-grid,
     .learning-grid,
-    .strategy-analysis {
+    .strategy-analysis,
+    .region-analysis,
+    .trend-analysis-columns {
         grid-template-columns: 1fr;
     }
 
-    .trend-stats {
+    .trend-stats,
+    .stat-item {
         flex-direction: column;
     }
 }

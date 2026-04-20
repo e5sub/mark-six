@@ -423,22 +423,22 @@ function displayPrediction(data, strategy) {
     
     // 根据策略显示不同的标题
     const strategyTitles = {
+        'smart': '智能优选',
         'hot': '热门预测',
         'cold': '冷门预测',
         'trend': '走势预测',
         'hybrid': '综合预测',
         'balanced': '均衡预测',
-        'random': '随机预测',
         'ai': 'AI智能预测'
     };
     
     const strategyIcons = {
+        'smart': 'brain',
         'hot': 'fire',
         'cold': 'snowflake',
         'trend': 'chart-line',
         'hybrid': 'sliders-h',
         'balanced': 'balance-scale',
-        'random': 'dice',
         'ai': 'robot'
     };
     
@@ -635,4 +635,5 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+
 
