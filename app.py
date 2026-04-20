@@ -1027,9 +1027,17 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5):
 def _tune_strategy_config(strategy, region):
     accuracy, total = _calculate_strategy_accuracy(region, strategy)
     config = _load_strategy_config(strategy, region)
+    previous_accuracy = float(config.get("last_accuracy") or 0.0)
+    previous_total = int(config.get("last_total") or 0)
+
+    if previous_total > 0:
+        config["prev_accuracy"] = round(previous_accuracy, 4)
+        config["prev_total"] = previous_total
+        config["prev_updated_at"] = config.get("updated_at", "")
 
     config["last_accuracy"] = round(accuracy, 4)
     config["last_total"] = total
+    config["accuracy_delta"] = round(accuracy - previous_accuracy, 4) if previous_total > 0 else 0.0
     config["updated_at"] = datetime.now().isoformat()
 
     if total <= 0:
@@ -1364,6 +1372,47 @@ def _build_local_recommendation_text(strategy, config, normal, special, feedback
         f"推荐平码 {', '.join(map(str, normal))}，特码 {special}。"
     )
 
+def _build_ai_learning_context(data, region, history_window=10):
+    recent_data = data[:history_window]
+    year = _infer_draw_year(recent_data or data)
+    feedback = _build_prediction_feedback(region, "ai")
+    color_pref, zodiac_pref = _build_attribute_preferences(recent_data or data, region, feedback, year)
+    recommended_strategy = _get_recommended_strategy(region)
+    backtest_lines = []
+    for strategy in ("hot", "cold", "trend", "hybrid", "balanced"):
+        window20_accuracy, window20_total = _calculate_strategy_accuracy(region, strategy, limit=20)
+        window50_accuracy, window50_total = _calculate_strategy_accuracy(region, strategy, limit=50)
+        backtest_lines.append(
+            f"- {_get_strategy_label(strategy)}：近20期 {round(window20_accuracy * 100, 1)}% ({window20_total}期)，"
+            f"近50期 {round(window50_accuracy * 100, 1)}% ({window50_total}期)"
+        )
+
+    special_scores = feedback.get("special") or {}
+    normal_scores = feedback.get("normal") or {}
+
+    top_special_numbers = _rank_numbers(
+        {number: special_scores.get(str(number), 0.0) for number in range(1, 50)}
+    )[:6]
+    top_normal_numbers = _rank_numbers(
+        {number: normal_scores.get(str(number), 0.0) for number in range(1, 50)}
+    )[:8]
+    top_colors = sorted(color_pref.items(), key=lambda item: item[1], reverse=True)[:3]
+    top_zodiacs = sorted(zodiac_pref.items(), key=lambda item: item[1], reverse=True)[:4]
+
+    lines = [
+        "历史学习反馈摘要：",
+        f"- 当前系统推荐优先参考：{recommended_strategy.get('label')}（综合评分 {recommended_strategy.get('score')}）",
+        f"- AI历史学习样本：{feedback.get('samples', 0)} 期",
+        f"- 历史反馈更偏好的特码候选：{', '.join(map(str, top_special_numbers)) if top_special_numbers else '暂无'}",
+        f"- 历史反馈更偏好的平码候选：{', '.join(map(str, top_normal_numbers)) if top_normal_numbers else '暂无'}",
+        f"- 历史反馈更偏好的波色：{'、'.join([f'{name}({round(score * 100, 1)}%)' for name, score in top_colors]) if top_colors else '暂无'}",
+        f"- 历史反馈更偏好的生肖：{'、'.join([f'{name}({round(score * 100, 1)}%)' for name, score in top_zodiacs]) if top_zodiacs else '暂无'}",
+        "各策略近期回测表现：",
+        *backtest_lines,
+        "请将以上学习反馈纳入分析，优先考虑历史反馈更强的号码、波色和生肖组合，但不要机械重复同一组号码。"
+    ]
+    return "\n".join(lines)
+
 def get_local_recommendations(strategy, data, region):
     if strategy == 'smart':
         strategy = _get_recommended_strategy(region).get("strategy", "hybrid")
@@ -1516,6 +1565,7 @@ def get_local_recommendations(strategy, data, region):
 def _build_ai_prompt(data, region, history_window=10):
     history_lines = []
     recent_data = data[:history_window]
+    learning_context = _build_ai_learning_context(data, region, history_window=history_window)
     if region == 'hk':
         year = datetime.now().year
         if recent_data:
@@ -1530,17 +1580,20 @@ def _build_ai_prompt(data, region, history_window=10):
                 f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特别号码: {d.get('sno')}({zodiac})"
             )
         recent_history = "\n".join(history_lines)
-        prompt = f"""你是一位精通香港六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含号码和生肖），为下一期提供一份详细的分析和号码推荐。
+        prompt = f"""你是一位精通香港六合彩数据分析的专家。请基于以下最近 {history_window} 期的开奖历史数据（包含号码和生肖）以及系统自动学习得到的历史命中反馈，为下一期提供一份详细的分析和号码推荐。
 
 历史数据:
 {recent_history}
+
+{learning_context}
 
 你的任务是：
 1. 写一段详细的分析说明，解释你的推荐依据和分析过程。
 2. 明确推荐一组号码（6平码1特码），格式为：
    推荐号码：[平码1, 平码2, 平码3, 平码4, 平码5, 平码6] 特码: [特码]
 3. 请以友好、自然的语言风格进行回复。
-4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
+ 4. 确保你的回复中包含明确的号码推荐，便于系统提取。
+ 5. 请显式参考历史学习反馈，避免只做泛泛分析。"""
     else:
         for d in recent_data:
             all_numbers = d.get('no', []) + ([d.get('sno')] if d.get('sno') else [])
@@ -1548,17 +1601,20 @@ def _build_ai_prompt(data, region, history_window=10):
                 f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}"
             )
         recent_history = "\n".join(history_lines)
-        prompt = f"""你是一位精通澳门六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含开奖号码、波色和生肖），为下一期提供一份详细的分析和号码推荐。
+        prompt = f"""你是一位精通澳门六合彩数据分析的专家。请基于以下最近 {history_window} 期的开奖历史数据（包含开奖号码、波色和生肖）以及系统自动学习得到的历史命中反馈，为下一期提供一份详细的分析和号码推荐。
 
 历史数据:
 {recent_history}
+
+{learning_context}
 
 你的任务是：
 1. 写一段详细的分析说明，解释你的推荐依据和分析过程。
 2. 明确推荐一组号码（6平码1特码），格式为：
    推荐号码：[平码1, 平码2, 平码3, 平码4, 平码5, 平码6] 特码: [特码]
 3. 请以友好、自然的语言风格进行回复。
-4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
+ 4. 确保你的回复中包含明确的号码推荐，便于系统提取。
+ 5. 请显式参考历史学习反馈，避免只做泛泛分析。"""
     return prompt
 
 def predict_with_ai(data, region):
@@ -1581,6 +1637,13 @@ def predict_with_ai(data, region):
         result, error = _finalize_ai_result(ai_response)
         if error:
             return {"error": error}
+        tuned_accuracy = round(float(tuned.get("last_accuracy") or 0.0) * 100, 1)
+        feedback = _build_prediction_feedback(region, "ai")
+        result["recommendation_text"] = (
+            f"AI智能预测已结合最近历史开奖与自动学习反馈完成分析。"
+            f"当前AI回测命中率约{tuned_accuracy}%，学习样本{feedback.get('samples', 0)}期。\n"
+            f"{result.get('recommendation_text', '')}"
+        )
         return result
     except Exception as e:
         return {"error": f"调用AI API时出错: {e}"}

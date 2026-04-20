@@ -134,11 +134,66 @@ def _learning_snapshot():
                 "trend_window": config.get("trend_window"),
                 "last_accuracy": round(float(config.get("last_accuracy") or 0.0) * 100, 1),
                 "last_total": config.get("last_total", 0),
+                "prev_accuracy": round(float(config.get("prev_accuracy") or 0.0) * 100, 1),
+                "prev_total": config.get("prev_total", 0),
+                "accuracy_delta": round(float(config.get("accuracy_delta") or 0.0) * 100, 1),
                 "weights": config.get("weights", {}),
                 "updated_at": config.get("updated_at", ""),
             }
         snapshots[region] = region_data
     return snapshots
+
+def _build_learning_comparison():
+    snapshots = _learning_snapshot()
+    comparisons = {}
+    tracked = [item["key"] for item in STRATEGY_META if item["key"] in LOCAL_STRATEGIES or item["key"] == "ai"]
+
+    for region, region_data in snapshots.items():
+        items = []
+        for strategy in tracked:
+            config = region_data.get(strategy)
+            if not config:
+                continue
+
+            current_accuracy = float(config.get("last_accuracy") or 0.0)
+            previous_accuracy = float(config.get("prev_accuracy") or 0.0)
+            current_total = int(config.get("last_total") or 0)
+            previous_total = int(config.get("prev_total") or 0)
+            delta = round(current_accuracy - previous_accuracy, 1) if previous_total > 0 else 0.0
+
+            if current_total <= 0:
+                trend = "暂无样本"
+                trend_class = "neutral"
+            elif previous_total <= 0:
+                trend = "刚开始学习"
+                trend_class = "neutral"
+            elif delta >= 0.5:
+                trend = "最近变强"
+                trend_class = "up"
+            elif delta <= -0.5:
+                trend = "最近变弱"
+                trend_class = "down"
+            else:
+                trend = "基本持平"
+                trend_class = "flat"
+
+            items.append({
+                "strategy": strategy,
+                "label": _strategy_label_map().get(strategy, strategy),
+                "icon": next((meta["icon"] for meta in STRATEGY_META if meta["key"] == strategy), ""),
+                "current_accuracy": round(current_accuracy, 1),
+                "previous_accuracy": round(previous_accuracy, 1),
+                "delta": delta,
+                "current_total": current_total,
+                "previous_total": previous_total,
+                "trend": trend,
+                "trend_class": trend_class,
+            })
+
+        items.sort(key=lambda item: (item["delta"], item["current_accuracy"]), reverse=True)
+        comparisons[region] = items
+
+    return comparisons
 
 def login_required(f):
     """登录验证装饰器"""
@@ -167,6 +222,7 @@ def dashboard():
     user = User.query.get(session['user_id'])
     strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
     learning_snapshot = _learning_snapshot()
+    learning_comparison = _build_learning_comparison()
     
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
     updated_predictions = PredictionRecord.query.filter_by(
@@ -297,6 +353,7 @@ def dashboard():
                           recommended_strategy=recommended_strategy,
                           top_strategies=top_strategies,
                           learning_snapshot=learning_snapshot,
+                          learning_comparison=learning_comparison,
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac)
 
@@ -834,6 +891,7 @@ def analytics():
     user = User.query.get(session['user_id'])
     strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
     learning_snapshot = _learning_snapshot()
+    learning_comparison = _build_learning_comparison()
     
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
     updated_predictions = PredictionRecord.query.filter_by(
@@ -1054,6 +1112,7 @@ def analytics():
                           top_strategies=top_strategies,
                           strategy_backtests=strategy_backtests,
                           learning_snapshot=learning_snapshot,
+                          learning_comparison=learning_comparison,
                           region_stats=region_stats,
                           recent_predictions=recent_predictions,
                           trend_data=trend_data,

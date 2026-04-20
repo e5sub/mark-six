@@ -130,6 +130,48 @@
 
 <div class="card-compact">
     <div class="card-header-compact">
+        <h2 class="card-title-compact">🚀 学习前后对比</h2>
+    </div>
+
+    <div class="learning-grid">
+        {% for region_key, title in [('hk', '香港'), ('macau', '澳门')] %}
+        <div class="learning-card">
+            <div class="learning-title">{{ title }}</div>
+            {% set comparison_items = learning_comparison.get(region_key, []) %}
+            {% if comparison_items %}
+                {% for item in comparison_items %}
+                <div class="comparison-row">
+                    <div class="comparison-main">
+                        <div class="comparison-title">{{ item.icon }} {{ item.label }}</div>
+                        <div class="comparison-meta">
+                            这次 {{ item.current_accuracy }}% / {{ item.current_total }} 期
+                            {% if item.previous_total > 0 %}
+                            ，上次 {{ item.previous_accuracy }}% / {{ item.previous_total }} 期
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="comparison-side">
+                        <span class="comparison-badge comparison-{{ item.trend_class }}">{{ item.trend }}</span>
+                        <div class="comparison-delta {% if item.delta > 0 %}delta-up{% elif item.delta < 0 %}delta-down{% else %}delta-flat{% endif %}">
+                            {% if item.previous_total > 0 %}
+                                {% if item.delta > 0 %}+{% endif %}{{ item.delta }}%
+                            {% else %}
+                                --
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-text">暂无学习对比数据</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
         <h2 class="card-title-compact">🎯 策略效果分析</h2>
     </div>
 
@@ -467,6 +509,80 @@ document.addEventListener('DOMContentLoaded', function() {
     color: #667;
 }
 
+.comparison-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-top: 1px dashed #e6ebf2;
+    align-items: center;
+}
+
+.comparison-row:first-of-type {
+    border-top: 0;
+}
+
+.comparison-main {
+    min-width: 0;
+}
+
+.comparison-title {
+    font-weight: 700;
+    color: #24324a;
+}
+
+.comparison-meta {
+    font-size: 0.84rem;
+    color: #667;
+    margin-top: 0.2rem;
+}
+
+.comparison-side {
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.comparison-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.comparison-up {
+    background: rgba(40, 167, 69, 0.12);
+    color: #1e7e34;
+}
+
+.comparison-down {
+    background: rgba(220, 53, 69, 0.12);
+    color: #c82333;
+}
+
+.comparison-flat,
+.comparison-neutral {
+    background: rgba(108, 117, 125, 0.12);
+    color: #5f6872;
+}
+
+.comparison-delta {
+    margin-top: 0.3rem;
+    font-weight: 700;
+}
+
+.delta-up {
+    color: #1e7e34;
+}
+
+.delta-down {
+    color: #c82333;
+}
+
+.delta-flat {
+    color: #5f6872;
+}
+
 .table-wrap {
     overflow-x: auto;
 }
@@ -599,8 +715,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     .trend-stats,
-    .stat-item {
+    .stat-item,
+    .comparison-row {
         flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .comparison-side {
+        text-align: left;
     }
 }
 </style>
