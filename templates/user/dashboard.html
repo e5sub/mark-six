@@ -61,6 +61,96 @@
     </div>
 </div>
 
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🧠 智能优选策略</h2>
+    </div>
+
+    <div class="quick-recommend-grid" style="display:grid; grid-template-columns: 1.2fr 1fr; gap:1rem;">
+        <div class="recommend-card" style="padding:1rem; border-radius:12px; background:linear-gradient(135deg, #fff7e8, #fffdf8); border:1px solid #f2dfb4;">
+            <div style="font-size:0.9rem; color:#8a6d1f;">当前推荐</div>
+            <div style="font-size:1.35rem; font-weight:700; color:#3a2f12; margin:0.35rem 0;">
+                {{ recommended_strategy.label }}
+            </div>
+            <div style="color:#7b6a3a; font-size:0.95rem;">
+                综合评分 {{ recommended_strategy.score }}，有效样本 {{ recommended_strategy.samples }} 期
+            </div>
+            <div style="margin-top:0.85rem; color:#666; font-size:0.9rem;">
+                系统已按最近 20 / 50 / 100 期回测结果自动排序，自动预测可直接选择“🧠智能优选”。
+            </div>
+        </div>
+
+        <div class="recommend-card" style="padding:1rem; border-radius:12px; background:#f8fbff; border:1px solid #d9e8fb;">
+            <div style="font-size:0.9rem; color:#4b6b94; margin-bottom:0.5rem;">Top 3 策略</div>
+            {% for item in top_strategies %}
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0; border-bottom:1px dashed #dbe6f3;">
+                <span style="font-weight:600;">{{ loop.index }}. {{ item.label }}</span>
+                <span style="color:#5e7da6;">{{ item.score }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📊 近窗回测</h2>
+    </div>
+
+    <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="text-align:left; color:#666;">
+                    <th style="padding:0.6rem;">策略</th>
+                    <th style="padding:0.6rem;">近20期</th>
+                    <th style="padding:0.6rem;">近50期</th>
+                    <th style="padding:0.6rem;">近100期</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for meta in strategy_meta if meta.key in strategy_backtests %}
+                <tr style="border-top:1px solid #eef2f6;">
+                    <td style="padding:0.7rem 0.6rem; font-weight:600;">{{ meta.icon }} {{ meta.label }}</td>
+                    {% for item in strategy_backtests[meta.key] %}
+                    <td style="padding:0.7rem 0.6rem;">
+                        <div style="font-weight:700; color:#1f3a56;">{{ item.accuracy }}%</div>
+                        <div style="font-size:0.82rem; color:#778;">{{ item.total }} 期样本</div>
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">⚙️ 学习参数摘要</h2>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem;">
+        {% for region_key, title in [('hk', '香港'), ('macau', '澳门')] %}
+        <div style="padding:1rem; border:1px solid #edf0f4; border-radius:12px; background:#fbfcfe;">
+            <div style="font-weight:700; margin-bottom:0.6rem;">{{ title }}</div>
+            {% set current = learning_snapshot.get(region_key, {}) %}
+            {% if current %}
+                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced'] if current.get(strategy_key) %}
+                <div style="padding:0.55rem 0; border-top:1px dashed #e6ebf2;">
+                    <div style="font-weight:600;">{{ current[strategy_key].last_accuracy }}% {{ strategy_key }}</div>
+                    <div style="font-size:0.84rem; color:#667;">
+                        window={{ current[strategy_key].window or '-' }}, pool={{ current[strategy_key].pool or '-' }}, special_pool={{ current[strategy_key].special_pool or '-' }}, samples={{ current[strategy_key].last_total or 0 }}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div style="color:#888;">暂无学习数据</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
 <!-- 快速操作 -->
 <div class="card-compact">
     <div class="card-header-compact">

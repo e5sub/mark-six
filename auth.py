@@ -105,6 +105,7 @@ def login():
             session['username'] = user.username
             session['is_admin'] = user.is_admin
             session['is_active'] = user.is_active
+            session.permanent = True
             
             if user.is_admin:
                 return redirect(url_for('admin.dashboard'))

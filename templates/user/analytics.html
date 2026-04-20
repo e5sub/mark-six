@@ -3,14 +3,94 @@
 {% block page_title %}数据分析{% endblock %}
 
 {% block content %}
-<!-- 统计概览 -->
-<div class="stats-grid" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;">
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🧠 智能优选与回测</h2>
+    </div>
+
+    <div class="hero-grid">
+        <div class="hero-card hero-card-primary">
+            <div class="hero-label">系统当前推荐策略</div>
+            <div class="hero-title">{{ recommended_strategy.label }}</div>
+            <div class="hero-desc">综合评分 {{ recommended_strategy.score }}，回测样本 {{ recommended_strategy.samples }} 期</div>
+            <div class="hero-tip">自动预测支持“智能优选”，系统会按近 20 / 50 / 100 期回测自动选择更优策略。</div>
+        </div>
+
+        <div class="hero-card hero-card-secondary">
+            <div class="hero-label">最近表现最佳</div>
+            {% for item in top_strategies %}
+            <div class="hero-rank-row">
+                <span>{{ loop.index }}. {{ item.label }}</span>
+                <strong>{{ item.score }}</strong>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>策略</th>
+                    <th>近20期</th>
+                    <th>近50期</th>
+                    <th>近100期</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for meta in strategy_meta if meta.key in strategy_backtests %}
+                <tr>
+                    <td>{{ meta.icon }} {{ meta.label }}</td>
+                    {% for item in strategy_backtests[meta.key] %}
+                    <td>
+                        <div class="table-main">{{ item.accuracy }}%</div>
+                        <div class="table-sub">{{ item.total }} 期样本</div>
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">⚙️ 自动学习摘要</h2>
+    </div>
+
+    <div class="learning-grid">
+        {% for region_key, title in [('hk', '香港'), ('macau', '澳门')] %}
+        <div class="learning-card">
+            <div class="learning-title">{{ title }}</div>
+            {% set current = learning_snapshot.get(region_key, {}) %}
+            {% if current %}
+                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced'] if current.get(strategy_key) %}
+                <div class="learning-row">
+                    <div class="learning-name">{{ strategy_key }}: {{ current[strategy_key].last_accuracy }}%</div>
+                    <div class="learning-meta">
+                        window={{ current[strategy_key].window or '-' }},
+                        pool={{ current[strategy_key].pool or '-' }},
+                        special_pool={{ current[strategy_key].special_pool or '-' }},
+                        samples={{ current[strategy_key].last_total or 0 }}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-text">暂无学习数据</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="stats-grid analytics-stats">
     <div class="stat-card-compact clickable-stat" data-filter="all">
         <div class="stat-icon" style="color: #667eea;">📊</div>
         <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
         <div class="stat-label">总预测次数</div>
     </div>
-    
+
     <div class="stat-card-compact clickable-stat" data-filter="special_hit">
         <div class="stat-icon" style="color: #28a745;">🎯</div>
         <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
@@ -28,26 +108,25 @@
         <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
         <div class="stat-label">未命中</div>
     </div>
-    
+
     <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #ffc107;">🎯</div>
+        <div class="stat-icon" style="color: #ffc107;">🏆</div>
         <div class="stat-number">{{ "%.1f"|format(stats.special_hit_rate or 0) }}%</div>
         <div class="stat-label">特码命中率</div>
     </div>
 
     <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #6f42c1;">✅</div>
+        <div class="stat-icon" style="color: #6f42c1;">📈</div>
         <div class="stat-number">{{ "%.1f"|format(stats.normal_hit_rate or 0) }}%</div>
         <div class="stat-label">平码命中率</div>
     </div>
 </div>
 
-<!-- 策略分析 -->
 <div class="card-compact">
     <div class="card-header-compact">
         <h2 class="card-title-compact">🎯 策略效果分析</h2>
     </div>
-    
+
     <div class="strategy-analysis">
         {% for meta in strategy_meta %}
         <div class="strategy-item">
@@ -82,12 +161,11 @@
     </div>
 </div>
 
-<!-- 地区分析 -->
 <div class="card-compact">
     <div class="card-header-compact">
         <h2 class="card-title-compact">🌏 地区预测分析</h2>
     </div>
-    
+
     <div class="region-analysis">
         <div class="region-item">
             <div class="region-header">
@@ -98,10 +176,10 @@
                 <div class="progress-bar" style="width: {{ region_stats.hk.accuracy or 0 }}%"></div>
             </div>
             <div class="region-details">
-                <span>总计 {{ region_stats.hk.total or 0 }} 次预测，命中 {{ region_stats.hk.correct or 0 }} 次</span>
+                <span>累计 {{ region_stats.hk.total or 0 }} 次预测，命中 {{ region_stats.hk.correct or 0 }} 次</span>
             </div>
         </div>
-        
+
         <div class="region-item">
             <div class="region-header">
                 <span class="region-name">澳门六合彩</span>
@@ -111,18 +189,17 @@
                 <div class="progress-bar" style="width: {{ region_stats.macau.accuracy or 0 }}%"></div>
             </div>
             <div class="region-details">
-                <span>总计 {{ region_stats.macau.total or 0 }} 次预测，命中 {{ region_stats.macau.correct or 0 }} 次</span>
+                <span>累计 {{ region_stats.macau.total or 0 }} 次预测，命中 {{ region_stats.macau.correct or 0 }} 次</span>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 时间趋势 -->
 <div class="card-compact">
     <div class="card-header-compact">
-        <h2 class="card-title-compact">📅 预测趋势分析</h2>
+        <h2 class="card-title-compact">📆 预测趋势分析</h2>
     </div>
-    
+
     <div class="trend-analysis">
         <div class="trend-item">
             <div class="trend-period">最近7天</div>
@@ -131,15 +208,15 @@
                 <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
             </div>
         </div>
-        
+
         <div class="trend-item">
-            <div class="trend-period">今日</div>
+            <div class="trend-period">今天</div>
             <div class="trend-stats">
                 <div class="trend-count">{{ trend_data[-1].count if trend_data and trend_data|length > 0 else 0 }} 次预测</div>
                 <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
             </div>
         </div>
-        
+
         <div class="trend-item">
             <div class="trend-period">总计</div>
             <div class="trend-stats">
@@ -150,12 +227,11 @@
     </div>
 </div>
 
-<!-- 建议和提示 -->
 <div class="card-compact">
     <div class="card-header-compact">
         <h2 class="card-title-compact">💡 智能建议</h2>
     </div>
-    
+
     <div class="suggestions">
         {% if stats.total_predictions == 0 %}
         <div class="suggestion-item">
@@ -166,22 +242,21 @@
             </div>
         </div>
         {% else %}
-        
         {% if best_strategy %}
         <div class="suggestion-item">
             <span class="suggestion-icon">{{ best_strategy.icon }}</span>
             <div class="suggestion-content">
                 <h4>{{ best_strategy.label }}策略表现更好</h4>
-                <p>当前综合命中率最高的是{{ best_strategy.label }}策略，建议优先尝试该策略并持续观察数据变化。</p>
+                <p>当前综合命中率最高的是 {{ best_strategy.label }} 策略，建议优先尝试该策略并持续观察数据变化。</p>
             </div>
         </div>
         {% endif %}
-        
+
         {% if region_stats and region_stats.hk and region_stats.macau %}
             {% if region_stats.hk.accuracy and region_stats.macau.accuracy %}
                 {% if region_stats.hk.accuracy > region_stats.macau.accuracy %}
                 <div class="suggestion-item">
-                    <span class="suggestion-icon">🏆</span>
+                    <span class="suggestion-icon">🌟</span>
                     <div class="suggestion-content">
                         <h4>香港地区预测更准确</h4>
                         <p>您在香港六合彩的预测准确率（{{ "%.1f"|format(region_stats.hk.accuracy) }}%）高于澳门地区，可以重点关注。</p>
@@ -189,7 +264,7 @@
                 </div>
                 {% elif region_stats.macau.accuracy > region_stats.hk.accuracy %}
                 <div class="suggestion-item">
-                    <span class="suggestion-icon">🏆</span>
+                    <span class="suggestion-icon">🌟</span>
                     <div class="suggestion-content">
                         <h4>澳门地区预测更准确</h4>
                         <p>您在澳门六合彩的预测准确率（{{ "%.1f"|format(region_stats.macau.accuracy) }}%）高于香港地区，可以重点关注。</p>
@@ -198,41 +273,34 @@
                 {% endif %}
             {% endif %}
         {% endif %}
-        
+
         {% if stats.accuracy and stats.accuracy < 30 %}
         <div class="suggestion-item">
-            <span class="suggestion-icon">📚</span>
+            <span class="suggestion-icon">🧪</span>
             <div class="suggestion-content">
                 <h4>建议多样化策略</h4>
-                <p>当前总体准确率较低，建议尝试不同的预测策略，找到最适合您的方法。</p>
+                <p>当前整体准确率较低，建议尝试不同的预测策略，找到更适合您的方法。</p>
             </div>
         </div>
         {% endif %}
-        
         {% endif %}
     </div>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // 点击统计卡片筛选功能
     const clickableStats = document.querySelectorAll('.clickable-stat');
     if (clickableStats) {
         clickableStats.forEach(stat => {
             stat.addEventListener('click', function() {
                 const filterType = this.getAttribute('data-filter');
-                if (filterType) {
-                    if (filterType === 'all') {
-                        // 跳转到预测记录页面并清除所有筛选条件
-                        window.location.href = "{{ url_for('user.predictions') }}";
-                    } else {
-                        // 跳转到预测记录页面并应用筛选
-                        window.location.href = "{{ url_for('user.predictions') }}?result=" + filterType;
-                    }
+                if (!filterType) return;
+                if (filterType === 'all') {
+                    window.location.href = "{{ url_for('user.predictions') }}";
+                } else {
+                    window.location.href = "{{ url_for('user.predictions') }}?result=" + filterType;
                 }
             });
-            
-            // 添加鼠标悬停效果
             stat.style.cursor = 'pointer';
             stat.title = '点击查看相关记录';
         });
@@ -241,14 +309,126 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <style>
-/* 可点击统计卡片样式 */
+.analytics-stats {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1rem;
+}
+
+.hero-grid,
+.learning-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.hero-card,
+.learning-card {
+    padding: 1rem;
+    border-radius: 12px;
+}
+
+.hero-card-primary {
+    background: linear-gradient(135deg, #fff7e8, #fffdf8);
+    border: 1px solid #f2dfb4;
+}
+
+.hero-card-secondary {
+    background: #f8fbff;
+    border: 1px solid #d9e8fb;
+}
+
+.hero-label {
+    font-size: 0.9rem;
+    color: #8a6d1f;
+}
+
+.hero-title {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: #3a2f12;
+    margin: 0.35rem 0;
+}
+
+.hero-desc,
+.hero-tip {
+    color: #7b6a3a;
+}
+
+.hero-tip {
+    margin-top: 0.8rem;
+    font-size: 0.9rem;
+}
+
+.hero-rank-row,
+.learning-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px dashed #dbe6f3;
+}
+
+.learning-card {
+    border: 1px solid #edf0f4;
+    background: #fbfcfe;
+}
+
+.learning-title {
+    font-weight: 700;
+    margin-bottom: 0.6rem;
+}
+
+.learning-row {
+    display: block;
+    padding: 0.55rem 0;
+    border-top: 1px dashed #e6ebf2;
+    border-bottom: 0;
+}
+
+.learning-name {
+    font-weight: 600;
+}
+
+.learning-meta,
+.table-sub,
+.empty-text {
+    font-size: 0.84rem;
+    color: #667;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+.analytics-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.analytics-table th,
+.analytics-table td {
+    padding: 0.7rem 0.6rem;
+    text-align: left;
+    border-top: 1px solid #eef2f6;
+}
+
+.analytics-table thead th {
+    color: #666;
+    border-top: 0;
+}
+
+.table-main {
+    font-weight: 700;
+    color: #1f3a56;
+}
+
 .clickable-stat {
     position: relative;
-    cursor: pointer;
 }
 
 .clickable-stat::after {
-    content: '🔍';
+    content: '↗';
     position: absolute;
     top: 10px;
     right: 10px;
@@ -259,300 +439,111 @@ document.addEventListener('DOMContentLoaded', function() {
 
 .clickable-stat:hover::after {
     opacity: 1;
-    transform: scale(1.2);
+    transform: translate(2px, -2px);
 }
 
-.clickable-stat:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 30px rgba(102, 126, 234, 0.2);
-    background: linear-gradient(135deg, #f8f9ff 0%, #eef1ff 100%);
-    border: 1px solid rgba(102, 126, 234, 0.3);
-}
-
-/* 继承dashboard的基础样式 */
-.card-compact {
-    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
-    border-radius: 12px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(102, 126, 234, 0.1);
-    margin-bottom: 1rem;
-    overflow: hidden;
-}
-
-.card-header-compact {
-    padding: 0.8rem 1.2rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-}
-
-.card-title-compact {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-}
-
-.stat-card-compact {
-    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
-    border-radius: 12px;
-    padding: 1rem;
-    text-align: center;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(102, 126, 234, 0.1);
-    transition: all 0.3s ease;
-    min-height: 120px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-.stat-card-compact:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-}
-
-.stat-icon {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-}
-
-.stat-number {
-    font-size: 1.8rem;
-    font-weight: 700;
-    color: #333;
-    margin-bottom: 0.3rem;
-}
-
-.stat-label {
-    font-size: 0.9rem;
-    color: #666;
-    font-weight: 500;
-}
-
-/* 策略分析 */
 .strategy-analysis {
-    padding: 1.2rem;
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
 }
 
-.strategy-item {
-    background: rgba(102, 126, 234, 0.05);
-    border-radius: 8px;
+.strategy-item,
+.region-item,
+.trend-item,
+.suggestion-item {
+    background: #fff;
+    border: 1px solid #eef2f6;
+    border-radius: 12px;
     padding: 1rem;
-    border-left: 4px solid #667eea;
-    transition: all 0.3s ease;
 }
 
-.strategy-item:hover {
-    background: rgba(102, 126, 234, 0.1);
-    transform: translateX(5px);
-}
-
-.strategy-header {
+.strategy-header,
+.region-header {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.8rem;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
 }
 
 .strategy-icon {
-    font-size: 1.5rem;
+    font-size: 1.2rem;
+    margin-right: 0.35rem;
 }
 
-.strategy-name {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #333;
+.strategy-name,
+.region-name,
+.suggestion-content h4 {
+    font-weight: 700;
 }
 
 .strategy-stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
 }
 
 .stat-item {
-    text-align: center;
-}
-
-.stat-item .stat-label {
-    display: block;
-    font-size: 0.8rem;
-    color: #666;
-    margin-bottom: 0.3rem;
-}
-
-.stat-item .stat-value {
-    display: block;
-    font-size: 1.2rem;
-    font-weight: 700;
-    color: #333;
-}
-
-.stat-item .stat-value.accuracy {
-    color: #667eea;
-}
-
-/* 地区分析 */
-.region-analysis {
-    padding: 1.2rem;
-    display: grid;
-    gap: 1.5rem;
-}
-
-.region-item {
-    background: rgba(40, 167, 69, 0.05);
-    border-radius: 8px;
-    padding: 1rem;
-    border-left: 4px solid #28a745;
-}
-
-.region-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.8rem;
+    gap: 0.75rem;
+    font-size: 0.92rem;
 }
 
-.region-name {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #333;
-}
-
+.stat-value.accuracy,
 .region-accuracy {
-    font-size: 1.2rem;
+    color: #0b6b4f;
     font-weight: 700;
-    color: #28a745;
 }
 
 .region-progress {
-    background: rgba(40, 167, 69, 0.1);
-    border-radius: 10px;
     height: 8px;
-    margin-bottom: 0.5rem;
+    background: #eef2f6;
+    border-radius: 999px;
     overflow: hidden;
+    margin-bottom: 0.75rem;
 }
 
 .progress-bar {
-    background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
     height: 100%;
-    border-radius: 10px;
-    transition: width 0.3s ease;
+    background: linear-gradient(90deg, #0b6b4f, #f4b547);
 }
 
-.region-details {
-    font-size: 0.9rem;
-    color: #666;
-}
-
-/* 趋势分析 */
-.trend-analysis {
-    padding: 1.2rem;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-}
-
-.trend-item {
-    background: rgba(255, 193, 7, 0.05);
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
-    border-left: 4px solid #ffc107;
-    transition: all 0.3s ease;
-}
-
-.trend-item:hover {
-    background: rgba(255, 193, 7, 0.1);
-    transform: translateY(-2px);
-}
-
-.trend-period {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #333;
-    margin-bottom: 0.8rem;
-}
-
-.trend-count {
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: #ffc107;
-    margin-bottom: 0.3rem;
-}
-
-.trend-accuracy {
-    font-size: 0.9rem;
-    color: #666;
-}
-
-/* 建议 */
+.trend-analysis,
 .suggestions {
-    padding: 1.2rem;
     display: grid;
     gap: 1rem;
+}
+
+.trend-stats {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.5rem;
 }
 
 .suggestion-item {
     display: flex;
+    gap: 0.9rem;
     align-items: flex-start;
-    gap: 1rem;
-    padding: 1rem;
-    background: rgba(23, 162, 184, 0.05);
-    border-radius: 8px;
-    border-left: 4px solid #17a2b8;
-    transition: all 0.3s ease;
-}
-
-.suggestion-item:hover {
-    background: rgba(23, 162, 184, 0.1);
-    transform: translateX(5px);
 }
 
 .suggestion-icon {
-    font-size: 2rem;
-    flex-shrink: 0;
+    font-size: 1.25rem;
+    line-height: 1;
 }
 
-.suggestion-content h4 {
-    margin: 0 0 0.5rem 0;
-    color: #17a2b8;
-    font-size: 1.1rem;
-    font-weight: 600;
-}
-
-.suggestion-content p {
-    margin: 0;
-    color: #666;
-    font-size: 0.9rem;
-    line-height: 1.4;
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    
-    .strategy-stats {
+@media (max-width: 960px) {
+    .analytics-stats,
+    .hero-grid,
+    .learning-grid,
+    .strategy-analysis {
         grid-template-columns: 1fr;
     }
-    
-    .trend-analysis {
-        grid-template-columns: 1fr;
-    }
-}
 
-@media (max-width: 480px) {
-    .stats-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .region-header {
+    .trend-stats {
         flex-direction: column;
-        align-items: flex-start;
-        gap: 0.5rem;
     }
 }
 </style>

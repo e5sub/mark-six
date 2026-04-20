@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 
 from flask import Blueprint, jsonify, request, session
 from sqlalchemy import func, case, or_
@@ -9,6 +10,7 @@ from models import (
     LotteryDraw,
     ManualBetRecord,
     PredictionRecord,
+    SystemConfig,
     User,
     ZodiacSetting,
     db,
@@ -17,7 +19,8 @@ from models import (
 
 mobile_api_bp = Blueprint("mobile_api", __name__, url_prefix="/api/mobile")
 
-STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "random", "ai"]
+STRATEGY_KEYS = ["smart", "hot", "cold", "trend", "hybrid", "balanced", "random", "ai"]
+LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "random"]
 _RED_BALLS = {1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46}
 _BLUE_BALLS = {3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48}
 
@@ -309,6 +312,7 @@ def api_login():
     session["username"] = user.username
     session["is_admin"] = user.is_admin
     session["is_active"] = user.is_active
+    session.permanent = True
 
     return jsonify(
         {
@@ -1357,6 +1361,67 @@ def _calculate_accuracy(query):
         "accuracy": accuracy,
     }
 
+def _strategy_config(region, strategy):
+    raw = SystemConfig.get_config(f"strategy_config_{region}_{strategy}", "")
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+def _calculate_accuracy_window(query, limit):
+    ids = [item.id for item in query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()]
+    limited = PredictionRecord.query.filter(PredictionRecord.id.in_(ids)) if ids else PredictionRecord.query.filter(PredictionRecord.id == -1)
+    summary = _calculate_accuracy(limited)
+    summary["window"] = limit
+    return summary
+
+def _build_mobile_backtests(user_id):
+    backtests = {}
+    ranked = []
+    for strategy in LOCAL_STRATEGIES:
+        base_query = PredictionRecord.query.filter_by(user_id=user_id, strategy=strategy)
+        windows = [_calculate_accuracy_window(base_query, window) for window in (20, 50, 100)]
+        backtests[strategy] = windows
+
+        weighted = []
+        samples = 0
+        for idx, item in enumerate(windows):
+            if item["total"] <= 0:
+                continue
+            weight = max(0.4, 1.0 - idx * 0.2)
+            confidence = min(1.0, item["total"] / 10.0)
+            weighted.append(item["accuracy"] * weight * confidence)
+            samples = max(samples, item["total"])
+        if weighted:
+            ranked.append({
+                "strategy": strategy,
+                "score": round(sum(weighted) / len(weighted), 2),
+                "samples": samples,
+            })
+    ranked.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
+    best = ranked[0] if ranked else {"strategy": "hybrid", "score": 0.0, "samples": 0}
+    return backtests, best
+
+def _learning_summary():
+    payload = {}
+    for region in ("hk", "macau"):
+        region_data = {}
+        for strategy in ["hot", "cold", "trend", "hybrid", "balanced"]:
+            config = _strategy_config(region, strategy)
+            if not config:
+                continue
+            region_data[strategy] = {
+                "window": config.get("window"),
+                "pool": config.get("pool"),
+                "special_pool": config.get("special_pool"),
+                "last_accuracy": round(float(config.get("last_accuracy") or 0.0) * 100, 1),
+                "last_total": config.get("last_total", 0),
+            }
+        payload[region] = region_data
+    return payload
+
 
 @mobile_api_bp.route("/accuracy", methods=["GET"])
 def api_accuracy():
@@ -1369,12 +1434,18 @@ def api_accuracy():
 
     strategy_stats = {}
     for key in STRATEGY_KEYS:
+        if key == "smart":
+            continue
         strategy_stats[key] = _calculate_accuracy(base_query.filter_by(strategy=key))
+    backtests, best_strategy = _build_mobile_backtests(user.id)
 
     return jsonify(
         {
             "success": True,
             "overall": overall,
             "by_strategy": strategy_stats,
+            "recommended_strategy": best_strategy,
+            "backtests": backtests,
+            "learning_summary": _learning_summary(),
         }
     )

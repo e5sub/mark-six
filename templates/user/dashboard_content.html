@@ -56,6 +56,28 @@
     </div>
 </div>
 
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🧠 智能优选策略</h2>
+    </div>
+    <div class="quick-recommend-grid" style="display:grid; grid-template-columns: 1.2fr 1fr; gap:1rem;">
+        <div class="recommend-card" style="padding:1rem; border-radius:12px; background:linear-gradient(135deg, #fff7e8, #fffdf8); border:1px solid #f2dfb4;">
+            <div style="font-size:0.9rem; color:#8a6d1f;">当前推荐</div>
+            <div style="font-size:1.35rem; font-weight:700; color:#3a2f12; margin:0.35rem 0;">{{ recommended_strategy.label }}</div>
+            <div style="color:#7b6a3a; font-size:0.95rem;">综合评分 {{ recommended_strategy.score }}，有效样本 {{ recommended_strategy.samples }} 期</div>
+        </div>
+        <div class="recommend-card" style="padding:1rem; border-radius:12px; background:#f8fbff; border:1px solid #d9e8fb;">
+            <div style="font-size:0.9rem; color:#4b6b94; margin-bottom:0.5rem;">Top 3 策略</div>
+            {% for item in top_strategies %}
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0; border-bottom:1px dashed #dbe6f3;">
+                <span style="font-weight:600;">{{ loop.index }}. {{ item.label }}</span>
+                <span style="color:#5e7da6;">{{ item.score }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
 <!-- 快速操作 -->
 <div class="card-compact">
     <div class="card-header-compact">

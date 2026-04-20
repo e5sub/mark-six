@@ -26,14 +26,36 @@ from invite_routes import invite_bp
 from api_mobile import mobile_api_bp
 
 # --- 配置信息 ---
-app = Flask(__name__)
-# 使用环境变量设置密钥，如果不存在则使用随机生成的密钥
-import secrets
-app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
-
-# 确保数据目录存在
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
+
+def _load_or_create_secret_key():
+    env_secret = os.environ.get("SECRET_KEY")
+    if env_secret:
+        return env_secret
+
+    import secrets
+    secret_key_path = os.path.join(data_dir, "secret_key.txt")
+    try:
+        if os.path.exists(secret_key_path):
+            with open(secret_key_path, "r", encoding="utf-8") as f:
+                persisted = (f.read() or "").strip()
+                if persisted:
+                    return persisted
+        persisted = secrets.token_hex(32)
+        with open(secret_key_path, "w", encoding="utf-8") as f:
+            f.write(persisted)
+        return persisted
+    except OSError:
+        # 兜底：即使文件写入失败，也至少保证当前进程可运行
+        return secrets.token_hex(32)
+
+app = Flask(__name__)
+app.secret_key = _load_or_create_secret_key()
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 _startup_log_lock_path = None
 _startup_log_lock_acquired = False
@@ -115,6 +137,7 @@ def _mask_db_uri(uri):
     return re.sub(r'//([^:/@]+):([^@]+)@', r'//\1:***@', uri)
 
 STRATEGY_LABELS = {
+    'smart': '智能优选',
     'random': '随机预测',
     'balanced': '均衡预测',
     'ai': 'AI智能预测',
@@ -126,6 +149,8 @@ STRATEGY_LABELS = {
 
 def _get_strategy_label(strategy):
     return STRATEGY_LABELS.get(strategy, strategy or '未知策略')
+
+LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "random"]
 
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
@@ -151,6 +176,12 @@ login_manager.login_message = '请先登录以访问此页面。'
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+@app.before_request
+def _refresh_persistent_session():
+    if session.get("user_id"):
+        session.permanent = True
+        session.modified = True
 
 # 注册蓝图
 app.register_blueprint(auth_bp, url_prefix='/auth')
@@ -927,6 +958,48 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
     total = len(predictions)
     return (correct / total) if total else 0.0, total
 
+def _calculate_strategy_window_stats(region, strategy, limit=50):
+    accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=limit)
+    return {
+        "strategy": strategy,
+        "label": _get_strategy_label(strategy),
+        "window": limit,
+        "total": total,
+        "accuracy": round(accuracy * 100, 1),
+    }
+
+def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5):
+    candidates = [strategy for strategy in LOCAL_STRATEGY_KEYS if strategy != "random"]
+    scored = []
+    for strategy in candidates:
+        window_scores = []
+        total_samples = 0
+        for idx, window in enumerate(windows):
+            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            total_samples = max(total_samples, total)
+            if total <= 0:
+                continue
+            weight = max(0.4, 1.0 - idx * 0.2)
+            confidence = _clamp(total / max(min_samples, 1), 0.3, 1.0)
+            window_scores.append(accuracy * 100 * weight * confidence)
+        if not window_scores:
+            continue
+        tuned = _load_strategy_config(strategy, region)
+        config_bonus = float(tuned.get("last_accuracy") or 0.0) * 100 * 0.15
+        score = round(sum(window_scores) / len(window_scores) + config_bonus, 2)
+        scored.append({
+            "strategy": strategy,
+            "label": _get_strategy_label(strategy),
+            "score": score,
+            "samples": total_samples,
+        })
+
+    if not scored:
+        return {"strategy": "hybrid", "label": _get_strategy_label("hybrid"), "score": 0.0, "samples": 0}
+
+    scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
+    return scored[0]
+
 def _tune_strategy_config(strategy, region):
     accuracy, total = _calculate_strategy_accuracy(region, strategy)
     config = _load_strategy_config(strategy, region)
@@ -1268,6 +1341,8 @@ def _build_local_recommendation_text(strategy, config, normal, special, feedback
     )
 
 def get_local_recommendations(strategy, data, region):
+    if strategy == 'smart':
+        strategy = _get_recommended_strategy(region).get("strategy", "hybrid")
     all_numbers = list(range(1, 50))
     if not data:
         normal = sorted(random.sample(all_numbers, 6))
@@ -1842,16 +1917,17 @@ def generate_auto_predictions(data, region):
             for strategy in strategies:
                 if strategy == 'ai':
                     continue
+                resolved_strategy = _get_recommended_strategy(region).get("strategy", "hybrid") if strategy == 'smart' else strategy
 
                 existing = PredictionRecord.query.filter_by(
                     user_id=user.id,
                     region=region,
                     period=next_period,
-                    strategy=strategy
+                    strategy=resolved_strategy
                 ).first()
 
                 if not existing:
-                    generate_prediction_for_user(user, region, next_period, strategy, data)
+                    generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
     except Exception as e:
         print(f"自动预测出错：{e}")
         db.session.rollback()
@@ -1892,6 +1968,7 @@ def unified_predict_api():
     stream_response = request.args.get('stream') == '1'
     data = get_yearly_data(region, year)
     if not data: return jsonify({"error": f"无法加载{year}年的数据"}), 404
+    resolved_strategy = _get_recommended_strategy(region).get("strategy", "hybrid") if strategy == 'smart' else strategy
     
     # 检查用户是否登录和激活（对于需要保存记录的功能）
     user_id = session.get('user_id')
@@ -1914,7 +1991,7 @@ def unified_predict_api():
             user_id=user_id,
             region=region,
             period=current_period,
-            strategy=strategy  # 添加策略作为过滤条件
+            strategy=resolved_strategy  # 添加策略作为过滤条件
         ).first()
         
         if existing:
@@ -1931,11 +2008,16 @@ def unified_predict_api():
             }
             if existing.prediction_text:
                 result["recommendation_text"] = existing.prediction_text
-            if stream_response and strategy == 'ai':
+            result["strategy"] = resolved_strategy
+            result["requested_strategy"] = strategy
+            if strategy == 'smart':
+                result["recommended_strategy"] = resolved_strategy
+            if stream_response and resolved_strategy == 'ai':
                 payload = {
                     "type": "done",
                     "region": region,
-                    "strategy": strategy,
+                    "strategy": resolved_strategy,
+                    "requested_strategy": strategy,
                     "period": current_period,
                     "saved": True,
                     **result
@@ -1946,7 +2028,7 @@ def unified_predict_api():
             return jsonify(result)
     
     # 生成新的预测
-    if strategy == 'ai':
+    if resolved_strategy == 'ai':
         if stream_response:
             def generate_stream():
                 ai_config = get_ai_config()
@@ -1985,7 +2067,8 @@ def unified_predict_api():
                 result.update({
                     "type": "done",
                     "region": region,
-                    "strategy": strategy,
+                    "strategy": resolved_strategy,
+                    "requested_strategy": strategy,
                     "period": current_period
                 })
 
@@ -1994,7 +2077,7 @@ def unified_predict_api():
                         prediction = PredictionRecord(
                             user_id=user_id,
                             region=region,
-                            strategy=strategy,
+                            strategy=resolved_strategy,
                             period=current_period,
                             normal_numbers=','.join(map(str, result.get('normal', []))),
                             special_number=str(result.get('special', {}).get('number', '')),
@@ -2024,7 +2107,7 @@ def unified_predict_api():
                 "message": f"AI预测失败：{error_message}，请稍后再试或联系管理员检查AI API配置。"
             }), 400
     else:
-        result = get_local_recommendations(strategy, data, region)
+        result = get_local_recommendations(resolved_strategy, data, region)
     
     # 保存预测记录（仅对已激活用户）
     if user_id and is_active and not result.get('error'):
@@ -2032,7 +2115,7 @@ def unified_predict_api():
             prediction = PredictionRecord(
                 user_id=user_id,
                 region=region,
-                strategy=strategy,
+                strategy=resolved_strategy,
                 period=current_period,
                 normal_numbers=','.join(map(str, result.get('normal', []))),
                 special_number=str(result.get('special', {}).get('number', '')),
@@ -2049,6 +2132,10 @@ def unified_predict_api():
                 "message": "保存预测记录失败，请稍后再试。"
             }), 500
     
+    result["strategy"] = resolved_strategy
+    result["requested_strategy"] = strategy
+    if strategy == 'smart':
+        result["recommended_strategy"] = resolved_strategy
     return jsonify(result)
 
 # 手动更新数据API
