@@ -114,6 +114,19 @@ def _build_database_uri(db_path):
 def _mask_db_uri(uri):
     return re.sub(r'//([^:/@]+):([^@]+)@', r'//\1:***@', uri)
 
+STRATEGY_LABELS = {
+    'random': '随机预测',
+    'balanced': '均衡预测',
+    'ai': 'AI智能预测',
+    'hot': '热门预测',
+    'cold': '冷门预测',
+    'trend': '走势预测',
+    'hybrid': '综合预测'
+}
+
+def _get_strategy_label(strategy):
+    return STRATEGY_LABELS.get(strategy, strategy or '未知策略')
+
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = _build_database_uri(db_path)
@@ -815,15 +828,46 @@ def _strategy_config_key(region, strategy):
 
 def _default_strategy_config(strategy):
     defaults = {
-        "hot": {"window": 50, "pool": 16, "last_accuracy": 0.0, "last_total": 0},
-        "cold": {"window": 50, "pool": 16, "last_accuracy": 0.0, "last_total": 0},
-        "trend": {"window": 15, "pool": 18, "last_accuracy": 0.0, "last_total": 0},
-        "balanced": {"window": 60, "pool": 16, "bucket_counts": [2, 2, 2], "last_accuracy": 0.0, "last_total": 0},
+        "hot": {
+            "window": 50,
+            "pool": 16,
+            "special_pool": 10,
+            "weights": {"hot": 1.25, "trend": 0.55, "cold": 0.05, "normal": 0.35, "overdue": 0.15, "feedback": 0.95, "color": 0.18, "zodiac": 0.16},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "cold": {
+            "window": 50,
+            "pool": 16,
+            "special_pool": 10,
+            "weights": {"hot": 0.10, "trend": 0.25, "cold": 1.20, "normal": 0.15, "overdue": 0.95, "feedback": 0.75, "color": 0.15, "zodiac": 0.14},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "trend": {
+            "window": 15,
+            "pool": 18,
+            "special_pool": 10,
+            "weights": {"hot": 0.55, "trend": 1.30, "cold": 0.05, "normal": 0.40, "overdue": 0.12, "feedback": 0.90, "color": 0.18, "zodiac": 0.18},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "balanced": {
+            "window": 60,
+            "pool": 16,
+            "special_pool": 10,
+            "bucket_counts": [2, 2, 2],
+            "weights": {"hot": 0.55, "trend": 0.55, "cold": 0.45, "normal": 0.45, "overdue": 0.35, "feedback": 0.95, "color": 0.20, "zodiac": 0.20},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
         "hybrid": {
             "window": 50,
             "pool": 16,
+            "special_pool": 10,
             "trend_window": 15,
             "mix": {"hot": 2, "cold": 2, "trend": 2},
+            "weights": {"hot": 0.85, "trend": 0.85, "cold": 0.70, "normal": 0.40, "overdue": 0.35, "feedback": 1.05, "color": 0.22, "zodiac": 0.22},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -842,6 +886,10 @@ def _load_strategy_config(strategy, region):
             stored = {}
     default = _default_strategy_config(strategy)
     merged = {**default, **stored}
+    for key, default_value in default.items():
+        stored_value = stored.get(key)
+        if isinstance(default_value, dict) and isinstance(stored_value, dict):
+            merged[key] = {**default_value, **stored_value}
     if "updated_at" not in merged:
         merged["updated_at"] = datetime.now().isoformat()
     return merged
@@ -891,12 +939,17 @@ def _tune_strategy_config(strategy, region):
         _save_strategy_config(strategy, region, config)
         return
 
+    learning_strength = _clamp(total / 80.0, 0.25, 1.0)
+    weights = dict(config.get("weights") or {})
+
     if strategy in ("hot", "cold"):
         config["window"] = _clamp(int(30 + accuracy * 40), 20, 80)
         config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
+        config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
     elif strategy == "trend":
         config["window"] = _clamp(int(8 + accuracy * 20), 8, 30)
         config["pool"] = _clamp(int(10 + accuracy * 8), 8, 20)
+        config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
     elif strategy == "balanced":
         high_count = _clamp(int(2 + accuracy * 2), 1, 4)
         low_count = _clamp(int(2 + (1 - accuracy) * 2), 1, 4)
@@ -910,6 +963,7 @@ def _tune_strategy_config(strategy, region):
         config["bucket_counts"] = [low_count, mid_count, high_count]
         config["window"] = _clamp(int(40 + accuracy * 40), 30, 90)
         config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
+        config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
     elif strategy == "hybrid":
         hot_count = _clamp(int(2 + accuracy * 2), 1, 4)
         cold_count = _clamp(int(2 + (1 - accuracy) * 2), 1, 4)
@@ -923,10 +977,27 @@ def _tune_strategy_config(strategy, region):
         config["mix"] = {"hot": hot_count, "cold": cold_count, "trend": trend_count}
         config["window"] = _clamp(int(40 + accuracy * 40), 30, 90)
         config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
+        config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
         config["trend_window"] = _clamp(int(8 + accuracy * 20), 8, 30)
     elif strategy == "ai":
         config["temperature"] = round(_clamp(0.9 - accuracy * 0.4, 0.5, 0.9), 2)
         config["history_window"] = _clamp(int(10 + (0.5 - accuracy) * 6), 6, 15)
+
+    if weights:
+        weights["feedback"] = round(_clamp(0.45 + learning_strength * 0.7 + accuracy * 0.3, 0.45, 1.35), 2)
+        weights["color"] = round(_clamp(0.10 + accuracy * 0.20, 0.08, 0.35), 2)
+        weights["zodiac"] = round(_clamp(0.10 + accuracy * 0.18, 0.08, 0.32), 2)
+        if strategy == "cold":
+            weights["overdue"] = round(_clamp(0.70 + (1 - accuracy) * 0.35, 0.65, 1.20), 2)
+        elif strategy == "trend":
+            weights["trend"] = round(_clamp(1.00 + learning_strength * 0.25 + accuracy * 0.20, 1.0, 1.5), 2)
+        elif strategy == "hot":
+            weights["hot"] = round(_clamp(1.00 + learning_strength * 0.20 + accuracy * 0.20, 1.0, 1.5), 2)
+        elif strategy == "balanced":
+            weights["cold"] = round(_clamp(0.30 + (1 - accuracy) * 0.20, 0.25, 0.60), 2)
+        elif strategy == "hybrid":
+            weights["feedback"] = round(_clamp(weights["feedback"] + 0.10, 0.5, 1.45), 2)
+        config["weights"] = weights
 
     _save_strategy_config(strategy, region, config)
 
@@ -1044,87 +1115,304 @@ def analyze_special_color_frequency(data, region):
                 continue
     return Counter(c for c in colors if c)
 
+def _infer_draw_year(data):
+    for record in data or []:
+        raw_date = str(record.get("date", "")).strip()
+        if len(raw_date) >= 4 and raw_date[:4].isdigit():
+            return int(raw_date[:4])
+        draw_id = str(record.get("id", "")).strip()
+        if len(draw_id) >= 4 and draw_id[:4].isdigit():
+            return int(draw_id[:4])
+    return datetime.now().year
+
+def _build_number_frequency(data):
+    counts = Counter()
+    for record in data or []:
+        for number in record.get("no", []):
+            if number:
+                counts[str(number)] += 1
+        sno = record.get("sno")
+        if sno:
+            counts[str(sno)] += 1
+    return {str(i): counts.get(str(i), 0) for i in range(1, 50)}
+
+def _build_overdue_scores(data):
+    scores = {}
+    for number in range(1, 50):
+        gap = len(data or [])
+        target = str(number)
+        for idx, record in enumerate(data or []):
+            if record.get("sno") == target:
+                gap = idx
+                break
+        scores[str(number)] = gap
+    return scores
+
+def _normalize_metric_map(metric_map):
+    if not metric_map:
+        return {}
+    values = list(metric_map.values())
+    min_value = min(values)
+    max_value = max(values)
+    if max_value == min_value:
+        fallback = 0.5 if max_value > 0 else 0.0
+        return {key: fallback for key in metric_map}
+    return {
+        key: (value - min_value) / (max_value - min_value)
+        for key, value in metric_map.items()
+    }
+
+def _build_prediction_feedback(region, strategy, limit=240):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy=strategy,
+        is_result_updated=True
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+
+    special_scores = Counter()
+    normal_scores = Counter()
+    color_scores = Counter()
+    zodiac_scores = Counter()
+
+    for idx, pred in enumerate(predictions):
+        recency_weight = max(0.2, 1.0 - (idx / max(limit, 1)) * 0.75)
+        actual = str(pred.actual_special_number or "").strip()
+        special = str(pred.special_number or "").strip()
+        normal_numbers = [n for n in _parse_csv_list(pred.normal_numbers) if n]
+
+        actual_color = _get_color_zh(actual)
+        actual_zodiac = str(pred.actual_special_zodiac or "").strip()
+
+        if special and actual and special == actual:
+            special_scores[special] += 3.0 * recency_weight
+            normal_scores[special] += 1.2 * recency_weight
+            if actual_color:
+                color_scores[actual_color] += 2.0 * recency_weight
+            if actual_zodiac:
+                zodiac_scores[actual_zodiac] += 2.0 * recency_weight
+        elif actual and actual in normal_numbers:
+            normal_scores[actual] += 1.7 * recency_weight
+            if special:
+                special_scores[special] -= 0.35 * recency_weight
+            for number in normal_numbers:
+                normal_scores[number] += 0.08 * recency_weight
+            if actual_color:
+                color_scores[actual_color] += 1.2 * recency_weight
+            if actual_zodiac:
+                zodiac_scores[actual_zodiac] += 1.2 * recency_weight
+        else:
+            if special:
+                special_scores[special] -= 0.40 * recency_weight
+            for number in normal_numbers:
+                normal_scores[number] -= 0.06 * recency_weight
+
+    return {
+        "special": _normalize_metric_map({str(i): special_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "normal": _normalize_metric_map({str(i): normal_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "color": _normalize_metric_map({color: color_scores.get(color, 0.0) for color in ("红", "蓝", "绿")}),
+        "zodiac": _normalize_metric_map(dict(zodiac_scores)),
+        "samples": len(predictions)
+    }
+
+def _build_attribute_preferences(data, region, feedback, year):
+    color_counter = analyze_special_color_frequency(data, region)
+    zodiac_counter = analyze_special_zodiac_frequency(data, region, year)
+    color_scores = _normalize_metric_map({color: color_counter.get(color, 0) for color in ("红", "蓝", "绿")})
+    zodiac_scores = _normalize_metric_map(dict(zodiac_counter))
+
+    feedback_color = feedback.get("color") or {}
+    feedback_zodiac = feedback.get("zodiac") or {}
+    merged_color = {
+        color: round(color_scores.get(color, 0.0) * 0.55 + feedback_color.get(color, 0.0) * 0.45, 4)
+        for color in ("红", "蓝", "绿")
+    }
+    zodiac_keys = set(zodiac_scores) | set(feedback_zodiac)
+    merged_zodiac = {
+        zodiac: round(zodiac_scores.get(zodiac, 0.0) * 0.55 + feedback_zodiac.get(zodiac, 0.0) * 0.45, 4)
+        for zodiac in zodiac_keys
+    }
+    return merged_color, merged_zodiac
+
+def _rank_numbers(number_scores, candidates=None, exclude=None):
+    exclude_set = {int(num) for num in (exclude or [])}
+    if candidates is None:
+        candidates = range(1, 50)
+    ranked = []
+    for number in candidates:
+        if number in exclude_set:
+            continue
+        ranked.append((number, number_scores.get(number, 0.0)))
+    ranked.sort(key=lambda item: (item[1], -abs(item[0] - 25), -item[0]), reverse=True)
+    return [number for number, _ in ranked]
+
+def _take_ranked(ranked_numbers, count, exclude=None):
+    exclude_set = {int(num) for num in (exclude or [])}
+    chosen = []
+    for number in ranked_numbers:
+        if number in exclude_set or number in chosen:
+            continue
+        chosen.append(number)
+        if len(chosen) >= count:
+            break
+    return chosen
+
+def _build_local_recommendation_text(strategy, config, normal, special, feedback):
+    strategy_name = _get_strategy_label(strategy)
+    accuracy = round(float(config.get("last_accuracy") or 0.0) * 100, 1)
+    samples = int(feedback.get("samples") or 0)
+    return (
+        f"{strategy_name}已结合最近历史开奖、号码冷热变化和历史命中反馈完成自动调优。"
+        f"当前策略回测命中率约{accuracy}%，学习样本{samples}期，"
+        f"推荐平码 {', '.join(map(str, normal))}，特码 {special}。"
+    )
+
 def get_local_recommendations(strategy, data, region):
     all_numbers = list(range(1, 50))
     if not data:
         normal = sorted(random.sample(all_numbers, 6))
+        special_num = random.choice([n for n in all_numbers if n not in normal])
+        return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": ""}}
     elif strategy == 'random':
         normal = sorted(random.sample(all_numbers, 6))
+        special_num = random.choice([n for n in all_numbers if n not in normal])
+        return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": ""}}
     else:
         try:
             config = _load_strategy_config(strategy, region)
             window = int(config.get("window") or 0)
-            if window > 0:
-                recent_data = data[:window]
-            else:
-                recent_data = data
-
-            freq = analyze_special_number_frequency(recent_data)
-            if not any(v > 0 for v in freq.values()):
-                raise ValueError("No frequency data")
-
-            sorted_freq = sorted(freq.items(), key=lambda item: item[1])
             pool_size = int(config.get("pool") or 16)
             pool_size = _clamp(pool_size, 8, 24)
+            special_pool_size = _clamp(int(config.get("special_pool") or max(8, pool_size // 2)), 6, 14)
 
             ai_config = _load_strategy_config("ai", region)
             ai_accuracy = float(ai_config.get("last_accuracy") or 0.0)
             if window > 0:
                 window = _clamp(int(window + (ai_accuracy - 0.5) * 20), 10, 90)
-                recent_data = data[:window]
-                freq = analyze_special_number_frequency(recent_data)
-                sorted_freq = sorted(freq.items(), key=lambda item: item[1])
             pool_size = _clamp(int(pool_size + (0.5 - ai_accuracy) * 6), 8, 24)
+            special_pool_size = _clamp(int(special_pool_size + (0.5 - ai_accuracy) * 4), 6, 14)
 
-            low_pool = [int(k) for k, _ in sorted_freq[:pool_size]]
-            high_pool = [int(k) for k, _ in sorted_freq[-pool_size:]]
-            mid_pool = [int(k) for k, _ in sorted_freq[pool_size:-pool_size]]
-            if not mid_pool:
-                mid_pool = [n for n in all_numbers if n not in low_pool and n not in high_pool]
+            recent_data = data[:window] if window > 0 else data
+            trend_window = int(config.get("trend_window") or min(15, len(data)))
+            trend_data = data[:trend_window] if trend_window > 0 else recent_data
 
-            def sample_pool(pool, count, exclude=None):
-                if exclude:
-                    pool = [n for n in pool if n not in exclude]
-                if len(pool) < count:
-                    raise ValueError("Pool too small")
-                return random.sample(pool, count)
+            special_freq = analyze_special_number_frequency(recent_data)
+            trend_freq = analyze_special_number_frequency(trend_data)
+            all_freq = _build_number_frequency(recent_data)
+            overdue = _build_overdue_scores(recent_data)
+
+            if not any(v > 0 for v in special_freq.values()):
+                raise ValueError("No frequency data")
+
+            hot_norm = _normalize_metric_map(special_freq)
+            trend_norm = _normalize_metric_map(trend_freq)
+            normal_norm = _normalize_metric_map(all_freq)
+            overdue_norm = _normalize_metric_map(overdue)
+            cold_norm = {str(i): round(1.0 - hot_norm.get(str(i), 0.0), 4) for i in range(1, 50)}
+
+            year = _infer_draw_year(recent_data)
+            number_to_zodiac = _get_number_to_zodiac_map(year)
+            feedback = _build_prediction_feedback(region, strategy)
+            color_pref, zodiac_pref = _build_attribute_preferences(recent_data, region, feedback, year)
+
+            weights = config.get("weights") or {}
+
+            def attribute_score(number):
+                color_score = color_pref.get(_get_color_zh(number), 0.0)
+                zodiac_score = zodiac_pref.get(number_to_zodiac.get(str(number), ""), 0.0)
+                return (
+                    float(weights.get("color", 0.0)) * color_score +
+                    float(weights.get("zodiac", 0.0)) * zodiac_score
+                )
+
+            number_scores = {}
+            for number in all_numbers:
+                key = str(number)
+                feedback_score = (
+                    feedback.get("special", {}).get(key, 0.0) * 0.65 +
+                    feedback.get("normal", {}).get(key, 0.0) * 0.35
+                )
+                score = (
+                    float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
+                    float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
+                    float(weights.get("cold", 0.0)) * cold_norm.get(key, 0.0) +
+                    float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
+                    float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
+                    float(weights.get("feedback", 0.0)) * feedback_score +
+                    attribute_score(number)
+                )
+                number_scores[number] = round(score, 6)
+
+            hot_rank = _rank_numbers({
+                number: hot_norm.get(str(number), 0.0) + trend_norm.get(str(number), 0.0) * 0.35 + feedback.get("special", {}).get(str(number), 0.0) * 0.75 + attribute_score(number)
+                for number in all_numbers
+            })
+            cold_rank = _rank_numbers({
+                number: cold_norm.get(str(number), 0.0) + overdue_norm.get(str(number), 0.0) * 0.8 + feedback.get("special", {}).get(str(number), 0.0) * 0.45 + attribute_score(number)
+                for number in all_numbers
+            })
+            trend_rank = _rank_numbers({
+                number: trend_norm.get(str(number), 0.0) * 1.1 + hot_norm.get(str(number), 0.0) * 0.35 + feedback.get("special", {}).get(str(number), 0.0) * 0.70 + attribute_score(number)
+                for number in all_numbers
+            })
+            overall_rank = _rank_numbers(number_scores)
 
             if strategy == 'hot':
-                normal = sorted(sample_pool(high_pool, 6))
+                normal = sorted(_take_ranked(hot_rank[:max(pool_size, 6)], 6))
             elif strategy == 'cold':
-                normal = sorted(sample_pool(low_pool, 6))
+                normal = sorted(_take_ranked(cold_rank[:max(pool_size, 6)], 6))
             elif strategy == 'trend':
-                normal = sorted(sample_pool(high_pool, 6))
+                normal = sorted(_take_ranked(trend_rank[:max(pool_size, 6)], 6))
             elif strategy == 'hybrid':
                 mix = config.get("mix") or {"hot": 2, "cold": 2, "trend": 2}
-                trend_window = int(config.get("trend_window") or window or 15)
-                trend_data = data[:trend_window] if data else []
-                trend_freq = analyze_special_number_frequency(trend_data) if trend_data else {}
-                if not trend_freq:
-                    raise ValueError("No trend data")
-                trend_sorted = sorted(trend_freq.items(), key=lambda item: item[1])
-                trend_pool = [int(k) for k, _ in trend_sorted[-pool_size:]]
                 normal = []
-                normal += sample_pool(high_pool, int(mix.get("hot", 2)))
-                normal += sample_pool(low_pool, int(mix.get("cold", 2)), exclude=normal)
-                normal += sample_pool(trend_pool, int(mix.get("trend", 2)), exclude=normal)
+                normal += _take_ranked(hot_rank[:pool_size], int(mix.get("hot", 2)))
+                normal += _take_ranked(cold_rank[:pool_size], int(mix.get("cold", 2)), exclude=normal)
+                normal += _take_ranked(trend_rank[:pool_size], int(mix.get("trend", 2)), exclude=normal)
+                if len(normal) < 6:
+                    normal += _take_ranked(overall_rank[:pool_size * 2], 6 - len(normal), exclude=normal)
                 normal = sorted(normal)
             else:
                 bucket_counts = config.get("bucket_counts") or [2, 2, 2]
                 low_count, mid_count, high_count = bucket_counts
+                low_bucket = [n for n in overall_rank if n <= 16]
+                mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
+                high_bucket = [n for n in overall_rank if n >= 34]
                 normal = []
-                normal += sample_pool(low_pool, int(low_count))
-                normal += sample_pool(mid_pool, int(mid_count), exclude=normal)
-                normal += sample_pool(high_pool, int(high_count), exclude=normal)
+                normal += _take_ranked(low_bucket, int(low_count))
+                normal += _take_ranked(mid_bucket, int(mid_count), exclude=normal)
+                normal += _take_ranked(high_bucket, int(high_count), exclude=normal)
+                if len(normal) < 6:
+                    normal += _take_ranked(overall_rank[:pool_size * 2], 6 - len(normal), exclude=normal)
                 normal = sorted(normal)
+
+            remaining_numbers = [number for number in all_numbers if number not in normal]
+            special_rank = _rank_numbers(
+                {
+                    number: (
+                        hot_norm.get(str(number), 0.0) * 0.35 +
+                        trend_norm.get(str(number), 0.0) * 0.25 +
+                        overdue_norm.get(str(number), 0.0) * 0.15 +
+                        feedback.get("special", {}).get(str(number), 0.0) * 1.20 +
+                        feedback.get("normal", {}).get(str(number), 0.0) * 0.20 +
+                        attribute_score(number)
+                    )
+                    for number in remaining_numbers
+                },
+                candidates=remaining_numbers
+            )
+            special_candidates = special_rank[:special_pool_size] or [n for n in overall_rank if n not in normal]
+            special_num = special_candidates[0]
+            special_zodiac = number_to_zodiac.get(str(special_num), "")
+            recommendation_text = _build_local_recommendation_text(strategy, config, normal, special_num, feedback)
+            return {
+                "normal": normal,
+                "special": {"number": str(special_num), "sno_zodiac": special_zodiac},
+                "recommendation_text": recommendation_text
+            }
         except Exception as e:
             print(f"{strategy} recommendation failed, falling back to random. Reason: {e}")
             return get_local_recommendations('random', data, region)
-    special_num = random.choice([n for n in all_numbers if n not in normal])
-    # 不再计算生肖，所有地区都使用澳门API返回的生肖数据
-    # 生肖信息将在API返回数据后更新
-    sno_zodiac_info = ""
-    return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": sno_zodiac_info}}
 
 def _build_ai_prompt(data, region, history_window=10):
     history_lines = []
@@ -1971,11 +2259,7 @@ def send_winning_notification_email(user, prediction, region):
     
     # 准备邮件内容
     region_name = '香港' if region == 'hk' else '澳门'
-    strategy_name = {
-        'random': '随机预测',
-        'balanced': '均衡预测',
-        'ai': 'AI智能预测'
-    }.get(prediction.strategy, '未知策略')
+    strategy_name = _get_strategy_label(prediction.strategy)
     
     subject = f"恭喜您！{region_name}第{prediction.period}期特码预测命中"
     
