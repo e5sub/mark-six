@@ -4,6 +4,7 @@ class UserProfile {
     required this.username,
     required this.email,
     required this.isActive,
+    required this.showNormalNumbers,
     this.activationExpiresAt,
   });
 
@@ -11,6 +12,7 @@ class UserProfile {
   final String username;
   final String email;
   final bool isActive;
+  final bool showNormalNumbers;
   final DateTime? activationExpiresAt;
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -19,6 +21,7 @@ class UserProfile {
       username: json['username'] as String? ?? '',
       email: json['email'] as String? ?? '',
       isActive: json['is_active'] as bool? ?? false,
+      showNormalNumbers: json['show_normal_numbers'] as bool? ?? false,
       activationExpiresAt: json['activation_expires_at'] == null
           ? null
           : DateTime.tryParse(json['activation_expires_at'] as String),

@@ -241,6 +241,14 @@
             
             <!-- 预测策略 -->
             <div class="setting-group">
+                <label class="setting-label">
+                    <input type="checkbox" name="show_normal_numbers" value="1"
+                           {{ 'checked' if user.show_normal_numbers else '' }}>
+                    <span class="setting-text">显示平码</span>
+                </label>
+            </div>
+
+            <div class="setting-group">
                 <span class="group-title">预测策略：</span>
                 <div class="checkbox-group">
                     {% for meta in auto_strategy_meta %}

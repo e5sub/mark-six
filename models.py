@@ -30,6 +30,7 @@ class User(db.Model):
     auto_prediction_enabled = db.Column(db.Boolean, default=False)  # 是否启用自动预测
     auto_prediction_strategies = db.Column(db.String(100), default='balanced')  # 自动预测策略，多个策略用逗号分隔
     auto_prediction_regions = db.Column(db.String(20), default='hk,macau')  # 自动预测地区，多个地区用逗号分隔
+    show_normal_numbers = db.Column(db.Boolean, default=False)  # 预测展示时是否显示平码
 
     def set_password(self, password):
         """设置密码"""

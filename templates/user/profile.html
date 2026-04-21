@@ -342,6 +342,15 @@
                 </div>
                 
                 <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="show_normal_numbers"
+                               {{ 'checked' if user.show_normal_numbers else '' }}>
+                        显示平码
+                    </label>
+                    <small style="color: #666; display: block; margin-top: 0.5rem;">默认仅展示特码，如需同时查看平码可在这里开启</small>
+                </div>
+
+                <div class="form-group">
                     <label>自动预测策略（可多选）</label>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
                         {% for meta in auto_strategy_meta %}

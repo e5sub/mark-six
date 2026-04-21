@@ -200,6 +200,22 @@ class AppState extends ChangeNotifier {
       return '修改密码失败: $e';
     }
   }
+
+  Future<String?> updateShowNormalNumbers(bool value) async {
+    try {
+      final res = await ApiClient.instance.updatePredictionDisplaySettings(
+        showNormalNumbers: value,
+      );
+      if (res['success'] == true) {
+        user = UserProfile.fromJson(res['user'] as Map<String, dynamic>);
+        notifyListeners();
+        return null;
+      }
+      return res['message']?.toString() ?? '保存设置失败';
+    } catch (e) {
+      return '保存设置失败: $e';
+    }
+  }
 }
 
 Future<void> showActivationDialog(
@@ -3029,6 +3045,9 @@ class _PredictScreenState extends State<PredictScreen> {
   final Map<int, String> _recordSpecialZodiacs = {};
   StreamSubscription<Map<String, dynamic>>? _aiSubscription;
 
+  bool get _showNormalNumbers =>
+      widget.appState.user?.showNormalNumbers ?? false;
+
   final Map<String, String> _strategyLabels = const {
     'smart': '智能优选',
     'hybrid': '综合',
@@ -3326,17 +3345,18 @@ class _PredictScreenState extends State<PredictScreen> {
       spacing: 8,
       runSpacing: 8,
       children: [
-        ...cleanNormal.asMap().entries.map(
-              (entry) => _NumberZodiacTile(
-                number: entry.value,
-                zodiac: normalZodiacs[entry.key],
-                color: ballColor(entry.value),
-                ballSize: 36,
-                numberFontSize: 13,
-                zodiacFontSize: 11,
-                gap: 3,
+        if (_showNormalNumbers)
+          ...cleanNormal.asMap().entries.map(
+                (entry) => _NumberZodiacTile(
+                  number: entry.value,
+                  zodiac: normalZodiacs[entry.key],
+                  color: ballColor(entry.value),
+                  ballSize: 36,
+                  numberFontSize: 13,
+                  zodiacFontSize: 11,
+                  gap: 3,
+                ),
               ),
-            ),
         if (specialNumber.isNotEmpty)
           _NumberZodiacTile(
             number: specialNumber,
@@ -3530,21 +3550,23 @@ class _PredictScreenState extends State<PredictScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                '平码：',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              _buildNumberGrid(
-                numbers: item.normalNumbers,
-                zodiacs: normalZodiacs,
-                ballSize: 36,
-                numberFontSize: 13,
-                zodiacFontSize: 11,
-                gap: 3,
-                childAspectRatio: 0.85,
-              ),
-              const SizedBox(height: 10),
+              if (_showNormalNumbers) ...[
+                const Text(
+                  '平码：',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                _buildNumberGrid(
+                  numbers: item.normalNumbers,
+                  zodiacs: normalZodiacs,
+                  ballSize: 36,
+                  numberFontSize: 13,
+                  zodiacFontSize: 11,
+                  gap: 3,
+                  childAspectRatio: 0.85,
+                ),
+                const SizedBox(height: 10),
+              ],
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -3850,6 +3872,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _appVersion = '';
   Map<String, dynamic>? _betSummary;
   bool _loadingBetSummary = false;
+  bool _savingDisplaySettings = false;
 
   @override
   void initState() {
@@ -4013,6 +4036,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _toggleShowNormalNumbers(bool value) async {
+    setState(() => _savingDisplaySettings = true);
+    final error = await widget.appState.updateShowNormalNumbers(value);
+    if (!mounted) return;
+    setState(() => _savingDisplaySettings = false);
+    if (error != null) {
+      _showMessage(error);
+      return;
+    }
+    _showMessage(value ? '已开启平码显示' : '已关闭平码显示');
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = widget.appState.user;
@@ -4080,6 +4115,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: SwitchListTile(
+              value: user.showNormalNumbers,
+              onChanged: _savingDisplaySettings ? null : _toggleShowNormalNumbers,
+              title: const Text('显示平码'),
+              subtitle: const Text('默认仅展示特码，开启后在预测结果和预测记录中同时显示平码'),
             ),
           ),
           const SizedBox(height: 16),

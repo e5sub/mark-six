@@ -106,6 +106,15 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  Future<Map<String, dynamic>> updatePredictionDisplaySettings({
+    required bool showNormalNumbers,
+  }) async {
+    final response = await post('/api/mobile/settings/prediction-display', data: {
+      'show_normal_numbers': showNormalNumbers,
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Future<Map<String, dynamic>> predict({
     required String region,
     required String strategy,

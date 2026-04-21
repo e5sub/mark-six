@@ -59,6 +59,16 @@ def update_database():
             print("✓ auto_prediction_regions 字段添加成功")
         else:
             print("auto_prediction_regions 字段已存在")
+
+        # 检查并添加 show_normal_numbers 字段
+        if not check_column_exists(cursor, 'user', 'show_normal_numbers'):
+            print("添加 show_normal_numbers 字段...")
+            cursor.execute('''
+                ALTER TABLE user ADD COLUMN show_normal_numbers BOOLEAN DEFAULT 0
+            ''')
+            print("✓ show_normal_numbers 字段添加成功")
+        else:
+            print("show_normal_numbers 字段已存在")
         
         # 更新现有用户的 auto_prediction_regions 字段
         print("更新现有用户的自动预测地区设置...")
@@ -71,6 +81,15 @@ def update_database():
         ''')
         updated_users = cursor.rowcount
         print(f"✓ 更新了 {updated_users} 个用户的自动预测地区设置")
+
+        print("更新现有用户的预测展示设置...")
+        cursor.execute('''
+            UPDATE user
+            SET show_normal_numbers = 0
+            WHERE show_normal_numbers IS NULL
+        ''')
+        updated_display_settings = cursor.rowcount
+        print(f"✓ 更新了 {updated_display_settings} 个用户的预测展示设置")
         
         # 更新现有用户的 auto_prediction_strategies 字段
         print("更新现有用户的自动预测策略设置...")

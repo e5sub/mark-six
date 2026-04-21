@@ -284,6 +284,7 @@ def api_register():
                 "username": user.username,
                 "email": user.email,
                 "is_active": user.is_active,
+                "show_normal_numbers": bool(user.show_normal_numbers),
             },
         }
     )
@@ -323,6 +324,7 @@ def api_login():
                 "username": user.username,
                 "email": user.email,
                 "is_active": user.is_active,
+                "show_normal_numbers": bool(user.show_normal_numbers),
             },
         }
     )
@@ -1101,6 +1103,35 @@ def api_me():
                 "username": user.username,
                 "email": user.email,
                 "is_active": user.is_active,
+                "show_normal_numbers": bool(user.show_normal_numbers),
+                "activation_expires_at": user.activation_expires_at.isoformat()
+                if user.activation_expires_at
+                else None,
+            },
+        }
+    )
+
+
+@mobile_api_bp.route("/settings/prediction-display", methods=["POST"])
+def api_update_prediction_display_settings():
+    user, error = _require_user()
+    if error:
+        return error
+
+    payload = request.get_json(silent=True) or {}
+    user.show_normal_numbers = bool(payload.get("show_normal_numbers", False))
+    db.session.commit()
+
+    return jsonify(
+        {
+            "success": True,
+            "message": "settings updated",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "is_active": user.is_active,
+                "show_normal_numbers": bool(user.show_normal_numbers),
                 "activation_expires_at": user.activation_expires_at.isoformat()
                 if user.activation_expires_at
                 else None,

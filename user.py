@@ -391,6 +391,7 @@ def get_number_color(number):
 @login_required
 @active_required
 def predictions():
+    user = User.query.get(session['user_id'])
     page = request.args.get('page', 1, type=int)
     region = request.args.get('region', '')
     period = request.args.get('period', '')
@@ -511,6 +512,7 @@ def predictions():
     normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     
     return render_template('user/predictions.html', 
+                          user=user,
                           predictions=predictions, 
                           region=region, 
                           period=period, 
@@ -671,6 +673,7 @@ def save_prediction_settings():
     user = User.query.get(session['user_id'])
 
     auto_prediction_enabled = 'auto_prediction_enabled' in request.form
+    show_normal_numbers = 'show_normal_numbers' in request.form
     auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
     auto_prediction_regions = request.form.getlist('auto_prediction_regions')
 
@@ -693,6 +696,7 @@ def save_prediction_settings():
     user.auto_prediction_enabled = auto_prediction_enabled
     user.auto_prediction_strategies = ','.join(valid_strategies)
     user.auto_prediction_regions = ','.join(valid_regions)
+    user.show_normal_numbers = show_normal_numbers
 
     try:
         db.session.commit()
@@ -712,6 +716,7 @@ def update_auto_prediction():
         user = User.query.get(session['user_id'])
 
         auto_prediction_enabled = 'auto_prediction_enabled' in request.form
+        show_normal_numbers = 'show_normal_numbers' in request.form
         auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
         auto_prediction_regions = request.form.getlist('auto_prediction_regions')
 
@@ -734,6 +739,7 @@ def update_auto_prediction():
         user.auto_prediction_enabled = auto_prediction_enabled
         user.auto_prediction_strategies = ','.join(valid_strategies)
         user.auto_prediction_regions = ','.join(valid_regions)
+        user.show_normal_numbers = show_normal_numbers
 
         db.session.commit()
         flash('自动预测设置保存成功', 'success')

@@ -59,7 +59,8 @@ CREATE TABLE user (
     login_count INTEGER DEFAULT 0,
     auto_prediction_enabled BOOLEAN DEFAULT 0,
     auto_prediction_strategies TEXT DEFAULT 'balanced',
-    auto_prediction_regions TEXT DEFAULT 'hk,macau'
+    auto_prediction_regions TEXT DEFAULT 'hk,macau',
+    show_normal_numbers BOOLEAN DEFAULT 0
 )
 ''')
 

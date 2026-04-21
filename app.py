@@ -1703,7 +1703,7 @@ def index():
     if not user.is_active:
         flash('您的账号尚未激活，部分功能受限。请先激活账号。', 'warning')
     
-    return render_template('index.html', user=user)
+    return render_template('index.html', user=user, show_normal_numbers=bool(user.show_normal_numbers))
 
 def get_yearly_data(region, year):
     print(f"获取年度数据: 地区={region}, 年份={year}")

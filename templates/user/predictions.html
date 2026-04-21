@@ -103,6 +103,7 @@
                     <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">{{ strategy_badge(prediction.strategy) }}</span>
                 </div>
                 <div class="prediction-numbers-compact">
+                    {% if user.show_normal_numbers %}
                     {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
                     {% set color = get_number_color(num) %}
                     <div class="number-ball-compact ball-{{ color }}">
@@ -110,6 +111,7 @@
                         <div class="zodiac-indicator">{{ get_number_zodiac(num) }}</div>
                     </div>
                     {% endfor %}
+                    {% endif %}
 
                     {% set special_color = get_number_color(prediction.special_number) %}
                     <div class="number-ball-compact ball-{{ special_color }} special-ball-compact">
@@ -168,6 +170,7 @@
                         <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">{{ strategy_badge(prediction.strategy) }}</span>
                     </div>
                     <div class="prediction-numbers-compact">
+                        {% if user.show_normal_numbers %}
                         {% for num in prediction.normal_numbers.split(',') if prediction.normal_numbers %}
                         {% set color = get_number_color(num) %}
                         <div class="number-ball-compact ball-{{ color }}">
@@ -175,6 +178,7 @@
                             <div class="zodiac-indicator">{{ get_number_zodiac(num) }}</div>
                         </div>
                         {% endfor %}
+                        {% endif %}
 
                         {% set special_color = get_number_color(prediction.special_number) %}
                         <div class="number-ball-compact ball-{{ special_color }} special-ball-compact">

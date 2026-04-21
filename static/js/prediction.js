@@ -248,6 +248,10 @@ function savePredictionRecord(data) {
     }).catch(() => {});
 }
 
+function shouldShowNormalNumbers() {
+    return Boolean(window.userPredictionSettings && window.userPredictionSettings.showNormalNumbers);
+}
+
 // 显示最终结果（包括号码）
 function displayFinalResult(data, strategy) {
     const predictionContent = document.getElementById('predictionContent');
@@ -262,7 +266,7 @@ function displayFinalResult(data, strategy) {
     `;
 
     // 显示平码
-    if (data.normal && data.normal.length > 0) {
+    if (shouldShowNormalNumbers() && data.normal && data.normal.length > 0) {
         html += '<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">';
 
         // 获取生肖数据
@@ -452,7 +456,7 @@ function displayPrediction(data, strategy) {
     </div>`;
     
     // 显示平码
-    if (data.normal && data.normal.length > 0) {
+    if (shouldShowNormalNumbers() && data.normal && data.normal.length > 0) {
         html += '<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">';
         
         // 获取生肖数据
