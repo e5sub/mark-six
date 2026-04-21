@@ -3055,6 +3055,7 @@ class _PredictScreenState extends State<PredictScreen> {
     'hot': '热门',
     'cold': '冷门',
     'trend': '走势',
+    'random': '随机',
     'ai': 'AI智能',
   };
 
@@ -3083,6 +3084,10 @@ class _PredictScreenState extends State<PredictScreen> {
       case 'balanced':
         return const LinearGradient(
           colors: [Color(0xFFFFC107), Color(0xFFFD7E14)],
+        );
+      case 'random':
+        return const LinearGradient(
+          colors: [Color(0xFFFF7043), Color(0xFFFFB74D)],
         );
       case 'ai':
         return const LinearGradient(
@@ -3378,7 +3383,7 @@ class _PredictScreenState extends State<PredictScreen> {
     try {
       final res = await ApiClient.instance.predictions(
         page: 1,
-        pageSize: 10,
+        pageSize: 24,
         region: _region,
         includeZodiacs: true,
         year: _currentYear,
@@ -3476,6 +3481,8 @@ class _PredictScreenState extends State<PredictScreen> {
         return const Color(0xFF6A1B9A);
       case 'balanced':
         return const Color(0xFFFB8C00);
+      case 'random':
+        return const Color(0xFFF4511E);
       case 'smart':
         return const Color(0xFF1E88E5);
       case 'ai':
@@ -3666,7 +3673,7 @@ class _PredictScreenState extends State<PredictScreen> {
 
                   final visiblePeriods = _showAllPredictionPeriods
                       ? orderedPeriods
-                      : orderedPeriods.take(2).toList();
+                      : orderedPeriods.take(3).toList();
 
                   return Column(
                     children: [
@@ -3720,7 +3727,7 @@ class _PredictScreenState extends State<PredictScreen> {
                         );
                       }).toList(),
                       if (!_showAllPredictionPeriods &&
-                          orderedPeriods.length > 2)
+                          orderedPeriods.length > 3)
                         TextButton(
                           onPressed: () {
                             setState(() {
@@ -3730,7 +3737,7 @@ class _PredictScreenState extends State<PredictScreen> {
                           child: const Text('显示更多'),
                         ),
                       if (_showAllPredictionPeriods &&
-                          orderedPeriods.length > 2)
+                          orderedPeriods.length > 3)
                         TextButton(
                           onPressed: () {
                             setState(() {
