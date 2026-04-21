@@ -191,6 +191,22 @@ if _should_log_startup():
 # 初始化数据库
 db.init_app(app)
 
+def ensure_runtime_database_schema():
+    """在应用启动时尽早补齐数据库结构，避免WSGI模式下缺列报错。"""
+    with app.app_context():
+        try:
+            db.create_all()
+        except Exception as e:
+            print(f"创建数据库表时出错: {e}")
+
+        try:
+            from auto_update_db import check_and_update_database
+            check_and_update_database()
+        except Exception as e:
+            print(f"运行时自动更新数据库结构时出错: {e}")
+
+ensure_runtime_database_schema()
+
 # 初始化Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
