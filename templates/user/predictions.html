@@ -226,7 +226,6 @@
     </div>
 
     {% if predictions and predictions.items %}
-    {% set grouped_predictions = predictions.items|groupby('period') %}
     <div class="predictions-list{% if not user.show_normal_numbers %} no-normal-layout{% endif %}">
         {% set display_count = 3 if not user.show_normal_numbers else 9 %}
         {% set visible_groups = grouped_predictions[:display_count] %}

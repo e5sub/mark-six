@@ -467,6 +467,19 @@ def predictions():
         page=page, per_page=20, error_out=False
     )
 
+    grouped_predictions = []
+    grouped_predictions_map = {}
+    for prediction in predictions.items:
+        period_key = prediction.period
+        if period_key not in grouped_predictions_map:
+            group = {
+                'grouper': period_key,
+                'list': []
+            }
+            grouped_predictions_map[period_key] = group
+            grouped_predictions.append(group)
+        grouped_predictions_map[period_key]['list'].append(prediction)
+
     try:
         from models import ZodiacSetting
         current_year = datetime.now().year
@@ -513,7 +526,8 @@ def predictions():
     
     return render_template('user/predictions.html', 
                           user=user,
-                          predictions=predictions, 
+                          predictions=predictions,
+                          grouped_predictions=grouped_predictions,
                           region=region, 
                           period=period, 
                           zodiac=zodiac,
