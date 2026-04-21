@@ -12,6 +12,7 @@ STRATEGY_META = [
     {"key": "trend", "label": "走势", "icon": "📈"},
     {"key": "hybrid", "label": "综合", "icon": "♻️"},
     {"key": "balanced", "label": "均衡", "icon": "⚖️"},
+    {"key": "ml", "label": "机器学习", "icon": "🧪"},
     {"key": "ai", "label": "AI", "icon": "🤖"},
 ]
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
@@ -20,7 +21,7 @@ AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
 STRATEGY_META.insert(0, {"key": "smart", "label": "智能优选", "icon": "🧠"})
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
 AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
-LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced"]
+LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
 
 def _strategy_label_map():
     return {item["key"]: item["label"] for item in STRATEGY_META}

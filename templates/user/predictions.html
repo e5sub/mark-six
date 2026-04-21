@@ -13,10 +13,12 @@
         ♻️ 综合预测
     {% elif strategy == 'balanced' %}
         ⚖️ 均衡预测
-    {% elif strategy == 'random' %}
-        🎲 随机预测
-    {% else %}
+    {% elif strategy == 'ml' %}
+        🧪 机器学习预测
+    {% elif strategy == 'ai' %}
         🤖 AI预测
+    {% else %}
+        {{ strategy }}
     {% endif %}
 {%- endmacro %}
 
@@ -210,6 +212,7 @@
                     <option value="trend" {% if request.args.get('strategy') == 'trend' %}selected{% endif %}>走势预测</option>
                     <option value="hybrid" {% if request.args.get('strategy') == 'hybrid' %}selected{% endif %}>综合预测</option>
                     <option value="balanced" {% if request.args.get('strategy') == 'balanced' %}selected{% endif %}>均衡预测</option>
+                    <option value="ml" {% if request.args.get('strategy') == 'ml' %}selected{% endif %}>机器学习预测</option>
                     <option value="ai" {% if request.args.get('strategy') == 'ai' %}selected{% endif %}>AI智能</option>
                 </select>
                 <select name="result" class="compact-select" title="预测结果">
@@ -531,11 +534,6 @@
     gap: 0.2rem;
 }
 
-.strategy-random {
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-    color: white;
-}
-
 .strategy-hot {
     background: linear-gradient(135deg, #ff6a00 0%, #ee0979 100%);
     color: white;
@@ -558,6 +556,11 @@
 
 .strategy-balanced {
     background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+    color: white;
+}
+
+.strategy-ml {
+    background: linear-gradient(135deg, #00897b 0%, #26a69a 100%);
     color: white;
 }
 

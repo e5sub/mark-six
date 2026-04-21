@@ -149,7 +149,7 @@ class PredictionRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     region = db.Column(db.String(10), nullable=False)  # 'hk' 或 'macau'
-    strategy = db.Column(db.String(20), nullable=False)  # 'random', 'balanced', 'ai'
+    strategy = db.Column(db.String(20), nullable=False)  # 'balanced', 'ml', 'ai'
     period = db.Column(db.String(20), nullable=False)  # 期数
     normal_numbers = db.Column(db.String(50), nullable=False)  # 正码，逗号分隔
     special_number = db.Column(db.String(10), nullable=False)  # 特码

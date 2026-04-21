@@ -19,8 +19,8 @@ from models import (
 
 mobile_api_bp = Blueprint("mobile_api", __name__, url_prefix="/api/mobile")
 
-STRATEGY_KEYS = ["smart", "hot", "cold", "trend", "hybrid", "balanced", "random", "ai"]
-LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "random"]
+STRATEGY_KEYS = ["smart", "hot", "cold", "trend", "hybrid", "balanced", "ml", "ai"]
+LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
 _RED_BALLS = {1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46}
 _BLUE_BALLS = {3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48}
 
@@ -1439,7 +1439,7 @@ def _learning_summary():
     payload = {}
     for region in ("hk", "macau"):
         region_data = {}
-        for strategy in ["hot", "cold", "trend", "hybrid", "balanced"]:
+        for strategy in ["hot", "cold", "trend", "hybrid", "balanced", "ml"]:
             config = _strategy_config(region, strategy)
             if not config:
                 continue

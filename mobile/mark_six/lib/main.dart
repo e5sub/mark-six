@@ -3052,10 +3052,10 @@ class _PredictScreenState extends State<PredictScreen> {
     'smart': '智能优选',
     'hybrid': '综合',
     'balanced': '均衡',
+    'ml': '机器学习',
     'hot': '热门',
     'cold': '冷门',
     'trend': '走势',
-    'random': '随机',
     'ai': 'AI智能',
   };
 
@@ -3085,9 +3085,9 @@ class _PredictScreenState extends State<PredictScreen> {
         return const LinearGradient(
           colors: [Color(0xFFFFC107), Color(0xFFFD7E14)],
         );
-      case 'random':
+      case 'ml':
         return const LinearGradient(
-          colors: [Color(0xFFFF7043), Color(0xFFFFB74D)],
+          colors: [Color(0xFF00897B), Color(0xFF26A69A)],
         );
       case 'ai':
         return const LinearGradient(
@@ -3481,8 +3481,8 @@ class _PredictScreenState extends State<PredictScreen> {
         return const Color(0xFF6A1B9A);
       case 'balanced':
         return const Color(0xFFFB8C00);
-      case 'random':
-        return const Color(0xFFF4511E);
+      case 'ml':
+        return const Color(0xFF00897B);
       case 'smart':
         return const Color(0xFF1E88E5);
       case 'ai':

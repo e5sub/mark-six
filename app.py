@@ -2,8 +2,8 @@
 from flask import Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
+import math
 import os
-import random
 import requests
 import smtplib
 from email.mime.text import MIMEText
@@ -138,7 +138,7 @@ def _mask_db_uri(uri):
 
 STRATEGY_LABELS = {
     'smart': '智能优选',
-    'random': '随机预测',
+    'ml': '机器学习预测',
     'balanced': '均衡预测',
     'ai': 'AI智能预测',
     'hot': '热门预测',
@@ -174,7 +174,7 @@ def _get_email_strategy_display(prediction):
             return first_line
     return _get_strategy_label(prediction.strategy)
 
-LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "random"]
+LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
 
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
@@ -942,6 +942,17 @@ def _default_strategy_config(strategy):
             "last_accuracy": 0.0,
             "last_total": 0
         },
+        "ml": {
+            "history_window": 120,
+            "feature_window": 60,
+            "pool": 18,
+            "special_pool": 8,
+            "bucket_counts": [2, 2, 2],
+            "epochs": 4,
+            "learning_rate": 0.08,
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
         "ai": {"history_window": 10, "temperature": 0.8, "last_accuracy": 0.0, "last_total": 0},
     }
     return defaults.get(strategy, {})
@@ -1009,7 +1020,7 @@ def _calculate_strategy_window_stats(region, strategy, limit=50):
     }
 
 def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5):
-    candidates = [strategy for strategy in LOCAL_STRATEGY_KEYS if strategy != "random"]
+    candidates = list(LOCAL_STRATEGY_KEYS)
     scored = []
     for strategy in candidates:
         window_scores = []
@@ -1103,6 +1114,13 @@ def _tune_strategy_config(strategy, region):
     elif strategy == "ai":
         config["temperature"] = round(_clamp(0.9 - accuracy * 0.4, 0.5, 0.9), 2)
         config["history_window"] = _clamp(int(10 + (0.5 - accuracy) * 6), 6, 15)
+    elif strategy == "ml":
+        config["history_window"] = _clamp(int(90 + accuracy * 120), 80, 220)
+        config["feature_window"] = _clamp(int(40 + accuracy * 40), 30, 80)
+        config["pool"] = _clamp(int(14 + accuracy * 8), 12, 24)
+        config["special_pool"] = _clamp(int(6 + accuracy * 4), 6, 12)
+        config["epochs"] = _clamp(int(3 + accuracy * 3), 3, 6)
+        config["learning_rate"] = round(_clamp(0.05 + (1 - accuracy) * 0.05, 0.04, 0.10), 3)
 
     if weights:
         weights["feedback"] = round(_clamp(0.45 + learning_strength * 0.7 + accuracy * 0.3, 0.45, 1.35), 2)
@@ -1123,7 +1141,7 @@ def _tune_strategy_config(strategy, region):
     _save_strategy_config(strategy, region, config)
 
 def update_strategy_configs(region):
-    strategies = ["hot", "cold", "trend", "balanced", "hybrid", "ai"]
+    strategies = ["hot", "cold", "trend", "balanced", "hybrid", "ml", "ai"]
     for strategy in strategies:
         try:
             _tune_strategy_config(strategy, region)
@@ -1283,6 +1301,24 @@ def _normalize_metric_map(metric_map):
         for key, value in metric_map.items()
     }
 
+
+def _normalize_signed_metric_map(metric_map):
+    if not metric_map:
+        return {}
+    max_abs = max(abs(float(value)) for value in metric_map.values())
+    if max_abs <= 0:
+        return {key: 0.5 for key in metric_map}
+    return {
+        key: round(_clamp(0.5 + (float(value) / (2 * max_abs)), 0.0, 1.0), 4)
+        for key, value in metric_map.items()
+    }
+
+
+def _feedback_confidence(sample_count, full_confidence=80):
+    if sample_count <= 0:
+        return 0.0
+    return round(_clamp(sample_count / float(full_confidence), 0.15, 1.0), 4)
+
 def _build_prediction_feedback(region, strategy, limit=240):
     query = PredictionRecord.query.filter_by(
         region=region,
@@ -1306,34 +1342,35 @@ def _build_prediction_feedback(region, strategy, limit=240):
         actual_zodiac = str(pred.actual_special_zodiac or "").strip()
 
         if special and actual and special == actual:
-            special_scores[special] += 3.0 * recency_weight
-            normal_scores[special] += 1.2 * recency_weight
+            special_scores[special] += 2.4 * recency_weight
+            normal_scores[special] += 0.6 * recency_weight
             if actual_color:
-                color_scores[actual_color] += 2.0 * recency_weight
+                color_scores[actual_color] += 1.6 * recency_weight
             if actual_zodiac:
-                zodiac_scores[actual_zodiac] += 2.0 * recency_weight
+                zodiac_scores[actual_zodiac] += 1.6 * recency_weight
         elif actual and actual in normal_numbers:
-            normal_scores[actual] += 1.7 * recency_weight
+            normal_scores[actual] += 1.4 * recency_weight
             if special:
-                special_scores[special] -= 0.35 * recency_weight
-            for number in normal_numbers:
-                normal_scores[number] += 0.08 * recency_weight
+                special_scores[special] -= 0.75 * recency_weight
             if actual_color:
-                color_scores[actual_color] += 1.2 * recency_weight
+                color_scores[actual_color] += 1.0 * recency_weight
             if actual_zodiac:
-                zodiac_scores[actual_zodiac] += 1.2 * recency_weight
+                zodiac_scores[actual_zodiac] += 1.0 * recency_weight
         else:
             if special:
-                special_scores[special] -= 0.40 * recency_weight
+                special_scores[special] -= 0.95 * recency_weight
             for number in normal_numbers:
-                normal_scores[number] -= 0.06 * recency_weight
+                normal_scores[number] -= 0.18 * recency_weight
+
+    confidence = _feedback_confidence(len(predictions))
 
     return {
-        "special": _normalize_metric_map({str(i): special_scores.get(str(i), 0.0) for i in range(1, 50)}),
-        "normal": _normalize_metric_map({str(i): normal_scores.get(str(i), 0.0) for i in range(1, 50)}),
-        "color": _normalize_metric_map({color: color_scores.get(color, 0.0) for color in ("红", "蓝", "绿")}),
-        "zodiac": _normalize_metric_map(dict(zodiac_scores)),
-        "samples": len(predictions)
+        "special": _normalize_signed_metric_map({str(i): special_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "normal": _normalize_signed_metric_map({str(i): normal_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "color": _normalize_signed_metric_map({color: color_scores.get(color, 0.0) for color in ("红", "蓝", "绿")}),
+        "zodiac": _normalize_signed_metric_map(dict(zodiac_scores)),
+        "samples": len(predictions),
+        "confidence": confidence,
     }
 
 def _build_attribute_preferences(data, region, feedback, year):
@@ -1344,13 +1381,24 @@ def _build_attribute_preferences(data, region, feedback, year):
 
     feedback_color = feedback.get("color") or {}
     feedback_zodiac = feedback.get("zodiac") or {}
+    feedback_confidence = float(feedback.get("confidence") or 0.0)
+    feedback_weight = round(0.15 + 0.35 * feedback_confidence, 4)
+    history_weight = round(1.0 - feedback_weight, 4)
     merged_color = {
-        color: round(color_scores.get(color, 0.0) * 0.55 + feedback_color.get(color, 0.0) * 0.45, 4)
+        color: round(
+            color_scores.get(color, 0.0) * history_weight +
+            max(0.0, (feedback_color.get(color, 0.5) - 0.5) * 2) * feedback_weight,
+            4
+        )
         for color in ("红", "蓝", "绿")
     }
     zodiac_keys = set(zodiac_scores) | set(feedback_zodiac)
     merged_zodiac = {
-        zodiac: round(zodiac_scores.get(zodiac, 0.0) * 0.55 + feedback_zodiac.get(zodiac, 0.0) * 0.45, 4)
+        zodiac: round(
+            zodiac_scores.get(zodiac, 0.0) * history_weight +
+            max(0.0, (feedback_zodiac.get(zodiac, 0.5) - 0.5) * 2) * feedback_weight,
+            4
+        )
         for zodiac in zodiac_keys
     }
     return merged_color, merged_zodiac
@@ -1382,11 +1430,22 @@ def _build_local_recommendation_text(strategy, config, normal, special, feedback
     strategy_name = _get_strategy_label(strategy)
     accuracy = round(float(config.get("last_accuracy") or 0.0) * 100, 1)
     samples = int(feedback.get("samples") or 0)
+    confidence = round(float(feedback.get("confidence") or 0.0) * 100, 1)
     return (
         f"{strategy_name}已结合最近历史开奖、号码冷热变化和历史命中反馈完成自动调优。"
-        f"当前策略回测命中率约{accuracy}%，学习样本{samples}期，"
+        f"当前策略回测命中率约{accuracy}%，学习样本{samples}期，反馈置信度{confidence}%，"
         f"推荐平码 {', '.join(map(str, normal))}，特码 {special}。"
     )
+
+
+def _build_default_baseline_prediction():
+    normal = [4, 12, 19, 28, 35, 44]
+    special_num = 49
+    return {
+        "normal": normal,
+        "special": {"number": str(special_num), "sno_zodiac": ""},
+        "recommendation_text": "系统当前可用历史数据不足，已返回基础保底号码组合。",
+    }
 
 def _build_ai_learning_context(data, region, history_window=10):
     recent_data = data[:history_window]
@@ -1395,7 +1454,7 @@ def _build_ai_learning_context(data, region, history_window=10):
     color_pref, zodiac_pref = _build_attribute_preferences(recent_data or data, region, feedback, year)
     recommended_strategy = _get_recommended_strategy(region)
     backtest_lines = []
-    for strategy in ("hot", "cold", "trend", "hybrid", "balanced"):
+    for strategy in ("hot", "cold", "trend", "hybrid", "balanced", "ml"):
         window20_accuracy, window20_total = _calculate_strategy_accuracy(region, strategy, limit=20)
         window50_accuracy, window50_total = _calculate_strategy_accuracy(region, strategy, limit=50)
         backtest_lines.append(
@@ -1429,18 +1488,173 @@ def _build_ai_learning_context(data, region, history_window=10):
     ]
     return "\n".join(lines)
 
+
+def _sigmoid(value):
+    value = _clamp(value, -30.0, 30.0)
+    return 1.0 / (1.0 + math.exp(-value))
+
+
+def _build_ml_feature_table(history_data, region, feature_window=60):
+    history = list(history_data or [])[:max(int(feature_window or 0), 10)]
+    short_data = history[:min(len(history), 12)]
+    medium_data = history[:min(len(history), 24)]
+    long_data = history[:min(len(history), max(int(feature_window or 60), 30))]
+
+    short_special = _normalize_metric_map(analyze_special_number_frequency(short_data))
+    medium_special = _normalize_metric_map(analyze_special_number_frequency(medium_data))
+    long_all = _normalize_metric_map(_build_number_frequency(long_data))
+    overdue = _normalize_metric_map(_build_overdue_scores(long_data))
+    year = _infer_draw_year(history)
+    number_to_zodiac = _get_number_to_zodiac_map(year)
+    color_pref = _normalize_metric_map(analyze_special_color_frequency(long_data, region))
+    zodiac_pref = _normalize_metric_map(analyze_special_zodiac_frequency(long_data, region, year))
+    recent_specials = {
+        str(item.get("sno"))
+        for item in short_data[:5]
+        if item.get("sno")
+    }
+
+    features = {}
+    for number in range(1, 50):
+        key = str(number)
+        features[key] = [
+            short_special.get(key, 0.0),
+            medium_special.get(key, 0.0),
+            long_all.get(key, 0.0),
+            overdue.get(key, 0.0),
+            1.0 - medium_special.get(key, 0.0),
+            1.0 if key in recent_specials else 0.0,
+            color_pref.get(_get_color_zh(number), 0.0),
+            zodiac_pref.get(number_to_zodiac.get(key, ""), 0.0),
+        ]
+    return features
+
+
+def _train_ml_number_model(data, region, config):
+    history_window = _clamp(int(config.get("history_window") or 120), 80, 240)
+    feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
+    epochs = _clamp(int(config.get("epochs") or 4), 2, 6)
+    learning_rate = float(config.get("learning_rate") or 0.08)
+
+    recent_desc = list(data or [])[:history_window + feature_window]
+    chronological = list(reversed(recent_desc))
+    min_history = min(24, max(12, feature_window // 2))
+    weights = [0.0] * 8
+    bias = 0.0
+    sample_count = 0
+
+    if len(chronological) <= min_history:
+        return {"weights": weights, "bias": bias, "samples": 0}
+
+    for epoch in range(epochs):
+        step = learning_rate * (0.92 ** epoch)
+        for idx in range(min_history, len(chronological)):
+            target_draw = chronological[idx]
+            target_special = str(target_draw.get("sno") or "").strip()
+            if not target_special:
+                continue
+
+            history_desc = list(reversed(chronological[:idx]))
+            feature_table = _build_ml_feature_table(
+                history_desc,
+                region,
+                feature_window=feature_window,
+            )
+            for number in range(1, 50):
+                key = str(number)
+                features = feature_table.get(key)
+                if not features:
+                    continue
+                label = 1.0 if key == target_special else 0.0
+                probability = _sigmoid(
+                    bias + sum(weight * value for weight, value in zip(weights, features))
+                )
+                class_weight = 8.0 if label > 0 else 1.0
+                error = (label - probability) * class_weight
+                bias += step * error
+                for feature_idx, feature_value in enumerate(features):
+                    weights[feature_idx] += step * error * feature_value
+                sample_count += 1
+
+    return {
+        "weights": [round(weight, 6) for weight in weights],
+        "bias": round(bias, 6),
+        "samples": sample_count,
+        "history_window": history_window,
+        "feature_window": feature_window,
+    }
+
+
+def _predict_with_ml(data, region):
+    config = _load_strategy_config("ml", region)
+    model = _train_ml_number_model(data, region, config)
+    feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
+    feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
+    ranked = []
+    for number in range(1, 50):
+        key = str(number)
+        features = feature_table.get(key, [])
+        score = model.get("bias", 0.0) + sum(
+            weight * value for weight, value in zip(model.get("weights", []), features)
+        )
+        probability = _sigmoid(score)
+        ranked.append((number, round(probability, 6)))
+    ranked.sort(key=lambda item: (item[1], -abs(item[0] - 25), -item[0]), reverse=True)
+
+    pool_size = _clamp(int(config.get("pool") or 18), 12, 24)
+    special_pool_size = _clamp(int(config.get("special_pool") or 8), 6, 12)
+    bucket_counts = config.get("bucket_counts") or [2, 2, 2]
+    low_count, mid_count, high_count = bucket_counts
+    ranked_numbers = [number for number, _ in ranked]
+
+    low_bucket = [number for number in ranked_numbers[:pool_size * 2] if number <= 16]
+    mid_bucket = [number for number in ranked_numbers[:pool_size * 2] if 17 <= number <= 33]
+    high_bucket = [number for number in ranked_numbers[:pool_size * 2] if number >= 34]
+    normal = []
+    normal += _take_ranked(low_bucket, int(low_count))
+    normal += _take_ranked(mid_bucket, int(mid_count), exclude=normal)
+    normal += _take_ranked(high_bucket, int(high_count), exclude=normal)
+    if len(normal) < 6:
+        normal += _take_ranked(ranked_numbers[:pool_size * 2], 6 - len(normal), exclude=normal)
+    normal = sorted(normal[:6])
+
+    special_candidates = [
+        number for number in ranked_numbers[:special_pool_size * 2]
+        if number not in normal
+    ]
+    if not special_candidates:
+        special_candidates = [number for number in ranked_numbers if number not in normal]
+    special_num = special_candidates[0]
+    probability_map = dict(ranked)
+    special_probability = round(probability_map.get(special_num, 0.0) * 100, 2)
+    year = _infer_draw_year(data)
+    number_to_zodiac = _get_number_to_zodiac_map(year)
+    recommendation_text = (
+        f"机器学习原型已基于最近{model.get('history_window', 0)}期历史开奖样本训练。"
+        f"训练样本 {model.get('samples', 0)} 条，"
+        f"推荐平码 {', '.join(map(str, normal))}，特码 {special_num}，"
+        f"模型评分约 {special_probability}% 。"
+    )
+    return {
+        "normal": normal,
+        "special": {"number": str(special_num), "sno_zodiac": number_to_zodiac.get(str(special_num), "")},
+        "recommendation_text": recommendation_text,
+        "model_meta": {
+            "samples": model.get("samples", 0),
+            "history_window": model.get("history_window", 0),
+            "feature_window": model.get("feature_window", 0),
+            "special_probability": special_probability,
+        },
+    }
+
 def get_local_recommendations(strategy, data, region):
     if strategy == 'smart':
         strategy = _get_recommended_strategy(region).get("strategy", "hybrid")
     all_numbers = list(range(1, 50))
     if not data:
-        normal = sorted(random.sample(all_numbers, 6))
-        special_num = random.choice([n for n in all_numbers if n not in normal])
-        return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": ""}}
-    elif strategy == 'random':
-        normal = sorted(random.sample(all_numbers, 6))
-        special_num = random.choice([n for n in all_numbers if n not in normal])
-        return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": ""}}
+        return _build_default_baseline_prediction()
+    elif strategy == 'ml':
+        return _predict_with_ml(data, region)
     else:
         try:
             config = _load_strategy_config(strategy, region)
@@ -1478,6 +1692,7 @@ def get_local_recommendations(strategy, data, region):
             number_to_zodiac = _get_number_to_zodiac_map(year)
             feedback = _build_prediction_feedback(region, strategy)
             color_pref, zodiac_pref = _build_attribute_preferences(recent_data, region, feedback, year)
+            feedback_confidence = float(feedback.get("confidence") or 0.0)
 
             weights = config.get("weights") or {}
 
@@ -1493,9 +1708,9 @@ def get_local_recommendations(strategy, data, region):
             for number in all_numbers:
                 key = str(number)
                 feedback_score = (
-                    feedback.get("special", {}).get(key, 0.0) * 0.65 +
-                    feedback.get("normal", {}).get(key, 0.0) * 0.35
-                )
+                    (feedback.get("special", {}).get(key, 0.5) - 0.5) * 0.72 +
+                    (feedback.get("normal", {}).get(key, 0.5) - 0.5) * 0.28
+                ) * feedback_confidence
                 score = (
                     float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
                     float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
@@ -1508,15 +1723,30 @@ def get_local_recommendations(strategy, data, region):
                 number_scores[number] = round(score, 6)
 
             hot_rank = _rank_numbers({
-                number: hot_norm.get(str(number), 0.0) + trend_norm.get(str(number), 0.0) * 0.35 + feedback.get("special", {}).get(str(number), 0.0) * 0.75 + attribute_score(number)
+                number: (
+                    hot_norm.get(str(number), 0.0) +
+                    trend_norm.get(str(number), 0.0) * 0.35 +
+                    ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.75) +
+                    attribute_score(number)
+                )
                 for number in all_numbers
             })
             cold_rank = _rank_numbers({
-                number: cold_norm.get(str(number), 0.0) + overdue_norm.get(str(number), 0.0) * 0.8 + feedback.get("special", {}).get(str(number), 0.0) * 0.45 + attribute_score(number)
+                number: (
+                    cold_norm.get(str(number), 0.0) +
+                    overdue_norm.get(str(number), 0.0) * 0.8 +
+                    ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.45) +
+                    attribute_score(number)
+                )
                 for number in all_numbers
             })
             trend_rank = _rank_numbers({
-                number: trend_norm.get(str(number), 0.0) * 1.1 + hot_norm.get(str(number), 0.0) * 0.35 + feedback.get("special", {}).get(str(number), 0.0) * 0.70 + attribute_score(number)
+                number: (
+                    trend_norm.get(str(number), 0.0) * 1.1 +
+                    hot_norm.get(str(number), 0.0) * 0.35 +
+                    ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.70) +
+                    attribute_score(number)
+                )
                 for number in all_numbers
             })
             overall_rank = _rank_numbers(number_scores)
@@ -1557,8 +1787,8 @@ def get_local_recommendations(strategy, data, region):
                         hot_norm.get(str(number), 0.0) * 0.35 +
                         trend_norm.get(str(number), 0.0) * 0.25 +
                         overdue_norm.get(str(number), 0.0) * 0.15 +
-                        feedback.get("special", {}).get(str(number), 0.0) * 1.20 +
-                        feedback.get("normal", {}).get(str(number), 0.0) * 0.20 +
+                        ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 1.20) +
+                        ((feedback.get("normal", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.20) +
                         attribute_score(number)
                     )
                     for number in remaining_numbers
@@ -1575,8 +1805,10 @@ def get_local_recommendations(strategy, data, region):
                 "recommendation_text": recommendation_text
             }
         except Exception as e:
-            print(f"{strategy} recommendation failed, falling back to random. Reason: {e}")
-            return get_local_recommendations('random', data, region)
+            print(f"{strategy} recommendation failed, falling back to balanced. Reason: {e}")
+            if strategy == 'balanced':
+                return _build_default_baseline_prediction()
+            return get_local_recommendations('balanced', data, region)
 
 def _build_ai_prompt(data, region, history_window=10):
     history_lines = []

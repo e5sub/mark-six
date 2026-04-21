@@ -75,7 +75,6 @@ def dashboard():
         else:
             avg_accuracy = 0.0
         
-        random_accuracy = calculate_accuracy('random')
         balanced_accuracy = calculate_accuracy('balanced')
         ai_accuracy = calculate_accuracy('ai')
         
@@ -115,7 +114,6 @@ def dashboard():
             'unused_codes': unused_codes,
             'total_predictions': total_predictions,
             'avg_accuracy': avg_accuracy,
-            'random_accuracy': random_accuracy,
             'balanced_accuracy': balanced_accuracy,
             'ai_accuracy': ai_accuracy,
             'recent_users': recent_users,
@@ -135,7 +133,6 @@ def dashboard():
             'unused_codes': 0,
             'total_predictions': 0,
             'avg_accuracy': 0.0,
-            'random_accuracy': 0.0,
             'balanced_accuracy': 0.0,
             'ai_accuracy': 0.0,
             'recent_users': [],

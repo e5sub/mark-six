@@ -211,10 +211,6 @@
         background: linear-gradient(135deg, #1dd1a1 0%, #10ac84 100%);
     }
     
-    .random-badge {
-        background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
-    }
-
     .hot-badge {
         background: linear-gradient(135deg, #ff9f43 0%, #f368e0 100%);
     }
@@ -229,6 +225,10 @@
 
     .hybrid-badge {
         background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);
+    }
+
+    .ml-badge {
+        background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
     }
 </style>
 <div class="card">
@@ -286,8 +286,6 @@
                                     <span class="strategy-badge ai-badge">AI预测</span>
                                 {% elif prediction.strategy == 'balanced' %}
                                     <span class="strategy-badge balanced-badge">均衡预测</span>
-                                {% elif prediction.strategy == 'random' %}
-                                    <span class="strategy-badge random-badge">随机预测</span>
                                 {% elif prediction.strategy == 'hot' %}
                                     <span class="strategy-badge hot-badge">热门预测</span>
                                 {% elif prediction.strategy == 'cold' %}
@@ -296,6 +294,8 @@
                                     <span class="strategy-badge trend-badge">趋势预测</span>
                                 {% elif prediction.strategy == 'hybrid' %}
                                     <span class="strategy-badge hybrid-badge">综合预测</span>
+                                {% elif prediction.strategy == 'ml' %}
+                                    <span class="strategy-badge ml-badge">机器学习预测</span>
                                 {% else %}
                                     {{ prediction.strategy }}
                                 {% endif %}

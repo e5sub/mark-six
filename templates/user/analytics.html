@@ -109,7 +109,7 @@
             <div class="learning-title">{{ title }}</div>
             {% set current = learning_snapshot.get(region_key, {}) %}
             {% if current %}
-                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced'] if current.get(strategy_key) %}
+                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml'] if current.get(strategy_key) %}
                 <div class="learning-row">
                     <div class="learning-name">{{ strategy_label_map.get(strategy_key, strategy_key) }}：{{ current[strategy_key].last_accuracy }}%</div>
                     <div class="learning-meta">
