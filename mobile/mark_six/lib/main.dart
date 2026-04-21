@@ -3485,7 +3485,10 @@ class _PredictScreenState extends State<PredictScreen> {
     }
   }
 
-  Widget _buildPredictionRecordItem(PredictionItem item) {
+  Widget _buildPredictionRecordItem(
+    PredictionItem item, {
+    bool inlineSpecialOnly = false,
+  }) {
     final normalZodiacs = _recordNormalZodiacs[item.id] ??
         List.filled(item.normalNumbers.length, '');
     final specialZodiac = _recordSpecialZodiacs[item.id] ?? item.specialZodiac;
@@ -3493,7 +3496,11 @@ class _PredictScreenState extends State<PredictScreen> {
     final actualSpecialZodiac = item.actualSpecialZodiac;
     final strategyLabel = _strategyLabels[item.strategy] ?? item.strategy;
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      width: inlineSpecialOnly ? 240 : null,
+      margin: EdgeInsets.only(
+        bottom: inlineSpecialOnly ? 0 : 12,
+        right: inlineSpecialOnly ? 12 : 0,
+      ),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -3570,11 +3577,13 @@ class _PredictScreenState extends State<PredictScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Text(
-                    '特码：',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(width: 8),
+                  if (!inlineSpecialOnly) ...[
+                    const Text(
+                      '特码：',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   if (item.specialNumber.isNotEmpty)
                     _NumberZodiacTile(
                       number: item.specialNumber,
@@ -3595,7 +3604,9 @@ class _PredictScreenState extends State<PredictScreen> {
           Text(
             actualSpecialNumber.isEmpty
                 ? '开奖结果：未开奖'
-                : '开奖结果：$actualSpecialNumber  生肖：$actualSpecialZodiac',
+                : inlineSpecialOnly
+                    ? '开奖：$actualSpecialNumber  $actualSpecialZodiac'
+                    : '开奖结果：$actualSpecialNumber  生肖：$actualSpecialZodiac',
             style: TextStyle(
               color: actualSpecialNumber.isEmpty
                   ? Colors.orange
@@ -3682,11 +3693,28 @@ class _PredictScreenState extends State<PredictScreen> {
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              Column(
-                                children: items
-                                    .map(_buildPredictionRecordItem)
-                                    .toList(),
-                              ),
+                              if (_showNormalNumbers)
+                                Column(
+                                  children: items
+                                      .map(_buildPredictionRecordItem)
+                                      .toList(),
+                                )
+                              else
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: items
+                                        .map(
+                                          (item) => _buildPredictionRecordItem(
+                                            item,
+                                            inlineSpecialOnly: true,
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ),
                             ],
                           ),
                         );

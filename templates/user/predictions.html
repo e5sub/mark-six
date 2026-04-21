@@ -81,6 +81,79 @@
 </div>
 {%- endmacro %}
 
+{% macro render_period_comparison_group(period_group) -%}
+{% set first = period_group.list[0] %}
+<div class="prediction-period-compare">
+    <div class="period-compare-header">
+        <div>
+            <div class="period-compare-title">
+                {{ '香港' if first.region == 'hk' else '澳门' }}六合彩 - 第{{ period_group.grouper }}期
+            </div>
+            <div class="period-compare-subtitle">
+                共 {{ period_group.list|length }} 个策略结果
+            </div>
+        </div>
+
+        <div class="period-draw-summary">
+            <div class="period-draw-label">
+                {% if first.is_result_updated and first.actual_special_number %}
+                开奖特码
+                {% else %}
+                开奖状态
+                {% endif %}
+            </div>
+            {% if first.is_result_updated and first.actual_special_number %}
+            {% set actual_special_color = get_number_color(first.actual_special_number) %}
+            <div class="period-draw-ball-wrap">
+                <div class="number-ball-compact ball-{{ actual_special_color }} special-ball-compact draw-summary-ball">
+                    {{ first.actual_special_number }}
+                </div>
+                <div class="draw-summary-zodiac">{{ get_number_zodiac(first.actual_special_number) }}</div>
+            </div>
+            {% else %}
+            <div class="period-draw-pending">待开奖</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="period-strategy-grid">
+        {% for prediction in period_group.list %}
+        <div class="strategy-compare-card">
+            <div class="strategy-compare-top">
+                <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">{{ strategy_badge(prediction.strategy) }}</span>
+                <span class="strategy-time-mini">{{ prediction.created_at.strftime('%m-%d %H:%M') }}</span>
+            </div>
+
+            <div class="strategy-special-row">
+                {% set special_color = get_number_color(prediction.special_number) %}
+                <div class="number-ball-compact ball-{{ special_color }} special-ball-compact">
+                    {{ prediction.special_number }}
+                </div>
+                <div class="strategy-special-meta">
+                    <div class="strategy-special-label">预测特码</div>
+                    <div class="strategy-special-zodiac">{{ get_number_zodiac(prediction.special_number) }}</div>
+                </div>
+            </div>
+
+            <div class="strategy-compare-bottom">
+                {% if prediction.is_result_updated and prediction.actual_special_number %}
+                    {% if prediction.special_number == prediction.actual_special_number %}
+                    <div class="result-badge-compact result-success">🎯 特码命中</div>
+                    {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
+                    <div class="result-badge-compact result-partial">✅ 平码命中</div>
+                    {% else %}
+                    <div class="result-badge-compact result-failed">❌ 未命中</div>
+                    {% endif %}
+                {% else %}
+                <div class="result-badge-compact result-pending">⏳ 待开奖</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{%- endmacro %}
+
 {% block content %}
 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;">
     <div class="stat-card clickable-stat" data-filter="all">
@@ -161,13 +234,7 @@
 
         {% for period_group in visible_groups %}
             {% if not user.show_normal_numbers %}
-            <div class="prediction-period-group">
-                <div class="prediction-period-row">
-                    {% for prediction in period_group.list %}
-                    {{ render_prediction_card(prediction, True) }}
-                    {% endfor %}
-                </div>
-            </div>
+            {{ render_period_comparison_group(period_group) }}
             {% else %}
                 {% for prediction in period_group.list %}
                 {{ render_prediction_card(prediction) }}
@@ -183,13 +250,7 @@
         <div id="hidden-predictions" style="display: none;">
             {% for period_group in hidden_groups %}
                 {% if not user.show_normal_numbers %}
-                <div class="prediction-period-group">
-                    <div class="prediction-period-row">
-                        {% for prediction in period_group.list %}
-                        {{ render_prediction_card(prediction, True) }}
-                        {% endfor %}
-                    </div>
-                </div>
+                {{ render_period_comparison_group(period_group) }}
                 {% else %}
                     {% for prediction in period_group.list %}
                     {{ render_prediction_card(prediction) }}
@@ -546,6 +607,129 @@
     margin-top: 0;
 }
 
+.prediction-period-compare {
+    background: linear-gradient(180deg, #ffffff 0%, #f8faff 100%);
+    border: 1px solid #e7ecf7;
+    border-radius: 18px;
+    padding: 1rem 1.1rem;
+    box-shadow: 0 8px 24px rgba(32, 52, 89, 0.08);
+}
+
+.period-compare-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding-bottom: 0.9rem;
+    margin-bottom: 0.9rem;
+    border-bottom: 1px solid #edf1f7;
+}
+
+.period-compare-title {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #24324a;
+}
+
+.period-compare-subtitle {
+    margin-top: 0.25rem;
+    font-size: 0.82rem;
+    color: #7b8798;
+}
+
+.period-draw-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: 14px;
+    background: #fff8ec;
+    border: 1px solid #ffe3ad;
+}
+
+.period-draw-label {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #d97706;
+}
+
+.period-draw-ball-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.draw-summary-ball {
+    box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.14), 0 6px 14px rgba(0, 0, 0, 0.12);
+}
+
+.draw-summary-zodiac {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #b45309;
+}
+
+.period-draw-pending {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #a16207;
+}
+
+.period-strategy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 0.9rem;
+}
+
+.strategy-compare-card {
+    border-radius: 16px;
+    border: 1px solid #e9eef7;
+    background: #ffffff;
+    padding: 0.9rem;
+    display: grid;
+    gap: 0.8rem;
+    box-shadow: 0 4px 14px rgba(30, 41, 59, 0.06);
+}
+
+.strategy-compare-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.6rem;
+}
+
+.strategy-time-mini {
+    font-size: 0.75rem;
+    color: #8a94a6;
+    white-space: nowrap;
+}
+
+.strategy-special-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.strategy-special-meta {
+    display: grid;
+    gap: 0.15rem;
+}
+
+.strategy-special-label {
+    font-size: 0.78rem;
+    color: #8a94a6;
+}
+
+.strategy-special-zodiac {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #24324a;
+}
+
+.strategy-compare-bottom .result-badge-compact {
+    width: 100%;
+}
+
 .number-ball-compact {
     width: 32px;
     height: 32px;
@@ -839,6 +1023,20 @@
         grid-template-columns: 1fr;
     }
 
+    .period-compare-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .period-draw-summary {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .period-strategy-grid {
+        grid-template-columns: 1fr;
+    }
+
     .prediction-center, .prediction-right {
         justify-content: center;
         min-width: auto;
@@ -897,6 +1095,14 @@
         min-height: 0;
     }
 
+    .prediction-period-compare {
+        padding: 0.85rem;
+    }
+
+    .strategy-compare-card {
+        padding: 0.8rem;
+    }
+
     .prediction-title-compact {
         font-size: 0.9rem;
         text-align: center;
@@ -946,10 +1152,9 @@ document.addEventListener('DOMContentLoaded', function() {
         showAllBtn.addEventListener('click', function() {
             const hiddenPredictions = document.getElementById('hidden-predictions');
             if (hiddenPredictions) {
-                const hiddenCards = hiddenPredictions.querySelectorAll('.prediction-card-compact');
                 const predictionsList = document.querySelector('.predictions-list');
-                hiddenCards.forEach(card => {
-                    predictionsList.insertBefore(card, hiddenPredictions);
+                Array.from(hiddenPredictions.children).forEach(node => {
+                    predictionsList.insertBefore(node, hiddenPredictions);
                 });
                 document.querySelector('.show-more-container').style.display = 'none';
                 hiddenPredictions.style.display = 'none';
