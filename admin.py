@@ -9,6 +9,22 @@ from sqlalchemy import func, case
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
+LEARNING_PANEL_TERM_LABELS = {
+    'hot': '热门',
+    'cold': '冷门',
+    'trend': '走势',
+    'balanced': '均衡',
+    'hybrid': '综合',
+    'ml': '机器学习',
+    'ai': 'AI智能',
+    'feedback': '反馈',
+    'color': '波色',
+    'normal': '平码',
+    'overdue': '遗漏',
+    'parity': '单双',
+    'zodiac': '生肖',
+}
+
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -42,11 +58,25 @@ def _strategy_learning_panel_data():
             config = _load_strategy_config(strategy, region_key)
             weights = config.get('weights') or {}
             weight_items = [
-                {'key': key, 'value': value}
+                {
+                    'key': key,
+                    'label': LEARNING_PANEL_TERM_LABELS.get(key, key),
+                    'value': value
+                }
                 for key, value in sorted(weights.items())
+            ]
+            mix = config.get('mix') or {}
+            mix_items = [
+                {
+                    'key': key,
+                    'label': LEARNING_PANEL_TERM_LABELS.get(key, key),
+                    'value': value
+                }
+                for key, value in mix.items()
             ]
             items.append({
                 'key': strategy,
+                'display_key': LEARNING_PANEL_TERM_LABELS.get(strategy, strategy),
                 'label': _get_strategy_label(strategy),
                 'updated_at': config.get('updated_at', ''),
                 'last_accuracy': round(float(config.get('last_accuracy') or 0.0) * 100, 1),
@@ -61,7 +91,8 @@ def _strategy_learning_panel_data():
                 'epochs': config.get('epochs'),
                 'learning_rate': config.get('learning_rate'),
                 'bucket_counts': config.get('bucket_counts') or [],
-                'mix': config.get('mix') or {},
+                'mix': mix,
+                'mix_items': mix_items,
                 'weights': weight_items,
             })
         panel.append({
