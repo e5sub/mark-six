@@ -168,7 +168,7 @@
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; margin-bottom:0.75rem;">
                         <div>
                             <div style="font-size:1rem; font-weight:700; color:#2d3a56;">{{ item.label }}</div>
-                            <div style="font-size:0.82rem; color:#7a8599; margin-top:0.2rem;">{{ item.key }}</div>
+                            <div style="font-size:0.82rem; color:#7a8599; margin-top:0.2rem;">{{ item.display_key }}</div>
                         </div>
                         <div style="text-align:right;">
                             <div style="font-size:0.95rem; font-weight:700; color:#4a4fd8;">{{ item.last_accuracy }}%</div>
@@ -191,11 +191,11 @@
                     <div style="font-size:0.84rem; color:#5a6785; margin-bottom:0.65rem;">分桶：{{ item.bucket_counts|join(' / ') }}</div>
                     {% endif %}
 
-                    {% if item.mix %}
+                    {% if item.mix_items %}
                     <div style="font-size:0.84rem; color:#5a6785; margin-bottom:0.65rem;">
                         混合：
-                        {% for k, v in item.mix.items() %}
-                        {{ k }}={{ v }}{% if not loop.last %}，{% endif %}
+                        {% for mix_item in item.mix_items %}
+                        {{ mix_item.label }}={{ mix_item.value }}{% if not loop.last %}，{% endif %}
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -206,7 +206,7 @@
                     <div style="display:flex; flex-wrap:wrap; gap:0.45rem;">
                         {% for weight in item.weights %}
                         <span style="background:rgba(102,126,234,0.08); color:#45506f; padding:0.35rem 0.55rem; border-radius:999px; font-size:0.8rem;">
-                            {{ weight.key }} {{ weight.value }}
+                            {{ weight.label }} {{ weight.value }}
                         </span>
                         {% endfor %}
                     </div>
