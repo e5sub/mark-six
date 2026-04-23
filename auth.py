@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from models import db, User, ActivationCode, SystemConfig, InviteCode
 from werkzeug.security import generate_password_hash
 import uuid
@@ -72,10 +72,14 @@ def register():
                 db.session.rollback()
                 return render_template('auth/register.html')
         
+        if not invite_code:
+            user.extend_activation(7)
+            user.is_active = True
+
         db.session.commit()
         
         if not invite_success:
-            flash('注册成功！请使用管理员提供的激活码激活您的账号。', 'success')
+            flash('注册成功！账号已自动激活 7 天。', 'success')
         
         return redirect(url_for('auth.login'))
     
@@ -96,6 +100,7 @@ def login():
                                 (User.email == username_or_email)).first()
         
         if user and user.check_password(password):
+            user.check_and_update_activation_status()
             # 更新登录统计信息
             user.last_login = datetime.utcnow()
             user.login_count = (user.login_count or 0) + 1

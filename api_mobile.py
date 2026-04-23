@@ -228,6 +228,17 @@ def _require_user():
     user = _get_current_user()
     if not user:
         return None, _json_error("authentication required", status=401, code="auth_required")
+    is_active = user.check_and_update_activation_status()
+    session["is_active"] = bool(is_active and user.is_active)
+    return user, None
+
+
+def _require_active_user():
+    user, error = _require_user()
+    if error:
+        return None, error
+    if not user.is_active:
+        return None, _json_error("activation required", status=403, code="activation_required")
     return user, None
 
 
@@ -268,12 +279,15 @@ def api_register():
             db.session.rollback()
             return _json_error(message)
         invite_success = True
+    else:
+        user.extend_activation(7)
+        user.is_active = True
 
     db.session.commit()
 
     message = "registered successfully"
     if not invite_success:
-        message = "registered successfully, activation required"
+        message = "registered successfully, activated for 7 days"
 
     return jsonify(
         {
@@ -391,7 +405,7 @@ def api_activate():
 
 @mobile_api_bp.route("/manual_bets", methods=["POST"])
 def api_manual_bets():
-    user, error = _require_user()
+    user, error = _require_active_user()
     if error:
         return error
 
@@ -975,7 +989,7 @@ def api_manual_bets():
 
 @mobile_api_bp.route("/manual_bets", methods=["GET"])
 def api_manual_bets_list():
-    user, error = _require_user()
+    user, error = _require_active_user()
     if error:
         return error
 
@@ -1034,7 +1048,7 @@ def api_manual_bets_list():
 
 @mobile_api_bp.route("/manual_bets/summary", methods=["GET"])
 def api_manual_bets_summary():
-    user, error = _require_user()
+    user, error = _require_active_user()
     if error:
         return error
 
@@ -1071,7 +1085,7 @@ def api_manual_bets_summary():
 
 @mobile_api_bp.route("/manual_bets/<int:record_id>", methods=["DELETE"])
 def api_manual_bets_delete(record_id):
-    user, error = _require_user()
+    user, error = _require_active_user()
     if error:
         return error
 
@@ -1215,7 +1229,7 @@ def _mobile_secondary_hit_expr():
 
 @mobile_api_bp.route("/predictions", methods=["GET"])
 def api_predictions():
-    user, error = _require_user()
+    user, error = _require_active_user()
     if error:
         return error
 
@@ -1455,7 +1469,7 @@ def _learning_summary():
 
 @mobile_api_bp.route("/accuracy", methods=["GET"])
 def api_accuracy():
-    user, error = _require_user()
+    user, error = _require_active_user()
     if error:
         return error
 

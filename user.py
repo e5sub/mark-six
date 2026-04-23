@@ -225,7 +225,20 @@ def login_required(f):
 def active_required(f):
     """激活验证装饰器"""
     def decorated_function(*args, **kwargs):
-        if not session.get('is_active'):
+        user_id = session.get('user_id')
+        if not user_id:
+            flash('请先登录', 'error')
+            return redirect(url_for('auth.login'))
+
+        user = User.query.get(user_id)
+        if not user:
+            session.clear()
+            flash('请先登录', 'error')
+            return redirect(url_for('auth.login'))
+
+        is_active = user.check_and_update_activation_status()
+        session['is_active'] = bool(is_active and user.is_active)
+        if not session['is_active']:
             flash('请先激活账号后再使用此功能', 'warning')
             return redirect(url_for('auth.activate'))
         return f(*args, **kwargs)
@@ -576,6 +589,9 @@ def save_prediction():
                 'success': False,
                 'message': '用户不存在'
             })
+
+        user.check_and_update_activation_status()
+        session['is_active'] = bool(user.is_active)
 
         if not user.is_active and data.get('strategy') != 'ai':
             return jsonify({

@@ -2868,6 +2868,7 @@ def check_user_activation():
         try:
             user = User.query.get(session['user_id'])
             if user:
+                session['is_active'] = bool(user.is_active)
                 # 检查用户激活状态是否过期
                 if user.activation_expires_at and datetime.now() > user.activation_expires_at:
                     # 激活已过期，更新状态
