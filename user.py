@@ -571,13 +571,14 @@ def save_prediction():
         existing = PredictionRecord.query.filter_by(
             user_id=user.id,
             region=data['region'],
-            period=data['period']
+            period=data['period'],
+            strategy=data['strategy']
         ).first()
         
         if existing:
             return jsonify({
                 'success': False,
-                'message': '您已经为本期生成过预测，不能重复生成'
+                'message': '您已经为本期的该策略生成过预测，不能重复生成'
             })
         
         prediction = PredictionRecord(
@@ -613,15 +614,20 @@ def check_prediction_exists():
     """检查用户是否已为当前期生成预测"""
     region = request.args.get('region')
     period = request.args.get('period')
-    
+    strategy = request.args.get('strategy')
+
     if not region or not period:
         return jsonify({'exists': False})
-    
-    existing = PredictionRecord.query.filter_by(
+
+    query = PredictionRecord.query.filter_by(
         user_id=session['user_id'],
         region=region,
         period=period
-    ).first()
+    )
+    if strategy:
+        query = query.filter_by(strategy=strategy)
+
+    existing = query.first()
     
     if existing:
         return jsonify({
