@@ -471,10 +471,11 @@ def predictions():
     grouped_predictions = []
     grouped_predictions_map = {}
     for prediction in predictions.items:
-        period_key = prediction.period
+        period_key = f"{prediction.region}:{prediction.period}"
         if period_key not in grouped_predictions_map:
             group = {
-                'grouper': period_key,
+                'grouper': prediction.period,
+                'region': prediction.region,
                 'list': []
             }
             grouped_predictions_map[period_key] = group

@@ -3663,12 +3663,12 @@ class _PredictScreenState extends State<PredictScreen> {
                   final grouped = <String, List<PredictionItem>>{};
                   final orderedPeriods = <String>[];
                   for (final item in _predictionRecords) {
-                    final period = item.period;
-                    if (!grouped.containsKey(period)) {
-                      grouped[period] = [];
-                      orderedPeriods.add(period);
+                    final groupKey = '${item.region}:${item.period}';
+                    if (!grouped.containsKey(groupKey)) {
+                      grouped[groupKey] = [];
+                      orderedPeriods.add(groupKey);
                     }
-                    grouped[period]!.add(item);
+                    grouped[groupKey]!.add(item);
                   }
 
                   final visiblePeriods = _showAllPredictionPeriods
