@@ -2846,17 +2846,6 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   ),
                 ],
               ),
-              if (actualSpecialNumber.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(
-                  '开奖生肖：${actualSpecialZodiac.isNotEmpty ? actualSpecialZodiac : '-'}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black54,
-                  ),
-                ),
-              ],
             ],
           ),
                             ],
