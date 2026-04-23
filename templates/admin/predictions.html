@@ -256,10 +256,9 @@
                         <th>地区</th>
                         <th>策略</th>
                         <th>期数</th>
-                        <th>平码</th>
-                        <th>特码</th>
-                        <th>预测生肖</th>
-                        <th>开奖生肖</th>
+                        <th>预测特码</th>
+                        <th>预测特码生肖</th>
+                        <th>开奖特码生肖</th>
                         <th>准确率</th>
                         <th>预测时间</th>
                         <th class="nowrap-cell">操作</th>
@@ -303,24 +302,6 @@
                             </td>
                             <td>{{ prediction.period }}</td>
                             <td>
-                                <div style="display: flex; gap: 5px; flex-wrap: wrap; justify-content: center;">
-                                    {% if prediction.normal_numbers %}
-                                        {% for num in prediction.normal_numbers.split(',') %}
-                                            {% set num_int = num|int %}
-                                            {% if num_int in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
-                                                <span class="number-ball red-ball">{{ num }}</span>
-                                            {% elif num_int in [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
-                                                <span class="number-ball blue-ball">{{ num }}</span>
-                                            {% else %}
-                                                <span class="number-ball green-ball">{{ num }}</span>
-                                            {% endif %}
-                                        {% endfor %}
-                                    {% else %}
-                                        <span class="no-data">-</span>
-                                    {% endif %}
-                                </div>
-                            </td>
-                            <td>
                                 {% if prediction.special_number %}
                                     {% set special_num = prediction.special_number|int %}
                                     {% if special_num in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
@@ -342,8 +323,23 @@
                                 {% endif %}
                             </td>
                             <td>
-                                {% if prediction.display_actual_special_zodiac %}
-                                    <span class="zodiac-badge">{{ prediction.display_actual_special_zodiac }}</span>
+                                {% if prediction.actual_special_number %}
+                                    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+                                        {% set actual_special_num = prediction.actual_special_number|int %}
+                                        {% if actual_special_num in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
+                                            <span class="special-ball red-special">{{ prediction.actual_special_number }}</span>
+                                        {% elif actual_special_num in [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
+                                            <span class="special-ball blue-special">{{ prediction.actual_special_number }}</span>
+                                        {% else %}
+                                            <span class="special-ball green-special">{{ prediction.actual_special_number }}</span>
+                                        {% endif %}
+
+                                        {% if prediction.display_actual_special_zodiac %}
+                                            <span class="zodiac-badge">{{ prediction.display_actual_special_zodiac }}</span>
+                                        {% else %}
+                                            <span class="no-data">-</span>
+                                        {% endif %}
+                                    </div>
                                 {% else %}
                                     <span class="no-data">-</span>
                                 {% endif %}
