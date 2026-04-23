@@ -350,7 +350,8 @@
                             </td>
                             <td class="nowrap-cell">
                                 {% if prediction.accuracy_score is not none %}
-                                    {% set accuracy = (prediction.accuracy_score * 100) | round(1) %}
+                                    {% set raw_accuracy = prediction.accuracy_score %}
+                                    {% set accuracy = ((raw_accuracy if raw_accuracy > 1 else raw_accuracy * 100)) | round(1) %}
                                     {% if accuracy >= 70 %}
                                         <span class="accuracy high-accuracy">{{ accuracy }}%</span>
                                     {% elif accuracy >= 40 %}

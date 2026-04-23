@@ -2276,17 +2276,17 @@ def update_prediction_accuracy(data, region):
             if pred_zodiac and result['special_zodiac'] and pred_zodiac == result['special_zodiac']:
                 zodiac_hit = 1
 
-            # 计算准确率
-            accuracy = 0
+            # 计算准确率，统一按 0-1 分数存储
+            accuracy = 0.0
             
             if special_hit == 1:
-                accuracy = 100
+                accuracy = 1.0
             elif pred.normal_numbers:
                 normal_numbers = pred.normal_numbers.split(',')
                 if result['special'] in normal_numbers:
-                    accuracy = 50
+                    accuracy = 0.5
             if accuracy == 0 and zodiac_hit == 1:
-                accuracy = 50
+                accuracy = 0.5
             
             # 更新预测记录
             pred.actual_normal_numbers = ''  # 不再需要保存正码
