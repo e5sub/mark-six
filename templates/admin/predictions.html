@@ -256,7 +256,6 @@
                         <th>地区</th>
                         <th>策略</th>
                         <th>期数</th>
-                        <th>预测特码</th>
                         <th>预测特码生肖</th>
                         <th>开奖特码生肖</th>
                         <th>准确率</th>
@@ -303,21 +302,22 @@
                             <td>{{ prediction.period }}</td>
                             <td>
                                 {% if prediction.special_number %}
-                                    {% set special_num = prediction.special_number|int %}
-                                    {% if special_num in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
-                                        <span class="special-ball red-special">{{ prediction.special_number }}</span>
-                                    {% elif special_num in [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
-                                        <span class="special-ball blue-special">{{ prediction.special_number }}</span>
-                                    {% else %}
-                                        <span class="special-ball green-special">{{ prediction.special_number }}</span>
-                                    {% endif %}
-                                {% else %}
-                                    <span class="no-data">-</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if prediction.display_special_zodiac %}
-                                    <span class="zodiac-badge">{{ prediction.display_special_zodiac }}</span>
+                                    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+                                        {% set special_num = prediction.special_number|int %}
+                                        {% if special_num in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
+                                            <span class="special-ball red-special">{{ prediction.special_number }}</span>
+                                        {% elif special_num in [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
+                                            <span class="special-ball blue-special">{{ prediction.special_number }}</span>
+                                        {% else %}
+                                            <span class="special-ball green-special">{{ prediction.special_number }}</span>
+                                        {% endif %}
+
+                                        {% if prediction.display_special_zodiac %}
+                                            <span class="zodiac-badge">{{ prediction.display_special_zodiac }}</span>
+                                        {% else %}
+                                            <span class="no-data">-</span>
+                                        {% endif %}
+                                    </div>
                                 {% else %}
                                     <span class="no-data">-</span>
                                 {% endif %}
