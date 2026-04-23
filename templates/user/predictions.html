@@ -60,14 +60,17 @@
             <div class="number-ball-large ball-{{ actual_special_color }} actual-special-ball-large">
                 {{ prediction.actual_special_number }}
             </div>
-            <div class="zodiac-indicator-large">{{ get_number_zodiac(prediction.actual_special_number) }}</div>
+            <div class="zodiac-indicator-large">{{ prediction.actual_special_zodiac or get_number_zodiac(prediction.actual_special_number) }}</div>
+            <div class="draw-result-label-large" style="margin-top: 0.35rem;">开奖生肖：{{ prediction.actual_special_zodiac or get_number_zodiac(prediction.actual_special_number) }}</div>
         </div>
 
         <div class="result-badge-container">
             {% if prediction.special_number == prediction.actual_special_number %}
             <div class="result-badge-compact result-success">🎯 特码命中</div>
-            {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
+            {% elif prediction.is_normal_number_hit %}
             <div class="result-badge-compact result-partial">✅ 平码命中</div>
+            {% elif prediction.is_zodiac_hit %}
+            <div class="result-badge-compact result-partial">✅ 生肖命中</div>
             {% else %}
             <div class="result-badge-compact result-failed">❌ 未命中</div>
             {% endif %}
@@ -110,7 +113,7 @@
                 <div class="number-ball-compact ball-{{ actual_special_color }} special-ball-compact draw-summary-ball">
                     {{ first.actual_special_number }}
                 </div>
-                <div class="draw-summary-zodiac">{{ get_number_zodiac(first.actual_special_number) }}</div>
+                <div class="draw-summary-zodiac">{{ first.actual_special_zodiac or get_number_zodiac(first.actual_special_number) }}</div>
             </div>
             {% else %}
             <div class="period-draw-pending">待开奖</div>
@@ -141,8 +144,10 @@
                 {% if prediction.is_result_updated and prediction.actual_special_number %}
                     {% if prediction.special_number == prediction.actual_special_number %}
                     <div class="result-badge-compact result-success">🎯 特码命中</div>
-                    {% elif prediction.normal_numbers and prediction.actual_special_number and (prediction.normal_numbers.startswith(prediction.actual_special_number + ',') or prediction.normal_numbers.endswith(',' + prediction.actual_special_number) or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers) %}
+                    {% elif prediction.is_normal_number_hit %}
                     <div class="result-badge-compact result-partial">✅ 平码命中</div>
+                    {% elif prediction.is_zodiac_hit %}
+                    <div class="result-badge-compact result-partial">✅ 生肖命中</div>
                     {% else %}
                     <div class="result-badge-compact result-failed">❌ 未命中</div>
                     {% endif %}
@@ -173,7 +178,7 @@
     <div class="stat-card clickable-stat" data-filter="normal_hit">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #17a2b8;">✅</div>
         <div class="stat-number">{{ normal_hit_count or 0 }}</div>
-        <div class="stat-label">平码命中次数</div>
+        <div class="stat-label">平码/生肖命中次数</div>
     </div>
 
     <div class="stat-card clickable-stat" data-filter="wrong">
@@ -191,7 +196,7 @@
     <div class="stat-card">
         <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #6f42c1;">✅</div>
         <div class="stat-number">{{ normal_hit_rate or 0 }}%</div>
-        <div class="stat-label">平码命中率</div>
+        <div class="stat-label">平码/生肖命中率</div>
     </div>
 </div>
 
@@ -218,7 +223,7 @@
                 <select name="result" class="compact-select" title="预测结果">
                     <option value="">全部结果</option>
                     <option value="special_hit" {% if request.args.get('result') == 'special_hit' %}selected{% endif %}>特码命中</option>
-                    <option value="normal_hit" {% if request.args.get('result') == 'normal_hit' %}selected{% endif %}>平码命中</option>
+                    <option value="normal_hit" {% if request.args.get('result') == 'normal_hit' %}selected{% endif %}>平码/生肖命中</option>
                     <option value="wrong" {% if request.args.get('result') == 'wrong' %}selected{% endif %}>未命中</option>
                     <option value="pending" {% if request.args.get('result') == 'pending' %}selected{% endif %}>待开奖</option>
                 </select>
@@ -322,7 +327,8 @@
             <ul>
                 <li><strong>特码命中</strong>：预测的特码与实际开奖特码完全一致。</li>
                 <li><strong>平码命中</strong>：预测的平码中包含实际开奖特码。</li>
-                <li><strong>未命中</strong>：预测号码都未命中实际开奖特码。</li>
+                <li><strong>生肖命中</strong>：预测的特码生肖与实际开奖生肖一致。</li>
+                <li><strong>未命中</strong>：预测号码和生肖都未命中实际开奖结果。</li>
                 <li><strong>命中率</strong>：分别统计特码和平码的命中表现。</li>
             </ul>
         </div>

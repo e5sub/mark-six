@@ -2829,11 +2829,11 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                     zodiacs: normalZodiacs,
                                   ),
                                   const SizedBox(height: 12),
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      const Text(
-                                        '特码：',
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Text(
+                    '特码：',
                                         style: TextStyle(fontWeight: FontWeight.w600),
                                       ),
                                       const SizedBox(width: 8),
@@ -2843,11 +2843,22 @@ class _RecordsScreenState extends State<RecordsScreen> {
                                         color: ballColor(record.specialNumber),
                                         outlined: true,
                                         highlight: true,
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
+                  ),
+                ],
+              ),
+              if (actualSpecialNumber.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  '开奖生肖：${actualSpecialZodiac.isNotEmpty ? actualSpecialZodiac : '-'}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black54,
+                  ),
+                ),
+              ],
+            ],
+          ),
                             ],
                           ),
                         ),
@@ -3443,11 +3454,17 @@ class _PredictScreenState extends State<PredictScreen> {
     } catch (_) {}
   }
 
-  String _resultLabel(String value) {
-    switch (value) {
+  String _resultLabel(PredictionItem item) {
+    switch (item.result) {
       case 'special_hit':
         return '中特码';
       case 'normal_hit':
+        if (item.specialNumber != item.actualSpecialNumber &&
+            item.specialZodiac.isNotEmpty &&
+            item.actualSpecialZodiac.isNotEmpty &&
+            item.specialZodiac == item.actualSpecialZodiac) {
+          return '中生肖';
+        }
         return '中平码';
       case 'wrong':
         return '未命中';
@@ -3550,7 +3567,7 @@ class _PredictScreenState extends State<PredictScreen> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  _resultLabel(item.result),
+                  _resultLabel(item),
                   style: TextStyle(
                     color: _resultColor(item.result),
                     fontSize: 12,
@@ -4198,7 +4215,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           Text('总体命中率：${_overall!.accuracy}%'),
                           Text('总预测次数：${_overall!.total}'),
                           Text('特码命中：${_overall!.specialHits}'),
-                          Text('平码命中：${_overall!.normalHits}'),
+                          Text('平码/生肖命中：${_overall!.normalHits}'),
                         ] else
                           const Text('暂无数据'),
                       ],

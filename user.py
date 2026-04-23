@@ -35,6 +35,26 @@ def _strategy_config(region, strategy):
     except Exception:
         return {}
 
+def _actual_in_normal_expr():
+    actual_as_string = db.cast(PredictionRecord.actual_special_number, db.String)
+    return db.or_(
+        PredictionRecord.normal_numbers.contains(',' + actual_as_string + ','),
+        PredictionRecord.normal_numbers.startswith(actual_as_string + ','),
+        PredictionRecord.normal_numbers.endswith(',' + actual_as_string)
+    )
+
+def _zodiac_hit_expr():
+    return db.and_(
+        PredictionRecord.special_zodiac != None,
+        PredictionRecord.actual_special_zodiac != None,
+        PredictionRecord.special_zodiac != '',
+        PredictionRecord.actual_special_zodiac != '',
+        PredictionRecord.special_zodiac == PredictionRecord.actual_special_zodiac
+    )
+
+def _secondary_hit_expr():
+    return db.or_(_actual_in_normal_expr(), _zodiac_hit_expr())
+
 def _calculate_accuracy_summary(query):
     base_query = query.filter(
         PredictionRecord.is_result_updated.is_(True),
@@ -49,11 +69,7 @@ def _calculate_accuracy_summary(query):
         (
             db.and_(
                 PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                db.or_(
-                    PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                    PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                    PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-                ),
+                _secondary_hit_expr(),
             ),
             1
         ),
@@ -274,11 +290,7 @@ def dashboard():
             (
                 db.and_(
                     PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                    db.or_(
-                        PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                        PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                        PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-                    ),
+                    _secondary_hit_expr(),
                 ),
                 1,
             ),
@@ -326,11 +338,7 @@ def dashboard():
     ).filter(
         PredictionRecord.actual_special_number != None,
         PredictionRecord.special_number != PredictionRecord.actual_special_number,
-        db.or_(
-            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-        )
+        _secondary_hit_expr()
     ).count()
     special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
@@ -443,23 +451,14 @@ def predictions():
                 PredictionRecord.is_result_updated == True, 
                 PredictionRecord.actual_special_number != None,
                 PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                # 这样可以避免部分匹配问题，例如避免把 1 误匹配到 10、11、12
-                db.or_(
-                    PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                    PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                    PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-                )
+                _secondary_hit_expr()
             )
         elif result == 'wrong':
             query = query.filter(
                 PredictionRecord.is_result_updated == True,
                 PredictionRecord.actual_special_number != None,
                 PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                ~db.or_(
-                    PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                    PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                    PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-                )
+                ~_secondary_hit_expr()
             )
         elif result == 'pending':
             query = query.filter(PredictionRecord.is_result_updated == False)
@@ -471,6 +470,28 @@ def predictions():
     grouped_predictions = []
     grouped_predictions_map = {}
     for prediction in predictions.items:
+        prediction.display_actual_special_zodiac = (
+            prediction.actual_special_zodiac or ''
+        ).strip()
+        prediction.is_zodiac_hit = bool(
+            prediction.is_result_updated
+            and prediction.actual_special_number
+            and prediction.special_number != prediction.actual_special_number
+            and prediction.special_zodiac
+            and prediction.display_actual_special_zodiac
+            and prediction.special_zodiac == prediction.display_actual_special_zodiac
+        )
+        prediction.is_normal_number_hit = bool(
+            prediction.is_result_updated
+            and prediction.actual_special_number
+            and prediction.special_number != prediction.actual_special_number
+            and prediction.normal_numbers
+            and (
+                prediction.normal_numbers.startswith(prediction.actual_special_number + ',')
+                or prediction.normal_numbers.endswith(',' + prediction.actual_special_number)
+                or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers
+            )
+        )
         period_key = f"{prediction.region}:{prediction.period}"
         if period_key not in grouped_predictions_map:
             group = {
@@ -497,21 +518,15 @@ def predictions():
             return ""
 
     actual_special = PredictionRecord.actual_special_number
-    normal_numbers = PredictionRecord.normal_numbers
     special_number = PredictionRecord.special_number
-    actual_as_string = db.cast(actual_special, db.String)
-    actual_in_normal = db.or_(
-        normal_numbers.contains(',' + actual_as_string + ','),
-        normal_numbers.startswith(actual_as_string + ','),
-        normal_numbers.endswith(',' + actual_as_string)
-    )
+    secondary_hit = _secondary_hit_expr()
 
     stats_row = db.session.query(
         db.func.count(PredictionRecord.id),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
-        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, actual_in_normal), 1), else_=0)),
-        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~actual_in_normal), 1), else_=0))
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, secondary_hit), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~secondary_hit), 1), else_=0))
     ).filter(PredictionRecord.user_id == session['user_id']).one()
 
     total_predictions = stats_row[0] or 0
@@ -943,11 +958,7 @@ def analytics():
     ).filter(
         PredictionRecord.actual_special_number != None,
         PredictionRecord.special_number != PredictionRecord.actual_special_number,
-        db.or_(
-            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-        )
+        _secondary_hit_expr()
     ).count()
     
     accurate_predictions = special_hit_predictions + normal_hit_predictions
@@ -958,11 +969,7 @@ def analytics():
     ).filter(
         PredictionRecord.actual_special_number != None,
         (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-        ~db.or_(
-            PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-            PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-        )
+        ~_secondary_hit_expr()
     ).count()
     
     # 计算不同策略的命中率
@@ -985,22 +992,14 @@ def analytics():
             PredictionRecord.is_result_updated == True,
             PredictionRecord.actual_special_number != None,
             PredictionRecord.special_number != PredictionRecord.actual_special_number,
-            db.or_(
-                PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-            )
+            _secondary_hit_expr()
         ).count()
         
         wrong = query.filter(
             PredictionRecord.is_result_updated == True,
             PredictionRecord.actual_special_number != None,
             (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-            ~db.or_(
-                PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-            )
+            ~_secondary_hit_expr()
         ).count()
         
         correct = special_hit + normal_hit
@@ -1038,22 +1037,14 @@ def analytics():
             PredictionRecord.is_result_updated == True,
             PredictionRecord.actual_special_number != None,
             PredictionRecord.special_number != PredictionRecord.actual_special_number,
-            db.or_(
-                PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-            )
+            _secondary_hit_expr()
         ).count()
         
         wrong = query.filter(
             PredictionRecord.is_result_updated == True,
             PredictionRecord.actual_special_number != None,
             (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-            ~db.or_(
-                PredictionRecord.normal_numbers.contains(',' + db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                PredictionRecord.normal_numbers.startswith(db.cast(PredictionRecord.actual_special_number, db.String) + ','),
-                PredictionRecord.normal_numbers.endswith(',' + db.cast(PredictionRecord.actual_special_number, db.String))
-            )
+            ~_secondary_hit_expr()
         ).count()
         
         correct = special_hit + normal_hit

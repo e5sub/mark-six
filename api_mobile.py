@@ -1148,6 +1148,12 @@ def _prediction_result(record):
     normal_numbers = record.normal_numbers.split(",") if record.normal_numbers else []
     if record.actual_special_number in normal_numbers:
         return "normal_hit"
+    if (
+        record.special_zodiac
+        and record.actual_special_zodiac
+        and record.special_zodiac == record.actual_special_zodiac
+    ):
+        return "normal_hit"
     return "wrong"
 
 
@@ -1182,6 +1188,29 @@ def _resolve_actual_special_zodiac(record, zodiac_map_cache, draw_cache):
         return zodiac_map.get(int(record.actual_special_number), "")
     except (TypeError, ValueError):
         return ""
+
+
+def _mobile_secondary_hit_expr():
+    actual_as_string = db.cast(PredictionRecord.actual_special_number, db.String)
+    actual_in_normal = db.or_(
+        PredictionRecord.normal_numbers.contains(
+            "," + actual_as_string + ","
+        ),
+        PredictionRecord.normal_numbers.startswith(
+            actual_as_string + ","
+        ),
+        PredictionRecord.normal_numbers.endswith(
+            "," + actual_as_string
+        ),
+    )
+    zodiac_hit = db.and_(
+        PredictionRecord.special_zodiac.isnot(None),
+        PredictionRecord.actual_special_zodiac.isnot(None),
+        PredictionRecord.special_zodiac != "",
+        PredictionRecord.actual_special_zodiac != "",
+        PredictionRecord.special_zodiac == PredictionRecord.actual_special_zodiac,
+    )
+    return db.or_(actual_in_normal, zodiac_hit)
 
 
 @mobile_api_bp.route("/predictions", methods=["GET"])
@@ -1219,34 +1248,14 @@ def api_predictions():
                 PredictionRecord.is_result_updated.is_(True),
                 PredictionRecord.actual_special_number.isnot(None),
                 PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                db.or_(
-                    PredictionRecord.normal_numbers.contains(
-                        "," + db.cast(PredictionRecord.actual_special_number, db.String) + ","
-                    ),
-                    PredictionRecord.normal_numbers.startswith(
-                        db.cast(PredictionRecord.actual_special_number, db.String) + ","
-                    ),
-                    PredictionRecord.normal_numbers.endswith(
-                        "," + db.cast(PredictionRecord.actual_special_number, db.String)
-                    ),
-                ),
+                _mobile_secondary_hit_expr(),
             )
         elif result == "wrong":
             query = query.filter(
                 PredictionRecord.is_result_updated.is_(True),
                 PredictionRecord.actual_special_number.isnot(None),
                 PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                ~db.or_(
-                    PredictionRecord.normal_numbers.contains(
-                        "," + db.cast(PredictionRecord.actual_special_number, db.String) + ","
-                    ),
-                    PredictionRecord.normal_numbers.startswith(
-                        db.cast(PredictionRecord.actual_special_number, db.String) + ","
-                    ),
-                    PredictionRecord.normal_numbers.endswith(
-                        "," + db.cast(PredictionRecord.actual_special_number, db.String)
-                    ),
-                ),
+                ~_mobile_secondary_hit_expr(),
             )
         elif result == "pending":
             query = query.filter(PredictionRecord.is_result_updated.is_(False))
@@ -1355,17 +1364,7 @@ def _calculate_accuracy(query):
         (
             db.and_(
                 PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                db.or_(
-                    PredictionRecord.normal_numbers.contains(
-                        "," + db.cast(PredictionRecord.actual_special_number, db.String) + ","
-                    ),
-                    PredictionRecord.normal_numbers.startswith(
-                        db.cast(PredictionRecord.actual_special_number, db.String) + ","
-                    ),
-                    PredictionRecord.normal_numbers.endswith(
-                        "," + db.cast(PredictionRecord.actual_special_number, db.String)
-                    ),
-                ),
+                _mobile_secondary_hit_expr(),
             ),
             1,
         ),

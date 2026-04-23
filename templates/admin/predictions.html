@@ -258,7 +258,8 @@
                         <th>期数</th>
                         <th>平码</th>
                         <th>特码</th>
-                        <th>生肖</th>
+                        <th>预测生肖</th>
+                        <th>开奖生肖</th>
                         <th>准确率</th>
                         <th>预测时间</th>
                         <th class="nowrap-cell">操作</th>
@@ -336,6 +337,13 @@
                             <td>
                                 {% if prediction.display_special_zodiac %}
                                     <span class="zodiac-badge">{{ prediction.display_special_zodiac }}</span>
+                                {% else %}
+                                    <span class="no-data">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if prediction.display_actual_special_zodiac %}
+                                    <span class="zodiac-badge">{{ prediction.display_actual_special_zodiac }}</span>
                                 {% else %}
                                     <span class="no-data">-</span>
                                 {% endif %}

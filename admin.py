@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from functools import wraps
 from models import db, User, ActivationCode, PredictionRecord, SystemConfig, InviteCode, ZodiacSetting, ManualBetRecord
 from datetime import datetime, timedelta
@@ -28,6 +28,48 @@ def admin_required(f):
             flash(f'权限检查失败: {str(e)}', 'error')
             return redirect(url_for('auth.login'))
     return decorated_function
+
+def _strategy_learning_panel_data():
+    from app import _load_strategy_config, _get_strategy_label
+
+    regions = [('hk', '香港'), ('macau', '澳门')]
+    strategies = ['hot', 'cold', 'trend', 'balanced', 'hybrid', 'ml', 'ai']
+    panel = []
+
+    for region_key, region_label in regions:
+        items = []
+        for strategy in strategies:
+            config = _load_strategy_config(strategy, region_key)
+            weights = config.get('weights') or {}
+            weight_items = [
+                {'key': key, 'value': value}
+                for key, value in sorted(weights.items())
+            ]
+            items.append({
+                'key': strategy,
+                'label': _get_strategy_label(strategy),
+                'updated_at': config.get('updated_at', ''),
+                'last_accuracy': round(float(config.get('last_accuracy') or 0.0) * 100, 1),
+                'last_total': int(config.get('last_total') or 0),
+                'accuracy_delta': round(float(config.get('accuracy_delta') or 0.0) * 100, 1),
+                'window': config.get('window'),
+                'trend_window': config.get('trend_window'),
+                'history_window': config.get('history_window'),
+                'feature_window': config.get('feature_window'),
+                'pool': config.get('pool'),
+                'special_pool': config.get('special_pool'),
+                'epochs': config.get('epochs'),
+                'learning_rate': config.get('learning_rate'),
+                'bucket_counts': config.get('bucket_counts') or [],
+                'mix': config.get('mix') or {},
+                'weights': weight_items,
+            })
+        panel.append({
+            'region_key': region_key,
+            'region_label': region_label,
+            'items': items,
+        })
+    return panel
 
 @admin_bp.route('/dashboard')
 @admin_required
@@ -386,87 +428,100 @@ def activation_codes():
 
 # 删除generate_codes函数，因为已经在activation_code_routes.py中实现
 
+SYSTEM_CONFIG_DEFAULTS = {
+    'ai_api_key': '',
+    'ai_api_url': 'https://api.deepseek.com/v1/chat/completions',
+    'ai_model': 'deepseek-chat',
+    'smtp_server': '',
+    'smtp_port': '587',
+    'smtp_username': '',
+    'smtp_password': '',
+    'site_name': '六合彩预测系统',
+    'site_description': '',
+    'invite_daily_limit': '3',
+    'invite_code_validity_days': '7',
+    'system_name': '六合彩预测系统',
+    'system_description': '',
+    'allow_registration': 'true',
+    'require_email_verification': 'false',
+}
+
 @admin_bp.route('/system_config', methods=['GET', 'POST'])
 @admin_required
 def system_config():
     try:
         if request.method == 'POST':
-            # 更新配置
             configs = {
-                'ai_api_key': request.form.get('ai_api_key', ''),
-                'ai_api_url': request.form.get('ai_api_url', 'https://api.deepseek.com/v1/chat/completions'),
-                'ai_model': request.form.get('ai_model', 'deepseek-chat'),
-                'smtp_server': request.form.get('smtp_server', ''),
-                'smtp_port': request.form.get('smtp_port', '587'),
-                'smtp_username': request.form.get('smtp_username', ''),
-                'smtp_password': request.form.get('smtp_password', ''),
-                'site_name': request.form.get('site_name', '六合彩预测系统'),
-                'site_description': request.form.get('site_description', ''),
-                'invite_daily_limit': request.form.get('invite_daily_limit', '3'),
-                'invite_code_validity_days': request.form.get('invite_code_validity_days', '7'),
-                'system_name': request.form.get('system_name', '六合彩预测系统'),
-                'system_description': request.form.get('system_description', ''),
-                'allow_registration': request.form.get('allow_registration', 'false'),
-                'require_email_verification': request.form.get('require_email_verification', 'false'),
+                key: request.form.get(key, default)
+                for key, default in SYSTEM_CONFIG_DEFAULTS.items()
             }
-            
+
             try:
                 for key, value in configs.items():
                     SystemConfig.set_config(key, value)
                 flash('系统配置更新成功', 'success')
             except Exception as e:
                 flash(f'配置更新失败: {str(e)}', 'error')
-            
+
             return redirect(url_for('admin.system_config'))
-        
-        # 获取当前配置
+
         configs = {
-            'ai_api_key': SystemConfig.get_config('ai_api_key', ''),
-            'ai_api_url': SystemConfig.get_config('ai_api_url', 'https://api.deepseek.com/v1/chat/completions'),
-            'ai_model': SystemConfig.get_config('ai_model', 'deepseek-chat'),
-            'smtp_server': SystemConfig.get_config('smtp_server', ''),
-            'smtp_port': SystemConfig.get_config('smtp_port', '587'),
-            'smtp_username': SystemConfig.get_config('smtp_username', ''),
-            'smtp_password': SystemConfig.get_config('smtp_password', ''),
-            'site_name': SystemConfig.get_config('site_name', '六合彩预测系统'),
-            'site_description': SystemConfig.get_config('site_description', ''),
+            key: SystemConfig.get_config(key, default)
+            for key, default in SYSTEM_CONFIG_DEFAULTS.items()
         }
-        
-        return render_template('admin/system_config.html', configs=configs)
+
+        return render_template(
+            'admin/system_config.html',
+            configs=configs,
+            learning_panel=_strategy_learning_panel_data(),
+        )
     except Exception as e:
         flash(f'加载系统配置失败: {str(e)}', 'error')
-        return render_template('admin/system_config.html', configs={
-            'ai_api_key': '',
-            'ai_api_url': 'https://api.deepseek.com/v1/chat/completions',
-            'ai_model': 'deepseek-chat',
-            'smtp_server': '',
-            'smtp_port': '587',
-            'smtp_username': '',
-            'smtp_password': '',
-            'site_name': '六合彩预测系统',
-            'site_description': '',
-            'invite_daily_limit': '3',
-            'invite_code_validity_days': '7',
-            'system_name': '六合彩预测系统',
-            'system_description': '',
-            'allow_registration': 'true',
-            'require_email_verification': 'false',
-        })
+        return render_template(
+            'admin/system_config.html',
+            configs=SYSTEM_CONFIG_DEFAULTS,
+            learning_panel=[],
+        )
 
 @admin_bp.route('/system_config/save', methods=['POST'])
 @admin_required
 def save_system_config():
     try:
-        # 获取JSON数据
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({'success': False, 'message': '无效的数据格式'})
-        
-        # 保存配置
+
         for key, value in data.items():
             SystemConfig.set_config(key, value)
-        
+
         return jsonify({'success': True, 'message': '配置保存成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@admin_bp.route('/system_config/retrain_learning', methods=['POST'])
+@admin_required
+def retrain_learning_configs():
+    try:
+        from app import update_strategy_configs
+
+        payload = request.get_json(silent=True) or {}
+        region = (payload.get('region') or 'all').strip()
+        targets = ['hk', 'macau'] if region in ('', 'all') else [region]
+        allowed = {'hk', 'macau'}
+        targets = [item for item in targets if item in allowed]
+        if not targets:
+            return jsonify({'success': False, 'message': '无效的地区参数'})
+
+        refreshed = []
+        for item in targets:
+            update_strategy_configs(item)
+            refreshed.append(item)
+
+        return jsonify({
+            'success': True,
+            'message': f"已重算 {', '.join(refreshed)} 的学习参数",
+            'learning_panel': _strategy_learning_panel_data(),
+        })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -504,6 +559,23 @@ def predictions():
                         pending_updates.append(pred)
                 except Exception:
                     pred.display_special_zodiac = ''
+
+            pred.display_actual_special_zodiac = (pred.actual_special_zodiac or '').strip()
+            if not pred.display_actual_special_zodiac and pred.actual_special_number:
+                try:
+                    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(
+                        pred.created_at or datetime.now()
+                    )
+                    pred.display_actual_special_zodiac = (
+                        ZodiacSetting.get_zodiac_for_number(
+                            zodiac_year, pred.actual_special_number
+                        ) or ''
+                    ).strip()
+                    if pred.display_actual_special_zodiac:
+                        pred.actual_special_zodiac = pred.display_actual_special_zodiac
+                        pending_updates.append(pred)
+                except Exception:
+                    pred.display_actual_special_zodiac = ''
 
         if pending_updates:
             try:
@@ -1067,4 +1139,5 @@ def reset_zodiac_settings():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': f'重置失败: {str(e)}'})
+
 

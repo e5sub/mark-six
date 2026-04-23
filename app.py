@@ -903,7 +903,7 @@ def _default_strategy_config(strategy):
             "window": 50,
             "pool": 16,
             "special_pool": 10,
-            "weights": {"hot": 1.25, "trend": 0.55, "cold": 0.05, "normal": 0.35, "overdue": 0.15, "feedback": 0.95, "color": 0.18, "zodiac": 0.16},
+            "weights": {"hot": 1.25, "trend": 0.55, "cold": 0.05, "normal": 0.35, "overdue": 0.15, "feedback": 0.95, "color": 0.18, "zodiac": 0.16, "parity": 0.12},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -911,7 +911,7 @@ def _default_strategy_config(strategy):
             "window": 50,
             "pool": 16,
             "special_pool": 10,
-            "weights": {"hot": 0.10, "trend": 0.25, "cold": 1.20, "normal": 0.15, "overdue": 0.95, "feedback": 0.75, "color": 0.15, "zodiac": 0.14},
+            "weights": {"hot": 0.10, "trend": 0.25, "cold": 1.20, "normal": 0.15, "overdue": 0.95, "feedback": 0.75, "color": 0.15, "zodiac": 0.14, "parity": 0.10},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -919,7 +919,7 @@ def _default_strategy_config(strategy):
             "window": 15,
             "pool": 18,
             "special_pool": 10,
-            "weights": {"hot": 0.55, "trend": 1.30, "cold": 0.05, "normal": 0.40, "overdue": 0.12, "feedback": 0.90, "color": 0.18, "zodiac": 0.18},
+            "weights": {"hot": 0.55, "trend": 1.30, "cold": 0.05, "normal": 0.40, "overdue": 0.12, "feedback": 0.90, "color": 0.18, "zodiac": 0.18, "parity": 0.12},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -928,7 +928,7 @@ def _default_strategy_config(strategy):
             "pool": 16,
             "special_pool": 10,
             "bucket_counts": [2, 2, 2],
-            "weights": {"hot": 0.55, "trend": 0.55, "cold": 0.45, "normal": 0.45, "overdue": 0.35, "feedback": 0.95, "color": 0.20, "zodiac": 0.20},
+            "weights": {"hot": 0.55, "trend": 0.55, "cold": 0.45, "normal": 0.45, "overdue": 0.35, "feedback": 0.95, "color": 0.20, "zodiac": 0.20, "parity": 0.14},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -938,7 +938,7 @@ def _default_strategy_config(strategy):
             "special_pool": 10,
             "trend_window": 15,
             "mix": {"hot": 2, "cold": 2, "trend": 2},
-            "weights": {"hot": 0.85, "trend": 0.85, "cold": 0.70, "normal": 0.40, "overdue": 0.35, "feedback": 1.05, "color": 0.22, "zodiac": 0.22},
+            "weights": {"hot": 0.85, "trend": 0.85, "cold": 0.70, "normal": 0.40, "overdue": 0.35, "feedback": 1.05, "color": 0.22, "zodiac": 0.22, "parity": 0.16},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -1006,6 +1006,21 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
             normal_numbers = [n.strip() for n in pred.normal_numbers.split(',') if n.strip()]
             if actual in normal_numbers:
                 correct += 1
+                continue
+        actual_zodiac = str(pred.actual_special_zodiac or "").strip()
+        predicted_zodiac = str(pred.special_zodiac or "").strip()
+        if actual_zodiac and predicted_zodiac and actual_zodiac == predicted_zodiac:
+            correct += 1
+            continue
+        actual_color = _get_color_zh(actual)
+        predicted_color = _get_color_zh(pred.special_number)
+        if actual_color and predicted_color and actual_color == predicted_color:
+            correct += 1
+            continue
+        actual_parity = _get_parity_zh(actual)
+        predicted_parity = _get_parity_zh(pred.special_number)
+        if actual_parity and predicted_parity and actual_parity == predicted_parity:
+            correct += 1
     total = len(predictions)
     return (correct / total) if total else 0.0, total
 
@@ -1126,6 +1141,7 @@ def _tune_strategy_config(strategy, region):
         weights["feedback"] = round(_clamp(0.45 + learning_strength * 0.7 + accuracy * 0.3, 0.45, 1.35), 2)
         weights["color"] = round(_clamp(0.10 + accuracy * 0.20, 0.08, 0.35), 2)
         weights["zodiac"] = round(_clamp(0.10 + accuracy * 0.18, 0.08, 0.32), 2)
+        weights["parity"] = round(_clamp(0.08 + accuracy * 0.14, 0.06, 0.24), 2)
         if strategy == "cold":
             weights["overdue"] = round(_clamp(0.70 + (1 - accuracy) * 0.35, 0.65, 1.20), 2)
         elif strategy == "trend":
@@ -1136,6 +1152,7 @@ def _tune_strategy_config(strategy, region):
             weights["cold"] = round(_clamp(0.30 + (1 - accuracy) * 0.20, 0.25, 0.60), 2)
         elif strategy == "hybrid":
             weights["feedback"] = round(_clamp(weights["feedback"] + 0.10, 0.5, 1.45), 2)
+            weights["parity"] = round(_clamp(weights["parity"] + 0.03, 0.08, 0.26), 2)
         config["weights"] = weights
 
     _save_strategy_config(strategy, region, config)
@@ -1254,6 +1271,23 @@ def analyze_special_color_frequency(data, region):
                 continue
     return Counter(c for c in colors if c)
 
+def _get_parity_zh(number):
+    try:
+        return '双' if int(number) % 2 == 0 else '单'
+    except (TypeError, ValueError):
+        return ''
+
+def analyze_special_parity_frequency(data):
+    parities = []
+    for r in data:
+        sno = r.get('sno')
+        if not sno:
+            continue
+        parity = _get_parity_zh(sno)
+        if parity:
+            parities.append(parity)
+    return Counter(parities)
+
 def _infer_draw_year(data):
     for record in data or []:
         raw_date = str(record.get("date", "")).strip()
@@ -1331,15 +1365,25 @@ def _build_prediction_feedback(region, strategy, limit=240):
     normal_scores = Counter()
     color_scores = Counter()
     zodiac_scores = Counter()
+    parity_scores = Counter()
 
     for idx, pred in enumerate(predictions):
         recency_weight = max(0.2, 1.0 - (idx / max(limit, 1)) * 0.75)
         actual = str(pred.actual_special_number or "").strip()
         special = str(pred.special_number or "").strip()
+        predicted_zodiac = str(pred.special_zodiac or "").strip()
         normal_numbers = [n for n in _parse_csv_list(pred.normal_numbers) if n]
 
         actual_color = _get_color_zh(actual)
         actual_zodiac = str(pred.actual_special_zodiac or "").strip()
+        actual_parity = _get_parity_zh(actual)
+        predicted_parity = _get_parity_zh(special)
+        zodiac_hit = bool(
+            predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac
+        )
+        parity_hit = bool(
+            predicted_parity and actual_parity and predicted_parity == actual_parity
+        )
 
         if special and actual and special == actual:
             special_scores[special] += 2.4 * recency_weight
@@ -1348,6 +1392,8 @@ def _build_prediction_feedback(region, strategy, limit=240):
                 color_scores[actual_color] += 1.6 * recency_weight
             if actual_zodiac:
                 zodiac_scores[actual_zodiac] += 1.6 * recency_weight
+            if actual_parity:
+                parity_scores[actual_parity] += 1.35 * recency_weight
         elif actual and actual in normal_numbers:
             normal_scores[actual] += 1.4 * recency_weight
             if special:
@@ -1356,11 +1402,37 @@ def _build_prediction_feedback(region, strategy, limit=240):
                 color_scores[actual_color] += 1.0 * recency_weight
             if actual_zodiac:
                 zodiac_scores[actual_zodiac] += 1.0 * recency_weight
+            if zodiac_hit:
+                zodiac_scores[actual_zodiac] += 0.55 * recency_weight
+            if actual_parity:
+                parity_scores[actual_parity] += 0.9 * recency_weight
+            if parity_hit:
+                parity_scores[actual_parity] += 0.45 * recency_weight
+        elif zodiac_hit:
+            if special:
+                special_scores[special] += 0.25 * recency_weight
+            if actual_zodiac:
+                zodiac_scores[actual_zodiac] += 1.25 * recency_weight
+            if actual_color:
+                color_scores[actual_color] += 0.35 * recency_weight
+            if actual_parity:
+                parity_scores[actual_parity] += 0.35 * recency_weight
+        elif parity_hit:
+            if special:
+                special_scores[special] += 0.12 * recency_weight
+            if actual_parity:
+                parity_scores[actual_parity] += 1.0 * recency_weight
+            if actual_color:
+                color_scores[actual_color] += 0.18 * recency_weight
         else:
             if special:
                 special_scores[special] -= 0.95 * recency_weight
             for number in normal_numbers:
                 normal_scores[number] -= 0.18 * recency_weight
+            if predicted_zodiac:
+                zodiac_scores[predicted_zodiac] -= 0.4 * recency_weight
+            if predicted_parity:
+                parity_scores[predicted_parity] -= 0.28 * recency_weight
 
     confidence = _feedback_confidence(len(predictions))
 
@@ -1369,6 +1441,7 @@ def _build_prediction_feedback(region, strategy, limit=240):
         "normal": _normalize_signed_metric_map({str(i): normal_scores.get(str(i), 0.0) for i in range(1, 50)}),
         "color": _normalize_signed_metric_map({color: color_scores.get(color, 0.0) for color in ("红", "蓝", "绿")}),
         "zodiac": _normalize_signed_metric_map(dict(zodiac_scores)),
+        "parity": _normalize_signed_metric_map({parity: parity_scores.get(parity, 0.0) for parity in ("单", "双")}),
         "samples": len(predictions),
         "confidence": confidence,
     }
@@ -1376,11 +1449,14 @@ def _build_prediction_feedback(region, strategy, limit=240):
 def _build_attribute_preferences(data, region, feedback, year):
     color_counter = analyze_special_color_frequency(data, region)
     zodiac_counter = analyze_special_zodiac_frequency(data, region, year)
+    parity_counter = analyze_special_parity_frequency(data)
     color_scores = _normalize_metric_map({color: color_counter.get(color, 0) for color in ("红", "蓝", "绿")})
     zodiac_scores = _normalize_metric_map(dict(zodiac_counter))
+    parity_scores = _normalize_metric_map({parity: parity_counter.get(parity, 0) for parity in ("单", "双")})
 
     feedback_color = feedback.get("color") or {}
     feedback_zodiac = feedback.get("zodiac") or {}
+    feedback_parity = feedback.get("parity") or {}
     feedback_confidence = float(feedback.get("confidence") or 0.0)
     feedback_weight = round(0.15 + 0.35 * feedback_confidence, 4)
     history_weight = round(1.0 - feedback_weight, 4)
@@ -1401,7 +1477,16 @@ def _build_attribute_preferences(data, region, feedback, year):
         )
         for zodiac in zodiac_keys
     }
-    return merged_color, merged_zodiac
+    parity_keys = set(parity_scores) | set(feedback_parity)
+    merged_parity = {
+        parity: round(
+            parity_scores.get(parity, 0.0) * history_weight +
+            max(0.0, (feedback_parity.get(parity, 0.5) - 0.5) * 2) * feedback_weight,
+            4
+        )
+        for parity in parity_keys
+    }
+    return merged_color, merged_zodiac, merged_parity
 
 def _rank_numbers(number_scores, candidates=None, exclude=None):
     exclude_set = {int(num) for num in (exclude or [])}
@@ -1451,7 +1536,7 @@ def _build_ai_learning_context(data, region, history_window=10):
     recent_data = data[:history_window]
     year = _infer_draw_year(recent_data or data)
     feedback = _build_prediction_feedback(region, "ai")
-    color_pref, zodiac_pref = _build_attribute_preferences(recent_data or data, region, feedback, year)
+    color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(recent_data or data, region, feedback, year)
     recommended_strategy = _get_recommended_strategy(region)
     backtest_lines = []
     for strategy in ("hot", "cold", "trend", "hybrid", "balanced", "ml"):
@@ -1473,6 +1558,7 @@ def _build_ai_learning_context(data, region, history_window=10):
     )[:8]
     top_colors = sorted(color_pref.items(), key=lambda item: item[1], reverse=True)[:3]
     top_zodiacs = sorted(zodiac_pref.items(), key=lambda item: item[1], reverse=True)[:4]
+    top_parities = sorted(parity_pref.items(), key=lambda item: item[1], reverse=True)[:2]
 
     lines = [
         "历史学习反馈摘要：",
@@ -1481,6 +1567,7 @@ def _build_ai_learning_context(data, region, history_window=10):
         f"- 历史反馈更偏好的特码候选：{', '.join(map(str, top_special_numbers)) if top_special_numbers else '暂无'}",
         f"- 历史反馈更偏好的平码候选：{', '.join(map(str, top_normal_numbers)) if top_normal_numbers else '暂无'}",
         f"- 历史反馈更偏好的波色：{'、'.join([f'{name}({round(score * 100, 1)}%)' for name, score in top_colors]) if top_colors else '暂无'}",
+        f"- 历史反馈更偏好的单双：{'、'.join([f'{name}({round(score * 100, 1)}%)' for name, score in top_parities]) if top_parities else '暂无'}",
         f"- 历史反馈更偏好的生肖：{'、'.join([f'{name}({round(score * 100, 1)}%)' for name, score in top_zodiacs]) if top_zodiacs else '暂无'}",
         "各策略近期回测表现：",
         *backtest_lines,
@@ -1506,8 +1593,10 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
     overdue = _normalize_metric_map(_build_overdue_scores(long_data))
     year = _infer_draw_year(history)
     number_to_zodiac = _get_number_to_zodiac_map(year)
-    color_pref = _normalize_metric_map(analyze_special_color_frequency(long_data, region))
-    zodiac_pref = _normalize_metric_map(analyze_special_zodiac_frequency(long_data, region, year))
+    feedback = _build_prediction_feedback(region, "ml")
+    color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
+        long_data, region, feedback, year
+    )
     recent_specials = {
         str(item.get("sno"))
         for item in short_data[:5]
@@ -1526,6 +1615,7 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
             1.0 if key in recent_specials else 0.0,
             color_pref.get(_get_color_zh(number), 0.0),
             zodiac_pref.get(number_to_zodiac.get(key, ""), 0.0),
+            parity_pref.get(_get_parity_zh(number), 0.0),
         ]
     return features
 
@@ -1539,7 +1629,7 @@ def _train_ml_number_model(data, region, config):
     recent_desc = list(data or [])[:history_window + feature_window]
     chronological = list(reversed(recent_desc))
     min_history = min(24, max(12, feature_window // 2))
-    weights = [0.0] * 8
+    weights = [0.0] * 9
     bias = 0.0
     sample_count = 0
 
@@ -1631,7 +1721,7 @@ def _predict_with_ml(data, region):
     number_to_zodiac = _get_number_to_zodiac_map(year)
     recommendation_text = (
         f"机器学习原型已基于最近{model.get('history_window', 0)}期历史开奖样本训练。"
-        f"训练样本 {model.get('samples', 0)} 条，"
+        f"训练样本 {model.get('samples', 0)} 条，并融合了号码、波色、单双、生肖与历史命中反馈，"
         f"推荐平码 {', '.join(map(str, normal))}，特码 {special_num}，"
         f"模型评分约 {special_probability}% 。"
     )
@@ -1691,7 +1781,7 @@ def get_local_recommendations(strategy, data, region):
             year = _infer_draw_year(recent_data)
             number_to_zodiac = _get_number_to_zodiac_map(year)
             feedback = _build_prediction_feedback(region, strategy)
-            color_pref, zodiac_pref = _build_attribute_preferences(recent_data, region, feedback, year)
+            color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(recent_data, region, feedback, year)
             feedback_confidence = float(feedback.get("confidence") or 0.0)
 
             weights = config.get("weights") or {}
@@ -1699,9 +1789,11 @@ def get_local_recommendations(strategy, data, region):
             def attribute_score(number):
                 color_score = color_pref.get(_get_color_zh(number), 0.0)
                 zodiac_score = zodiac_pref.get(number_to_zodiac.get(str(number), ""), 0.0)
+                parity_score = parity_pref.get(_get_parity_zh(number), 0.0)
                 return (
                     float(weights.get("color", 0.0)) * color_score +
-                    float(weights.get("zodiac", 0.0)) * zodiac_score
+                    float(weights.get("zodiac", 0.0)) * zodiac_score +
+                    float(weights.get("parity", 0.0)) * parity_score
                 )
 
             number_scores = {}
@@ -2180,17 +2272,21 @@ def update_prediction_accuracy(data, region):
             # 特码号码是否命中
             special_hit = 1 if pred_special == result['special'] else 0
             
+            zodiac_hit = 0
+            if pred_zodiac and result['special_zodiac'] and pred_zodiac == result['special_zodiac']:
+                zodiac_hit = 1
+
             # 计算准确率
             accuracy = 0
             
-            # 只有特码命中才算命中
             if special_hit == 1:
                 accuracy = 100
-            # 检查平码是否包含开奖特码
             elif pred.normal_numbers:
                 normal_numbers = pred.normal_numbers.split(',')
                 if result['special'] in normal_numbers:
                     accuracy = 50
+            if accuracy == 0 and zodiac_hit == 1:
+                accuracy = 50
             
             # 更新预测记录
             pred.actual_normal_numbers = ''  # 不再需要保存正码
