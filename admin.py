@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import csv
 import json
 import io
+from collections import OrderedDict
 from sqlalchemy import func, case
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -613,8 +614,37 @@ def predictions():
                 db.session.commit()
             except Exception:
                 db.session.rollback()
-        
-        return render_template('admin/predictions.html', predictions=predictions)
+
+        prediction_groups_map = OrderedDict()
+        for pred in predictions.items:
+            group_key = f"{pred.region}-{pred.period}"
+            if group_key not in prediction_groups_map:
+                prediction_groups_map[group_key] = {
+                    'key': group_key,
+                    'region': pred.region,
+                    'period': pred.period,
+                    'actual_special_number': pred.actual_special_number,
+                    'display_actual_special_zodiac': pred.display_actual_special_zodiac,
+                    'created_at': pred.created_at,
+                    'items': [],
+                }
+
+            group = prediction_groups_map[group_key]
+            if pred.actual_special_number and not group['actual_special_number']:
+                group['actual_special_number'] = pred.actual_special_number
+            if pred.display_actual_special_zodiac and not group['display_actual_special_zodiac']:
+                group['display_actual_special_zodiac'] = pred.display_actual_special_zodiac
+            if pred.created_at and (group['created_at'] is None or pred.created_at > group['created_at']):
+                group['created_at'] = pred.created_at
+            group['items'].append(pred)
+
+        prediction_groups = list(prediction_groups_map.values())
+
+        return render_template(
+            'admin/predictions.html',
+            predictions=predictions,
+            prediction_groups=prediction_groups,
+        )
     except Exception as e:
         flash(f'加载预测记录失败: {str(e)}', 'error')
         # 创建空的分页对象
@@ -631,7 +661,11 @@ def predictions():
                 self.next_num = None
         
         empty_predictions = EmptyPagination()
-        return render_template('admin/predictions.html', predictions=empty_predictions)
+        return render_template(
+            'admin/predictions.html',
+            predictions=empty_predictions,
+            prediction_groups=[],
+        )
 
 @admin_bp.route('/bets')
 @admin_required
