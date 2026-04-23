@@ -479,13 +479,37 @@ def predictions():
             page=page, per_page=20, error_out=False
         )
         
-        # 为预测记录添加用户名
+        pending_updates = []
+        # 为预测记录添加用户名，并兜底补齐缺失生肖
         for pred in predictions.items:
             if pred.user_id:
                 user = User.query.get(pred.user_id)
                 pred.username = user.username if user else '已删除用户'
             else:
                 pred.username = '未知用户'
+
+            pred.display_special_zodiac = (pred.special_zodiac or '').strip()
+            if not pred.display_special_zodiac and pred.special_number:
+                try:
+                    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(
+                        pred.created_at or datetime.now()
+                    )
+                    pred.display_special_zodiac = (
+                        ZodiacSetting.get_zodiac_for_number(
+                            zodiac_year, pred.special_number
+                        ) or ''
+                    ).strip()
+                    if pred.display_special_zodiac:
+                        pred.special_zodiac = pred.display_special_zodiac
+                        pending_updates.append(pred)
+                except Exception:
+                    pred.display_special_zodiac = ''
+
+        if pending_updates:
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
         
         return render_template('admin/predictions.html', predictions=predictions)
     except Exception as e:
