@@ -206,6 +206,11 @@
         gap: 1rem;
     }
 
+    .prediction-grid-single {
+        grid-template-columns: minmax(320px, 760px);
+        justify-content: start;
+    }
+
     .prediction-item {
         border: 1px solid rgba(0, 0, 0, 0.06);
         border-radius: 16px;
@@ -227,17 +232,16 @@
     }
 
     .prediction-line {
-        display: flex;
+        display: grid;
+        grid-template-columns: 88px minmax(0, 1fr);
         align-items: center;
-        justify-content: space-between;
         gap: 0.75rem;
-        flex-wrap: wrap;
     }
 
     .prediction-label {
         font-size: 0.88rem;
         color: #6b7280;
-        min-width: 80px;
+        line-height: 1.5;
     }
 
     .prediction-value {
@@ -245,8 +249,8 @@
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
-        justify-content: flex-end;
-        flex: 1;
+        justify-content: flex-start;
+        min-width: 0;
     }
 
     .prediction-header-tools {
@@ -317,7 +321,7 @@
                 </div>
 
                 <div class="period-card-body">
-                    <div class="prediction-grid">
+                    <div class="prediction-grid {% if group['items']|length == 1 %}prediction-grid-single{% endif %}">
                         {% for prediction in group['items'] %}
                         <div class="prediction-item">
                             <div class="prediction-item-head">

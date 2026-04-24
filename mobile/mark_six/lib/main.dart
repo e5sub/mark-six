@@ -3668,11 +3668,13 @@ class _PredictScreenState extends State<PredictScreen> {
                 builder: (context) {
                   final grouped = <String, List<PredictionItem>>{};
                   final orderedPeriods = <String>[];
+                  final displayPeriods = <String, String>{};
                   for (final item in _predictionRecords) {
                     final groupKey = '${item.region}:${item.period}';
                     if (!grouped.containsKey(groupKey)) {
                       grouped[groupKey] = [];
                       orderedPeriods.add(groupKey);
+                      displayPeriods[groupKey] = item.period;
                     }
                     grouped[groupKey]!.add(item);
                   }
@@ -3683,8 +3685,9 @@ class _PredictScreenState extends State<PredictScreen> {
 
                   return Column(
                     children: [
-                      ...visiblePeriods.map((period) {
-                        final items = grouped[period] ?? [];
+                      ...visiblePeriods.map((periodKey) {
+                        final items = grouped[periodKey] ?? [];
+                        final period = displayPeriods[periodKey] ?? periodKey;
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(12),
