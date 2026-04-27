@@ -3680,20 +3680,6 @@ class _PredictScreenState extends State<PredictScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            actualSpecialNumber.isEmpty
-                ? '开奖结果：未开奖'
-                : inlineSpecialOnly
-                    ? '开奖：$actualSpecialNumber  $actualSpecialZodiac'
-                    : '开奖结果：$actualSpecialNumber  生肖：$actualSpecialZodiac',
-            style: TextStyle(
-              color: actualSpecialNumber.isEmpty
-                  ? Colors.orange
-                  : Colors.grey.shade700,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
         ],
       ),
     );
