@@ -17,6 +17,7 @@ dependencies:
   package_info_plus: ^5.0.1
   open_filex: ^4.4.0
   shared_preferences: ^2.2.2
+  flutter_markdown: ^0.7.3
 
 dev_dependencies:
   flutter_test:

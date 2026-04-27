@@ -2,6 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:dio/dio.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -3378,6 +3379,72 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
+  String get _aiMarkdownText {
+    final streaming = _aiText.trim();
+    if (streaming.isNotEmpty) {
+      return streaming;
+    }
+    return _result?['recommendation_text']?.toString().trim() ?? '';
+  }
+
+  Widget _buildAiMarkdownCard() {
+    final markdownText = _aiMarkdownText;
+    if (markdownText.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: _buildPredictionNumbers(),
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildPredictionNumbers(),
+            const Divider(),
+            MarkdownBody(
+              data: markdownText,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
+                  .copyWith(
+                p: const TextStyle(fontSize: 14, height: 1.6),
+                h1: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                ),
+                h2: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+                h3: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+                blockquote: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontStyle: FontStyle.italic,
+                ),
+                code: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 13,
+                  backgroundColor: Colors.grey.shade200,
+                ),
+                codeblockDecoration: BoxDecoration(
+                  color: const Color(0xFFF5F7FA),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadPredictionRecords() async {
     setState(() => _loadingRecords = true);
     try {
@@ -3849,26 +3916,7 @@ class _PredictScreenState extends State<PredictScreen> {
             Expanded(
               child: ListView(
                 children: [
-                  _aiText.isNotEmpty
-                      ? Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildPredictionNumbers(),
-                                const Divider(),
-                                Text(_aiText),
-                              ],
-                            ),
-                          ),
-                        )
-                      : Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: _buildPredictionNumbers(),
-                          ),
-                        ),
+                  _buildAiMarkdownCard(),
                   const SizedBox(height: 16),
                   _buildPredictionRecordsSection(),
                 ],
