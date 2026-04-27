@@ -3,6 +3,7 @@ from models import db, User, PredictionRecord, SystemConfig, InviteCode
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+from types import SimpleNamespace
 import json
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
@@ -492,13 +493,13 @@ def predictions():
         elif result == 'pending':
             query = query.filter(PredictionRecord.is_result_updated == False)
     
-    predictions = query.order_by(PredictionRecord.created_at.desc()).paginate(
-        page=page, per_page=20, error_out=False
-    )
-
     grouped_predictions = []
     grouped_predictions_map = {}
-    for prediction in predictions.items:
+    all_predictions = query.order_by(
+        PredictionRecord.created_at.desc()
+    ).all()
+
+    for prediction in all_predictions:
         prediction.display_actual_special_zodiac = (
             prediction.actual_special_zodiac or ''
         ).strip()
@@ -531,6 +532,30 @@ def predictions():
             grouped_predictions_map[period_key] = group
             grouped_predictions.append(group)
         grouped_predictions_map[period_key]['list'].append(prediction)
+
+    groups_per_page = 20
+    total_groups = len(grouped_predictions)
+    total_pages = max(1, (total_groups + groups_per_page - 1) // groups_per_page)
+    current_page = min(max(page, 1), total_pages)
+    start_index = (current_page - 1) * groups_per_page
+    end_index = start_index + groups_per_page
+    paged_grouped_predictions = grouped_predictions[start_index:end_index]
+    paged_items = [
+        prediction
+        for group in paged_grouped_predictions
+        for prediction in group['list']
+    ]
+    predictions = SimpleNamespace(
+        items=paged_items,
+        page=current_page,
+        per_page=groups_per_page,
+        total=total_groups,
+        pages=total_pages,
+        has_prev=current_page > 1,
+        has_next=current_page < total_pages,
+        prev_num=current_page - 1 if current_page > 1 else None,
+        next_num=current_page + 1 if current_page < total_pages else None,
+    )
 
     try:
         from models import ZodiacSetting
@@ -573,7 +598,7 @@ def predictions():
     return render_template('user/predictions.html', 
                           user=user,
                           predictions=predictions,
-                          grouped_predictions=grouped_predictions,
+                          grouped_predictions=paged_grouped_predictions,
                           region=region, 
                           period=period, 
                           zodiac=zodiac,
