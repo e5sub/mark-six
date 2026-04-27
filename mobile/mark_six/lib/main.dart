@@ -3755,6 +3755,17 @@ class _PredictScreenState extends State<PredictScreen> {
                       ...visiblePeriods.map((periodKey) {
                         final items = grouped[periodKey] ?? [];
                         final period = displayPeriods[periodKey] ?? periodKey;
+                        final firstItem =
+                            items.isNotEmpty ? items.first : null;
+                        final actualSpecialNumber =
+                            firstItem?.actualSpecialNumber ?? '';
+                        final actualSpecialZodiac =
+                            firstItem?.actualSpecialZodiac ?? '';
+                        final periodHeaderText = actualSpecialNumber.isEmpty
+                            ? '期号：$period'
+                            : actualSpecialZodiac.isNotEmpty
+                                ? '期号：$period  开奖结果：$actualSpecialNumber  生肖：$actualSpecialZodiac'
+                                : '期号：$period  开奖结果：$actualSpecialNumber';
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(12),
@@ -3764,12 +3775,12 @@ class _PredictScreenState extends State<PredictScreen> {
                             border: Border.all(
                               color: const Color(0xFFE2E8F0),
                             ),
-                          ),
+                            ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '期号：$period',
+                                periodHeaderText,
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
