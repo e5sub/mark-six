@@ -533,7 +533,7 @@ def predictions():
             grouped_predictions.append(group)
         grouped_predictions_map[period_key]['list'].append(prediction)
 
-    groups_per_page = 20
+    groups_per_page = 4
     total_groups = len(grouped_predictions)
     total_pages = max(1, (total_groups + groups_per_page - 1) // groups_per_page)
     current_page = min(max(page, 1), total_pages)
