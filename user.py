@@ -1,6 +1,7 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from models import db, User, PredictionRecord, SystemConfig, InviteCode
 from sqlalchemy import func, case
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 import json
 
@@ -22,9 +23,24 @@ STRATEGY_META.insert(0, {"key": "smart", "label": "智能优选", "icon": "🧠"
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
 AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
 LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
+SMART_STRATEGY_PREFIX = '智能优选（本期采用：'
 
 def _strategy_label_map():
     return {item["key"]: item["label"] for item in STRATEGY_META}
+
+def _get_prediction_display_info(prediction):
+    raw_text = (prediction.prediction_text or '').strip()
+    if raw_text.startswith(SMART_STRATEGY_PREFIX):
+        first_line = raw_text.splitlines()[0].strip()
+        if first_line:
+            return {
+                "key": "smart",
+                "label": first_line
+            }
+    return {
+        "key": prediction.strategy,
+        "label": _strategy_label_map().get(prediction.strategy, prediction.strategy)
+    }
 
 def _strategy_config(region, strategy):
     raw = SystemConfig.get_config(f"strategy_config_{region}_{strategy}", "")

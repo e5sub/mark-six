@@ -146,6 +146,16 @@ class ActivationCode(db.Model):
         return f'<ActivationCode {self.code}>'
 
 class PredictionRecord(db.Model):
+    __table_args__ = (
+        db.UniqueConstraint(
+            'user_id',
+            'region',
+            'period',
+            'strategy',
+            name='uq_prediction_record_user_region_period_strategy'
+        ),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     region = db.Column(db.String(10), nullable=False)  # 'hk' 或 'macau'
