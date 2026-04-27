@@ -235,11 +235,7 @@
 
     {% if predictions and predictions.items %}
     <div class="predictions-list{% if not user.show_normal_numbers %} no-normal-layout{% endif %}">
-        {% set display_count = 4 %}
-        {% set visible_groups = grouped_predictions[:display_count] %}
-        {% set hidden_groups = grouped_predictions[display_count:] %}
-
-        {% for period_group in visible_groups %}
+        {% for period_group in grouped_predictions %}
             {% if not user.show_normal_numbers %}
             {{ render_period_comparison_group(period_group) }}
             {% else %}
@@ -248,24 +244,6 @@
                 {% endfor %}
             {% endif %}
         {% endfor %}
-
-        {% if hidden_groups %}
-        <div class="show-more-container">
-            <button id="show-all-btn" class="btn btn-primary">显示更多</button>
-        </div>
-
-        <div id="hidden-predictions" style="display: none;">
-            {% for period_group in hidden_groups %}
-                {% if not user.show_normal_numbers %}
-                {{ render_period_comparison_group(period_group) }}
-                {% else %}
-                    {% for prediction in period_group.list %}
-                    {{ render_prediction_card(prediction) }}
-                    {% endfor %}
-                {% endif %}
-            {% endfor %}
-        </div>
-        {% endif %}
     </div>
     {% else %}
     <div class="empty-state">
@@ -968,27 +946,6 @@
 
 .help-card li { margin-bottom: 0.5rem; }
 
-.show-more-container {
-    display: flex;
-    justify-content: center;
-    margin: 1.5rem 0;
-}
-
-#show-all-btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 0.75rem 2rem;
-    border-radius: 12px;
-    font-weight: 600;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
-}
-
-#show-all-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
-}
-
 @keyframes glow-compact {
     from { box-shadow: 0 0 12px rgba(255, 215, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.12); }
     to { box-shadow: 0 0 18px rgba(255, 215, 0, 0.7), 0 3px 8px rgba(0, 0, 0, 0.18); }
@@ -1155,21 +1112,6 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const showAllBtn = document.getElementById('show-all-btn');
-    if (showAllBtn) {
-        showAllBtn.addEventListener('click', function() {
-            const hiddenPredictions = document.getElementById('hidden-predictions');
-            if (hiddenPredictions) {
-                const predictionsList = document.querySelector('.predictions-list');
-                Array.from(hiddenPredictions.children).forEach(node => {
-                    predictionsList.insertBefore(node, hiddenPredictions);
-                });
-                document.querySelector('.show-more-container').style.display = 'none';
-                hiddenPredictions.style.display = 'none';
-            }
-        });
-    }
-
     document.querySelectorAll('.clickable-stat').forEach(stat => {
         stat.addEventListener('click', function() {
             const filterType = this.getAttribute('data-filter');

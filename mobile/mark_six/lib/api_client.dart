@@ -141,7 +141,14 @@ class ApiClient {
         'year': year,
         'stream': '1',
       },
-      options: Options(responseType: ResponseType.stream),
+      options: Options(
+        responseType: ResponseType.stream,
+        receiveTimeout: const Duration(minutes: 2),
+        headers: {
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        },
+      ),
     );
 
     if (response.statusCode != 200) {
@@ -170,8 +177,7 @@ class ApiClient {
     await for (final chunk in _splitByDoubleNewline(textStream)) {
       final trimmed = chunk.trim();
       if (trimmed.isEmpty) continue;
-      final payload =
-          trimmed.startsWith('data:') ? trimmed.substring(5).trim() : trimmed;
+      final payload = _extractSsePayload(trimmed);
       if (payload.isEmpty) continue;
       try {
         yield _ensureJsonMap(jsonDecode(payload) as Map<String, dynamic>);
@@ -337,10 +343,16 @@ class ApiClient {
     await for (final chunk in source) {
       buffer += chunk;
       while (true) {
-        final index = buffer.indexOf('\n\n');
+        var delimiterLength = 2;
+        var index = buffer.indexOf('\r\n\r\n');
+        if (index != -1) {
+          delimiterLength = 4;
+        } else {
+          index = buffer.indexOf('\n\n');
+        }
         if (index == -1) break;
         final part = buffer.substring(0, index);
-        buffer = buffer.substring(index + 2);
+        buffer = buffer.substring(index + delimiterLength);
         if (part.isNotEmpty) {
           yield part;
         }
@@ -349,5 +361,18 @@ class ApiClient {
     if (buffer.trim().isNotEmpty) {
       yield buffer;
     }
+  }
+
+  String _extractSsePayload(String chunk) {
+    if (!chunk.contains('data:')) {
+      return chunk;
+    }
+    final payloadLines = <String>[];
+    for (final line in chunk.split(RegExp(r'\r?\n'))) {
+      if (line.startsWith('data:')) {
+        payloadLines.add(line.substring(5).trimLeft());
+      }
+    }
+    return payloadLines.join('\n').trim();
   }
 }

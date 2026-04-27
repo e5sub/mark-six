@@ -2397,6 +2397,10 @@ def generate_prediction_for_user(user, region, period, strategy, data):
 def unified_predict_api():
     region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
     stream_response = request.args.get('stream') == '1'
+
+    def _sse_event(payload):
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
     data = get_yearly_data(region, year)
     if not data: return jsonify({"error": f"无法加载{year}年的数据"}), 404
     resolved_strategy = _get_recommended_strategy(region).get("strategy", "hybrid") if strategy == 'smart' else strategy
@@ -2454,8 +2458,12 @@ def unified_predict_api():
                     **result
                 }
                 def generate_existing():
-                    yield json.dumps(payload, ensure_ascii=False) + "\n\n"
-                return Response(stream_with_context(generate_existing()), mimetype='text/event-stream')
+                    yield _sse_event(payload)
+                return Response(
+                    stream_with_context(generate_existing()),
+                    mimetype='text/event-stream',
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+                )
             return jsonify(result)
     
     # 生成新的预测
@@ -2464,7 +2472,7 @@ def unified_predict_api():
             def generate_stream():
                 ai_config = get_ai_config()
                 if not ai_config['api_key'] or "你的" in ai_config['api_key']:
-                    yield json.dumps({"type": "error", "error": "AI API Key 未配置"}, ensure_ascii=False) + "\n\n"
+                    yield _sse_event({"type": "error", "error": "AI API Key 未配置"})
                     return
                 tuned = _load_strategy_config("ai", region)
                 history_window = int(tuned.get("history_window") or 10)
@@ -2474,25 +2482,25 @@ def unified_predict_api():
                 try:
                     for chunk in _iter_ai_stream(ai_config, prompt, temperature=temperature):
                         full_text += chunk
-                        yield json.dumps({
+                        yield _sse_event({
                             "type": "content",
                             "content": chunk,
                             "full_text": full_text
-                        }, ensure_ascii=False) + "\n\n"
+                        })
                 except Exception as e:
-                    yield json.dumps({"type": "error", "error": f"调用AI API时出错: {e}"}, ensure_ascii=False) + "\n\n"
+                    yield _sse_event({"type": "error", "error": f"调用AI API时出错: {e}"})
                     return
 
                 if not full_text:
                     fallback = predict_with_ai(data, region)
                     if fallback.get("error"):
-                        yield json.dumps({"type": "error", "error": fallback.get("error")}, ensure_ascii=False) + "\n\n"
+                        yield _sse_event({"type": "error", "error": fallback.get("error")})
                         return
                     result = fallback
                 else:
                     result, error = _finalize_ai_result(full_text)
                     if error:
-                        yield json.dumps({"type": "error", "error": error}, ensure_ascii=False) + "\n\n"
+                        yield _sse_event({"type": "error", "error": error})
                         return
 
                 result.update({
@@ -2527,9 +2535,13 @@ def unified_predict_api():
                         result["saved"] = False
                         result["save_error"] = str(e)
 
-                yield json.dumps(result, ensure_ascii=False) + "\n\n"
+                yield _sse_event(result)
 
-            return Response(stream_with_context(generate_stream()), mimetype='text/event-stream')
+            return Response(
+                stream_with_context(generate_stream()),
+                mimetype='text/event-stream',
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+            )
 
         result = predict_with_ai(data, region)
         # 检查AI预测是否失败
