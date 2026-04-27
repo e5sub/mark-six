@@ -107,6 +107,7 @@ function handleStreamingResponse(response, strategy) {
     const decoder = new TextDecoder();
     let fullText = '';
     let finalResult = null;
+    let buffer = '';
 
     // 显示预测结果容器，准备接收流式内容
     const predictionResult = document.getElementById('predictionResult');
@@ -128,9 +129,99 @@ function handleStreamingResponse(response, strategy) {
 
     const streamingText = document.getElementById('streamingText');
 
+    function extractSsePayload(eventText) {
+        if (!eventText.includes('data:')) {
+            return eventText.trim();
+        }
+
+        return eventText
+            .split(/\r?\n/)
+            .filter(line => line.startsWith('data:'))
+            .map(line => line.substring(5).trimStart())
+            .join('\n')
+            .trim();
+    }
+
+    function processEvent(rawEvent) {
+        const payload = extractSsePayload(rawEvent);
+        if (!payload) {
+            return null;
+        }
+
+        try {
+            const data = JSON.parse(payload);
+
+            if (data.type === 'content') {
+                fullText = data.full_text || `${fullText}${data.content || ''}`;
+                streamingText.textContent = fullText;
+                streamingText.scrollTop = streamingText.scrollHeight;
+                return null;
+            }
+
+            if (data.type === 'done') {
+                finalResult = data;
+
+                if (data.normal && data.normal.length > 0) {
+                    const numbers = [...data.normal];
+                    if (data.special && data.special.number) {
+                        numbers.push(data.special.number);
+                    }
+
+                    const selectedRegion = document.querySelector('.region-btn.active').dataset.region;
+                    const selectedYear = new Date().getFullYear();
+
+                    return fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${selectedRegion}&year=${selectedYear}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`获取生肖数据失败: ${response.status}`);
+                            }
+                            return response.json();
+                        })
+                        .then(zodiacData => {
+                            finalResult.normal_zodiacs = zodiacData.normal_zodiacs;
+                            if (finalResult.special) {
+                                finalResult.special.sno_zodiac = zodiacData.special_zodiac;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('获取生肖数据失败:', error);
+                        })
+                        .then(() => {
+                            if (!finalResult.saved) {
+                                savePredictionRecord(finalResult);
+                            }
+                        });
+                }
+
+                if (!finalResult.saved) {
+                    savePredictionRecord(finalResult);
+                }
+                return null;
+            }
+
+            if (data.type === 'error') {
+                document.getElementById('predictionIndicator').style.display = 'none';
+                streamingText.innerHTML = `
+                    <div style="background: rgba(220, 53, 69, 0.1); padding: 15px; border-radius: 10px; text-align: center; color: #dc3545;">
+                        <i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                        <p>${data.error}</p>
+                    </div>
+                `;
+            }
+        } catch (e) {
+            console.error('解析SSE事件失败:', e, 'Payload:', payload);
+        }
+
+        return null;
+    }
+
     function read() {
         return reader.read().then(({ done, value }) => {
             if (done) {
+                if (buffer.trim()) {
+                    processEvent(buffer);
+                    buffer = '';
+                }
                 // 流式传输完成，隐藏加载指示器
                 document.getElementById('predictionIndicator').style.display = 'none';
 
@@ -141,76 +232,16 @@ function handleStreamingResponse(response, strategy) {
                 return;
             }
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n\n');
+            buffer += decoder.decode(value, { stream: true });
+            const normalizedBuffer = buffer.replace(/\r\n/g, '\n');
+            const events = normalizedBuffer.split('\n\n');
+            buffer = events.pop() || '';
 
-            for (const line of lines) {
-                if (!line.trim()) continue;
-
-                try {
-                    const data = JSON.parse(line);
-
-                    if (data.type === 'content') {
-                        // 更新流式文本
-                        fullText = data.full_text;
-                        streamingText.textContent = fullText;
-                        // 自动滚动到底部
-                        streamingText.scrollTop = streamingText.scrollHeight;
-                    } else if (data.type === 'done') {
-                        // 保存最终结果
-                        finalResult = data;
-
-                        // 获取生肖数据
-                        if (data.normal && data.normal.length > 0) {
-                            const numbers = [...data.normal];
-                            if (data.special && data.special.number) {
-                                numbers.push(data.special.number);
-                            }
-
-                            const selectedRegion = document.querySelector('.region-btn.active').dataset.region;
-                            const selectedYear = new Date().getFullYear();
-
-                            return fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${selectedRegion}&year=${selectedYear}`)
-                                .then(response => {
-                                    if (!response.ok) {
-                                        throw new Error(`获取生肖数据失败: ${response.status}`);
-                                    }
-                                    return response.json();
-                                })
-                                .then(zodiacData => {
-                                    finalResult.normal_zodiacs = zodiacData.normal_zodiacs;
-                                    if (finalResult.special) {
-                                        finalResult.special.sno_zodiac = zodiacData.special_zodiac;
-                                    }
-                                })
-                                .catch(error => {
-                                    console.error('获取生肖数据失败:', error);
-                                })
-                                .then(() => {
-                                    if (!finalResult.saved) {
-                                        savePredictionRecord(finalResult);
-                                    }
-                                    return read();
-                                });
-                        } else {
-                            if (!finalResult.saved) {
-                                savePredictionRecord(finalResult);
-                            }
-                            return read();
-                        }
-                    } else if (data.type === 'error') {
-                        // 错误处理
-                        document.getElementById('predictionIndicator').style.display = 'none';
-                        streamingText.innerHTML = `
-                            <div style="background: rgba(220, 53, 69, 0.1); padding: 15px; border-radius: 10px; text-align: center; color: #dc3545;">
-                                <i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 10px;"></i>
-                                <p>${data.error}</p>
-                            </div>
-                        `;
-                        return;
-                    }
-                } catch (e) {
-                    console.error('解析JSON失败:', e, 'Line:', line);
+            for (const eventText of events) {
+                if (!eventText.trim()) continue;
+                const pending = processEvent(eventText);
+                if (pending) {
+                    return pending.then(() => read());
                 }
             }
 
