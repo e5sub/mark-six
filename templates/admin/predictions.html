@@ -481,7 +481,7 @@
                             <td class="time-badge">
                                 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '' }}
                             </td>
-                            <td>
+                            <td style="white-space: nowrap;">
                                 <form method="POST" action="{{ url_for('admin.delete_prediction', prediction_id=prediction.id) }}" style="display:inline;" onsubmit="return confirm('确定删除?')">
                                     <button type="submit" class="btn btn-danger btn-sm">删除</button>
                                 </form>
