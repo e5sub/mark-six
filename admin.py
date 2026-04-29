@@ -576,39 +576,73 @@ def predictions():
             page=page, per_page=20, error_out=False
         )
 
-        strategy_pairs = {
-            (pred.region, pred.strategy)
+        regions = {
+            pred.region
             for pred in predictions.items
-            if pred.region and pred.strategy
+            if pred.region
         }
 
-        prediction_progress = {}
-        for region, strategy in strategy_pairs:
+        prediction_summary_cards = []
+        for region in regions:
             history_records = PredictionRecord.query.filter_by(
-                region=region,
-                strategy=strategy
+                region=region
             ).order_by(PredictionRecord.created_at.asc(), PredictionRecord.id.asc()).all()
 
-            total_special_hits = 0
-            consecutive_special_misses = 0
+            period_results = OrderedDict()
 
             for record in history_records:
+                period_key = record.period
+                if period_key not in period_results:
+                    period_results[period_key] = {
+                        'has_result': False,
+                        'is_hit': False,
+                    }
+
                 if (
                     record.is_result_updated
                     and record.special_number
                     and record.actual_special_number
                 ):
+                    period_results[period_key]['has_result'] = True
                     if str(record.special_number).strip() == str(record.actual_special_number).strip():
-                        total_special_hits += 1
-                        consecutive_special_misses = 0
-                    else:
-                        consecutive_special_misses += 1
+                        period_results[period_key]['is_hit'] = True
 
-                prediction_progress[record.id] = {
-                    'hit_periods': total_special_hits,
-                    'miss_streak': consecutive_special_misses,
-                    'strategy_label': PREDICTION_STRATEGY_LABELS.get(strategy, strategy),
-                }
+            total_special_hits = 0
+            consecutive_special_misses = 0
+            consecutive_special_hits = 0
+            max_consecutive_special_hits = 0
+            max_consecutive_special_misses = 0
+            resolved_periods = 0
+
+            for result in period_results.values():
+                if not result['has_result']:
+                    continue
+                resolved_periods += 1
+                if result['is_hit']:
+                    total_special_hits += 1
+                    consecutive_special_hits += 1
+                    consecutive_special_misses = 0
+                    if consecutive_special_hits > max_consecutive_special_hits:
+                        max_consecutive_special_hits = consecutive_special_hits
+                else:
+                    consecutive_special_hits = 0
+                    consecutive_special_misses += 1
+                    if consecutive_special_misses > max_consecutive_special_misses:
+                        max_consecutive_special_misses = consecutive_special_misses
+
+            prediction_summary_cards.append({
+                'region': region,
+                'region_label': '香港' if region == 'hk' else '澳门' if region == 'macau' else region,
+                'hit_periods': total_special_hits,
+                'miss_streak': consecutive_special_misses,
+                'max_hit_streak': max_consecutive_special_hits,
+                'max_miss_streak': max_consecutive_special_misses,
+                'resolved_periods': resolved_periods,
+            })
+
+        prediction_summary_cards.sort(
+            key=lambda item: 0 if item['region'] == 'hk' else 1 if item['region'] == 'macau' else 2
+        )
         
         pending_updates = []
         # 为预测记录添加用户名，并兜底补齐缺失生肖
@@ -653,14 +687,6 @@ def predictions():
                 except Exception:
                     pred.display_actual_special_zodiac = ''
 
-            progress = prediction_progress.get(pred.id, {})
-            pred.total_special_hit_periods = progress.get('hit_periods', 0)
-            pred.current_special_miss_streak = progress.get('miss_streak', 0)
-            pred.strategy_display_label = progress.get(
-                'strategy_label',
-                PREDICTION_STRATEGY_LABELS.get(pred.strategy, pred.strategy)
-            )
-
         if pending_updates:
             try:
                 db.session.commit()
@@ -679,7 +705,6 @@ def predictions():
                     'display_actual_special_zodiac': pred.display_actual_special_zodiac,
                     'created_at': pred.created_at,
                     'items': [],
-                    'strategy_stats': [],
                 }
 
             group = prediction_groups_map[group_key]
@@ -691,23 +716,13 @@ def predictions():
                 group['created_at'] = pred.created_at
             group['items'].append(pred)
 
-        for group in prediction_groups_map.values():
-            group['strategy_stats'] = [
-                {
-                    'strategy': pred.strategy,
-                    'label': pred.strategy_display_label,
-                    'hit_periods': pred.total_special_hit_periods,
-                    'miss_streak': pred.current_special_miss_streak,
-                }
-                for pred in group['items']
-            ]
-
         prediction_groups = list(prediction_groups_map.values())
 
         return render_template(
             'admin/predictions.html',
             predictions=predictions,
             prediction_groups=prediction_groups,
+            prediction_summary_cards=prediction_summary_cards,
         )
     except Exception as e:
         flash(f'加载预测记录失败: {str(e)}', 'error')
@@ -729,6 +744,7 @@ def predictions():
             'admin/predictions.html',
             predictions=empty_predictions,
             prediction_groups=[],
+            prediction_summary_cards=[],
         )
 
 @admin_bp.route('/bets')

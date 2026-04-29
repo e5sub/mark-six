@@ -290,6 +290,134 @@
         margin-bottom: 1rem;
         flex-wrap: wrap;
     }
+
+    .prediction-summary-panel {
+        margin-bottom: 1.5rem;
+        padding: 1.25rem;
+        border-radius: 22px;
+        background:
+            radial-gradient(circle at top left, rgba(125, 122, 255, 0.10), transparent 32%),
+            radial-gradient(circle at top right, rgba(0, 196, 255, 0.10), transparent 28%),
+            linear-gradient(135deg, #f8faff 0%, #eef3ff 100%);
+        border: 1px solid rgba(102, 126, 234, 0.10);
+        box-shadow: 0 14px 36px rgba(66, 88, 170, 0.08);
+    }
+
+    .prediction-summary-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .prediction-summary-title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #24324d;
+    }
+
+    .prediction-summary-tip {
+        font-size: 0.9rem;
+        color: #6b7893;
+    }
+
+    .prediction-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+    }
+
+    .summary-card {
+        position: relative;
+        overflow: hidden;
+        padding: 1rem 1.05rem;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(129, 140, 248, 0.14);
+        box-shadow: 0 10px 24px rgba(75, 85, 155, 0.08);
+    }
+
+    .summary-card::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 88px;
+        height: 88px;
+        background: radial-gradient(circle, rgba(125, 122, 255, 0.16) 0%, rgba(125, 122, 255, 0) 72%);
+        pointer-events: none;
+    }
+
+    .summary-card-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.8rem;
+    }
+
+    .summary-card-name {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #24324d;
+    }
+
+    .summary-region-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.3rem 0.75rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #fff;
+        box-shadow: 0 6px 14px rgba(98, 114, 255, 0.18);
+    }
+
+    .summary-region-badge.hk {
+        background: linear-gradient(135deg, #4f9cff 0%, #2e6bff 100%);
+    }
+
+    .summary-region-badge.macau {
+        background: linear-gradient(135deg, #8b7bff 0%, #6658f5 100%);
+    }
+
+    .summary-region-badge.other {
+        background: linear-gradient(135deg, #7f8c9f 0%, #5f6c7b 100%);
+    }
+
+    .summary-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+
+    .summary-metric {
+        padding: 0.75rem 0.85rem;
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(247, 249, 255, 0.96) 0%, rgba(240, 244, 255, 0.96) 100%);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .summary-metric-label {
+        font-size: 0.82rem;
+        color: #73819a;
+        margin-bottom: 0.25rem;
+    }
+
+    .summary-metric-value {
+        font-size: 1.15rem;
+        font-weight: 800;
+        color: #24324d;
+    }
+
+    .summary-card-footer {
+        margin-top: 0.8rem;
+        font-size: 0.84rem;
+        color: #7a8599;
+    }
 </style>
 
 <div class="card">
@@ -300,6 +428,46 @@
             <button type="button" class="btn btn-danger btn-sm" onclick="clearAll()">清空所有</button>
         </div>
     </div>
+
+    {% if prediction_summary_cards %}
+    <div class="prediction-summary-panel">
+        <div class="prediction-summary-head">
+            <div class="prediction-summary-title">策略命中概览</div>
+            <div class="prediction-summary-tip">按地区和策略汇总展示，命中特码后会重新计算连续失败期数</div>
+        </div>
+        <div class="prediction-summary-grid">
+            {% for stat in prediction_summary_cards %}
+            <div class="summary-card">
+                <div class="summary-card-top">
+                    <div class="summary-card-name">{{ stat.region_label }}地区</div>
+                    <span class="summary-region-badge {% if stat.region == 'hk' %}hk{% elif stat.region == 'macau' %}macau{% else %}other{% endif %}">
+                        {{ stat.region_label }}
+                    </span>
+                </div>
+                <div class="summary-metrics">
+                    <div class="summary-metric">
+                        <div class="summary-metric-label">已准确期数</div>
+                        <div class="summary-metric-value">{{ stat.hit_periods }}</div>
+                    </div>
+                    <div class="summary-metric">
+                        <div class="summary-metric-label">当前连续未中期数</div>
+                        <div class="summary-metric-value">{{ stat.miss_streak }}</div>
+                    </div>
+                    <div class="summary-metric">
+                        <div class="summary-metric-label">最高连续命中期数</div>
+                        <div class="summary-metric-value">{{ stat.max_hit_streak }}</div>
+                    </div>
+                    <div class="summary-metric">
+                        <div class="summary-metric-label">最高连续未中期数</div>
+                        <div class="summary-metric-value">{{ stat.max_miss_streak }}</div>
+                    </div>
+                </div>
+                <div class="summary-card-footer">已统计 {{ stat.resolved_periods }} 期开奖结果，任意一个策略命中即算本期命中</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     <form id="batchDeleteForm" method="POST" action="{{ url_for('admin.delete_predictions_batch') }}">
         {% if prediction_groups %}
