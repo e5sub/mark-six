@@ -2,6 +2,7 @@
 from flask import Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
+import hashlib
 import math
 import os
 import requests
@@ -1353,6 +1354,10 @@ def _feedback_confidence(sample_count, full_confidence=80):
         return 0.0
     return round(_clamp(sample_count / float(full_confidence), 0.15, 1.0), 4)
 
+def _personalized_predictions_enabled():
+    raw = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower()
+    return raw == 'true'
+
 def _build_prediction_feedback(region, strategy, limit=240):
     query = PredictionRecord.query.filter_by(
         region=region,
@@ -1505,6 +1510,40 @@ def _take_ranked(ranked_numbers, count, exclude=None):
     chosen = []
     for number in ranked_numbers:
         if number in exclude_set or number in chosen:
+            continue
+        chosen.append(number)
+        if len(chosen) >= count:
+            break
+    return chosen
+
+def _stable_hash_int(*parts):
+    raw = "||".join(str(part) for part in parts)
+    return int(hashlib.sha256(raw.encode("utf-8")).hexdigest(), 16)
+
+def _take_personalized_ranked(ranked_numbers, count, variation_key=None, exclude=None, chunk_size=3, window_size=None):
+    if not variation_key:
+        return _take_ranked(ranked_numbers, count, exclude=exclude)
+
+    exclude_set = {int(num) for num in (exclude or [])}
+    filtered = [number for number in ranked_numbers if number not in exclude_set]
+    if not filtered or count <= 0:
+        return []
+
+    window_size = min(len(filtered), int(window_size or max(count * 3, chunk_size)))
+    head = filtered[:window_size]
+    tail = filtered[window_size:]
+
+    personalized = []
+    for index in range(0, len(head), chunk_size):
+        chunk = head[index:index + chunk_size]
+        if not chunk:
+            continue
+        shift = _stable_hash_int(variation_key, index, len(chunk)) % len(chunk)
+        personalized.extend(chunk[shift:] + chunk[:shift])
+
+    chosen = []
+    for number in personalized + tail:
+        if number in chosen:
             continue
         chosen.append(number)
         if len(chosen) >= count:
@@ -1675,7 +1714,7 @@ def _train_ml_number_model(data, region, config):
     }
 
 
-def _predict_with_ml(data, region):
+def _predict_with_ml(data, region, variation_key=None):
     config = _load_strategy_config("ml", region)
     model = _train_ml_number_model(data, region, config)
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
@@ -1701,11 +1740,17 @@ def _predict_with_ml(data, region):
     mid_bucket = [number for number in ranked_numbers[:pool_size * 2] if 17 <= number <= 33]
     high_bucket = [number for number in ranked_numbers[:pool_size * 2] if number >= 34]
     normal = []
-    normal += _take_ranked(low_bucket, int(low_count))
-    normal += _take_ranked(mid_bucket, int(mid_count), exclude=normal)
-    normal += _take_ranked(high_bucket, int(high_count), exclude=normal)
+    normal += _take_personalized_ranked(low_bucket, int(low_count), variation_key=variation_key)
+    normal += _take_personalized_ranked(mid_bucket, int(mid_count), variation_key=variation_key, exclude=normal)
+    normal += _take_personalized_ranked(high_bucket, int(high_count), variation_key=variation_key, exclude=normal)
     if len(normal) < 6:
-        normal += _take_ranked(ranked_numbers[:pool_size * 2], 6 - len(normal), exclude=normal)
+        normal += _take_personalized_ranked(
+            ranked_numbers[:pool_size * 2],
+            6 - len(normal),
+            variation_key=variation_key,
+            exclude=normal,
+            window_size=max(pool_size * 2, 12)
+        )
     normal = sorted(normal[:6])
 
     special_candidates = [
@@ -1714,7 +1759,13 @@ def _predict_with_ml(data, region):
     ]
     if not special_candidates:
         special_candidates = [number for number in ranked_numbers if number not in normal]
-    special_num = special_candidates[0]
+    special_pick = _take_personalized_ranked(
+        special_candidates,
+        1,
+        variation_key=variation_key,
+        window_size=max(special_pool_size * 2, 8)
+    )
+    special_num = special_pick[0] if special_pick else special_candidates[0]
     probability_map = dict(ranked)
     special_probability = round(probability_map.get(special_num, 0.0) * 100, 2)
     year = _infer_draw_year(data)
@@ -1737,14 +1788,14 @@ def _predict_with_ml(data, region):
         },
     }
 
-def get_local_recommendations(strategy, data, region):
+def get_local_recommendations(strategy, data, region, variation_key=None):
     if strategy == 'smart':
         strategy = _get_recommended_strategy(region).get("strategy", "hybrid")
     all_numbers = list(range(1, 50))
     if not data:
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
-        return _predict_with_ml(data, region)
+        return _predict_with_ml(data, region, variation_key=variation_key)
     else:
         try:
             config = _load_strategy_config(strategy, region)
@@ -1844,19 +1895,31 @@ def get_local_recommendations(strategy, data, region):
             overall_rank = _rank_numbers(number_scores)
 
             if strategy == 'hot':
-                normal = sorted(_take_ranked(hot_rank[:max(pool_size, 6)], 6))
+                normal = sorted(_take_personalized_ranked(
+                    hot_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
+                ))
             elif strategy == 'cold':
-                normal = sorted(_take_ranked(cold_rank[:max(pool_size, 6)], 6))
+                normal = sorted(_take_personalized_ranked(
+                    cold_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
+                ))
             elif strategy == 'trend':
-                normal = sorted(_take_ranked(trend_rank[:max(pool_size, 6)], 6))
+                normal = sorted(_take_personalized_ranked(
+                    trend_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
+                ))
             elif strategy == 'hybrid':
                 mix = config.get("mix") or {"hot": 2, "cold": 2, "trend": 2}
                 normal = []
-                normal += _take_ranked(hot_rank[:pool_size], int(mix.get("hot", 2)))
-                normal += _take_ranked(cold_rank[:pool_size], int(mix.get("cold", 2)), exclude=normal)
-                normal += _take_ranked(trend_rank[:pool_size], int(mix.get("trend", 2)), exclude=normal)
+                normal += _take_personalized_ranked(hot_rank[:pool_size], int(mix.get("hot", 2)), variation_key=variation_key, window_size=max(pool_size, 9))
+                normal += _take_personalized_ranked(cold_rank[:pool_size], int(mix.get("cold", 2)), variation_key=variation_key, exclude=normal, window_size=max(pool_size, 9))
+                normal += _take_personalized_ranked(trend_rank[:pool_size], int(mix.get("trend", 2)), variation_key=variation_key, exclude=normal, window_size=max(pool_size, 9))
                 if len(normal) < 6:
-                    normal += _take_ranked(overall_rank[:pool_size * 2], 6 - len(normal), exclude=normal)
+                    normal += _take_personalized_ranked(
+                        overall_rank[:pool_size * 2],
+                        6 - len(normal),
+                        variation_key=variation_key,
+                        exclude=normal,
+                        window_size=max(pool_size * 2, 12)
+                    )
                 normal = sorted(normal)
             else:
                 bucket_counts = config.get("bucket_counts") or [2, 2, 2]
@@ -1865,11 +1928,17 @@ def get_local_recommendations(strategy, data, region):
                 mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
                 high_bucket = [n for n in overall_rank if n >= 34]
                 normal = []
-                normal += _take_ranked(low_bucket, int(low_count))
-                normal += _take_ranked(mid_bucket, int(mid_count), exclude=normal)
-                normal += _take_ranked(high_bucket, int(high_count), exclude=normal)
+                normal += _take_personalized_ranked(low_bucket, int(low_count), variation_key=variation_key)
+                normal += _take_personalized_ranked(mid_bucket, int(mid_count), variation_key=variation_key, exclude=normal)
+                normal += _take_personalized_ranked(high_bucket, int(high_count), variation_key=variation_key, exclude=normal)
                 if len(normal) < 6:
-                    normal += _take_ranked(overall_rank[:pool_size * 2], 6 - len(normal), exclude=normal)
+                    normal += _take_personalized_ranked(
+                        overall_rank[:pool_size * 2],
+                        6 - len(normal),
+                        variation_key=variation_key,
+                        exclude=normal,
+                        window_size=max(pool_size * 2, 12)
+                    )
                 normal = sorted(normal)
 
             remaining_numbers = [number for number in all_numbers if number not in normal]
@@ -1888,7 +1957,13 @@ def get_local_recommendations(strategy, data, region):
                 candidates=remaining_numbers
             )
             special_candidates = special_rank[:special_pool_size] or [n for n in overall_rank if n not in normal]
-            special_num = special_candidates[0]
+            special_pick = _take_personalized_ranked(
+                special_candidates,
+                1,
+                variation_key=variation_key,
+                window_size=max(special_pool_size, 8)
+            )
+            special_num = special_pick[0] if special_pick else special_candidates[0]
             special_zodiac = number_to_zodiac.get(str(special_num), "")
             recommendation_text = _build_local_recommendation_text(strategy, config, normal, special_num, feedback)
             return {
@@ -1900,7 +1975,7 @@ def get_local_recommendations(strategy, data, region):
             print(f"{strategy} recommendation failed, falling back to balanced. Reason: {e}")
             if strategy == 'balanced':
                 return _build_default_baseline_prediction()
-            return get_local_recommendations('balanced', data, region)
+            return get_local_recommendations('balanced', data, region, variation_key=variation_key)
 
 def _build_ai_prompt(data, region, history_window=10):
     history_lines = []
@@ -2370,7 +2445,10 @@ def generate_prediction_for_user(user, region, period, strategy, data):
             print(f"已跳过用户 {user.username} 的AI自动预测")
             return
 
-        result = get_local_recommendations(strategy, data, region)
+        variation_key = None
+        if _personalized_predictions_enabled():
+            variation_key = f"user:{user.id}|region:{region}|period:{period}|strategy:{strategy}"
+        result = get_local_recommendations(strategy, data, region, variation_key=variation_key)
 
         if result.get('error'):
             print(f"用户 {user.username} 的自动预测失败：{result.get('error')}")
@@ -2554,7 +2632,10 @@ def unified_predict_api():
                 "message": f"AI预测失败：{error_message}，请稍后再试或联系管理员检查AI API配置。"
             }), 400
     else:
-        result = get_local_recommendations(resolved_strategy, data, region)
+        variation_key = None
+        if user_id and is_active and _personalized_predictions_enabled():
+            variation_key = f"user:{user_id}|region:{region}|period:{current_period}|strategy:{resolved_strategy}"
+        result = get_local_recommendations(resolved_strategy, data, region, variation_key=variation_key)
     
     # 保存预测记录（仅对已激活用户）
     if user_id and is_active and not result.get('error'):

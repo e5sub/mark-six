@@ -132,6 +132,17 @@
                         需要邮箱验证
                     </label>
                 </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="enable_personalized_predictions"
+                               {{ 'checked' if configs.get('enable_personalized_predictions', 'false') == 'true' else '' }}>
+                        开启按用户差异化预测
+                    </label>
+                    <small style="color: #666; display: block; margin-top: 0.4rem;">
+                        开启后，同一期同策略下不同用户会拿到不同号码；关闭后，所有用户使用统一号码。
+                    </small>
+                </div>
             </div>
         </div>
 

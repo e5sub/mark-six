@@ -6,7 +6,7 @@ import csv
 import json
 import io
 from collections import OrderedDict
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -486,6 +486,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     'system_description': '',
     'allow_registration': 'true',
     'require_email_verification': 'false',
+    'enable_personalized_predictions': 'false',
 }
 
 @admin_bp.route('/system_config', methods=['GET', 'POST'])
@@ -572,21 +573,81 @@ def retrain_learning_configs():
 def predictions():
     try:
         page = request.args.get('page', 1, type=int)
-        predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).paginate(
-            page=page, per_page=20, error_out=False
+        user_query = request.args.get('user', '').strip()
+        region_filter = request.args.get('region', '').strip()
+        strategy_filter = request.args.get('strategy', '').strip()
+        period_filter = request.args.get('period', '').strip()
+
+        filters = []
+        if user_query:
+            if user_query.isdigit():
+                filters.append(PredictionRecord.user_id == int(user_query))
+            else:
+                search_term = f"%{user_query}%"
+                user_ids = User.query.filter(
+                    (User.username.like(search_term)) | (User.email.like(search_term))
+                ).with_entities(User.id)
+                filters.append(PredictionRecord.user_id.in_(user_ids))
+
+        if region_filter:
+            filters.append(PredictionRecord.region == region_filter)
+
+        if strategy_filter:
+            filters.append(PredictionRecord.strategy == strategy_filter)
+
+        if period_filter:
+            filters.append(PredictionRecord.period.contains(period_filter))
+
+        groups_query = db.session.query(
+            PredictionRecord.region.label('region'),
+            PredictionRecord.period.label('period'),
+            func.max(PredictionRecord.created_at).label('latest_created_at'),
+            func.count(PredictionRecord.id).label('record_count'),
+            func.count(func.distinct(PredictionRecord.user_id)).label('user_count')
+        )
+        if filters:
+            groups_query = groups_query.filter(*filters)
+
+        predictions = groups_query.group_by(
+            PredictionRecord.region,
+            PredictionRecord.period
+        ).order_by(
+            func.max(PredictionRecord.created_at).desc()
+        ).paginate(
+            page=page, per_page=10, error_out=False
         )
 
+        group_keys = [(item.region, item.period) for item in predictions.items]
+
+        page_records = []
+        if group_keys:
+            group_conditions = [
+                ((PredictionRecord.region == region) & (PredictionRecord.period == period))
+                for region, period in group_keys
+            ]
+            page_query = PredictionRecord.query.filter(or_(*group_conditions))
+            if filters:
+                page_query = page_query.filter(*filters)
+            page_records = page_query.order_by(
+                PredictionRecord.created_at.desc(),
+                PredictionRecord.id.desc()
+            ).all()
+
         regions = {
-            pred.region
-            for pred in predictions.items
-            if pred.region
+            item.region
+            for item in predictions.items
+            if item.region
         }
 
         prediction_summary_cards = []
         for region in regions:
-            history_records = PredictionRecord.query.filter_by(
-                region=region
-            ).order_by(PredictionRecord.created_at.asc(), PredictionRecord.id.asc()).all()
+            history_query = PredictionRecord.query.filter(PredictionRecord.region == region)
+            if filters:
+                history_query = history_query.filter(*filters)
+            history_records = history_query.order_by(
+                PredictionRecord.created_at.asc(),
+                PredictionRecord.id.asc()
+            ).all()
 
             period_results = OrderedDict()
 
@@ -646,12 +707,25 @@ def predictions():
         
         pending_updates = []
         # 为预测记录添加用户名，并兜底补齐缺失生肖
-        for pred in predictions.items:
+        strategy_order = {
+            'hot': 1,
+            'cold': 2,
+            'trend': 3,
+            'hybrid': 4,
+            'balanced': 5,
+            'ml': 6,
+            'ai': 7,
+        }
+
+        for pred in page_records:
             if pred.user_id:
                 user = User.query.get(pred.user_id)
                 pred.username = user.username if user else '已删除用户'
             else:
                 pred.username = '未知用户'
+
+            pred.strategy_label = PREDICTION_STRATEGY_LABELS.get(pred.strategy, pred.strategy)
+            pred.strategy_sort = strategy_order.get(pred.strategy, 99)
 
             pred.display_special_zodiac = (pred.special_zodiac or '').strip()
             if not pred.display_special_zodiac and pred.special_number:
@@ -694,16 +768,24 @@ def predictions():
                 db.session.rollback()
 
         prediction_groups_map = OrderedDict()
-        for pred in predictions.items:
+        group_meta_map = {
+            f"{item.region}-{item.period}": item
+            for item in predictions.items
+        }
+
+        for pred in page_records:
             group_key = f"{pred.region}-{pred.period}"
             if group_key not in prediction_groups_map:
+                group_meta = group_meta_map.get(group_key)
                 prediction_groups_map[group_key] = {
                     'key': group_key,
                     'region': pred.region,
                     'period': pred.period,
                     'actual_special_number': pred.actual_special_number,
                     'display_actual_special_zodiac': pred.display_actual_special_zodiac,
-                    'created_at': pred.created_at,
+                    'created_at': getattr(group_meta, 'latest_created_at', None) or pred.created_at,
+                    'record_count': int(getattr(group_meta, 'record_count', 0) or 0),
+                    'user_count': int(getattr(group_meta, 'user_count', 0) or 0),
                     'items': [],
                 }
 
@@ -716,13 +798,30 @@ def predictions():
                 group['created_at'] = pred.created_at
             group['items'].append(pred)
 
-        prediction_groups = list(prediction_groups_map.values())
+        for group in prediction_groups_map.values():
+            group['items'].sort(
+                key=lambda item: (
+                    item.username or '',
+                    item.strategy_sort,
+                    -(item.id or 0)
+                )
+            )
+
+        prediction_groups = [
+            prediction_groups_map[f"{region}-{period}"]
+            for region, period in group_keys
+            if f"{region}-{period}" in prediction_groups_map
+        ]
 
         return render_template(
             'admin/predictions.html',
             predictions=predictions,
             prediction_groups=prediction_groups,
             prediction_summary_cards=prediction_summary_cards,
+            user_query=user_query,
+            region_filter=region_filter,
+            strategy_filter=strategy_filter,
+            period_filter=period_filter,
         )
     except Exception as e:
         flash(f'加载预测记录失败: {str(e)}', 'error')
@@ -745,6 +844,10 @@ def predictions():
             predictions=empty_predictions,
             prediction_groups=[],
             prediction_summary_cards=[],
+            user_query='',
+            region_filter='',
+            strategy_filter='',
+            period_filter='',
         )
 
 @admin_bp.route('/bets')
