@@ -395,8 +395,8 @@
                                     <span class="special-ball green-special">{{ group.actual_special_number }}</span>
                                 {% endif %}
                                 <span class="zodiac-badge">{{ group.display_actual_special_zodiac or '' }}</span>
-                                <span class="result-badge {% if group.items[0].special_number and group.actual_special_number and group.items[0].special_number|int == group.actual_special_number|int %}hit{% else %}miss{% endif %}">
-                                    {% if group.items[0].special_number and group.actual_special_number and group.items[0].special_number|int == group.actual_special_number|int %}命中{% else %}未中{% endif %}
+                                <span class="result-badge {% if group['items'][0].special_number and group.actual_special_number and group['items'][0].special_number|int == group.actual_special_number|int %}hit{% else %}miss{% endif %}">
+                                    {% if group['items'][0].special_number and group.actual_special_number and group['items'][0].special_number|int == group.actual_special_number|int %}命中{% else %}未中{% endif %}
                                 </span>
                             {% else %}
                                 <span class="result-badge pending">待开奖</span>
