@@ -417,9 +417,8 @@
                             <th style="width:100px;">策略</th>
                             <th>预测特码</th>
                             <th>开奖结果</th>
-                            <th style="width:80px;">准确率</th>
                             <th style="width:140px;">预测时间</th>
-                            <th style="width:80px;">操作</th>
+                            <th style="width:70px;">操作</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -479,22 +478,11 @@
                                     <span class="result-badge pending">待开</span>
                                 {% endif %}
                             </td>
-                            <td>
-                                {% if prediction.accuracy_score is not none %}
-                                    {% set raw_accuracy = prediction.accuracy_score %}
-                                    {% set accuracy = ((raw_accuracy if raw_accuracy > 1 else raw_accuracy * 100)) | round(1) %}
-                                    {{ accuracy }}%
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
                             <td class="time-badge">
                                 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '' }}
                             </td>
                             <td>
-                                <form method="POST" action="{{ url_for('admin.delete_prediction', prediction_id=prediction.id) }}"
-                                      style="display: inline;"
-                                      onsubmit="return confirm('确定删除?')">
+                                <form method="POST" action="{{ url_for('admin.delete_prediction', prediction_id=prediction.id) }}" style="display:inline;" onsubmit="return confirm('确定删除?')">
                                     <button type="submit" class="btn btn-danger btn-sm">删除</button>
                                 </form>
                             </td>
