@@ -201,7 +201,7 @@
 </div>
 
 {% if prediction_summary_cards %}
-<div class="summary-cards-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: 1rem; margin-bottom: 1rem;">
+<div class="summary-cards-container" style="display: grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 1rem; margin-bottom: 1rem;">
     {% for card in prediction_summary_cards %}
     <div class="card" style="margin-bottom: 0; padding: 0;">
         <div class="card-header" style="padding-bottom: 0.5rem; border-bottom: 1px solid #f0f0f0;">
@@ -209,24 +209,32 @@
                 📈 {{ card.region_label }} 连错/连中走势
             </h3>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; padding: 1rem; text-align: center;">
+        <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem; padding: 1rem 0.5rem; text-align: center; overflow-x: auto;">
             <div>
-                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.3rem;">当前连错</div>
-                <div style="font-size: 1.2rem; font-weight: bold; color: {% if card.miss_streak > 0 %}#dc3545{% else %}#28a745{% endif %};">
+                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">当前连错</div>
+                <div style="font-size: 1.1rem; font-weight: bold; color: {% if card.miss_streak > 0 %}#dc3545{% else %}#28a745{% endif %};">
                     {{ card.miss_streak }}
                 </div>
             </div>
             <div>
-                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.3rem;">最高连错</div>
-                <div style="font-size: 1.2rem; font-weight: bold; color: #dc3545;">{{ card.max_miss_streak }}</div>
+                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">最高连错</div>
+                <div style="font-size: 1.1rem; font-weight: bold; color: #dc3545;">{{ card.max_miss_streak }}</div>
             </div>
             <div>
-                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.3rem;">最高连中</div>
-                <div style="font-size: 1.2rem; font-weight: bold; color: #28a745;">{{ card.max_hit_streak }}</div>
+                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">最高连中</div>
+                <div style="font-size: 1.1rem; font-weight: bold; color: #28a745;">{{ card.max_hit_streak }}</div>
             </div>
             <div>
-                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.3rem;">累计命中</div>
-                <div style="font-size: 1.2rem; font-weight: bold; color: #667eea;">{{ card.hit_periods }}</div>
+                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">累计预测</div>
+                <div style="font-size: 1.1rem; font-weight: bold; color: #333;">{{ card.total_predictions }}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">累计命中</div>
+                <div style="font-size: 1.1rem; font-weight: bold; color: #667eea;">{{ card.hit_periods }}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">预测准确率</div>
+                <div style="font-size: 1.1rem; font-weight: bold; color: #667eea;">{{ card.accuracy }}%</div>
             </div>
         </div>
     </div>

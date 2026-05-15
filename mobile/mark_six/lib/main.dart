@@ -3041,6 +3041,7 @@ class _PredictScreenState extends State<PredictScreen> {
   String _specialZodiac = '';
   bool _loadingRecords = false;
   List<PredictionItem> _predictionRecords = [];
+  List<Map<String, dynamic>> _regionSummaries = [];
   bool _showAllPredictionPeriods = false;
   final Map<int, List<String>> _recordNormalZodiacs = {};
   final Map<int, String> _recordSpecialZodiacs = {};
@@ -3458,9 +3459,13 @@ class _PredictScreenState extends State<PredictScreen> {
       final items = (res['items'] as List<dynamic>? ?? [])
           .map((value) => PredictionItem.fromJson(value as Map<String, dynamic>))
           .toList();
+      final summaries = (res['region_summaries'] as List<dynamic>? ?? [])
+          .map((e) => e as Map<String, dynamic>)
+          .toList();
       if (!mounted) return;
       setState(() {
         _predictionRecords = items;
+        _regionSummaries = summaries;
         _showAllPredictionPeriods = false;
         for (final item in items) {
           if (item.normalZodiacs.isNotEmpty) {
@@ -3682,6 +3687,91 @@ class _PredictScreenState extends State<PredictScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSummaryCards() {
+    if (_regionSummaries.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      children: _regionSummaries.map((card) {
+        final label = card['region_label']?.toString() ?? '';
+        final missStreak = (card['miss_streak'] as num?)?.toInt() ?? 0;
+        final maxMissStreak = (card['max_miss_streak'] as num?)?.toInt() ?? 0;
+        final maxHitStreak = (card['max_hit_streak'] as num?)?.toInt() ?? 0;
+        final hitPeriods = (card['hit_periods'] as num?)?.toInt() ?? 0;
+        final totalPredictions = (card['total_predictions'] as num?)?.toInt() ?? 0;
+        final accuracy = (card['accuracy'] as num?)?.toDouble() ?? 0.0;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x14000000),
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.trending_up, color: Color(0xFF0B6B4F), size: 20),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$label 连错/连中走势',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: Color(0xFFF0F0F0)),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildSummaryStatItem('当前连错', missStreak.toString(), missStreak > 0 ? Colors.redAccent : const Color(0xFF0B6B4F)),
+                    ),
+                    Expanded(
+                      child: _buildSummaryStatItem('最高连错', maxMissStreak.toString(), Colors.redAccent),
+                    ),
+                    Expanded(
+                      child: _buildSummaryStatItem('最高连中', maxHitStreak.toString(), const Color(0xFF0B6B4F)),
+                    ),
+                    Expanded(
+                      child: _buildSummaryStatItem('累计预测', totalPredictions.toString(), const Color(0xFF333333)),
+                    ),
+                    Expanded(
+                      child: _buildSummaryStatItem('累计命中', hitPeriods.toString(), const Color(0xFF2D6CDF)),
+                    ),
+                    Expanded(
+                      child: _buildSummaryStatItem('预测准确率', '${accuracy}%', const Color(0xFF2D6CDF)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildSummaryStatItem(String label, String value, Color valueColor) {
+    return Column(
+      children: [
+        Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade600), maxLines: 1, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 4),
+        Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: valueColor), maxLines: 1, overflow: TextOverflow.ellipsis),
+      ],
     );
   }
 
@@ -3915,6 +4005,7 @@ class _PredictScreenState extends State<PredictScreen> {
                 children: [
                   _buildAiMarkdownCard(),
                   const SizedBox(height: 16),
+                  _buildSummaryCards(),
                   _buildPredictionRecordsSection(),
                 ],
               ),
@@ -4483,14 +4574,3 @@ class _ReleaseInfo {
   final String version;
   final String downloadUrl;
 }
-
-
-
-
-
-
-
-
-
-
-

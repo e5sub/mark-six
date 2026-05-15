@@ -651,6 +651,8 @@ def predictions():
             'max_hit_streak': max_consecutive_special_hits,
             'max_miss_streak': max_consecutive_special_misses,
             'resolved_periods': resolved_periods,
+            'total_predictions': len(region_records),
+            'accuracy': round((total_special_hits / resolved_periods * 100), 1) if resolved_periods > 0 else 0.0,
         })
     
     prediction_summary_cards.sort(
