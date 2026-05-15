@@ -1228,8 +1228,11 @@ def _mobile_secondary_hit_expr():
     return db.or_(actual_in_normal, zodiac_hit)
 
 
-def _build_region_summaries(user_id):
-    all_predictions = PredictionRecord.query.filter_by(user_id=user_id).order_by(
+def _build_region_summaries(user_id, region_filter=None):
+    query = PredictionRecord.query.filter_by(user_id=user_id)
+    if region_filter:
+        query = query.filter_by(region=region_filter)
+    all_predictions = query.order_by(
         PredictionRecord.created_at.asc(), PredictionRecord.id.asc()
     ).all()
     
@@ -1426,7 +1429,7 @@ def api_predictions():
             "page_size": page_size,
             "total": total,
             "items": items,
-            "region_summaries": _build_region_summaries(user.id),
+            "region_summaries": _build_region_summaries(user.id, region),
         }
     )
 

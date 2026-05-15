@@ -786,7 +786,6 @@ def profile():
     user = User.query.get(session['user_id'])
     
     if request.method == 'POST':
-        # 鏇存柊鐢ㄦ埛淇℃伅
         new_email = request.form.get('email')
         current_password = request.form.get('current_password')
         new_password = request.form.get('new_password')
@@ -843,6 +842,7 @@ def save_prediction_settings():
 
     if not valid_strategies:
         valid_strategies = ['smart', 'hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+        valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
 
     valid_regions = []
     for region in auto_prediction_regions:
@@ -886,6 +886,7 @@ def update_auto_prediction():
 
         if not valid_strategies:
             valid_strategies = ['smart', 'hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+            valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
 
         valid_regions = []
         for region in auto_prediction_regions:
