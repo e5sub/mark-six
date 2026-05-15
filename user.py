@@ -643,6 +643,27 @@ def predictions():
                 if consecutive_special_misses > max_consecutive_special_misses:
                     max_consecutive_special_misses = consecutive_special_misses
 
+        accuracy = round((total_special_hits / resolved_periods * 100), 1) if resolved_periods > 0 else 0.0
+
+        if resolved_periods < 3:
+            recommendation = "样本较少，建议观望"
+            level = "neutral"
+        elif accuracy >= 30.0 or consecutive_special_hits >= 2:
+            recommendation = "胜率极佳，建议跟入"
+            level = "positive"
+        elif consecutive_special_misses >= 5:
+            recommendation = "连漏偏高，随时反弹"
+            level = "positive"
+        elif accuracy >= 15.0:
+            recommendation = "胜率稳定，可以参考"
+            level = "positive"
+        elif accuracy < 5.0 and resolved_periods >= 10:
+            recommendation = "走势低迷，暂且观望"
+            level = "negative"
+        else:
+            recommendation = "走势震荡，谨慎参考"
+            level = "warning"
+
         prediction_summary_cards.append({
             'region': r,
             'region_label': '香港' if r == 'hk' else '澳门' if r == 'macau' else r,
@@ -652,7 +673,9 @@ def predictions():
             'max_miss_streak': max_consecutive_special_misses,
             'resolved_periods': resolved_periods,
             'total_predictions': len(region_records),
-            'accuracy': round((total_special_hits / resolved_periods * 100), 1) if resolved_periods > 0 else 0.0,
+            'accuracy': accuracy,
+            'recommendation': recommendation,
+            'recommendation_level': level,
         })
     
     prediction_summary_cards.sort(
