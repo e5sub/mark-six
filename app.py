@@ -3096,6 +3096,9 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
                 <div style="margin-top: 30px; text-align: center;">
                     <a href="#" style="display: inline-block; background-color: #1e88e5; color: white; text-decoration: none; padding: 12px 30px; border-radius: 25px; font-weight: bold;">登录系统查看详情</a>
                 </div>
+                <div style="margin-top: 15px; text-align: center;">
+                    <span style="font-size: 12px; color: #999;">不想再收到预测邮件？请登录系统并在 <strong>个人中心</strong> 中关闭自动预测。</span>
+                </div>
             </div>
             <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #aaa;">
                 <p style="margin: 0;">此邮件由 {site_name} 自动生成并发送，请勿回复。</p>
@@ -3175,6 +3178,9 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
                 <p style="text-align: center; margin-top: 35px;">
                     <a href="#" style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block;">登录系统查看详情</a>
                 </p>
+                <div style="margin-top: 15px; text-align: center;">
+                    <span style="font-size: 12px; color: #999;">不想再收到报喜提醒？请登录系统并在 <strong>个人中心</strong> 中关闭自动预测。</span>
+                </div>
             </div>
             <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #aaa;">
                 <p style="margin: 0;">此邮件由 {site_name} 自动生成并发送，请勿回复。</p>
