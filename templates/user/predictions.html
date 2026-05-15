@@ -1,4 +1,4 @@
-﻿{% extends "user/base.html" %}
+﻿﻿{% extends "user/base.html" %}
 
 {% block page_title %}预测记录{% endblock %}
 
@@ -199,6 +199,40 @@
         <div class="stat-label">平码/生肖命中率</div>
     </div>
 </div>
+
+{% if prediction_summary_cards %}
+<div class="summary-cards-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: 1rem; margin-bottom: 1rem;">
+    {% for card in prediction_summary_cards %}
+    <div class="card" style="margin-bottom: 0; padding: 0;">
+        <div class="card-header" style="padding-bottom: 0.5rem; border-bottom: 1px solid #f0f0f0;">
+            <h3 class="card-title" style="font-size: 1.1rem; color: #333;">
+                📈 {{ card.region_label }} 连错/连中走势
+            </h3>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; padding: 1rem; text-align: center;">
+            <div>
+                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.3rem;">当前连错</div>
+                <div style="font-size: 1.2rem; font-weight: bold; color: {% if card.miss_streak > 0 %}#dc3545{% else %}#28a745{% endif %};">
+                    {{ card.miss_streak }}
+                </div>
+            </div>
+            <div>
+                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.3rem;">最高连错</div>
+                <div style="font-size: 1.2rem; font-weight: bold; color: #dc3545;">{{ card.max_miss_streak }}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.3rem;">最高连中</div>
+                <div style="font-size: 1.2rem; font-weight: bold; color: #28a745;">{{ card.max_hit_streak }}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.3rem;">累计命中</div>
+                <div style="font-size: 1.2rem; font-weight: bold; color: #667eea;">{{ card.hit_periods }}</div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
 
 <div class="card">
     <div class="card-header">
