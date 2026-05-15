@@ -2437,10 +2437,23 @@ def generate_auto_predictions(data, region):
             print("自动预测失败：无法确定下一期期数")
             return
 
-        auto_predict_users = User.query.filter_by(
-            is_active=True,
-            auto_prediction_enabled=True
+        raw_users = User.query.filter(
+            User.is_active == True,
+            User.auto_prediction_enabled == True
         ).all()
+
+        auto_predict_users = []
+        changed = False
+        for u in raw_users:
+            if u.is_activation_expired():
+                u.is_active = False
+                u.auto_prediction_enabled = False
+                changed = True
+            else:
+                auto_predict_users.append(u)
+        
+        if changed:
+            db.session.commit()
 
         for user in auto_predict_users:
             strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['balanced']

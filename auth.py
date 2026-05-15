@@ -75,6 +75,7 @@ def register():
         if not invite_code:
             user.extend_activation(7)
             user.is_active = True
+            user.auto_prediction_enabled = True
 
         db.session.commit()
         

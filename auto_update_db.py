@@ -82,6 +82,15 @@ def update_database():
         updated_users = cursor.rowcount
         print(f"✓ 更新了 {updated_users} 个用户的自动预测地区设置")
 
+    print("更新现有有效用户的自动预测状态...")
+    cursor.execute('''
+        UPDATE user 
+        SET auto_prediction_enabled = 1 
+        WHERE (auto_prediction_enabled IS NULL OR auto_prediction_enabled = 0) AND is_active = 1
+    ''')
+    updated_enabled = cursor.rowcount
+    print(f"✓ 更新了 {updated_enabled} 个用户的自动预测状态为开启")
+
         print("更新现有用户的预测展示设置...")
         cursor.execute('''
             UPDATE user

@@ -304,6 +304,10 @@ def edit_user(user_id):
             # 更新用户信息
             user.username = new_username
             user.email = new_email
+            
+            # 如果由未激活状态变为激活状态，默认开启预测
+            if is_active and not user.is_active:
+                user.auto_prediction_enabled = True
             user.is_active = is_active
 
             # 如果是admin账号，保持管理员权限
@@ -393,6 +397,7 @@ def activate_user(user_id):
     try:
         user = User.query.get_or_404(user_id)
         user.is_active = True
+        user.auto_prediction_enabled = True
         db.session.commit()
         return jsonify({'success': True})
     except Exception as e:
@@ -1387,5 +1392,3 @@ def reset_zodiac_settings():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': f'重置失败: {str(e)}'})
-
-

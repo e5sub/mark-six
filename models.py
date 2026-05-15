@@ -27,7 +27,7 @@ class User(db.Model):
     invite_activated_at = db.Column(db.DateTime)  # 邀请激活时间
     
     # 自动预测相关字段
-    auto_prediction_enabled = db.Column(db.Boolean, default=False)  # 是否启用自动预测
+    auto_prediction_enabled = db.Column(db.Boolean, default=True)  # 是否启用自动预测
     auto_prediction_strategies = db.Column(db.String(100), default='balanced')  # 自动预测策略，多个策略用逗号分隔
     auto_prediction_regions = db.Column(db.String(20), default='hk,macau')  # 自动预测地区，多个地区用逗号分隔
     show_normal_numbers = db.Column(db.Boolean, default=False)  # 预测展示时是否显示平码
@@ -64,13 +64,19 @@ class User(db.Model):
         """设置永久激活"""
         self.activation_expires_at = None
         self.is_active = True
+        self.auto_prediction_enabled = True
     
     def check_and_update_activation_status(self):
         """检查并更新激活状态，如果过期则设为未激活"""
         if self.is_activation_expired():
-            self.is_active = False
-            db.session.commit()
-            ZodiacSetting._macau_year_match_cache.clear()
+            changed = False
+            if self.is_active or self.auto_prediction_enabled:
+                self.is_active = False
+                self.auto_prediction_enabled = False
+                changed = True
+            if changed:
+                db.session.commit()
+                ZodiacSetting._macau_year_match_cache.clear()
             return False  # 已过期
         return True  # 仍然有效
 
@@ -139,6 +145,7 @@ class ActivationCode(db.Model):
             if days > 0:
                 user.extend_activation(days)
                 user.is_active = True
+                user.auto_prediction_enabled = True
         
         return True, "激活成功"
 
@@ -230,6 +237,7 @@ class InviteCode(db.Model):
             # 给被邀请人增加1天有效期并激活
             user.extend_activation(1)
             user.is_active = True
+            user.auto_prediction_enabled = True
             
             try:
                 # 查找邀请人并给予奖励
@@ -242,6 +250,8 @@ class InviteCode(db.Model):
                     else:
                         # 非永久用户，给邀请人增加1天有效期
                         inviter.extend_activation(1)
+                        inviter.is_active = True
+                        inviter.auto_prediction_enabled = True
                         
                         # 如果被邀请人有有效期，给予额外奖励
                         if user.activation_expires_at:
@@ -833,25 +843,3 @@ class LotteryDraw(db.Model):
     
     def __repr__(self):
         return f'<LotteryDraw {self.region}-{self.draw_id}>'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

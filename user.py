@@ -1,4 +1,4 @@
-﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from models import db, User, PredictionRecord, SystemConfig, InviteCode
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
