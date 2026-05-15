@@ -1663,8 +1663,8 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
 def _train_ml_number_model(data, region, config):
     history_window = _clamp(int(config.get("history_window") or 120), 80, 240)
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
-    epochs = _clamp(int(config.get("epochs") or 4), 2, 6)
-    learning_rate = float(config.get("learning_rate") or 0.08)
+    epochs = _clamp(int(config.get("epochs") or 15), 15, 30)
+    learning_rate = float(config.get("learning_rate") or 0.05)
 
     recent_desc = list(data or [])[:history_window + feature_window]
     chronological = list(reversed(recent_desc))
@@ -1818,6 +1818,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
 
             special_freq = analyze_special_number_frequency(recent_data)
             trend_freq = analyze_special_number_frequency(trend_data)
+            short_freq = analyze_special_number_frequency(recent_data[:10] if len(recent_data) >= 10 else recent_data)
             all_freq = _build_number_frequency(recent_data)
             overdue = _build_overdue_scores(recent_data)
 
@@ -1837,6 +1838,12 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             feedback_confidence = float(feedback.get("confidence") or 0.0)
 
             weights = config.get("weights") or {}
+            
+            def overheat_penalty(number):
+                count = short_freq.get(str(number), 0)
+                if count >= 3: return -0.40
+                if count == 2: return -0.15
+                return 0.0
 
             def attribute_score(number):
                 color_score = color_pref.get(_get_color_zh(number), 0.0)
@@ -1868,8 +1875,12 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
                     float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
                     float(weights.get("feedback", 0.0)) * feedback_score +
-                    attribute_score(number)
+                    attr_score + penalty
                 )
+                
+                # 趋势共振：反馈好且属性契合且未过热时，指数级放大其基础权重
+                if feedback_score > 0.15 and attr_score > 0.4 and penalty == 0:
+                    score *= 1.25
                 number_scores[number] = round(score, 6)
 
             hot_rank = _rank_numbers({
@@ -1877,7 +1888,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     hot_norm.get(str(number), 0.0) +
                     trend_norm.get(str(number), 0.0) * 0.35 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.75) +
-                    attribute_score(number)
+                    attribute_score(number) + overheat_penalty(number)
                 )
                 for number in all_numbers
             })
@@ -1886,7 +1897,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     cold_norm.get(str(number), 0.0) +
                     overdue_norm.get(str(number), 0.0) * 0.8 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.45) +
-                    attribute_score(number)
+                    attribute_score(number) + (overheat_penalty(number) * 0.5)
                 )
                 for number in all_numbers
             })
@@ -1895,7 +1906,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     trend_norm.get(str(number), 0.0) * 1.1 +
                     hot_norm.get(str(number), 0.0) * 0.35 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.70) +
-                    attribute_score(number)
+                    attribute_score(number) + overheat_penalty(number)
                 )
                 for number in all_numbers
             })
@@ -1949,17 +1960,28 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 normal = sorted(normal)
 
             remaining_numbers = [number for number in all_numbers if number not in normal]
+            
+            def compute_special_score(number):
+                key = str(number)
+                base = (
+                    hot_norm.get(key, 0.0) * 0.35 +
+                    trend_norm.get(key, 0.0) * 0.25 +
+                    overdue_norm.get(key, 0.0) * 0.15
+                )
+                fb_spec = (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence * 1.20
+                fb_norm = (feedback.get("normal", {}).get(key, 0.5) - 0.5) * feedback_confidence * 0.20
+                attr = attribute_score(number)
+                penalty = overheat_penalty(number)
+                
+                total = base + fb_spec + fb_norm + attr + penalty
+                # 对于只选1个的特码，多重利好共振放大 1.3 倍，确保优质号码碾压出线
+                if fb_spec > 0.1 and attr > 0.4 and penalty == 0:
+                    total *= 1.3
+                return total
+
             special_rank = _rank_numbers(
                 {
-                    number: (
-                        hot_norm.get(str(number), 0.0) * 0.35 +
-                        trend_norm.get(str(number), 0.0) * 0.25 +
-                        overdue_norm.get(str(number), 0.0) * 0.15 +
-                        ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 1.20) +
-                        ((feedback.get("normal", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.20) +
-                        attribute_score(number)
-                    )
-                    for number in remaining_numbers
+                    number: compute_special_score(number) for number in remaining_numbers
                 },
                 candidates=remaining_numbers
             )
