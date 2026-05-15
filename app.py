@@ -3025,7 +3025,6 @@ def send_winning_notification_email(user, prediction, region):
         print(f"发送邮件失败: {e}")
         raise
 
-def send_combined_prediction_email(user, predictions, region, period):
 def send_combined_prediction_email(user, predictions, region, period, latest_draw=None):
     """发送新一期多策略预测合并的汇总推送邮件"""
     smtp_server = SystemConfig.get_config('smtp_server')
@@ -3120,7 +3119,6 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
     server.send_message(msg)
     server.quit()
 
-def send_combined_winning_email(user, predictions, region):
 def send_combined_winning_email(user, predictions, region, draw_data=None):
     """发送合并后的特码命中通知邮件（如果有多个策略同时命中）"""
     smtp_server = SystemConfig.get_config('smtp_server')
