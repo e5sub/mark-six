@@ -3693,72 +3693,74 @@ class _PredictScreenState extends State<PredictScreen> {
   Widget _buildSummaryCards() {
     if (_regionSummaries.isEmpty) return const SizedBox.shrink();
 
-    return Column(
-      children: _regionSummaries.map((card) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: _regionSummaries.asMap().entries.map((entry) {
+        final index = entry.key;
+        final card = entry.value;
         final label = card['region_label']?.toString() ?? '';
         final missStreak = (card['miss_streak'] as num?)?.toInt() ?? 0;
         final maxMissStreak = (card['max_miss_streak'] as num?)?.toInt() ?? 0;
         final maxHitStreak = (card['max_hit_streak'] as num?)?.toInt() ?? 0;
         final hitPeriods = (card['hit_periods'] as num?)?.toInt() ?? 0;
-        final totalPredictions = (card['total_predictions'] as num?)?.toInt() ?? 0;
         final accuracy = (card['accuracy'] as num?)?.toDouble() ?? 0.0;
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x14000000),
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 8),
-                child: Row(
-                  children: [
-                    const Icon(Icons.trending_up, color: Color(0xFF0B6B4F), size: 20),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$label 连错/连中走势',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                  ],
+        return Expanded(
+          child: Container(
+            margin: EdgeInsets.only(
+              bottom: 16,
+              right: index < _regionSummaries.length - 1 ? 8 : 0,
+              left: index > 0 ? 8 : 0,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x14000000),
+                  blurRadius: 6,
+                  offset: Offset(0, 2),
                 ),
-              ),
-              const Divider(height: 1, color: Color(0xFFF0F0F0)),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _buildSummaryStatItem('当前连错', missStreak.toString(), missStreak > 0 ? Colors.redAccent : const Color(0xFF0B6B4F)),
-                    ),
-                    Expanded(
-                      child: _buildSummaryStatItem('最高连错', maxMissStreak.toString(), Colors.redAccent),
-                    ),
-                    Expanded(
-                      child: _buildSummaryStatItem('最高连中', maxHitStreak.toString(), const Color(0xFF0B6B4F)),
-                    ),
-                    Expanded(
-                      child: _buildSummaryStatItem('累计预测', totalPredictions.toString(), const Color(0xFF333333)),
-                    ),
-                    Expanded(
-                      child: _buildSummaryStatItem('累计命中', hitPeriods.toString(), const Color(0xFF2D6CDF)),
-                    ),
-                    Expanded(
-                      child: _buildSummaryStatItem('预测准确率', '${accuracy}%', const Color(0xFF2D6CDF)),
-                    ),
-                  ],
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, right: 12, top: 12, bottom: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.trending_up, color: Color(0xFF0B6B4F), size: 16),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '$label走势',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                const Divider(height: 1, color: Color(0xFFF0F0F0)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 12,
+                    alignment: WrapAlignment.spaceEvenly,
+                    children: [
+                      SizedBox(width: 50, child: _buildSummaryStatItem('当前连错', missStreak.toString(), missStreak > 0 ? Colors.redAccent : const Color(0xFF0B6B4F))),
+                      SizedBox(width: 50, child: _buildSummaryStatItem('最高连错', maxMissStreak.toString(), Colors.redAccent)),
+                      SizedBox(width: 50, child: _buildSummaryStatItem('最高连中', maxHitStreak.toString(), const Color(0xFF0B6B4F))),
+                      SizedBox(width: 50, child: _buildSummaryStatItem('累计命中', hitPeriods.toString(), const Color(0xFF2D6CDF))),
+                      SizedBox(width: 50, child: _buildSummaryStatItem('准确率', '${accuracy}%', const Color(0xFF2D6CDF))),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       }).toList(),
