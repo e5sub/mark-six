@@ -34,7 +34,10 @@
     <button id="updateDataBtn" class="modern-btn btn-success" style="padding: 10px 20px;">
         <i class="fas fa-sync-alt"></i> 更新开奖数据
     </button>
-    <button class="modern-btn btn-info" onclick="getPrediction('smart')" id="smartPredBtn">
+    <button class="modern-btn btn-info" onclick="getPrediction('ml')" id="mlPredBtn">
+        <i class="fas fa-flask"></i> 机器学习预测
+    </button>
+    <button class="modern-btn btn-info" onclick="getPrediction('smart')" id="smartPredBtn" style="display: none;">
         <i class="fas fa-brain"></i> 智能优选预测
     </button>
     <button class="modern-btn btn-success" onclick="getPrediction('balanced')" id="balancedPredBtn">
@@ -51,9 +54,6 @@
     </button>
     <button class="modern-btn btn-success" onclick="getPrediction('hybrid')" id="hybridPredBtn">
         <i class="fas fa-sliders-h"></i> 综合预测
-    </button>
-    <button class="modern-btn btn-info" onclick="getPrediction('ml')" id="mlPredBtn">
-        <i class="fas fa-flask"></i> 机器学习预测
     </button>
     <button class="modern-btn btn-warning" onclick="getPrediction('ai')" id="aiPredBtn">
         <i class="fas fa-robot"></i> AI智能预测

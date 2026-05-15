@@ -168,11 +168,6 @@ def _decorate_recommendation_text(requested_strategy, resolved_strategy, recomme
     return f"{strategy_note}\n{recommendation_text}"
 
 def _get_email_strategy_display(prediction):
-    raw_text = (prediction.prediction_text or '').strip()
-    if raw_text.startswith('智能优选（本期采用：'):
-        first_line = raw_text.splitlines()[0].strip()
-        if first_line:
-            return first_line
     return _get_strategy_label(prediction.strategy)
 
 LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
@@ -2482,11 +2477,16 @@ def generate_auto_predictions(data, region):
 
             user_predictions = []
             has_new_predictions = False
+            seen_strategies = set()
 
             for strategy in strategies:
-                if strategy == 'ai':
+                if strategy in ('ai', 'smart'):
                     continue
-                resolved_strategy = _get_recommended_strategy(region).get("strategy", "hybrid") if strategy == 'smart' else strategy
+                resolved_strategy = strategy
+
+                if resolved_strategy in seen_strategies:
+                    continue
+                seen_strategies.add(resolved_strategy)
 
                 existing = PredictionRecord.query.filter_by(
                     user_id=user.id,
