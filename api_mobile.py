@@ -1,6 +1,5 @@
 from datetime import datetime
 import json
-from collections import OrderedDict
 
 from flask import Blueprint, jsonify, request, session
 from sqlalchemy import func, case, or_
@@ -1467,68 +1466,6 @@ def _learning_summary():
         payload[region] = region_data
     return payload
 
-def _build_region_summaries(user_id):
-    all_predictions = PredictionRecord.query.filter_by(user_id=user_id).order_by(
-        PredictionRecord.created_at.asc(), PredictionRecord.id.asc()
-    ).all()
-    
-    regions = {record.region for record in all_predictions if record.region}
-    
-    prediction_summary_cards = []
-    for r in regions:
-        region_records = [record for record in all_predictions if record.region == r]
-        
-        period_results = OrderedDict()
-        for record in region_records:
-            period_key = record.period
-            if period_key not in period_results:
-                period_results[period_key] = {
-                    'has_result': False,
-                    'is_hit': False,
-                }
-            if record.is_result_updated and record.special_number and record.actual_special_number:
-                period_results[period_key]['has_result'] = True
-                if str(record.special_number).strip() == str(record.actual_special_number).strip():
-                    period_results[period_key]['is_hit'] = True
-
-        total_special_hits = 0
-        consecutive_special_misses = 0
-        consecutive_special_hits = 0
-        max_consecutive_special_hits = 0
-        max_consecutive_special_misses = 0
-        resolved_periods = 0
-
-        for result in period_results.values():
-            if not result['has_result']:
-                continue
-            resolved_periods += 1
-            if result['is_hit']:
-                total_special_hits += 1
-                consecutive_special_hits += 1
-                consecutive_special_misses = 0
-                if consecutive_special_hits > max_consecutive_special_hits:
-                    max_consecutive_special_hits = consecutive_special_hits
-            else:
-                consecutive_special_hits = 0
-                consecutive_special_misses += 1
-                if consecutive_special_misses > max_consecutive_special_misses:
-                    max_consecutive_special_misses = consecutive_special_misses
-
-        prediction_summary_cards.append({
-            'region': r,
-            'region_label': '香港' if r == 'hk' else '澳门' if r == 'macau' else r,
-            'hit_periods': total_special_hits,
-            'miss_streak': consecutive_special_misses,
-            'max_hit_streak': max_consecutive_special_hits,
-            'max_miss_streak': max_consecutive_special_misses,
-            'resolved_periods': resolved_periods,
-        })
-    
-    prediction_summary_cards.sort(
-        key=lambda item: 0 if item['region'] == 'hk' else 1 if item['region'] == 'macau' else 2
-    )
-    return prediction_summary_cards
-
 
 @mobile_api_bp.route("/accuracy", methods=["GET"])
 def api_accuracy():
@@ -1546,8 +1483,6 @@ def api_accuracy():
         strategy_stats[key] = _calculate_accuracy(base_query.filter_by(strategy=key))
     backtests, best_strategy = _build_mobile_backtests(user.id)
 
-    region_summaries = _build_region_summaries(user.id)
-
     return jsonify(
         {
             "success": True,
@@ -1556,6 +1491,5 @@ def api_accuracy():
             "recommended_strategy": best_strategy,
             "backtests": backtests,
             "learning_summary": _learning_summary(),
-            "region_summaries": region_summaries,
         }
     )
