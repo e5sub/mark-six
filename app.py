@@ -1,4 +1,4 @@
-﻿from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
 from flask import Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
@@ -1135,8 +1135,8 @@ def _tune_strategy_config(strategy, region):
         config["feature_window"] = _clamp(int(40 + accuracy * 40), 30, 80)
         config["pool"] = _clamp(int(14 + accuracy * 8), 12, 24)
         config["special_pool"] = _clamp(int(6 + accuracy * 4), 6, 12)
-        config["epochs"] = _clamp(int(3 + accuracy * 3), 3, 6)
-        config["learning_rate"] = round(_clamp(0.05 + (1 - accuracy) * 0.05, 0.04, 0.10), 3)
+        config["epochs"] = _clamp(int(15 + accuracy * 15), 15, 30)
+        config["learning_rate"] = round(_clamp(0.02 + (1 - accuracy) * 0.08, 0.01, 0.08), 3)
 
     if weights:
         weights["feedback"] = round(_clamp(0.45 + learning_strength * 0.7 + accuracy * 0.3, 0.45, 1.35), 2)
@@ -1432,6 +1432,7 @@ def _build_prediction_feedback(region, strategy, limit=240):
         else:
             if special:
                 special_scores[special] -= 0.95 * recency_weight
+                special_scores[special] -= 0.65 * recency_weight
             for number in normal_numbers:
                 normal_scores[number] -= 0.18 * recency_weight
             if predicted_zodiac:
@@ -1676,7 +1677,7 @@ def _train_ml_number_model(data, region, config):
         return {"weights": weights, "bias": bias, "samples": 0}
 
     for epoch in range(epochs):
-        step = learning_rate * (0.92 ** epoch)
+        step = learning_rate * (0.95 ** epoch)
         for idx in range(min_history, len(chronological)):
             target_draw = chronological[idx]
             target_special = str(target_draw.get("sno") or "").strip()
@@ -1763,7 +1764,7 @@ def _predict_with_ml(data, region, variation_key=None):
         special_candidates,
         1,
         variation_key=variation_key,
-        window_size=max(special_pool_size * 2, 8)
+        window_size=max(special_pool_size // 2, 2)
     )
     special_num = special_pick[0] if special_pick else special_candidates[0]
     probability_map = dict(ranked)
@@ -1841,11 +1842,17 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 color_score = color_pref.get(_get_color_zh(number), 0.0)
                 zodiac_score = zodiac_pref.get(number_to_zodiac.get(str(number), ""), 0.0)
                 parity_score = parity_pref.get(_get_parity_zh(number), 0.0)
-                return (
+                
+                base_score = (
                     float(weights.get("color", 0.0)) * color_score +
                     float(weights.get("zodiac", 0.0)) * zodiac_score +
                     float(weights.get("parity", 0.0)) * parity_score
                 )
+                
+                # 共振加成：如果波色、生肖、单双均具有较高偏好度，给予 1.2 倍爆分乘数
+                if color_score > 0.6 and zodiac_score > 0.6 and parity_score > 0.6:
+                    base_score *= 1.2
+                return base_score
 
             number_scores = {}
             for number in all_numbers:
@@ -1961,7 +1968,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 special_candidates,
                 1,
                 variation_key=variation_key,
-                window_size=max(special_pool_size, 8)
+                window_size=max(special_pool_size // 2, 2)
             )
             special_num = special_pick[0] if special_pick else special_candidates[0]
             special_zodiac = number_to_zodiac.get(str(special_num), "")
@@ -3184,5 +3191,3 @@ if __name__ == '__main__':
         # 关闭定时任务
         if scheduler and scheduler.running:
             scheduler.shutdown()
-
-

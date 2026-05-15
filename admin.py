@@ -1,4 +1,4 @@
-﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from functools import wraps
 from models import db, User, ActivationCode, PredictionRecord, SystemConfig, InviteCode, ZodiacSetting, ManualBetRecord
 from datetime import datetime, timedelta
