@@ -721,13 +721,18 @@ def predictions():
             'ml': 6,
             'ai': 7,
         }
+        
+        personalized_enabled = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower() == 'true'
 
         for pred in page_records:
-            if pred.user_id:
-                user = User.query.get(pred.user_id)
-                pred.username = user.username if user else '已删除用户'
+            if personalized_enabled:
+                if pred.user_id:
+                    user = User.query.get(pred.user_id)
+                    pred.username = user.username if user else '已删除用户'
+                else:
+                    pred.username = '未知用户'
             else:
-                pred.username = '未知用户'
+                pred.username = ''
 
             pred.strategy_label = PREDICTION_STRATEGY_LABELS.get(pred.strategy, pred.strategy)
             pred.strategy_sort = strategy_order.get(pred.strategy, 99)
@@ -792,9 +797,16 @@ def predictions():
                     'record_count': int(getattr(group_meta, 'record_count', 0) or 0),
                     'user_count': int(getattr(group_meta, 'user_count', 0) or 0),
                     'items': [],
+                    '_seen_strategies': set(),
                 }
 
             group = prediction_groups_map[group_key]
+            
+            if not personalized_enabled:
+                if pred.strategy in group['_seen_strategies']:
+                    continue
+                group['_seen_strategies'].add(pred.strategy)
+
             if pred.actual_special_number and not group['actual_special_number']:
                 group['actual_special_number'] = pred.actual_special_number
             if pred.display_actual_special_zodiac and not group['display_actual_special_zodiac']:
@@ -811,6 +823,9 @@ def predictions():
                     -(item.id or 0)
                 )
             )
+            for i, item in enumerate(group['items']):
+                item.is_first_in_group = (i == 0)
+                item.group_rowspan = len(group['items'])
 
         prediction_groups = [
             prediction_groups_map[f"{region}-{period}"]

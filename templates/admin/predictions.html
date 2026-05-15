@@ -412,8 +412,6 @@
                     <thead>
                         <tr>
                             <th style="width:40px;"><input type="checkbox" onchange="toggleGroup(this, '{{ group.key }}')"></th>
-                            <th style="width:60px;">ID</th>
-                            <th style="width:100px;">用户</th>
                             <th style="width:100px;">策略</th>
                             <th>预测特码</th>
                             <th>开奖结果</th>
@@ -427,8 +425,6 @@
                             <td>
                                 <input type="checkbox" name="prediction_ids" value="{{ prediction.id }}" class="prediction-checkbox group-{{ group.key }}">
                             </td>
-                            <td>#{{ prediction.id }}</td>
-                            <td>{{ prediction.username if prediction.username else '未知' }}</td>
                             <td>
                                 {% if prediction.strategy == 'ai' %}
                                     <span class="strategy-badge ai-badge">AI</span>
@@ -463,7 +459,8 @@
                                     -
                                 {% endif %}
                             </td>
-                            <td>
+                            {% if prediction.is_first_in_group %}
+                            <td rowspan="{{ prediction.group_rowspan }}" style="vertical-align: middle; text-align: center; border-left: 1px solid #e5e7eb;">
                                 {% if prediction.actual_special_number %}
                                     {% set actual_special_num = prediction.actual_special_number|int %}
                                     {% if actual_special_num in [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
@@ -473,11 +470,14 @@
                                     {% else %}
                                         <span class="special-ball green-special">{{ prediction.actual_special_number }}</span>
                                     {% endif %}
-                                    <span class="zodiac-badge">{{ prediction.display_actual_special_zodiac or '' }}</span>
+                                    <div style="margin-top: 5px;">
+                                        <span class="zodiac-badge">{{ prediction.display_actual_special_zodiac or '' }}</span>
+                                    </div>
                                 {% else %}
                                     <span class="result-badge pending">待开</span>
                                 {% endif %}
                             </td>
+                            {% endif %}
                             <td class="time-badge">
                                 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') if prediction.created_at else '' }}
                             </td>
