@@ -2456,7 +2456,7 @@ def generate_auto_predictions(data, region):
             db.session.commit()
 
         for user in auto_predict_users:
-            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['balanced']
+            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['smart', 'hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
             regions = user.auto_prediction_regions.split(',') if hasattr(user, 'auto_prediction_regions') and user.auto_prediction_regions else ['hk', 'macau']
 
             if region not in regions:

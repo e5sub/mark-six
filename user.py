@@ -842,7 +842,7 @@ def save_prediction_settings():
             valid_strategies.append(strategy)
 
     if not valid_strategies:
-        valid_strategies = ['hybrid']
+        valid_strategies = ['smart', 'hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
 
     valid_regions = []
     for region in auto_prediction_regions:
@@ -885,7 +885,7 @@ def update_auto_prediction():
                 valid_strategies.append(strategy)
 
         if not valid_strategies:
-            valid_strategies = ['hybrid']
+        valid_strategies = ['smart', 'hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
 
         valid_regions = []
         for region in auto_prediction_regions:
