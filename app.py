@@ -2496,7 +2496,6 @@ def generate_auto_predictions(data, region):
                 ).first()
 
                 if not existing:
-                    generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
                     pred = generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
                     if pred:
                         user_predictions.append(pred)
@@ -2507,7 +2506,6 @@ def generate_auto_predictions(data, region):
             # 如果生成了全新的预测，合并发送一封汇总邮件
             if has_new_predictions and user.email:
                 try:
-                    send_combined_prediction_email(user, user_predictions, region, next_period)
                     send_combined_prediction_email(user, user_predictions, region, next_period, latest_draw)
                 except Exception as e:
                     print(f"自动发送合并预测邮件给 {user.username} 失败：{e}")
@@ -2520,7 +2518,6 @@ def generate_prediction_for_user(user, region, period, strategy, data):
     try:
         if strategy == 'ai':
             print(f"已跳过用户 {user.username} 的AI自动预测")
-            return
             return None
 
         variation_key = None
@@ -2530,7 +2527,6 @@ def generate_prediction_for_user(user, region, period, strategy, data):
 
         if result.get('error'):
             print(f"用户 {user.username} 的自动预测失败：{result.get('error')}")
-            return
             return None
 
         prediction = PredictionRecord(
@@ -3364,7 +3360,7 @@ def update_lottery_data():
             if macau_data:
                 generate_auto_predictions(macau_data, 'macau')
             
-            print(f"定时任务执行完成：成功更新香港数据{len(hk_filtered)}条，澳门数据{len(macau_data)}条")
+            print(f"定时任务执行完成：成功更新香港数据{len(hk_data)}条，澳门数据{len(macau_data)}条")
             
         except Exception as e:
             print(f"定时任务执行失败：{e}")
