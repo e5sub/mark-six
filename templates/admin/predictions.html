@@ -414,7 +414,7 @@
                             <th style="width:40px;"><input type="checkbox" onchange="toggleGroup(this, '{{ group.key }}')"></th>
                             <th style="width:100px;">策略</th>
                             <th>预测特码</th>
-                            <th>开奖结果</th>
+                            <th style="text-align: center;">开奖结果</th>
                             <th style="width:140px;">预测时间</th>
                             <th style="width:70px;">操作</th>
                         </tr>
@@ -439,7 +439,7 @@
                                 {% elif prediction.strategy == 'hybrid' %}
                                     <span class="strategy-badge hybrid-badge">综合</span>
                                 {% elif prediction.strategy == 'ml' %}
-                                    <span class="strategy-badge ml-badge">ML</span>
+                                    <span class="strategy-badge ml-badge">机器学习</span>
                                 {% else %}
                                     {{ prediction.strategy }}
                                 {% endif %}
