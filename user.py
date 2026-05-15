@@ -1,10 +1,11 @@
-﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+﻿﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from models import db, User, PredictionRecord, SystemConfig, InviteCode
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from types import SimpleNamespace
 import json
+from collections import OrderedDict
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
 
@@ -595,6 +596,67 @@ def predictions():
     special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     
+    regions = {
+        record.region
+        for record in all_predictions
+        if record.region
+    }
+
+    prediction_summary_cards = []
+    for r in regions:
+        region_records = [record for record in all_predictions if record.region == r]
+        region_records.sort(key=lambda x: (x.created_at, x.id))
+        
+        period_results = OrderedDict()
+        for record in region_records:
+            period_key = record.period
+            if period_key not in period_results:
+                period_results[period_key] = {
+                    'has_result': False,
+                    'is_hit': False,
+                }
+            if record.is_result_updated and record.special_number and record.actual_special_number:
+                period_results[period_key]['has_result'] = True
+                if str(record.special_number).strip() == str(record.actual_special_number).strip():
+                    period_results[period_key]['is_hit'] = True
+
+        total_special_hits = 0
+        consecutive_special_misses = 0
+        consecutive_special_hits = 0
+        max_consecutive_special_hits = 0
+        max_consecutive_special_misses = 0
+        resolved_periods = 0
+
+        for result in period_results.values():
+            if not result['has_result']:
+                continue
+            resolved_periods += 1
+            if result['is_hit']:
+                total_special_hits += 1
+                consecutive_special_hits += 1
+                consecutive_special_misses = 0
+                if consecutive_special_hits > max_consecutive_special_hits:
+                    max_consecutive_special_hits = consecutive_special_hits
+            else:
+                consecutive_special_hits = 0
+                consecutive_special_misses += 1
+                if consecutive_special_misses > max_consecutive_special_misses:
+                    max_consecutive_special_misses = consecutive_special_misses
+
+        prediction_summary_cards.append({
+            'region': r,
+            'region_label': '香港' if r == 'hk' else '澳门' if r == 'macau' else r,
+            'hit_periods': total_special_hits,
+            'miss_streak': consecutive_special_misses,
+            'max_hit_streak': max_consecutive_special_hits,
+            'max_miss_streak': max_consecutive_special_misses,
+            'resolved_periods': resolved_periods,
+        })
+    
+    prediction_summary_cards.sort(
+        key=lambda item: 0 if item['region'] == 'hk' else 1 if item['region'] == 'macau' else 2
+    )
+
     return render_template('user/predictions.html', 
                           user=user,
                           predictions=predictions,
@@ -615,7 +677,8 @@ def predictions():
                           total_predictions=total_predictions,
                           accuracy=round(accuracy_rate, 2),
                           special_hit_rate=round(special_hit_rate, 2),
-                          normal_hit_rate=round(normal_hit_rate, 2))
+                          normal_hit_rate=round(normal_hit_rate, 2),
+                          prediction_summary_cards=prediction_summary_cards)
 
 @user_bp.route('/save-prediction', methods=['POST'])
 @login_required
@@ -1193,7 +1256,3 @@ def analytics():
                           recent_predictions=recent_predictions,
                           trend_data=trend_data,
                           get_number_color=get_number_color)
-
-
-
-
