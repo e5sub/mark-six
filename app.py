@@ -2761,12 +2761,16 @@ def update_data_api():
             save_draws_to_database(hk_filtered, 'hk')
             print(f"手动更新：成功更新香港数据{len(hk_filtered)}条")
             update_hk_next_draw_time_cache(force=True)
+            if hk_filtered:
+                generate_auto_predictions(hk_filtered, 'hk')
         
         if region == 'all' or region == 'macau':
             # 更新澳门数据
             macau_data = get_macau_data(current_year, force_api=True)
             save_draws_to_database(macau_data, 'macau')
             print(f"手动更新：成功更新澳门数据{len(macau_data)}条")
+            if macau_data:
+                generate_auto_predictions(macau_data, 'macau')
         
         return jsonify({
             "success": True, 
