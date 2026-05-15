@@ -1868,6 +1868,10 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     (feedback.get("special", {}).get(key, 0.5) - 0.5) * 0.72 +
                     (feedback.get("normal", {}).get(key, 0.5) - 0.5) * 0.28
                 ) * feedback_confidence
+                
+                attr_score = attribute_score(number)
+                penalty = overheat_penalty(number)
+                
                 score = (
                     float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
                     float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
