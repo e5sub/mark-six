@@ -2408,9 +2408,23 @@ def update_prediction_accuracy(data, region):
                         send_winning_notification_email(user, pred, region)
                 except Exception as e:
                     print(f"发送中奖通知邮件失败: {e}")
+                if pred.user_id not in user_hits:
+                    user_hits[pred.user_id] = []
+                user_hits[pred.user_id].append(pred)
         
         # 提交更改
         db.session.commit()
+
+        # 统一发送合并后的中奖邮件
+        for user_id, hit_preds in user_hits.items():
+            try:
+                user = User.query.get(user_id)
+                if user and user.email:
+                    send_combined_winning_email(user, hit_preds, region)
+                    draw_data = next((d for d in data if d.get('id') == hit_preds[0].period), None)
+                    send_combined_winning_email(user, hit_preds, region, draw_data)
+            except Exception as e:
+                print(f"发送合并中奖邮件失败: {e}")
 
         # 根据最新准确率调整策略参数
         update_strategy_configs(region)
@@ -2462,6 +2476,9 @@ def generate_auto_predictions(data, region):
             if region not in regions:
                 continue
 
+            user_predictions = []
+            has_new_predictions = False
+
             for strategy in strategies:
                 if strategy == 'ai':
                     continue
@@ -2476,6 +2493,20 @@ def generate_auto_predictions(data, region):
 
                 if not existing:
                     generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
+                    pred = generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
+                    if pred:
+                        user_predictions.append(pred)
+                        has_new_predictions = True
+                else:
+                    user_predictions.append(existing)
+            
+            # 如果生成了全新的预测，合并发送一封汇总邮件
+            if has_new_predictions and user.email:
+                try:
+                    send_combined_prediction_email(user, user_predictions, region, next_period)
+                    send_combined_prediction_email(user, user_predictions, region, next_period, latest_draw)
+                except Exception as e:
+                    print(f"自动发送合并预测邮件给 {user.username} 失败：{e}")
     except Exception as e:
         print(f"自动预测出错：{e}")
         db.session.rollback()
@@ -2486,6 +2517,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
         if strategy == 'ai':
             print(f"已跳过用户 {user.username} 的AI自动预测")
             return
+            return None
 
         variation_key = None
         if _personalized_predictions_enabled():
@@ -2495,6 +2527,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
         if result.get('error'):
             print(f"用户 {user.username} 的自动预测失败：{result.get('error')}")
             return
+            return None
 
         prediction = PredictionRecord(
             user_id=user.id,
@@ -2509,9 +2542,11 @@ def generate_prediction_for_user(user, region, period, strategy, data):
         db.session.add(prediction)
         db.session.commit()
         print(f"自动预测成功：为用户 {user.username} 的{region}地区第{period}期生成了{strategy}策略的预测")
+        return prediction
     except Exception as e:
         print(f"为用户 {user.username} 生成预测时出错：{e}")
         db.session.rollback()
+        return None
 
 @app.route('/api/predict')
 def unified_predict_api():
@@ -2989,6 +3024,177 @@ def send_winning_notification_email(user, prediction, region):
     except Exception as e:
         print(f"发送邮件失败: {e}")
         raise
+
+def send_combined_prediction_email(user, predictions, region, period):
+def send_combined_prediction_email(user, predictions, region, period, latest_draw=None):
+    """发送新一期多策略预测合并的汇总推送邮件"""
+    smtp_server = SystemConfig.get_config('smtp_server')
+    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
+    smtp_username = SystemConfig.get_config('smtp_username')
+    smtp_password = SystemConfig.get_config('smtp_password')
+    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    
+    if not all([smtp_server, smtp_username, smtp_password]):
+        return
+    
+    region_name = '香港' if region == 'hk' else '澳门'
+    subject = f"{site_name} - {region_name}六合彩第{period}期预测汇总已生成"
+    
+    rows_html = ""
+    for pred in predictions:
+        strategy_name = _get_email_strategy_display(pred)
+        rows_html += f"""
+        <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #eee;"><strong>{strategy_name}</strong></td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; color: #555; word-break: break-all;">{pred.normal_numbers}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; color: #e53935; font-weight: bold; text-align: center;">{pred.special_number} <br><span style="font-size: 12px; color: #888;">({pred.special_zodiac})</span></td>
+        </tr>
+        """
+        
+    latest_draw_html = ""
+    if latest_draw:
+        draw_period = latest_draw.get('id', '')
+        normal_nums = ', '.join(latest_draw.get('no', []))
+        special_num = latest_draw.get('sno', '')
+        special_zodiac = latest_draw.get('sno_zodiac', '')
+        latest_draw_html = f'''
+        <div style="background-color: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
+            <h3 style="margin-top: 0; color: #0d47a1; font-size: 16px; margin-bottom: 8px;">上期 ({draw_period}期) 开奖结果</h3>
+            <p style="margin: 0; font-size: 14px; color: #555;">
+                <strong>平码：</strong>{normal_nums} <br>
+                <strong style="display: inline-block; margin-top: 5px;">特码：</strong><span style="color: #e53935; font-weight: bold; font-size: 16px;">{special_num}</span> ({special_zodiac})
+            </p>
+        </div>
+        '''
+
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="background: linear-gradient(135deg, #1e88e5 0%, #1565c0 100%); color: white; padding: 20px; text-align: center;">
+                <h2 style="margin: 0; font-size: 20px;">第 {period} 期 预测汇总</h2>
+                <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">{region_name}六合彩最新推荐</p>
+            </div>
+            <div style="padding: 25px;">
+                <p style="font-size: 16px;">尊敬的 <strong>{user.username}</strong>：</p>
+                {latest_draw_html}
+                <p style="color: #666;">系统已为您自动生成了本期的最新预测，以下是您开启的各策略推荐号码：</p>
+                
+                <table style="width: 100%; border-collapse: collapse; margin-top: 20px; border-radius: 8px; overflow: hidden;">
+                    <thead>
+                        <tr style="background-color: #f8f9fa; text-align: left;">
+                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef;">策略</th>
+                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef;">平码推荐</th>
+                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef; text-align: center;">特码推荐</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+                </table>
+                
+                <div style="margin-top: 30px; text-align: center;">
+                    <a href="#" style="display: inline-block; background-color: #1e88e5; color: white; text-decoration: none; padding: 12px 30px; border-radius: 25px; font-weight: bold;">登录系统查看详情</a>
+                </div>
+            </div>
+            <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #aaa;">
+                <p style="margin: 0;">此邮件由 {site_name} 自动生成并发送，请勿回复。</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = smtp_username
+    msg['To'] = user.email
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    server = smtplib.SMTP(smtp_server, smtp_port)
+    server.starttls()
+    server.login(smtp_username, smtp_password)
+    server.send_message(msg)
+    server.quit()
+
+def send_combined_winning_email(user, predictions, region):
+def send_combined_winning_email(user, predictions, region, draw_data=None):
+    """发送合并后的特码命中通知邮件（如果有多个策略同时命中）"""
+    smtp_server = SystemConfig.get_config('smtp_server')
+    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
+    smtp_username = SystemConfig.get_config('smtp_username')
+    smtp_password = SystemConfig.get_config('smtp_password')
+    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    
+    if not all([smtp_server, smtp_username, smtp_password]):
+        return
+    
+    region_name = '香港' if region == 'hk' else '澳门'
+    period = predictions[0].period
+    subject = f"恭喜您！{region_name}第{period}期特码预测命中"
+    
+    rows_html = ""
+    for pred in predictions:
+        strategy_name = _get_email_strategy_display(pred)
+        rows_html += f"""
+        <div style="margin-bottom: 10px; padding: 12px; background-color: #f1f8e9; border-left: 4px solid #4CAF50; border-radius: 4px;">
+            <strong style="color: #2e7d32;">{strategy_name}</strong> 命中特码：<span style="color: #e53935; font-weight: bold; font-size: 16px;">{pred.special_number} ({pred.special_zodiac})</span>
+        </div>
+        """
+        
+    draw_html = ""
+    if draw_data:
+        normal_nums = ', '.join(draw_data.get('no', []))
+        draw_html = f'''
+        <div style="background-color: #fff9c4; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #fbc02d;">
+            <h3 style="margin-top: 0; color: #f57f17; font-size: 16px; margin-bottom: 8px;">第 {period} 期 完整开奖结果</h3>
+            <p style="margin: 0; font-size: 14px; color: #555;">
+                <strong>平码：</strong>{normal_nums} <br>
+                <strong style="display: inline-block; margin-top: 5px;">特码：</strong><span style="color: #e53935; font-weight: bold; font-size: 16px;">{draw_data.get('sno', '')}</span> ({draw_data.get('sno_zodiac', '')})
+            </p>
+        </div>
+        '''
+
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="background: linear-gradient(135deg, #4CAF50 0%, #2e7d32 100%); color: white; padding: 20px; text-align: center;">
+                <h2 style="margin: 0; font-size: 24px;">🎉 预测命中通知 🎉</h2>
+            </div>
+            <div style="padding: 25px;">
+                <p style="font-size: 16px;">尊敬的 <strong>{user.username}</strong>：</p>
+                <p style="color: #666;">恭喜您！您定制的 {region_name}六合彩 <strong>第 {period} 期</strong> 预测有多项策略成功命中了特码 <strong>{predictions[0].actual_special_number} ({predictions[0].actual_special_zodiac})</strong>：</p>
+                
+                {draw_html}
+
+                <div style="margin: 25px 0;">
+                    {rows_html}
+                </div>
+                
+                <p style="text-align: center; margin-top: 35px;">
+                    <a href="#" style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block;">登录系统查看详情</a>
+                </p>
+            </div>
+            <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #aaa;">
+                <p style="margin: 0;">此邮件由 {site_name} 自动生成并发送，请勿回复。</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = smtp_username
+    msg['To'] = user.email
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    server = smtplib.SMTP(smtp_server, smtp_port)
+    server.starttls()
+    server.login(smtp_username, smtp_password)
+    server.send_message(msg)
+    server.quit()
 
 # 全局请求前处理器，检查用户激活状态
 @app.before_request
