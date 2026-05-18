@@ -1638,29 +1638,38 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
         if item.get("sno")
     }
 
-    # --- 高级特征工程 ---
-    transitions = {}
-    for i in range(len(long_data) - 1):
-        curr_sno = str(long_data[i].get("sno", ""))
-        prev_sno = str(long_data[i+1].get("sno", ""))
-        if curr_sno and prev_sno:
-            if prev_sno not in transitions:
-                transitions[prev_sno] = Counter()
-            transitions[prev_sno][curr_sno] += 1
-    last_sno = str(short_data[0].get("sno", "")) if short_data else ""
-    markov_counts = transitions.get(last_sno, Counter())
-    markov_features = _normalize_metric_map({str(i): markov_counts.get(str(i), 0) for i in range(1, 50)})
-    
-    tail_counts = Counter(str(r.get("sno", ""))[-1] for r in long_data if r.get("sno"))
-    tail_features = _normalize_metric_map({str(i): tail_counts.get(str(i), 0) for i in range(10)})
+        # ====== 新增进阶特征 ======
+        # 1. 马尔可夫转移矩阵 (上期特码 -> 本期特码的概率)
+        transitions = {}
+        for i in range(len(long_data) - 1):
+            curr_sno = str(long_data[i].get("sno", ""))
+            prev_sno = str(long_data[i+1].get("sno", ""))
+            if curr_sno and prev_sno:
+                if prev_sno not in transitions:
+                    transitions[prev_sno] = Counter()
+                transitions[prev_sno][curr_sno] += 1
+        last_sno = str(short_data[0].get("sno", "")) if short_data else ""
+        markov_counts = transitions.get(last_sno, Counter())
+        markov_features = _normalize_metric_map({str(i): markov_counts.get(str(i), 0) for i in range(1, 50)})
+
+        # 2. 同尾数热度特征
+        tail_counts = Counter(str(r.get("sno", ""))[-1] for r in long_data if r.get("sno"))
+        tail_features = _normalize_metric_map({str(i): tail_counts.get(str(i), 0) for i in range(10)})
 
     features = {}
     for number in range(1, 50):
         key = str(number)
-        tail_key = key[-1]
-        
-        diff_feature = abs(number - int(last_sno)) / 48.0 if (last_sno and last_sno.isdigit()) else 0.0
-        trend_feature = max(0.0, short_special.get(key, 0.0) - long_all.get(key, 0.0))
+            tail_key = key[-1]
+            
+            # 3. 差值特征：距离上期特码的绝对跨度（归一化）
+            diff_feature = 0.0
+            if last_sno and last_sno.isdigit():
+                diff_feature = abs(number - int(last_sno)) / 48.0
+
+            # 4. 爆发趋势特征：短期内频率远超长期平均水平，代表处于“热度上升期”
+            short_val = short_special.get(key, 0.0)
+            long_val = long_all.get(key, 0.0)
+            trend_feature = max(0.0, short_val - long_val)
 
         features[key] = [
             short_special.get(key, 0.0),
@@ -1672,10 +1681,10 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
             color_pref.get(_get_color_zh(number), 0.0),
             zodiac_pref.get(number_to_zodiac.get(key, ""), 0.0),
             parity_pref.get(_get_parity_zh(number), 0.0),
-            markov_features.get(key, 0.0),
-            tail_features.get(tail_key, 0.0),
-            diff_feature,
-            trend_feature,
+                markov_features.get(key, 0.0),     # 新增特征10：马尔可夫转移概率
+                tail_features.get(tail_key, 0.0),  # 新增特征11：尾数热度
+                diff_feature,                      # 新增特征12：跨度特征
+                trend_feature,                     # 新增特征13：近期爆发趋势
         ]
     return features
 
@@ -1689,12 +1698,15 @@ def _train_ml_number_model(data, region, config):
     recent_desc = list(data or [])[:history_window + feature_window]
     chronological = list(reversed(recent_desc))
     min_history = min(24, max(12, feature_window // 2))
-    weights = [0.0] * 9
+    weights = None  # 改为动态初始化，适配特征维度的扩展
     bias = 0.0
     sample_count = 0
+    velocity_w = None  # 动量更新缓存
+    velocity_b = 0.0
+    momentum = 0.9     # 动量系数 (Momentum)
 
     if len(chronological) <= min_history:
-        return {"weights": weights, "bias": bias, "samples": 0}
+        return {"weights": [0.0] * 13, "bias": bias, "samples": 0}
 
     for epoch in range(epochs):
         step = learning_rate * (0.95 ** epoch)
@@ -1715,6 +1727,11 @@ def _train_ml_number_model(data, region, config):
                 features = feature_table.get(key)
                 if not features:
                     continue
+                
+                # 延迟初始化 weights，保持与 feature 的维度绝对一致
+                if weights is None:
+                    weights = [0.0] * len(features)
+
                 label = 1.0 if key == target_special else 0.0
                 probability = _sigmoid(
                     bias + sum(weight * value for weight, value in zip(weights, features))
@@ -1732,6 +1749,9 @@ def _train_ml_number_model(data, region, config):
                     # 梯度更新加上 L2 惩罚项
                     weights[feature_idx] += step * (error * feature_value - l2_lambda * weights[feature_idx])
                 sample_count += 1
+
+    if weights is None:
+        weights = [0.0] * 12
 
     return {
         "weights": [round(weight, 6) for weight in weights],
