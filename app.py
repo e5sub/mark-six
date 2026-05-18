@@ -289,6 +289,40 @@ def _parse_csv_list(value):
         return []
     return [item.strip() for item in str(value).split(',') if item.strip()]
 
+def train_and_cache_ml_model(region):
+    """为指定地区训练并缓存ML模型权重"""
+    print(f"开始为地区 {region} 训练和缓存ML模型...")
+    try:
+        # 加载所有年份的数据进行训练
+        all_data = get_yearly_data(region, 'all')
+        if not all_data:
+            print(f"地区 {region} 无可用数据，跳过ML模型训练。")
+            return
+
+        config = _load_strategy_config("ml", region)
+        # 核心训练过程
+        model_weights = _train_ml_number_model(all_data, region, config)
+
+        weights_to_cache = {
+            "W1": model_weights.get("W1"),
+            "B1": model_weights.get("B1"),
+            "W2": model_weights.get("W2"),
+            "B2": model_weights.get("B2"),
+            "trained_at": datetime.now().isoformat(timespec='seconds'),
+            "samples": model_weights.get("samples", 0),
+            "history_window": model_weights.get("history_window", 0),
+        }
+
+        # 序列化并存储到SystemConfig
+        key = f"ml_model_weights_{region}"
+        SystemConfig.set_config(key, json.dumps(weights_to_cache))
+        print(f"✓ 地区 {region} 的ML模型权重已成功缓存。")
+
+    except Exception as e:
+        print(f"为地区 {region} 训练和缓存ML模型时出错: {e}")
+        import traceback
+        traceback.print_exc()
+
 def _parse_number_stakes_from_string(value):
     stakes = {}
     if not value:
@@ -1809,8 +1843,22 @@ def _train_ml_number_model(data, region, config):
 
 
 def _predict_with_ml(data, region, variation_key=None):
+    # 1. 尝试从缓存加载模型
+    model_key = f"ml_model_weights_{region}"
+    cached_weights_raw = SystemConfig.get_config(model_key, "")
+    model = None
+    if cached_weights_raw:
+        try:
+            model = json.loads(cached_weights_raw)
+        except json.JSONDecodeError:
+            model = None
+
     config = _load_strategy_config("ml", region)
-    model = _train_ml_number_model(data, region, config)
+    # 2. 如果缓存中没有，则现场训练作为后备 (Fallback)
+    if not model:
+        print(f"警告: 未找到地区 {region} 的缓存ML模型，将进行实时训练。")
+        model = _train_ml_number_model(data, region, config)
+
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
     feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
         
@@ -1878,8 +1926,8 @@ def _predict_with_ml(data, region, variation_key=None):
     year = _infer_draw_year(data)
     number_to_zodiac = _get_number_to_zodiac_map(year)
     recommendation_text = (
-        f"机器学习原型已基于最近{model.get('history_window', 0)}期历史开奖样本训练。"
-        f"训练样本 {model.get('samples', 0)} 条，并融合了号码、波色、单双、生肖与历史命中反馈，"
+        f"机器学习原型已基于 {model.get('samples', 0)} 条历史样本训练。"
+        f"模型缓存于 {model.get('trained_at', '未知时间')}。"
         f"推荐平码 {', '.join(map(str, normal))}，特码 {special_num}，"
         f"模型评分约 {special_probability}% 。"
     )
@@ -3468,6 +3516,12 @@ def update_lottery_data():
             print("正在同步澳门数据...")
             macau_data = sync_draws_from_api('macau', current_year, force=True)
             print(f"澳门数据更新完成：{len(macau_data)}条")
+
+            # 触发自动预测功能（排除 AI 策略）
+            print("正在重新训练和缓存ML模型...")
+            train_and_cache_ml_model('hk')
+            train_and_cache_ml_model('macau')
+            print("✓ ML模型训练和缓存完成。")
 
             # 触发自动预测功能（排除 AI 策略）
             print("正在生成自动预测...")
