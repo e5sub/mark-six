@@ -1945,8 +1945,13 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
     if not data:
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
-            # 严格按照要求：保证计算安全，并且绝对不降级 (No fallback)
-            return _predict_with_ml(data, region, variation_key=variation_key)
+            try:
+                # 严格按照要求：保证计算安全，捕获异常并交由前端展示，绝对不降级 (No fallback)
+                return _predict_with_ml(data, region, variation_key=variation_key)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"error": f"ML策略计算内部错误: {str(e)}"}
     else:
         try:
             config = _load_strategy_config(strategy, region)
