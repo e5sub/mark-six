@@ -1881,8 +1881,6 @@ def _predict_with_ml(data, region, variation_key=None):
     pool_size = _clamp(int(config.get("pool") or 18), 12, 24)
     special_pool_size = _clamp(int(config.get("special_pool") or 8), 6, 12)
     bucket_counts = config.get("bucket_counts") or [2, 2, 2]
-        if not isinstance(bucket_counts, list) or len(bucket_counts) != 3:
-            bucket_counts = [2, 2, 2]
     low_count, mid_count, high_count = bucket_counts
     ranked_numbers = [number for number, _ in ranked]
 
@@ -1947,8 +1945,13 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
     if not data:
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
-            # 严格按照要求：保证计算安全，并且绝对不降级 (No fallback)
-            return _predict_with_ml(data, region, variation_key=variation_key)
+            try:
+                # 严格按照要求：保证计算安全，捕获异常并交由前端展示，绝对不降级 (No fallback)
+                return _predict_with_ml(data, region, variation_key=variation_key)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"error": f"ML策略计算内部错误: {str(e)}"}
     else:
         try:
             config = _load_strategy_config(strategy, region)
