@@ -1567,14 +1567,6 @@ def _build_default_baseline_prediction():
         "recommendation_text": "系统当前可用历史数据不足，已返回基础保底号码组合。",
     }
 
-def _ensure_sufficient_history(data, region, min_limit=150):
-    """补足历史数据，防止跨年初数据过少导致预测策略失真或停止训练"""
-    if not data or len(data) < min_limit:
-        db_records = LotteryDraw.query.filter_by(region=region).order_by(LotteryDraw.draw_date.desc()).limit(max(min_limit, 200)).all()
-        if db_records:
-            return [record.to_dict() for record in db_records]
-    return data
-
 def _build_ai_learning_context(data, region, history_window=10):
     recent_data = data[:history_window]
     year = _infer_draw_year(recent_data or data)
@@ -1816,8 +1808,8 @@ def train_and_cache_ml_model(region):
     """为指定地区训练并缓存机器学习模型权重"""
     print(f"开始为地区 {region} 训练和缓存机器学习模型...")
     try:
-        all_data = _ensure_sufficient_history([], region, 300)
-        if not all_data or len(all_data) < 30:
+        all_data = get_yearly_data(region, 'all')
+        if not all_data:
             print(f"地区 {region} 无可用数据，跳过机器学习模型训练。")
             return
 
@@ -1841,8 +1833,6 @@ def train_and_cache_ml_model(region):
         print(f"为地区 {region} 训练和缓存机器学习模型时出错: {e}")
 
 def _predict_with_ml(data, region, variation_key=None):
-    data = _ensure_sufficient_history(data, region, 150)
-    
     model_key = f"ml_model_weights_{region}"
     cached_weights_raw = SystemConfig.get_config(model_key, "")
     model = None
@@ -1866,16 +1856,6 @@ def _predict_with_ml(data, region, variation_key=None):
     W2 = model.get("W2", [])
     B2 = model.get("B2", 0.0)
     hidden_dim = len(B1)
-        
-    # 兜底防护：如果拿到了坏的（空）权重缓存，则当场重训，打破永远预测相同的死循环
-    if not W1 or hidden_dim == 0:
-        print(f"警告: 缓存模型损坏或权重为空，正在启动补救实时训练。")
-        model = _train_ml_number_model(data, region, config)
-        W1 = model.get("W1", [])
-        B1 = model.get("B1", [])
-        W2 = model.get("W2", [])
-        B2 = model.get("B2", 0.0)
-        hidden_dim = len(B1)
         
     ranked = []
     for number in range(1, 50):
@@ -1967,13 +1947,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
     if not data:
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
-        try:
-            # 严格按照要求：保证计算安全，捕获异常并交由前端展示，绝对不降级 (No fallback)
+            # 严格按照要求：保证计算安全，并且绝对不降级 (No fallback)
             return _predict_with_ml(data, region, variation_key=variation_key)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return {"error": f"ML策略计算内部错误: {str(e)}"}
     else:
         try:
             config = _load_strategy_config(strategy, region)
@@ -2243,7 +2218,6 @@ def _build_ai_prompt(data, region, history_window=10):
     return prompt
 
 def predict_with_ai(data, region):
-    data = _ensure_sufficient_history(data, region, 50)
     ai_config = get_ai_config()
     if not ai_config['api_key'] or "你的" in ai_config['api_key']:
         return {"error": "AI API Key 未配置"}
@@ -2539,8 +2513,6 @@ def update_prediction_accuracy(data, region):
                     'special': special_number,
                     'special_zodiac': special_zodiac
                 }
-                
-        user_hits = {}
         
         # 更新每条预测记录的准确率
         for pred in predictions:
