@@ -2357,6 +2357,8 @@ def update_prediction_accuracy(data, region):
                     'special_zodiac': special_zodiac
                 }
         
+        user_hits = {}
+        
         # 更新每条预测记录的准确率
         for pred in predictions:
             # 检查是否已经更新过准确率
@@ -2398,15 +2400,8 @@ def update_prediction_accuracy(data, region):
             pred.accuracy_score = accuracy
             pred.is_result_updated = True
             
-            # 如果预测成功（特码命中），发送中奖通知邮件
+            # 如果预测成功（特码命中），收集到待发送列表以便发送合并通知邮件
             if special_hit == 1:
-                try:
-                    # 获取用户信息
-                    user = User.query.get(pred.user_id)
-                    if user and user.email:
-                        send_winning_notification_email(user, pred, region)
-                except Exception as e:
-                    print(f"发送中奖通知邮件失败: {e}")
                 if pred.user_id not in user_hits:
                     user_hits[pred.user_id] = []
                 user_hits[pred.user_id].append(pred)
@@ -2419,7 +2414,6 @@ def update_prediction_accuracy(data, region):
             try:
                 user = User.query.get(user_id)
                 if user and user.email:
-                    send_combined_winning_email(user, hit_preds, region)
                     draw_data = next((d for d in data if d.get('id') == hit_preds[0].period), None)
                     send_combined_winning_email(user, hit_preds, region, draw_data)
             except Exception as e:
