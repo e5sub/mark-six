@@ -152,138 +152,87 @@
     </form>
 </div>
 
-<div class="card card-outline card-info" style="margin-top: 1.5rem;">
-    <div class="card-header">
-        <h3 class="card-title">
-            <i class="fas fa-cogs mr-1"></i>
-            学习参数与ML模型
-        </h3>
-        <div class="card-tools">
-            <button type="button" class="btn btn-tool" data-card-widget="collapse">
-                <i class="fas fa-minus"></i>
-            </button>
-            <button type="button" id="retrainLearningBtn" class="btn btn-tool" title="重算所有地区的学习参数和ML模型" onclick="retrainLearning('all')">
-                <i class="fas fa-sync-alt"></i>
-            </button>
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+        <div>
+            <h2 class="card-title">🧠 学习参数面板</h2>
+            <div style="color:#666; font-size:0.92rem; margin-top:0.35rem;">查看香港和澳门各策略当前学习权重、窗口与最近回测状态。</div>
+        </div>
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <button type="button" class="btn" onclick="retrainLearning('hk')">重算香港</button>
+            <button type="button" class="btn" onclick="retrainLearning('macau')">重算澳门</button>
+            <button type="button" class="btn" onclick="retrainLearning('all')">重算全部</button>
         </div>
     </div>
-    <div class="card-body p-0">
-        <div class="nav-tabs-container">
-            <ul class="nav nav-tabs" id="learning-panel-tabs" role="tablist">
-                {% for region_panel in learning_panel %}
-                <li class="nav-item">
-                    <a class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ region_panel.region_key }}" data-toggle="pill" href="#panel-{{ region_panel.region_key }}" role="tab" aria-controls="panel-{{ region_panel.region_key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
-                        {{ region_panel.region_label }}
-                    </a>
-                </li>
-                {% endfor %}
-                <li class="nav-item">
-                    <a class="nav-link" id="tab-ml-weights" data-toggle="pill" href="#panel-ml-weights" role="tab" aria-controls="panel-ml-weights" aria-selected="false">
-                        <i class="fas fa-brain mr-1"></i> ML模型权重
-                    </a>
-                </li>
-            </ul>
-        </div>
-        <div class="tab-content" id="learning-panel-tabs-content">
-            {% for region_panel in learning_panel %}
-            <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="panel-{{ region_panel.region_key }}" role="tabpanel" aria-labelledby="tab-{{ region_panel.region_key }}">
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover table-bordered">
-                        <thead>
-                            <tr>
-                                <th>策略</th>
-                                <th>命中率</th>
-                                <th>样本数</th>
-                                <th>变化</th>
-                                <th>参数</th>
-                                <th>权重</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in region_panel.items %}
-                            <tr>
-                                <td><strong>{{ item.label }}</strong></td>
-                                <td>{{ item.last_accuracy }}%</td>
-                                <td>{{ item.last_total }}</td>
-                                <td>
-                                    {% if item.accuracy_delta > 0 %}
-                                        <span class="text-success"><i class="fas fa-arrow-up"></i> {{ item.accuracy_delta }}%</span>
-                                    {% elif item.accuracy_delta < 0 %}
-                                        <span class="text-danger"><i class="fas fa-arrow-down"></i> {{ item.accuracy_delta }}%</span>
-                                    {% else %}
-                                        <span class="text-muted">-</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if item.window %}窗口: {{ item.window }}<br>{% endif %}
-                                    {% if item.trend_window %}趋势窗口: {{ item.trend_window }}<br>{% endif %}
-                                    {% if item.history_window %}历史窗口: {{ item.history_window }}<br>{% endif %}
-                                    {% if item.feature_window %}特征窗口: {{ item.feature_window }}<br>{% endif %}
-                                    {% if item.pool %}平码池: {{ item.pool }}<br>{% endif %}
-                                    {% if item.special_pool %}特码池: {{ item.special_pool }}<br>{% endif %}
-                                    {% if item.epochs %}训练轮次: {{ item.epochs }}<br>{% endif %}
-                                    {% if item.learning_rate %}学习率: {{ item.learning_rate }}<br>{% endif %}
-                                    {% if item.bucket_counts %}分桶: {{ item.bucket_counts|join(',') }}<br>{% endif %}
-                                    {% if item.mix %}混合: {% for m in item.mix_items %}{{ m.label }}:{{ m.value }} {% endfor %}<br>{% endif %}
-                                </td>
-                                <td>
-                                    {% for w in item.weights %}
-                                        {{ w.label }}: {{ w.value }}<br>
-                                    {% endfor %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+
+    <div id="learning-panel" style="display:grid; gap:1.5rem;">
+        {% for region in learning_panel %}
+        <div style="background:rgba(255,255,255,0.45); border:1px solid rgba(102,126,234,0.12); border-radius:16px; padding:1.25rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:0.75rem; flex-wrap:wrap;">
+                <h3 style="margin:0; color:#384a6b;">{{ region.region_label }}学习参数</h3>
+                <div style="color:#7a8599; font-size:0.88rem;">共 {{ region['items']|length }} 个策略</div>
             </div>
-            {% endfor %}
-            <div class="tab-pane fade" id="panel-ml-weights" role="tabpanel" aria-labelledby="tab-ml-weights">
-                <div class="p-3">
-                    <div class="row">
-                        {% for region_panel in ml_weights_panel %}
-                        <div class="col-md-6">
-                            <div class="card card-secondary">
-                                <div class="card-header">
-                                    <h3 class="card-title">{{ region_panel.region_label }} 模型</h3>
-                                </div>
-                                <div class="card-body">
-                                    {% if region_panel.data and region_panel.data.W1 %}
-                                        <p><strong>训练时间:</strong> {{ region_panel.data.trained_at }}</p>
-                                        <p><strong>训练样本:</strong> {{ region_panel.data.samples }}</p>
-                                        <p><strong>权重 W1 (部分):</strong></p>
-                                        <pre class="code-block">{{ (region_panel.data.W1[:1] if region_panel.data.W1 else []) | tojson(indent=2) }}</pre>
-                                        <p><strong>权重 W2 (部分):</strong></p>
-                                        <pre class="code-block">{{ (region_panel.data.W2[:4] if region_panel.data.W2 else []) | tojson(indent=2) }}</pre>
-                                    {% else %}
-                                        <p class="text-muted">暂无缓存模型。请点击右上角 <i class="fas fa-sync-alt"></i> 按钮进行训练。</p>
-                                    {% endif %}
-                                </div>
-                            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem;">
+                {% for item in region['items'] %}
+                <div style="background:#fff; border-radius:14px; padding:1rem; box-shadow:0 6px 18px rgba(31,38,135,0.08);">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; margin-bottom:0.75rem;">
+                        <div>
+                            <div style="font-size:1rem; font-weight:700; color:#2d3a56;">{{ item.label }}</div>
+                            <div style="font-size:0.82rem; color:#7a8599; margin-top:0.2rem;">{{ item.display_key }}</div>
                         </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:0.95rem; font-weight:700; color:#4a4fd8;">{{ item.last_accuracy }}%</div>
+                            <div style="font-size:0.8rem; color:#7a8599;">样本 {{ item.last_total }}</div>
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.5rem; margin-bottom:0.85rem; font-size:0.86rem;">
+                        <div>变化：<strong style="color:{% if item.accuracy_delta >= 0 %}#28a745{% else %}#dc3545{% endif %};">{{ item.accuracy_delta }}%</strong></div>
+                        <div>池：<strong>{{ item.pool or '-' }}</strong></div>
+                        <div>特码池：<strong>{{ item.special_pool or '-' }}</strong></div>
+                        <div>窗口：<strong>{{ item.window or item.history_window or '-' }}</strong></div>
+                        <div>趋势窗口：<strong>{{ item.trend_window or '-' }}</strong></div>
+                        <div>特征窗口：<strong>{{ item.feature_window or '-' }}</strong></div>
+                        <div>训练轮数：<strong>{{ item.epochs or '-' }}</strong></div>
+                        <div>学习率：<strong>{{ item.learning_rate or '-' }}</strong></div>
+                    </div>
+
+                    {% if item.bucket_counts %}
+                    <div style="font-size:0.84rem; color:#5a6785; margin-bottom:0.65rem;">分桶：{{ item.bucket_counts|join(' / ') }}</div>
+                    {% endif %}
+
+                    {% if item.mix_items %}
+                    <div style="font-size:0.84rem; color:#5a6785; margin-bottom:0.65rem;">
+                        混合：
+                        {% for mix_item in item.mix_items %}
+                        {{ mix_item.label }}={{ mix_item.value }}{% if not loop.last %}，{% endif %}
                         {% endfor %}
                     </div>
+                    {% endif %}
+
+                    <div style="font-size:0.8rem; color:#8a94a6; margin-bottom:0.65rem;">更新时间：{{ item.updated_at or '-' }}</div>
+
+                    {% if item.weights %}
+                    <div style="display:flex; flex-wrap:wrap; gap:0.45rem;">
+                        {% for weight in item.weights %}
+                        <span style="background:rgba(102,126,234,0.08); color:#45506f; padding:0.35rem 0.55rem; border-radius:999px; font-size:0.8rem;">
+                            {{ weight.label }} {{ weight.value }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div style="font-size:0.84rem; color:#8a94a6;">当前策略没有可视化权重。</div>
+                    {% endif %}
                 </div>
+                {% endfor %}
             </div>
         </div>
+        {% else %}
+        <div style="padding:1rem; color:#666;">暂无学习参数数据。</div>
+        {% endfor %}
     </div>
 </div>
-
-<style>
-    .code-block {
-        max-height: 120px;
-        overflow-y: auto;
-        background: #f4f4f4;
-        padding: 10px;
-        border-radius: 4px;
-        font-size: 0.85em;
-    }
-    .nav-tabs-container {
-        padding: 0.5rem 1rem;
-        background-color: #f8f9fa;
-        border-bottom: 1px solid #dee2e6;
-    }
-</style>
 
 <script>
 function saveAllConfigs() {
