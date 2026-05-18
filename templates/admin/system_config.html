@@ -1,4 +1,4 @@
-{% extends "admin/base.html" %}
+﻿{% extends "admin/base.html" %}
 
 {% block page_title %}系统配置{% endblock %}
 
@@ -291,34 +291,26 @@ function saveAllConfigs() {
 }
 
 function retrainLearning(region) {
-    const btn = document.getElementById('retrainLearningBtn');
-    const originalIconHTML = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    btn.disabled = true;
-
     fetch('/admin/system_config/retrain_learning', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                region
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showToast(data.message, 'success');
-                setTimeout(() => window.location.reload(), 800);
-            } else {
-                showToast('操作失败: ' + data.message, 'error');
-            }
-        })
-        .catch(error => showToast('操作失败: ' + error, 'error'))
-        .finally(() => {
-            btn.innerHTML = originalIconHTML;
-            btn.disabled = false;
-        });
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ region })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast(data.message, 'success');
+            setTimeout(() => window.location.reload(), 700);
+        } else {
+            showToast('学习参数重算失败：' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('学习参数重算失败：网络错误', 'error');
+    });
 }
 
 document.getElementById('configForm').addEventListener('submit', function(e) {
