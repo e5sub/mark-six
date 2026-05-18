@@ -1647,8 +1647,11 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
             if prev_sno not in transitions:
                 transitions[prev_sno] = Counter()
             transitions[prev_sno][curr_sno] += 1
-    last_sno = str(short_data[0].get("sno", "")) if short_data else ""
-    markov_counts = transitions.get(last_sno, Counter())
+
+    # BUG FIX: The original code used `last_sno` (most recent) as a key, which never exists in the `transitions` dict.
+    # We must use the second-to-last sno to look up the transition probabilities.
+    lookup_sno = str(long_data[1].get("sno", "")) if len(long_data) > 1 else ""
+    markov_counts = transitions.get(lookup_sno, Counter())
     markov_features = _normalize_metric_map({str(i): markov_counts.get(str(i), 0) for i in range(1, 50)})
     
     tail_counts = Counter(str(r.get("sno", ""))[-1] for r in long_data if r.get("sno"))
@@ -1658,6 +1661,7 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
     for number in range(1, 50):
         key = str(number)
         tail_key = key[-1]
+        last_sno = str(short_data[0].get("sno", "")) if short_data else ""
         
         diff_feature = abs(number - int(last_sno)) / 48.0 if (last_sno and last_sno.isdigit()) else 0.0
         trend_feature = max(0.0, short_special.get(key, 0.0) - long_all.get(key, 0.0))
