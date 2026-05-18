@@ -550,7 +550,7 @@ def save_system_config():
 @admin_required
 def retrain_learning_configs():
     try:
-        from app import update_strategy_configs
+        from app import update_strategy_configs, train_and_cache_ml_model
 
         payload = request.get_json(silent=True) or {}
         region = (payload.get('region') or 'all').strip()
@@ -563,11 +563,12 @@ def retrain_learning_configs():
         refreshed = []
         for item in targets:
             update_strategy_configs(item)
+            train_and_cache_ml_model(item)
             refreshed.append(item)
 
         return jsonify({
             'success': True,
-            'message': f"已重算 {', '.join(refreshed)} 的学习参数",
+            'message': f"已重算 {', '.join(refreshed)} 的学习参数和机器学习模型",
             'learning_panel': _strategy_learning_panel_data(),
         })
     except Exception as e:
