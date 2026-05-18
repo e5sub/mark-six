@@ -1881,8 +1881,8 @@ def _predict_with_ml(data, region, variation_key=None):
     pool_size = _clamp(int(config.get("pool") or 18), 12, 24)
     special_pool_size = _clamp(int(config.get("special_pool") or 8), 6, 12)
     bucket_counts = config.get("bucket_counts") or [2, 2, 2]
-        if not isinstance(bucket_counts, list) or len(bucket_counts) != 3:
-            bucket_counts = [2, 2, 2]
+    if not isinstance(bucket_counts, list) or len(bucket_counts) != 3:
+        bucket_counts = [2, 2, 2]
     low_count, mid_count, high_count = bucket_counts
     ranked_numbers = [number for number, _ in ranked]
 
