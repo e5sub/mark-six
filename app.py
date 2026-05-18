@@ -1681,29 +1681,20 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
 
 
 def _train_ml_number_model(data, region, config):
-    import random
-    import math
     history_window = _clamp(int(config.get("history_window") or 120), 80, 240)
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
     epochs = _clamp(int(config.get("epochs") or 15), 15, 30)
     learning_rate = float(config.get("learning_rate") or 0.05)
 
-    # 深度神经网络超参数
-    hidden_dim = 16
-    momentum = 0.9
-    l2_lambda = 0.005
-
     recent_desc = list(data or [])[:history_window + feature_window]
     chronological = list(reversed(recent_desc))
     min_history = min(24, max(12, feature_window // 2))
-    
-    # 权重与动量初始化
-    W1 = B1 = W2 = B2 = None
-    v_W1 = v_B1 = v_W2 = v_B2 = None
+    weights = None
+    bias = 0.0
     sample_count = 0
 
     if len(chronological) <= min_history:
-        return {"W1": [], "B1": [], "W2": [], "B2": 0.0, "samples": 0}
+        return {"weights": [0.0] * 13, "bias": bias, "samples": 0}
 
     for epoch in range(epochs):
         step = learning_rate * (0.95 ** epoch)
@@ -1719,85 +1710,39 @@ def _train_ml_number_model(data, region, config):
                 region,
                 feature_window=feature_window,
             )
-            
-            # --- 批次梯度累加器 ---
-            grad_W1 = None
-            grad_B1 = None
-            grad_W2 = None
-            grad_B2 = 0.0
-            
             for number in range(1, 50):
                 key = str(number)
                 features = feature_table.get(key)
                 if not features:
                     continue
                 
-                input_dim = len(features)
-                
-                # 动态初始化网络结构 (使用 He 初始化)
-                if W1 is None:
-                    limit1 = math.sqrt(2.0 / input_dim)
-                    W1 = [[random.uniform(-limit1, limit1) for _ in range(hidden_dim)] for _ in range(input_dim)]
-                    B1 = [0.0 for _ in range(hidden_dim)]
-                    limit2 = math.sqrt(2.0 / hidden_dim)
-                    W2 = [random.uniform(-limit2, limit2) for _ in range(hidden_dim)]
-                    B2 = 0.0
-                    
-                    v_W1 = [[0.0 for _ in range(hidden_dim)] for _ in range(input_dim)]
-                    v_B1 = [0.0 for _ in range(hidden_dim)]
-                    v_W2 = [0.0 for _ in range(hidden_dim)]
-                    v_B2 = 0.0
-
-                if grad_W1 is None:
-                    grad_W1 = [[0.0 for _ in range(hidden_dim)] for _ in range(len(W1))]
-                    grad_B1 = [0.0 for _ in range(hidden_dim)]
-                    grad_W2 = [0.0 for _ in range(hidden_dim)]
-
-                # --- 绝对安全边界对齐 ---
-                safe_dim = min(input_dim, len(W1))
+                if weights is None:
+                    weights = [0.0] * len(features)
 
                 label = 1.0 if key == target_special else 0.0
+                probability = _sigmoid(
+                    bias + sum(weight * value for weight, value in zip(weights, features))
+                )
+                
+                # 优化 1：调整类别权重。由于正负样本比例为 1:48，适度调高正样本权重以提高对特码特征的敏感度
                 class_weight = 24.0 if label > 0 else 1.0
+                error = (label - probability) * class_weight
                 
-                # 1. 前向传播 (Forward Pass)
-                Z1 = [B1[h] + sum(features[i] * W1[i][h] for i in range(safe_dim)) for h in range(hidden_dim)]
-                A1 = [max(0.0, z) for z in Z1]  # ReLU
-                Z2 = B2 + sum(A1[h] * W2[h] for h in range(hidden_dim))
-                A2 = _sigmoid(Z2)
+                # 优化 2：引入 L2 正则化 (Weight Decay)，惩罚过大的权重，防止在小样本上严重过拟合
+                l2_lambda = 0.005 
                 
-                # 2. 误差计算
-                dZ2 = (A2 - label) * class_weight
-                
-                # 3. 反向传播 (Backward: 链式求导)
-                grad_B2 += dZ2
-                for h in range(hidden_dim):
-                    grad_W2[h] += A1[h] * dZ2
-                    dA1_h = dZ2 * W2[h]
-                    dZ1_h = dA1_h if Z1[h] > 0 else 0.0  # ReLU 的求导
-                    grad_B1[h] += dZ1_h
-                    for i in range(safe_dim):
-                        grad_W1[i][h] += features[i] * dZ1_h
-                        
+                bias += step * error
+                for feature_idx, feature_value in enumerate(features):
+                    # 梯度更新加上 L2 惩罚项
+                    weights[feature_idx] += step * (error * feature_value - l2_lambda * weights[feature_idx])
                 sample_count += 1
 
-            # 4. Mini-Batch + Momentum 权重统一更新
-            if W1 is not None and grad_W1 is not None:
-                v_B2 = momentum * v_B2 - step * grad_B2
-                B2 += v_B2
-                for h in range(hidden_dim):
-                    v_W2[h] = momentum * v_W2[h] - step * (grad_W2[h] + l2_lambda * W2[h])
-                    W2[h] += v_W2[h]
-                    v_B1[h] = momentum * v_B1[h] - step * grad_B1[h]
-                    B1[h] += v_B1[h]
-                    for i in range(len(W1)):
-                        v_W1[i][h] = momentum * v_W1[i][h] - step * (grad_W1[i][h] + l2_lambda * W1[i][h])
-                        W1[i][h] += v_W1[i][h]
+    if weights is None:
+        weights = [0.0] * 13
 
     return {
-        "W1": W1 if W1 else [],
-        "B1": B1 if B1 else [],
-        "W2": W2 if W2 else [],
-        "B2": B2 if B2 else 0.0,
+        "weights": [round(weight, 6) for weight in weights],
+        "bias": round(bias, 6),
         "samples": sample_count,
         "history_window": history_window,
         "feature_window": feature_window,
@@ -1810,26 +1755,26 @@ def _predict_with_ml(data, region, variation_key=None):
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
     feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
         
-    W1 = model.get("W1", [])
-    B1 = model.get("B1", [])
-    W2 = model.get("W2", [])
-    B2 = model.get("B2", 0.0)
-    hidden_dim = len(B1)
+        W1 = model.get("W1", [])
+        B1 = model.get("B1", [])
+        W2 = model.get("W2", [])
+        B2 = model.get("B2", 0.0)
+        hidden_dim = len(B1)
         
     ranked = []
     for number in range(1, 50):
         key = str(number)
         features = feature_table.get(key, [])
             
-        if not W1 or hidden_dim == 0:
-            probability = 0.0
-        else:
-            safe_dim = min(len(features), len(W1))
-            Z1 = [B1[h] + sum(features[i] * W1[i][h] for i in range(safe_dim)) for h in range(hidden_dim)]
-            A1 = [max(0.0, z) for z in Z1]
-            Z2 = B2 + sum(A1[h] * W2[h] for h in range(hidden_dim))
-            probability = _sigmoid(Z2)
-            
+            if not W1 or hidden_dim == 0:
+                probability = 0.0
+            else:
+                safe_dim = min(len(features), len(W1))
+                Z1 = [B1[h] + sum(features[i] * W1[i][h] for i in range(safe_dim)) for h in range(hidden_dim)]
+                A1 = [max(0.0, z) for z in Z1]
+                Z2 = B2 + sum(A1[h] * W2[h] for h in range(hidden_dim))
+                probability = _sigmoid(Z2)
+                
         ranked.append((number, round(probability, 6)))
     ranked.sort(key=lambda item: (item[1], -abs(item[0] - 25), -item[0]), reverse=True)
 
