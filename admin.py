@@ -522,7 +522,6 @@ def system_config():
             'admin/system_config.html',
             configs=configs,
             learning_panel=_strategy_learning_panel_data(),
-            ml_weights_panel=_ml_model_weights_panel_data(),
         )
     except Exception as e:
         flash(f'加载系统配置失败: {str(e)}', 'error')
@@ -530,26 +529,7 @@ def system_config():
             'admin/system_config.html',
             configs=SYSTEM_CONFIG_DEFAULTS,
             learning_panel=[],
-            ml_weights_panel=[],
         )
-
-def _ml_model_weights_panel_data():
-    panel = []
-    for region_key, region_label in [('hk', '香港'), ('macau', '澳门')]:
-        key = f"ml_model_weights_{region_key}"
-        raw = SystemConfig.get_config(key, "")
-        data = {}
-        if raw:
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                pass
-        panel.append({
-            'region_key': region_key,
-            'region_label': region_label,
-            'data': data,
-        })
-    return panel
 
 @admin_bp.route('/system_config/save', methods=['POST'])
 @admin_required
@@ -570,7 +550,7 @@ def save_system_config():
 @admin_required
 def retrain_learning_configs():
     try:
-        from app import update_strategy_configs, train_and_cache_ml_model
+        from app import update_strategy_configs
 
         payload = request.get_json(silent=True) or {}
         region = (payload.get('region') or 'all').strip()
@@ -583,15 +563,12 @@ def retrain_learning_configs():
         refreshed = []
         for item in targets:
             update_strategy_configs(item)
-            # 同时重训并缓存ML模型
-            train_and_cache_ml_model(item)
             refreshed.append(item)
 
         return jsonify({
             'success': True,
-            'message': f"已重算 {', '.join(refreshed)} 的学习参数和ML模型",
+            'message': f"已重算 {', '.join(refreshed)} 的学习参数",
             'learning_panel': _strategy_learning_panel_data(),
-            'ml_weights_panel': _ml_model_weights_panel_data(),
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
