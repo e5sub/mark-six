@@ -1647,9 +1647,8 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
             if prev_sno not in transitions:
                 transitions[prev_sno] = Counter()
             transitions[prev_sno][curr_sno] += 1
-    
-    last_sno = str(short_data[0].get("sno", "")) if short_data else ""
-    markov_counts = transitions.get(last_sno, Counter())
+    lookup_sno = str(long_data[1].get("sno", "")) if len(long_data) > 1 else ""
+    markov_counts = transitions.get(lookup_sno, Counter())
     markov_features = _normalize_metric_map({str(i): markov_counts.get(str(i), 0) for i in range(1, 50)})
     
     tail_counts = Counter(str(r.get("sno", ""))[-1] for r in long_data if r.get("sno"))
@@ -1659,6 +1658,7 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
     for number in range(1, 50):
         key = str(number)
         tail_key = key[-1]
+        last_sno = str(short_data[0].get("sno", "")) if short_data else ""
         
         diff_feature = abs(number - int(last_sno)) / 48.0 if (last_sno and last_sno.isdigit()) else 0.0
         trend_feature = max(0.0, short_special.get(key, 0.0) - long_all.get(key, 0.0))
@@ -1692,7 +1692,7 @@ def _train_ml_number_model(data, region, config):
     # 深度神经网络超参数
     hidden_dim = 16
     momentum = 0.9
-    l2_lambda = 0.015  # 适度提高 L2 惩罚，防止权重过度膨胀
+    l2_lambda = 0.005
 
     recent_desc = list(data or [])[:history_window + feature_window]
     chronological = list(reversed(recent_desc))
@@ -1804,50 +1804,10 @@ def _train_ml_number_model(data, region, config):
         "feature_window": feature_window,
     }
 
-def train_and_cache_ml_model(region):
-    """为指定地区训练并缓存机器学习模型权重"""
-    print(f"开始为地区 {region} 训练和缓存机器学习模型...")
-    try:
-        all_data = get_yearly_data(region, 'all')
-        if not all_data:
-            print(f"地区 {region} 无可用数据，跳过机器学习模型训练。")
-            return
-
-        config = _load_strategy_config("ml", region)
-        model_weights = _train_ml_number_model(all_data, region, config)
-
-        weights_to_cache = {
-            "W1": model_weights.get("W1"),
-            "B1": model_weights.get("B1"),
-            "W2": model_weights.get("W2"),
-            "B2": model_weights.get("B2"),
-            "trained_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "samples": model_weights.get("samples", 0),
-            "history_window": model_weights.get("history_window", 0),
-        }
-
-        key = f"ml_model_weights_{region}"
-        SystemConfig.set_config(key, json.dumps(weights_to_cache), f"{region}地区机器学习模型缓存")
-        print(f"✓ 地区 {region} 的机器学习模型权重已成功缓存。")
-    except Exception as e:
-        print(f"为地区 {region} 训练和缓存机器学习模型时出错: {e}")
 
 def _predict_with_ml(data, region, variation_key=None):
-    model_key = f"ml_model_weights_{region}"
-    cached_weights_raw = SystemConfig.get_config(model_key, "")
-    model = None
-    if cached_weights_raw:
-        try:
-            model = json.loads(cached_weights_raw)
-        except json.JSONDecodeError:
-            pass
-
     config = _load_strategy_config("ml", region)
-    
-    if not model:
-        print(f"警告: 未找到地区 {region} 的缓存机器学习模型，将进行实时训练。")
-        model = _train_ml_number_model(data, region, config)
-        
+    model = _train_ml_number_model(data, region, config)
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
     feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
         
@@ -1915,8 +1875,8 @@ def _predict_with_ml(data, region, variation_key=None):
     year = _infer_draw_year(data)
     number_to_zodiac = _get_number_to_zodiac_map(year)
     recommendation_text = (
-        f"机器学习原型已基于 {model.get('samples', 0)} 条历史样本训练。"
-        f"模型缓存于 {model.get('trained_at', '刚刚')}。"
+        f"机器学习原型已基于最近{model.get('history_window', 0)}期历史开奖样本训练。"
+        f"训练样本 {model.get('samples', 0)} 条，并融合了号码、波色、单双、生肖与历史命中反馈，"
         f"推荐平码 {', '.join(map(str, normal))}，特码 {special_num}，"
         f"模型评分约 {special_probability}% 。"
     )
@@ -2910,7 +2870,6 @@ def update_data_api():
             save_draws_to_database(hk_filtered, 'hk')
             print(f"手动更新：成功更新香港数据{len(hk_filtered)}条")
             update_hk_next_draw_time_cache(force=True)
-            train_and_cache_ml_model('hk')
             if hk_filtered:
                 generate_auto_predictions(hk_filtered, 'hk')
         
@@ -2919,7 +2878,6 @@ def update_data_api():
             macau_data = get_macau_data(current_year, force_api=True)
             save_draws_to_database(macau_data, 'macau')
             print(f"手动更新：成功更新澳门数据{len(macau_data)}条")
-            train_and_cache_ml_model('macau')
             if macau_data:
                 generate_auto_predictions(macau_data, 'macau')
         
@@ -3507,11 +3465,6 @@ def update_lottery_data():
             print("正在同步澳门数据...")
             macau_data = sync_draws_from_api('macau', current_year, force=True)
             print(f"澳门数据更新完成：{len(macau_data)}条")
-
-            print("正在重新训练和缓存机器学习模型...")
-            train_and_cache_ml_model('hk')
-            train_and_cache_ml_model('macau')
-            print("✓ 机器学习模型训练和缓存完成。")
 
             # 触发自动预测功能（排除 AI 策略）
             print("正在生成自动预测...")
