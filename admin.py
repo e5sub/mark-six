@@ -530,7 +530,7 @@ def system_config():
             'admin/system_config.html',
             configs=SYSTEM_CONFIG_DEFAULTS,
             learning_panel=[],
-            ml_weights_panel=[],
+            ml_weights_panel=_ml_model_weights_panel_data(),
         )
 
 def _ml_model_weights_panel_data():
