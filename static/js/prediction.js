@@ -1,4 +1,4 @@
-﻿// 获取预测结果
+﻿﻿// 获取预测结果
 function getPrediction(strategy) {
     // 显示预测加载指示器
     document.getElementById('predictionIndicator').style.display = 'block';
@@ -464,6 +464,7 @@ function displayPrediction(data, strategy) {
         'trend': '走势预测',
         'hybrid': '综合预测',
         'balanced': '均衡预测',
+        'ml': '机器学习预测',
         'ai': 'AI智能预测'
     };
     
@@ -474,6 +475,7 @@ function displayPrediction(data, strategy) {
         'trend': 'chart-line',
         'hybrid': 'sliders-h',
         'balanced': 'balance-scale',
+        'ml': 'flask',
         'ai': 'robot'
     };
     
@@ -670,5 +672,3 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
-
-
