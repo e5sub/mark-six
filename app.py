@@ -1689,12 +1689,12 @@ def _train_ml_number_model(data, region, config):
     recent_desc = list(data or [])[:history_window + feature_window]
     chronological = list(reversed(recent_desc))
     min_history = min(24, max(12, feature_window // 2))
-    weights = [0.0] * 9
+    weights = None
     bias = 0.0
     sample_count = 0
 
     if len(chronological) <= min_history:
-        return {"weights": weights, "bias": bias, "samples": 0}
+        return {"weights": [0.0] * 13, "bias": bias, "samples": 0}
 
     for epoch in range(epochs):
         step = learning_rate * (0.95 ** epoch)
@@ -1715,6 +1715,10 @@ def _train_ml_number_model(data, region, config):
                 features = feature_table.get(key)
                 if not features:
                     continue
+                
+                if weights is None:
+                    weights = [0.0] * len(features)
+
                 label = 1.0 if key == target_special else 0.0
                 probability = _sigmoid(
                     bias + sum(weight * value for weight, value in zip(weights, features))
@@ -1732,6 +1736,9 @@ def _train_ml_number_model(data, region, config):
                     # 梯度更新加上 L2 惩罚项
                     weights[feature_idx] += step * (error * feature_value - l2_lambda * weights[feature_idx])
                 sample_count += 1
+
+    if weights is None:
+        weights = [0.0] * 13
 
     return {
         "weights": [round(weight, 6) for weight in weights],
@@ -1823,7 +1830,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
     if not data:
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
-        return _predict_with_ml(data, region, variation_key=variation_key)
+            # 严格按照要求：保证计算安全，并且绝对不降级 (No fallback)
+            return _predict_with_ml(data, region, variation_key=variation_key)
     else:
         try:
             config = _load_strategy_config(strategy, region)
