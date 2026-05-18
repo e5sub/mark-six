@@ -159,9 +159,9 @@
             <div style="color:#666; font-size:0.92rem; margin-top:0.35rem;">查看香港和澳门各策略当前学习权重、窗口与最近回测状态。</div>
         </div>
         <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-            <button type="button" class="btn" onclick="retrainLearning('hk', this)">重算香港</button>
-            <button type="button" class="btn" onclick="retrainLearning('macau', this)">重算澳门</button>
-            <button type="button" class="btn" onclick="retrainLearning('all', this)">重算全部</button>
+            <button type="button" class="btn" onclick="retrainLearning('hk')">重算香港</button>
+            <button type="button" class="btn" onclick="retrainLearning('macau')">重算澳门</button>
+            <button type="button" class="btn" onclick="retrainLearning('all')">重算全部</button>
         </div>
     </div>
 
@@ -239,14 +239,11 @@ function saveAllConfigs() {
     document.getElementById('configForm').dispatchEvent(new Event('submit'));
 }
 
-function retrainLearning(region, btnElement) {
-    const btn = btnElement || document.getElementById('retrainLearningBtn');
-    let originalIconHTML = '';
-    if (btn) {
-        originalIconHTML = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 处理中...';
-        btn.disabled = true;
-    }
+function retrainLearning(region) {
+    const btn = document.getElementById('retrainLearningBtn');
+    const originalIconHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btn.disabled = true;
 
     fetch('/admin/system_config/retrain_learning', {
             method: 'POST',
@@ -268,10 +265,8 @@ function retrainLearning(region, btnElement) {
         })
         .catch(error => showToast('操作失败: ' + error, 'error'))
         .finally(() => {
-            if (btn) {
-                btn.innerHTML = originalIconHTML;
-                btn.disabled = false;
-            }
+            btn.innerHTML = originalIconHTML;
+            btn.disabled = false;
         });
 }
 

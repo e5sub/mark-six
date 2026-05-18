@@ -1936,8 +1936,6 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
     if strategy == 'smart':
         strategy = _get_recommended_strategy(region).get("strategy", "hybrid")
     all_numbers = list(range(1, 50))
-    
-    data = _ensure_sufficient_history(data, region, 150)
     if not data:
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
