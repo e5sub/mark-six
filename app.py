@@ -1754,14 +1754,27 @@ def _predict_with_ml(data, region, variation_key=None):
     model = _train_ml_number_model(data, region, config)
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
     feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
+        
+        W1 = model.get("W1", [])
+        B1 = model.get("B1", [])
+        W2 = model.get("W2", [])
+        B2 = model.get("B2", 0.0)
+        hidden_dim = len(B1)
+        
     ranked = []
     for number in range(1, 50):
         key = str(number)
         features = feature_table.get(key, [])
-        score = model.get("bias", 0.0) + sum(
-            weight * value for weight, value in zip(model.get("weights", []), features)
-        )
-        probability = _sigmoid(score)
+            
+            if not W1 or hidden_dim == 0:
+                probability = 0.0
+            else:
+                safe_dim = min(len(features), len(W1))
+                Z1 = [B1[h] + sum(features[i] * W1[i][h] for i in range(safe_dim)) for h in range(hidden_dim)]
+                A1 = [max(0.0, z) for z in Z1]
+                Z2 = B2 + sum(A1[h] * W2[h] for h in range(hidden_dim))
+                probability = _sigmoid(Z2)
+                
         ranked.append((number, round(probability, 6)))
     ranked.sort(key=lambda item: (item[1], -abs(item[0] - 25), -item[0]), reverse=True)
 
