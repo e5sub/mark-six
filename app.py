@@ -1866,10 +1866,6 @@ def _predict_with_ml(data, region, variation_key=None):
             probability = 0.0
         else:
             safe_dim = min(len(features), len(W1))
-            # 防护：确保 W1 是二维数组，防止读取到损坏的旧缓存导致 TypeError
-            if not isinstance(W1[0], list):
-                probability = 0.0
-                continue
             Z1 = [B1[h] + sum(features[i] * W1[i][h] for i in range(safe_dim)) for h in range(hidden_dim)]
             A1 = [max(0.0, z) for z in Z1]
             Z2 = B2 + sum(A1[h] * W2[h] for h in range(hidden_dim))
