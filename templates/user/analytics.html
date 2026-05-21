@@ -119,16 +119,19 @@
                         评估窗 {{ current[strategy_key].evaluation_window or '-' }}，
                         学习样本 {{ current[strategy_key].last_total or 0 }}
                         <br>
-                        主配置 {{ current[strategy_key].primary_runtime_profile or 'base' }} · {{ current[strategy_key].primary_feature_profile or 'full' }}，
-                        固化状态 {{ current[strategy_key].promotion_strength or 'hold' }}，
+                        主配置 {{ current[strategy_key].primary_runtime_profile_label or '基础档' }} · {{ current[strategy_key].primary_feature_profile_label or '完整特征' }}，
+                        固化状态 {{ current[strategy_key].promotion_strength_label or '观察中' }}，
                         学习置信 {{ current[strategy_key].profile_learning_confidence or 0 }}%
+                        <div style="margin-top:0.45rem; color:#556273;">
+                            最近调整 {{ current[strategy_key].latest_promotion_time[:16].replace('T', ' ') if current[strategy_key].latest_promotion_time else '等待生成' }}
+                        </div>
                         {% if current[strategy_key].promotion_history %}
                         <div style="margin-top:0.45rem; display:grid; gap:0.3rem;">
                             {% for history in current[strategy_key].promotion_history[:3] %}
                             <div style="padding:0.38rem 0.5rem; border-radius:8px; background:#f4f7fb; color:#556273;">
                                 {{ history.timestamp[:16].replace('T', ' ') if history.timestamp else '' }} ·
-                                {{ history.strength or 'hold' }} ·
-                                {{ history.runtime_profile or 'base' }} / {{ history.feature_profile or 'full' }}
+                                {{ history.strength_label or '观察中' }} ·
+                                {{ history.runtime_profile_label or '基础档' }} / {{ history.feature_profile_label or '完整特征' }}
                                 {% if history.backtest_rank %}
                                 · 回测第 {{ history.backtest_rank }} 名
                                 {% endif %}
@@ -208,7 +211,7 @@
             <div class="learning-meta" style="margin-bottom:0.8rem;">
                 {{ item.region_label or ('香港' if item.region == 'hk' else '澳门' if item.region == 'macau' else item.region) }} ·
                 {{ (item.periods_evaluated ~ ' 期回放') if item.has_data else '回测准备中' }} ·
-                {{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}
+                {{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '等待生成' }}
             </div>
             {% if item.has_data and item.top_items %}
             {% for rank in item.top_items %}

@@ -71,6 +71,71 @@ def _deserialize_prediction_metadata(value):
     except Exception:
         return {}
 
+
+def _translate_ml_runtime_profile(value):
+    mapping = {
+        "base": "基础档",
+        "recent_bias": "近期强化",
+        "context_bias": "结构强化",
+        "recency_trim": "近期精简",
+        "learned_feature_bias": "学习偏好",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "基础档")
+
+
+def _translate_ml_feature_profile(value):
+    mapping = {
+        "full": "完整特征",
+        "compact_attributes": "属性精简",
+        "compact_structure": "结构精简",
+        "compact_recency": "近期精简",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "完整特征")
+
+
+def _translate_ml_promotion_strength(value):
+    mapping = {
+        "hold": "观察中",
+        "watch": "待提升",
+        "promoted": "已固化",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "观察中")
+
+
+def _decorate_ml_config_snapshot(config):
+    snapshot = dict(config or {})
+    snapshot["primary_runtime_profile_label"] = _translate_ml_runtime_profile(
+        snapshot.get("primary_runtime_profile")
+    )
+    snapshot["primary_feature_profile_label"] = _translate_ml_feature_profile(
+        snapshot.get("primary_feature_profile")
+    )
+    snapshot["promotion_strength_label"] = _translate_ml_promotion_strength(
+        snapshot.get("promotion_strength")
+    )
+
+    history_items = []
+    for item in list(snapshot.get("promotion_history") or [])[:8]:
+        history_copy = dict(item or {})
+        history_copy["strength_label"] = _translate_ml_promotion_strength(
+            history_copy.get("strength")
+        )
+        history_copy["runtime_profile_label"] = _translate_ml_runtime_profile(
+            history_copy.get("runtime_profile")
+        )
+        history_copy["feature_profile_label"] = _translate_ml_feature_profile(
+            history_copy.get("feature_profile")
+        )
+        history_items.append(history_copy)
+    snapshot["promotion_history"] = history_items
+    snapshot["latest_promotion_time"] = (
+        history_items[0].get("timestamp") if history_items else snapshot.get("promoted_at", "")
+    )
+    return snapshot
+
 def _actual_in_normal_expr():
     actual_as_string = db.cast(PredictionRecord.actual_special_number, db.String)
     return db.or_(
@@ -206,6 +271,8 @@ def _learning_snapshot():
                 "weights": config.get("weights", {}),
                 "updated_at": config.get("updated_at", ""),
             }
+            if strategy == "ml":
+                region_data[strategy] = _decorate_ml_config_snapshot(region_data[strategy])
         snapshots[region] = region_data
     return snapshots
 
