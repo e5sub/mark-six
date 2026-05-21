@@ -36,6 +36,151 @@ PREDICTION_STRATEGY_LABELS = {
     'ai': 'AI预测',
 }
 
+def _normalize_visual_weights(weight_map):
+    cleaned = OrderedDict()
+    total = 0.0
+    for label, value in (weight_map or {}).items():
+        try:
+            numeric = max(0.0, float(value))
+        except Exception:
+            numeric = 0.0
+        cleaned[label] = numeric
+        total += numeric
+
+    if total <= 0:
+        return []
+
+    items = []
+    for label, numeric in cleaned.items():
+        percent = round((numeric / total) * 100, 1)
+        value = f"{int(percent)}%" if float(percent).is_integer() else f"{percent}%"
+        items.append({
+            'key': label,
+            'label': label,
+            'value': value,
+        })
+    return items
+
+
+def _build_ml_visual_weights(config):
+    runtime_profile = str(config.get('primary_runtime_profile') or 'base').strip()
+    feature_profile = str(config.get('primary_feature_profile') or 'full').strip()
+
+    weight_map = OrderedDict([
+        ('历史样本', 26),
+        ('近期走势', 18),
+        ('策略共识', 18),
+        ('单双参考', 13),
+        ('波色参考', 13),
+        ('生肖参考', 12),
+    ])
+
+    if runtime_profile == 'recent_bias':
+        weight_map['近期走势'] += 8
+        weight_map['历史样本'] -= 4
+        weight_map['策略共识'] -= 4
+    elif runtime_profile == 'context_bias':
+        weight_map['单双参考'] += 4
+        weight_map['波色参考'] += 4
+        weight_map['生肖参考'] += 4
+        weight_map['历史样本'] -= 6
+        weight_map['近期走势'] -= 3
+        weight_map['策略共识'] -= 3
+    elif runtime_profile == 'recency_trim':
+        weight_map['近期走势'] += 6
+        weight_map['历史样本'] -= 6
+    elif runtime_profile == 'learned_feature_bias':
+        weight_map['策略共识'] += 5
+        weight_map['单双参考'] += 2
+        weight_map['波色参考'] += 2
+        weight_map['历史样本'] -= 5
+        weight_map['近期走势'] -= 2
+        weight_map['生肖参考'] -= 2
+
+    if feature_profile == 'compact_attributes':
+        weight_map['单双参考'] += 3
+        weight_map['波色参考'] += 3
+        weight_map['生肖参考'] += 2
+        weight_map['历史样本'] -= 4
+        weight_map['近期走势'] -= 2
+        weight_map['策略共识'] -= 2
+    elif feature_profile == 'compact_structure':
+        weight_map['策略共识'] += 4
+        weight_map['近期走势'] += 2
+        weight_map['历史样本'] += 1
+        weight_map['单双参考'] -= 2
+        weight_map['波色参考'] -= 2
+        weight_map['生肖参考'] -= 3
+    elif feature_profile == 'compact_recency':
+        weight_map['近期走势'] += 6
+        weight_map['历史样本'] -= 4
+        weight_map['策略共识'] -= 2
+
+    return _normalize_visual_weights(weight_map)
+
+
+def _build_ai_visual_weights(config):
+    history_window = max(1, int(config.get('history_window') or 12))
+    temperature = max(0.0, float(config.get('temperature') or 0.35))
+
+    weight_map = OrderedDict([
+        ('历史样本', 30),
+        ('近期走势', 18),
+        ('单双参考', 14),
+        ('波色参考', 14),
+        ('生肖参考', 10),
+        ('策略共识', 14),
+    ])
+
+    if history_window >= 18:
+        weight_map['历史样本'] += 6
+        weight_map['策略共识'] += 2
+        weight_map['近期走势'] -= 3
+        weight_map['波色参考'] -= 2
+        weight_map['生肖参考'] -= 1
+        weight_map['单双参考'] -= 2
+    elif history_window <= 8:
+        weight_map['近期走势'] += 5
+        weight_map['单双参考'] += 2
+        weight_map['波色参考'] += 2
+        weight_map['历史样本'] -= 5
+        weight_map['策略共识'] -= 4
+
+    if temperature <= 0.3:
+        weight_map['策略共识'] += 4
+        weight_map['历史样本'] += 2
+        weight_map['近期走势'] -= 2
+        weight_map['生肖参考'] -= 2
+        weight_map['波色参考'] -= 1
+        weight_map['单双参考'] -= 1
+    elif temperature >= 0.7:
+        weight_map['近期走势'] += 4
+        weight_map['生肖参考'] += 2
+        weight_map['波色参考'] += 2
+        weight_map['历史样本'] -= 4
+        weight_map['策略共识'] -= 4
+
+    return _normalize_visual_weights(weight_map)
+
+
+def _build_strategy_visual_weights(strategy, config):
+    weights = config.get('weights') or {}
+    if weights:
+        return [
+            {
+                'key': key,
+                'label': LEARNING_PANEL_TERM_LABELS.get(key, key),
+                'value': value
+            }
+            for key, value in sorted(weights.items())
+        ]
+    if strategy == 'ml':
+        return _build_ml_visual_weights(config)
+    if strategy == 'ai':
+        return _build_ai_visual_weights(config)
+    return []
+
+
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -67,15 +212,7 @@ def _strategy_learning_panel_data():
         items = []
         for strategy in strategies:
             config = _load_strategy_config(strategy, region_key)
-            weights = config.get('weights') or {}
-            weight_items = [
-                {
-                    'key': key,
-                    'label': LEARNING_PANEL_TERM_LABELS.get(key, key),
-                    'value': value
-                }
-                for key, value in sorted(weights.items())
-            ]
+            weight_items = _build_strategy_visual_weights(strategy, config)
             mix = config.get('mix') or {}
             mix_items = [
                 {
