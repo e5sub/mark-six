@@ -74,14 +74,14 @@ def _deserialize_prediction_metadata(value):
 
 def _translate_ml_runtime_profile(value):
     mapping = {
-        "base": "基础档",
-        "recent_bias": "近期强化",
-        "context_bias": "结构强化",
-        "recency_trim": "近期精简",
-        "learned_feature_bias": "学习偏好",
+        "base": "标准模式",
+        "recent_bias": "侧重近期走势",
+        "context_bias": "侧重号码属性",
+        "recency_trim": "近期简化模式",
+        "learned_feature_bias": "学习偏好模式",
     }
     key = str(value or "").strip()
-    return mapping.get(key, key or "基础档")
+    return mapping.get(key, key or "标准模式")
 
 
 def _translate_ml_feature_profile(value):

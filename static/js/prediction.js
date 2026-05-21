@@ -300,15 +300,15 @@ function getStrategyLabel(strategy) {
 
 function getMlRuntimeProfileLabel(value) {
     const labels = {
-        base: '基础档',
-        compact: '紧凑档',
-        deep: '深度档',
-        adaptive: '自适应档',
-        recent_bias: '近期强化',
-        context_bias: '属性强化',
-        recency_trim: '近期精简',
+        base: '标准模式',
+        compact: '轻量模式',
+        deep: '深度模式',
+        adaptive: '自动调整',
+        recent_bias: '侧重近期走势',
+        context_bias: '侧重号码属性',
+        recency_trim: '近期简化模式',
     };
-    return labels[value] || value || '基础档';
+    return labels[value] || value || '标准模式';
 }
 
 function getMlFeatureProfileLabel(value) {
@@ -391,7 +391,7 @@ function renderPredictionInsights(data, strategy) {
                         <div><strong>特征档位</strong><br>${getMlFeatureProfileLabel(meta.feature_profile)}</div>
                         <div><strong>固化状态</strong><br>${getMlPromotionStrengthLabel(meta.promotion_strength)}</div>
                     </div>
-                    ${meta.primary_feature_profile || meta.primary_runtime_profile ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前主配置：</strong>${getMlRuntimeProfileLabel(meta.primary_runtime_profile)} · ${getMlFeatureProfileLabel(meta.primary_feature_profile)}</div>` : ''}
+                    ${meta.primary_feature_profile || meta.primary_runtime_profile ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前主配置：</strong>${getMlRuntimeProfileLabel(meta.primary_runtime_profile)} · ${getMlFeatureProfileLabel(meta.primary_feature_profile)}<span style="color:#5b7c76;">（会根据近期表现自动微调）</span></div>` : ''}
                     ${preferredFeatures ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好特征：</strong>${preferredFeatures}${meta.profile_learning_confidence ? ` · 学习置信${meta.profile_learning_confidence}%` : ''}</div>` : ''}
                     ${preferredRuntimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好参数：</strong>${preferredRuntimes}</div>` : ''}
                     ${selectedStrategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前核心集成：</strong>${selectedStrategies}</div>` : ''}
