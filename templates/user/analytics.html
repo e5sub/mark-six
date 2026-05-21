@@ -204,7 +204,7 @@
     <div class="learning-grid">
         {% for item in latest_backtests[:4] %}
         <div class="learning-card">
-            <div class="learning-title">{{ item.name }}</div>
+            <div class="learning-title">{{ item.display_name or item.name }}</div>
             <div class="learning-meta" style="margin-bottom:0.8rem;">
                 {{ item.region_label or ('香港' if item.region == 'hk' else '澳门' if item.region == 'macau' else item.region) }} ·
                 {{ item.status_text }} ·

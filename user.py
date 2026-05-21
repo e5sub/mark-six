@@ -277,6 +277,7 @@ def _latest_backtest_summary(limit=6):
             items.append({
                 "id": None,
                 "name": f"auto-{region_key}",
+                "display_name": f"{region_label}离线回测",
                 "region": region_key,
                 "region_label": region_label,
                 "created_at": None,
@@ -298,6 +299,7 @@ def _latest_backtest_summary(limit=6):
         items.append({
             "id": record.id,
             "name": record.name,
+            "display_name": f"{region_label}离线回测",
             "region": record.region or payload.get("region") or "",
             "region_label": region_label,
             "created_at": record.created_at,
@@ -325,6 +327,7 @@ def _latest_backtest_summary(limit=6):
         items.append({
             "id": record.id,
             "name": record.name,
+            "display_name": f"{'香港' if (record.region or payload.get('region')) == 'hk' else '澳门' if (record.region or payload.get('region')) == 'macau' else (record.region or payload.get('region') or '')}离线回测",
             "region": record.region or payload.get("region") or "",
             "region_label": "香港" if (record.region or payload.get("region")) == "hk" else "澳门" if (record.region or payload.get("region")) == "macau" else (record.region or payload.get("region") or ""),
             "created_at": record.created_at,
