@@ -3519,14 +3519,6 @@ class _PredictScreenState extends State<PredictScreen> {
     switch (item.result) {
       case 'special_hit':
         return '中特码';
-      case 'normal_hit':
-        if (item.specialNumber != item.actualSpecialNumber &&
-            item.specialZodiac.isNotEmpty &&
-            item.actualSpecialZodiac.isNotEmpty &&
-            item.specialZodiac == item.actualSpecialZodiac) {
-          return '中生肖';
-        }
-        return '中平码';
       case 'wrong':
         return '未命中';
       default:
@@ -3538,8 +3530,6 @@ class _PredictScreenState extends State<PredictScreen> {
     switch (value) {
       case 'special_hit':
         return const Color(0xFF0B6B4F);
-      case 'normal_hit':
-        return const Color(0xFF0F9D58);
       case 'wrong':
         return Colors.redAccent;
       default:
@@ -4343,6 +4333,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(height: 8),
                         if (_overall != null) ...[
                           Text('特码命中率：${_overall!.accuracy}%'),
+                          Text('平码/生肖命中率：${_overall!.normalHitRate}%'),
                           Text('总预测次数：${_overall!.total}'),
                           Text('特码命中：${_overall!.specialHits}'),
                           Text('平码/生肖命中：${_overall!.normalHits}'),

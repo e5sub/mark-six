@@ -1025,17 +1025,7 @@ def _is_period_before(candidate_period, cutoff_period):
 
 
 def _is_secondary_hit(prediction, actual_special, actual_zodiac):
-    actual_special = str(actual_special or "").strip()
-    actual_zodiac = str(actual_zodiac or "").strip()
-    if not actual_special:
-        return False
-
-    normal_numbers = [n.strip() for n in str(prediction.normal_numbers or "").split(",") if n.strip()]
-    if actual_special in normal_numbers:
-        return True
-
-    predicted_zodiac = str(prediction.special_zodiac or "").strip()
-    return bool(predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac)
+    return False
 
 
 def _softmax(values):
@@ -1202,9 +1192,6 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
         if not actual:
             continue
         if pred.special_number == actual:
-            correct += 1
-            continue
-        if _is_secondary_hit(pred, actual, pred.actual_special_zodiac):
             correct += 1
     total = len(predictions)
     return (correct / total) if total else 0.0, total
@@ -2899,12 +2886,8 @@ def update_prediction_accuracy(data, region):
             # 特码号码是否命中
             special_hit = 1 if pred_special == result['special'] else 0
 
-            # 计算准确率，统一按 0-1 分数存储
-            accuracy = 0.0
-            if special_hit == 1:
-                accuracy = 1.0
-            elif _is_secondary_hit(pred, result['special'], result['special_zodiac']):
-                accuracy = 0.5
+            # 准确率只按特码是否命中计算
+            accuracy = 1.0 if special_hit == 1 else 0.0
             
             # 更新预测记录
             pred.actual_normal_numbers = ''  # 不再需要保存正码

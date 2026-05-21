@@ -93,7 +93,6 @@ def _calculate_accuracy_summary(query):
         ),
         else_=0
     )
-
     agg = base_query.with_entities(
         func.count().label('total'),
         func.sum(special_hit_expr).label('special_hits'),
@@ -110,7 +109,7 @@ def _calculate_accuracy_summary(query):
         "special_hits": special_hits,
         "normal_hits": normal_hits,
         "correct": correct,
-        "accuracy": round((correct / total) * 100, 1) if total else 0.0,
+        "accuracy": round((special_hits / total) * 100, 1) if total else 0.0,
         "special_hit_rate": round((special_hits / total) * 100, 1) if total else 0.0,
         "normal_hit_rate": round((normal_hits / total) * 100, 1) if total else 0.0,
     }
@@ -317,21 +316,9 @@ def dashboard():
             (PredictionRecord.special_number == PredictionRecord.actual_special_number, 1),
             else_=0
         )
-        normal_hit_expr = case(
-            (
-                db.and_(
-                    PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                    _secondary_hit_expr(),
-                ),
-                1,
-            ),
-            else_=0,
-        )
-
         agg = base_query.with_entities(
             func.count().label('total'),
             func.sum(special_hit_expr).label('special_hits'),
-            func.sum(normal_hit_expr).label('normal_hits'),
         ).first()
 
         total_count = agg.total or 0
@@ -339,9 +326,7 @@ def dashboard():
             return 0.0
 
         special_hits = agg.special_hits or 0
-        normal_hits = agg.normal_hits or 0
-        total_hits = special_hits + normal_hits
-        return round((total_hits / total_count) * 100, 1)
+        return round((special_hits / total_count) * 100, 1)
 
     # 计算各策略命中率
     avg_accuracy = calculate_user_accuracy()
@@ -574,14 +559,13 @@ def predictions():
 
     actual_special = PredictionRecord.actual_special_number
     special_number = PredictionRecord.special_number
-    secondary_hit = _secondary_hit_expr()
 
     stats_row = db.session.query(
         db.func.count(PredictionRecord.id),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
-        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, secondary_hit), 1), else_=0)),
-        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~secondary_hit), 1), else_=0))
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
     ).filter(PredictionRecord.user_id == session['user_id']).one()
 
     total_predictions = stats_row[0] or 0
@@ -590,7 +574,7 @@ def predictions():
     normal_hit_predictions = stats_row[3] or 0
     wrong_predictions = stats_row[4] or 0
 
-    accurate_predictions = special_hit_predictions + normal_hit_predictions
+    accurate_predictions = special_hit_predictions
     
     accuracy_rate = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
@@ -1098,24 +1082,16 @@ def analytics():
         PredictionRecord.special_number == PredictionRecord.actual_special_number
     ).count()
     
-    normal_hit_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
-    ).filter(
-        PredictionRecord.actual_special_number != None,
-        PredictionRecord.special_number != PredictionRecord.actual_special_number,
-        _secondary_hit_expr()
-    ).count()
+    normal_hit_predictions = 0
     
-    accurate_predictions = special_hit_predictions + normal_hit_predictions
+    accurate_predictions = special_hit_predictions
     
     wrong_predictions = PredictionRecord.query.filter_by(
         user_id=user.id,
         is_result_updated=True
     ).filter(
         PredictionRecord.actual_special_number != None,
-        (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-        ~_secondary_hit_expr()
+        (PredictionRecord.special_number != PredictionRecord.actual_special_number)
     ).count()
     
     # 计算不同策略的命中率
@@ -1148,9 +1124,9 @@ def analytics():
             ~_secondary_hit_expr()
         ).count()
         
-        correct = special_hit + normal_hit
+        correct = special_hit
         
-        accuracy = (correct / updated * 100) if updated > 0 else 0
+        accuracy = (special_hit / updated * 100) if updated > 0 else 0
         special_hit_rate = (special_hit / updated * 100) if updated > 0 else 0
         normal_hit_rate = (normal_hit / updated * 100) if updated > 0 else 0
         
@@ -1193,9 +1169,9 @@ def analytics():
             ~_secondary_hit_expr()
         ).count()
         
-        correct = special_hit + normal_hit
+        correct = special_hit
         
-        accuracy = (correct / updated * 100) if updated > 0 else 0
+        accuracy = (special_hit / updated * 100) if updated > 0 else 0
         special_hit_rate = (special_hit / updated * 100) if updated > 0 else 0
         normal_hit_rate = (normal_hit / updated * 100) if updated > 0 else 0
         
@@ -1220,7 +1196,7 @@ def analytics():
     stats['wrong_predictions'] = wrong_predictions
     stats['accuracy'] = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     stats['special_hit_rate'] = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
-    stats['normal_hit_rate'] = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    stats['normal_hit_rate'] = 0
     
     # 计算各策略统计
     strategy_stats = {

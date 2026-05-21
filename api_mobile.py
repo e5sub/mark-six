@@ -1160,15 +1160,6 @@ def _prediction_result(record):
         return "pending"
     if record.special_number == record.actual_special_number:
         return "special_hit"
-    normal_numbers = record.normal_numbers.split(",") if record.normal_numbers else []
-    if record.actual_special_number in normal_numbers:
-        return "normal_hit"
-    if (
-        record.special_zodiac
-        and record.actual_special_zodiac
-        and record.special_zodiac == record.actual_special_zodiac
-    ):
-        return "normal_hit"
     return "wrong"
 
 

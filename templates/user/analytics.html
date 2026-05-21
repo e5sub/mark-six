@@ -200,7 +200,7 @@
                     <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].normal_hit_rate or 0) }}%</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">综合命中率</span>
+                    <span class="stat-label">特码命中率</span>
                     <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].accuracy or 0) }}%</span>
                 </div>
             </div>
@@ -295,7 +295,7 @@
             <span class="suggestion-icon">{{ best_strategy.icon }}</span>
             <div class="suggestion-content">
                 <h4>{{ best_strategy.label }}策略表现更好</h4>
-                <p>当前综合命中率最高的是 {{ best_strategy.label }} 策略，建议优先尝试，并持续观察后续表现。</p>
+                <p>当前特码命中率最高的是 {{ best_strategy.label }} 策略，建议优先尝试，并持续观察后续表现。</p>
             </div>
         </div>
         {% endif %}
