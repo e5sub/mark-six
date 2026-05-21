@@ -44,6 +44,26 @@
             overflow-x: hidden;
         }
 
+        .github-watermark {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.06;
+            overflow: hidden;
+        }
+
+        .github-watermark::before {
+            content: "";
+            position: absolute;
+            inset: -35%;
+            transform: rotate(-45deg);
+            transform-origin: center;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='220' viewBox='0 0 420 220'><text x='18' y='112' font-size='28' font-family='Arial, sans-serif' fill='%231f2937' fill-opacity='1'>github.com/e5sub/mark-six</text></svg>");
+            background-repeat: repeat;
+            background-size: 420px 220px;
+        }
+
         /* 动态背景粒子效果 */
         .particles {
             position: fixed;
@@ -74,6 +94,24 @@
             padding: 20px;
             position: relative;
             z-index: 1;
+        }
+
+        .app-footer {
+            margin-top: 2.5rem;
+            padding: 1rem 1.25rem 2rem;
+            text-align: center;
+            color: #5b6475;
+            font-size: 0.9rem;
+        }
+
+        .app-footer a {
+            color: #3451b2;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        .app-footer a:hover {
+            text-decoration: underline;
         }
 
         /* 玻璃拟态卡片 */
@@ -925,6 +963,7 @@
     </style>
 </head>
 <body class="{% if session.get('user_id') %}has-sidebar{% endif %}">
+    <div class="github-watermark" aria-hidden="true"></div>
     <!-- 动态背景粒子 -->
     <div class="particles" id="particles"></div>
 
@@ -1028,6 +1067,11 @@
         });
         </script>
     </div>
+
+    <footer class="app-footer">
+        GitHub：
+        <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
+    </footer>
 
     {% if session.get('user_id') %}
     <script>
