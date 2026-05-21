@@ -7,6 +7,7 @@ import math
 import os
 import requests
 import smtplib
+import threading
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import Counter
@@ -4876,6 +4877,33 @@ def warmup_auto_backtest_snapshots():
             print(f"Auto backtest warmup failed: {e}")
 
 
+_warmup_thread = None
+_warmup_started = False
+
+
+def start_async_backtest_warmup():
+    """Run backtest warmup in a background thread so startup is non-blocking."""
+    global _warmup_thread, _warmup_started
+    enabled = os.environ.get("ENABLE_STARTUP_BACKTEST_WARMUP", "0").lower() in ("1", "true", "yes", "on")
+    if not enabled or _warmup_started:
+        return None
+
+    def _runner():
+        try:
+            warmup_auto_backtest_snapshots()
+        except Exception as e:
+            print(f"Async backtest warmup failed: {e}")
+
+    _warmup_thread = threading.Thread(
+        target=_runner,
+        name="mark-six-backtest-warmup",
+        daemon=True,
+    )
+    _warmup_thread.start()
+    _warmup_started = True
+    return _warmup_thread
+
+
 def start_scheduler(force=False):
     """Start the APScheduler job if enabled and not already running."""
     global _scheduler
@@ -4932,7 +4960,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on")
         print(f"定时任务启动失败: {e}")
 
 try:
-    warmup_auto_backtest_snapshots()
+    start_async_backtest_warmup()
 except Exception as e:
     print(f"离线回测快照预热失败: {e}")
 
