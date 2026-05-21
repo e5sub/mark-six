@@ -5,6 +5,7 @@ import json
 import hashlib
 import math
 import os
+import copy
 import requests
 import smtplib
 import threading
@@ -30,6 +31,10 @@ from api_mobile import mobile_api_bp
 # --- 配置信息 ---
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
+
+_ML_PREDICTION_CACHE_TTL_SECONDS = 180
+_ml_prediction_cache = {}
+_ml_prediction_cache_lock = threading.Lock()
 
 def _load_or_create_secret_key():
     env_secret = os.environ.get("SECRET_KEY")
@@ -2979,14 +2984,83 @@ def _train_ml_number_model(data, region, config):
     }
 
 
-def _predict_with_ml(data, region, variation_key=None):
+def _build_ml_prediction_cache_key(region, data, config):
+    normalized_region = str(region or "").strip().lower()
+    head_periods = [
+        str(item.get("id") or "").strip()
+        for item in list(data or [])[:16]
+    ]
+    payload = {
+        "region": normalized_region,
+        "periods": head_periods,
+        "draw_count": len(data or []),
+        "updated_at": str(config.get("updated_at") or ""),
+        "primary_runtime_profile": str(config.get("primary_runtime_profile") or ""),
+        "primary_feature_profile": str(config.get("primary_feature_profile") or ""),
+        "preferred_runtime_profiles": list(config.get("preferred_runtime_profiles") or []),
+        "preferred_feature_profiles": list(config.get("preferred_feature_profiles") or []),
+        "blend_candidates": list(config.get("blend_candidates") or []),
+        "profile_learning_confidence": float(config.get("profile_learning_confidence") or 0.0),
+        "history_window": int(config.get("history_window") or 0),
+        "feature_window": int(config.get("feature_window") or 0),
+        "evaluation_window": int(config.get("evaluation_window") or 0),
+        "epochs": int(config.get("epochs") or 0),
+        "learning_rate": float(config.get("learning_rate") or 0.0),
+        "l2": float(config.get("l2") or 0.0),
+        "pool": int(config.get("pool") or 0),
+        "special_pool": int(config.get("special_pool") or 0),
+        "bucket_counts": list(config.get("bucket_counts") or []),
+        "ensemble_core_strategies": list(config.get("ensemble_core_strategies") or []),
+        "ensemble_replace_margin": float(config.get("ensemble_replace_margin") or 0.0),
+        "ensemble_replace_min_samples": int(config.get("ensemble_replace_min_samples") or 0),
+    }
+    fingerprint = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.md5(fingerprint.encode("utf-8")).hexdigest()
+
+
+def _get_cached_ml_prediction_artifacts(cache_key):
+    now = time.time()
+    with _ml_prediction_cache_lock:
+        cached = _ml_prediction_cache.get(cache_key)
+        if not cached:
+            return None
+        cached_at = float(cached.get("cached_at") or 0.0)
+        if now - cached_at > _ML_PREDICTION_CACHE_TTL_SECONDS:
+            _ml_prediction_cache.pop(cache_key, None)
+            return None
+        cached["cached_at"] = now
+        return copy.deepcopy(cached.get("artifacts"))
+
+
+def _store_cached_ml_prediction_artifacts(cache_key, artifacts):
+    now = time.time()
+    with _ml_prediction_cache_lock:
+        expired_keys = [
+            key
+            for key, item in _ml_prediction_cache.items()
+            if now - float(item.get("cached_at") or 0.0) > _ML_PREDICTION_CACHE_TTL_SECONDS
+        ]
+        for key in expired_keys:
+            _ml_prediction_cache.pop(key, None)
+        _ml_prediction_cache[cache_key] = {
+            "cached_at": now,
+            "artifacts": copy.deepcopy(artifacts),
+        }
+
+
+def _build_ml_prediction_artifacts(data, region):
     enriched_data, supplemental_draws = _ensure_ml_prediction_history(data, region)
     config = _load_strategy_config("ml", region)
+    cache_key = _build_ml_prediction_cache_key(region, enriched_data, config)
+    cached_artifacts = _get_cached_ml_prediction_artifacts(cache_key)
+    if cached_artifacts is not None:
+        return cached_artifacts
+
     runtime_config, model = _optimize_ml_runtime_config(enriched_data, region, config)
     feature_window = _clamp(int(runtime_config.get("feature_window") or 60), 30, 90)
     year = _infer_draw_year(enriched_data)
     feedback = _build_prediction_feedback(region, "ml")
-    _, _, parity_pref = _build_attribute_preferences(enriched_data[:feature_window], region, feedback, year)
+    color_pref, _, parity_pref = _build_attribute_preferences(enriched_data[:feature_window], region, feedback, year)
     feature_table = _build_ml_feature_table(enriched_data, region, feature_window=feature_window)
     feature_table = _apply_ml_feature_profile(
         feature_table,
@@ -3009,8 +3083,43 @@ def _predict_with_ml(data, region, variation_key=None):
         heuristic_map,
         ensemble_signals,
     )
-    special_ranked_numbers = _rank_numbers(special_score_map)
-    normal_ranked_numbers = _rank_numbers(normal_score_map)
+
+    artifacts = {
+        "enriched_data": enriched_data,
+        "supplemental_draws": supplemental_draws,
+        "runtime_config": runtime_config,
+        "model": model,
+        "year": year,
+        "color_pref": color_pref,
+        "parity_pref": parity_pref,
+        "probability_map": probability_map,
+        "blend_weight": blend_weight,
+        "ensemble_signals": ensemble_signals,
+        "special_score_map": special_score_map,
+        "normal_score_map": normal_score_map,
+        "special_ranked_numbers": _rank_numbers(special_score_map),
+        "normal_ranked_numbers": _rank_numbers(normal_score_map),
+    }
+    _store_cached_ml_prediction_artifacts(cache_key, artifacts)
+    return artifacts
+
+
+def _predict_with_ml(data, region, variation_key=None):
+    artifacts = _build_ml_prediction_artifacts(data, region)
+    enriched_data = artifacts["enriched_data"]
+    supplemental_draws = artifacts["supplemental_draws"]
+    runtime_config = artifacts["runtime_config"]
+    model = artifacts["model"]
+    year = artifacts["year"]
+    color_pref = artifacts["color_pref"]
+    parity_pref = artifacts["parity_pref"]
+    probability_map = artifacts["probability_map"]
+    blend_weight = artifacts["blend_weight"]
+    ensemble_signals = artifacts["ensemble_signals"]
+    special_score_map = artifacts["special_score_map"]
+    normal_score_map = artifacts["normal_score_map"]
+    special_ranked_numbers = artifacts["special_ranked_numbers"]
+    normal_ranked_numbers = artifacts["normal_ranked_numbers"]
 
     pool_size = _clamp(int(runtime_config.get("pool") or 18), 12, 24)
     special_pool_size = _clamp(int(runtime_config.get("special_pool") or 8), 6, 12)
@@ -3137,7 +3246,23 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
     if not data:
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
-        return _predict_with_ml(data, region, variation_key=variation_key)
+        try:
+            return _predict_with_ml(data, region, variation_key=variation_key)
+        except Exception as e:
+            print(f"ml recommendation failed, falling back to balanced. Reason: {e}")
+            fallback = get_local_recommendations('balanced', data, region, variation_key=variation_key)
+            fallback_meta = dict(fallback.get("model_meta") or {})
+            fallback_meta.update({
+                "ml_fallback": True,
+                "ml_fallback_reason": str(e),
+            })
+            fallback["model_meta"] = fallback_meta
+            fallback["recommendation_text"] = _decorate_recommendation_text(
+                "ml",
+                "balanced",
+                fallback.get("recommendation_text", "")
+            )
+            return fallback
     else:
         try:
             config = _load_strategy_config(strategy, region)
@@ -3669,9 +3794,6 @@ def get_yearly_data(region, year):
         if db_records:
             print(f"从数据库获取到{len(db_records)}条{region}地区{year}年的数据")
             # 将数据库记录转换为API格式
-            synced_draws = sync_draws_from_api(region, year, force=False)
-            if synced_draws:
-                db_records = query.order_by(LotteryDraw.draw_date.desc()).all()
             return [record.to_dict() for record in db_records]
     except Exception as e:
         print(f"从数据库获取数据失败: {e}")
@@ -4481,7 +4603,29 @@ def unified_predict_api():
         variation_key = None
         if user_id and is_active and _personalized_predictions_enabled():
             variation_key = f"user:{user_id}|region:{region}|period:{current_period}|strategy:{resolved_strategy}"
-        result = get_local_recommendations(resolved_strategy, data, region, variation_key=variation_key)
+        try:
+            result = get_local_recommendations(resolved_strategy, data, region, variation_key=variation_key)
+        except Exception as e:
+            print(f"Prediction failed for region={region}, strategy={resolved_strategy}, year={year}: {e}")
+            if resolved_strategy == 'ml':
+                result = get_local_recommendations('balanced', data, region, variation_key=variation_key)
+                fallback_meta = dict(result.get("model_meta") or {})
+                fallback_meta.update({
+                    "ml_fallback": True,
+                    "ml_fallback_reason": str(e),
+                })
+                result["model_meta"] = fallback_meta
+                result["recommendation_text"] = _decorate_recommendation_text(
+                    strategy,
+                    'balanced',
+                    result.get('recommendation_text', '')
+                )
+                result["strategy"] = 'balanced'
+            else:
+                return jsonify({
+                    "error": f"预测失败：{str(e)}",
+                    "error_type": "prediction_failed",
+                }), 500
     
     # 保存预测记录（仅对已激活用户）
     if user_id and is_active and not result.get('error'):
