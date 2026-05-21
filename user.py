@@ -329,6 +329,29 @@ def _latest_backtest_summary(limit=6):
             .first()
         )
         if not record:
+            try:
+                from app import refresh_auto_backtest_snapshot
+                refreshed = refresh_auto_backtest_snapshot(region_key, force=True)
+                if refreshed:
+                    record = refreshed
+            except Exception as e:
+                print(f"initial backtest snapshot generation failed for {region_key}: {e}")
+        if record:
+            try:
+                payload = json.loads(record.payload or "{}")
+            except Exception:
+                payload = {}
+            periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
+            ranking = payload.get("ranking") or []
+            if periods_evaluated <= 0 or not ranking:
+                try:
+                    from app import refresh_auto_backtest_snapshot
+                    refreshed = refresh_auto_backtest_snapshot(region_key, force=True)
+                    if refreshed:
+                        record = refreshed
+                except Exception as e:
+                    print(f"refresh latest backtest summary failed for {region_key}: {e}")
+        if not record:
             items.append({
                 "id": None,
                 "name": f"auto-{region_key}",

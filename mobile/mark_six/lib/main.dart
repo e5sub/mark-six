@@ -3556,28 +3556,42 @@ class _PredictScreenState extends State<PredictScreen> {
   Widget _buildPredictionRecordItem(
     PredictionItem item, {
     bool inlineSpecialOnly = false,
+    double? forcedWidth,
   }) {
     final normalZodiacs = _recordNormalZodiacs[item.id] ??
         List.filled(item.normalNumbers.length, '');
     final specialZodiac = _recordSpecialZodiacs[item.id] ?? item.specialZodiac;
-    final actualSpecialNumber = item.actualSpecialNumber;
-    final actualSpecialZodiac = item.actualSpecialZodiac;
     final strategyLabel = _strategyLabels[item.strategy] ?? item.strategy;
+    final accentColor = _strategyColor(item.strategy);
+    final statusColor = _resultColor(item.result);
     return Container(
-      width: inlineSpecialOnly ? 168 : null,
+      width: forcedWidth ?? (inlineSpecialOnly ? 164 : null),
       margin: EdgeInsets.only(
         bottom: inlineSpecialOnly ? 0 : 12,
         right: 0,
       ),
-      padding: EdgeInsets.all(inlineSpecialOnly ? 10 : 12),
+      padding: EdgeInsets.all(inlineSpecialOnly ? 8 : 12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            Color(0xFFF8FBFF),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(inlineSpecialOnly ? 16 : 20),
+        border: Border.all(color: accentColor.withOpacity(0.14)),
+        boxShadow: [
           BoxShadow(
             color: Color(0x14000000),
-            blurRadius: 6,
-            offset: Offset(0, 2),
+            blurRadius: inlineSpecialOnly ? 10 : 14,
+            offset: Offset(0, inlineSpecialOnly ? 4 : 6),
+          ),
+          BoxShadow(
+            color: accentColor.withOpacity(0.06),
+            blurRadius: inlineSpecialOnly ? 12 : 18,
+            offset: Offset(0, inlineSpecialOnly ? 5 : 8),
           ),
         ],
       ),
@@ -3585,88 +3599,147 @@ class _PredictScreenState extends State<PredictScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: RichText(
-                  text: TextSpan(
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        strategyLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: accentColor,
+                          fontSize: inlineSpecialOnly ? 12 : 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
-                    children: [
-                      const TextSpan(text: '策略：'),
-                      TextSpan(
-                        text: strategyLabel,
-                        style: TextStyle(color: _strategyColor(item.strategy)),
+                    if (!inlineSpecialOnly) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '预测记录',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
-                  ),
+                  ],
                 ),
               ),
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _resultColor(item.result).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
+                  color: statusColor.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   _resultLabel(item),
                   style: TextStyle(
-                    color: _resultColor(item.result),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    color: statusColor,
+                    fontSize: inlineSpecialOnly ? 11 : 12,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_showNormalNumbers) ...[
-                const Text(
-                  '平码：',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                _buildNumberGrid(
-                  numbers: item.normalNumbers,
-                  zodiacs: normalZodiacs,
-                  ballSize: 36,
-                  numberFontSize: 13,
-                  zodiacFontSize: 11,
-                  gap: 3,
-                  childAspectRatio: 0.85,
-                ),
-                const SizedBox(height: 10),
-              ],
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  if (!inlineSpecialOnly) ...[
-                    const Text(
-                      '特码：',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  if (item.specialNumber.isNotEmpty)
-                    _NumberZodiacTile(
-                      number: item.specialNumber,
-                      zodiac: specialZodiac,
-                      color: ballColor(item.specialNumber),
-                      outlined: true,
-                      highlight: true,
-                      ballSize: 36,
-                      numberFontSize: 13,
-                      zodiacFontSize: 11,
-                      gap: 3,
-                    ),
-                ],
+          SizedBox(height: inlineSpecialOnly ? 8 : (_showNormalNumbers ? 12 : 10)),
+          if (_showNormalNumbers) ...[
+            Text(
+              '平码参考',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade800,
+                fontSize: 12,
               ),
-            ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F8FC),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: _buildNumberGrid(
+                numbers: item.normalNumbers,
+                zodiacs: normalZodiacs,
+                ballSize: 34,
+                numberFontSize: 13,
+                zodiacFontSize: 11,
+                gap: 3,
+                childAspectRatio: 0.85,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(
+              horizontal: inlineSpecialOnly ? 6 : 10,
+              vertical: inlineSpecialOnly ? 8 : 12,
+            ),
+            decoration: BoxDecoration(
+              color: accentColor.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(inlineSpecialOnly ? 14 : 18),
+            ),
+            child: Row(
+              children: [
+                if (!inlineSpecialOnly)
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '本期主推特码',
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          specialZodiac.isNotEmpty
+                              ? '生肖 $specialZodiac'
+                              : '重点参考号码',
+                          style: TextStyle(
+                            color: accentColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (!inlineSpecialOnly) const SizedBox(width: 10),
+                    if (item.specialNumber.isNotEmpty)
+                      _NumberZodiacTile(
+                        number: item.specialNumber,
+                        zodiac: specialZodiac,
+                        color: ballColor(item.specialNumber),
+                        outlined: true,
+                        highlight: true,
+                        ballSize: inlineSpecialOnly ? 34 : 42,
+                        numberFontSize: inlineSpecialOnly ? 13 : 15,
+                        zodiacFontSize: inlineSpecialOnly ? 10 : 11,
+                        gap: inlineSpecialOnly ? 2 : 3,
+                      ),
+              ],
+            ),
           ),
         ],
       ),
@@ -3831,11 +3904,25 @@ class _PredictScreenState extends State<PredictScreen> {
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF7FAF9),
-                            borderRadius: BorderRadius.circular(16),
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color(0xFFF9FCFF),
+                                Color(0xFFF5FAF8),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(18),
                             border: Border.all(
                               color: const Color(0xFFE2E8F0),
                             ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x12000000),
+                                blurRadius: 10,
+                                offset: Offset(0, 5),
+                              ),
+                            ],
                             ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3844,7 +3931,7 @@ class _PredictScreenState extends State<PredictScreen> {
                                 periodHeaderText,
                                 style: const TextStyle(
                                   fontSize: 14,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                               const SizedBox(height: 8),
@@ -3855,20 +3942,28 @@ class _PredictScreenState extends State<PredictScreen> {
                                       .toList(),
                                 )
                               else
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Wrap(
-                                    spacing: 10,
-                                    runSpacing: 10,
-                                    children: items
-                                        .map(
-                                          (item) => _buildPredictionRecordItem(
-                                            item,
-                                            inlineSpecialOnly: true,
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
+                                LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    const spacing = 8.0;
+                                    final cardWidth =
+                                        (constraints.maxWidth - spacing * 2) / 3;
+                                    return Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Wrap(
+                                        spacing: spacing,
+                                        runSpacing: spacing,
+                                        children: items
+                                            .map(
+                                              (item) => _buildPredictionRecordItem(
+                                                item,
+                                                inlineSpecialOnly: true,
+                                                forcedWidth: cardWidth,
+                                              ),
+                                            )
+                                            .toList(),
+                                      ),
+                                    );
+                                  },
                                 ),
                             ],
                           ),
