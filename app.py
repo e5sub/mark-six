@@ -504,6 +504,17 @@ def _extract_ai_numbers(ai_response):
         .replace("特碼", "特码")
     )
 
+    json_match = re.search(
+        r'"normal"\s*:\s*\[\s*([0-9\s,]{5,})\s*\].{0,120}?"special"\s*:\s*"?(\d{1,2})"?',
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+    if json_match:
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', json_match.group(1))]
+        special_number = json_match.group(2)
+        if len(normal_numbers) >= 6:
+            return normal_numbers[:6], special_number
+
     list_patterns = [
         r'推荐号码\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
         r'号码推荐\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
@@ -533,6 +544,11 @@ def _extract_ai_numbers(ai_response):
         special_number = matches[-1].group(1)
         break
 
+    if not special_number:
+        special_line_match = re.search(r'特码\s*[:：]\s*\[\s*(\d{1,2})\s*\]', normalized)
+        if special_line_match:
+            special_number = special_line_match.group(1)
+
     if normal_numbers and special_number:
         return normal_numbers, special_number
 
@@ -559,6 +575,84 @@ def _extract_ai_numbers(ai_response):
         return valid_numbers[:6], str(valid_numbers[6])
 
     return None, None
+
+
+def _normalize_ai_response_v2(ai_response):
+    return (
+        str(ai_response or "")
+        .replace("：", ":")
+        .replace("，", ",")
+        .replace("【", "[")
+        .replace("】", "]")
+        .replace("特碼", "特码")
+        .replace("特码号", "特码")
+        .replace("號碼", "号码")
+    )
+
+
+def _extract_ai_numbers_v2(ai_response, region=None):
+    if not ai_response:
+        return None, None
+
+    normalized = _normalize_ai_response_v2(ai_response)
+
+    json_patterns = [
+        r'"normal"\s*:\s*\[\s*([0-9\s,]{5,})\s*\].{0,160}?"special"\s*:\s*"?(\d{1,2})"?',
+        r'"recommended_numbers"\s*:\s*\[\s*([0-9\s,]{5,})\s*\].{0,160}?"special_number"\s*:\s*"?(\d{1,2})"?',
+    ]
+    for pattern in json_patterns:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', match.group(1))]
+        if len(normal_numbers) >= 6:
+            return normal_numbers[:6], match.group(2)
+
+    label_pairs = [("推荐号码", "特码"), ("号码推荐", "特码")]
+    if region == "macau":
+        label_pairs.extend([("平码", "特码"), ("号码", "特码")])
+    for normal_label, special_label in label_pairs:
+        pattern = rf'{normal_label}\s*[:：]\s*\[\s*([0-9\s,，]{{5,}})\s*\].{{0,80}}?{special_label}\s*[:：]\s*\[\s*(\d{{1,2}})\s*\]'
+        match = re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', match.group(1))]
+        if len(normal_numbers) >= 6:
+            return normal_numbers[:6], match.group(2)
+
+    return _extract_ai_numbers(normalized)
+
+
+def _finalize_ai_result_v2(ai_response, region=None):
+    normal_numbers, special_number = _extract_ai_numbers_v2(ai_response, region=region)
+    if not normal_numbers or not special_number:
+        return None, "无法从AI回复中提取有效号码"
+
+    normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
+    if len(normal_numbers) < 6:
+        return None, "AI生成的平码数量不足"
+
+    try:
+        special_num_value = int(special_number)
+    except (TypeError, ValueError):
+        special_num_value = None
+
+    if special_num_value is None or not (1 <= special_num_value <= 49):
+        return None, "AI生成的特码无效"
+
+    normal_numbers = [n for n in normal_numbers if n != special_num_value]
+    normal_numbers = _dedupe_keep_order(normal_numbers)[:6]
+    if len(normal_numbers) < 6:
+        return None, "AI生成的平码数量不足"
+
+    return {
+        "recommendation_text": ai_response,
+        "normal": normal_numbers,
+        "special": {
+            "number": str(special_num_value),
+            "sno_zodiac": ""
+        }
+    }, None
 
 def _settle_manual_bet_record(record, draw):
     raw_zodiacs = _parse_csv_list(draw.raw_zodiac)
@@ -890,6 +984,98 @@ def analyze_special_number_frequency(data):
 def _clamp(value, low, high):
     return max(low, min(high, value))
 
+
+def _normalize_period_value(period):
+    raw = str(period or "").strip()
+    if not raw:
+        return ""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return digits or raw
+
+
+def _period_sort_key(period):
+    normalized = _normalize_period_value(period)
+    if normalized.isdigit():
+        return (1, int(normalized))
+    return (0, normalized)
+
+
+def _is_period_before(candidate_period, cutoff_period):
+    if not cutoff_period:
+        return True
+    return _period_sort_key(candidate_period) < _period_sort_key(cutoff_period)
+
+
+def _is_secondary_hit(prediction, actual_special, actual_zodiac):
+    actual_special = str(actual_special or "").strip()
+    actual_zodiac = str(actual_zodiac or "").strip()
+    if not actual_special:
+        return False
+
+    normal_numbers = [n.strip() for n in str(prediction.normal_numbers or "").split(",") if n.strip()]
+    if actual_special in normal_numbers:
+        return True
+
+    predicted_zodiac = str(prediction.special_zodiac or "").strip()
+    return bool(predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac)
+
+
+def _softmax(values):
+    if not values:
+        return []
+    max_value = max(values)
+    exp_values = [math.exp(_clamp(value - max_value, -30.0, 30.0)) for value in values]
+    total = sum(exp_values)
+    if total <= 0:
+        fallback = 1.0 / len(values)
+        return [fallback] * len(values)
+    return [value / total for value in exp_values]
+
+
+def _build_ml_heuristic_score_map(feature_table):
+    score_map = {}
+    for key, features in (feature_table or {}).items():
+        if not features:
+            continue
+        momentum_short = max(0.0, features[15]) if len(features) > 15 else 0.0
+        momentum_medium = max(0.0, features[16]) if len(features) > 16 else 0.0
+        recent_special_penalty = features[6] if len(features) > 6 else 0.0
+        recent_number_penalty = features[7] if len(features) > 7 else 0.0
+        score_map[key] = (
+            features[0] * 0.22 +
+            features[1] * 0.18 +
+            features[2] * 0.10 +
+            features[3] * 0.06 +
+            features[4] * 0.12 +
+            features[5] * 0.09 +
+            features[8] * 0.07 +
+            features[9] * 0.05 +
+            features[10] * 0.06 +
+            features[11] * 0.05 +
+            momentum_short * 0.10 +
+            momentum_medium * 0.08 -
+            recent_special_penalty * 0.08 -
+            recent_number_penalty * 0.04 +
+            (features[17] * 0.05 if len(features) > 17 else 0.0)
+        )
+    return _normalize_metric_map(score_map)
+
+
+def _blend_ml_rankings(probability_map, heuristic_map, blend_weight):
+    numbers = sorted({
+        int(number)
+        for number in list(probability_map.keys()) + list(heuristic_map.keys())
+    })
+    blended = {}
+    for number in numbers:
+        key = str(number)
+        blended[number] = round(
+            float(probability_map.get(number, probability_map.get(key, 0.0))) * blend_weight +
+            float(heuristic_map.get(number, heuristic_map.get(key, 0.0))) * (1.0 - blend_weight),
+            6
+        )
+    return blended
+
 def _strategy_config_key(region, strategy):
     return f"strategy_config_{region}_{strategy}"
 
@@ -944,12 +1130,14 @@ def _default_strategy_config(strategy):
             "pool": 18,
             "special_pool": 8,
             "bucket_counts": [2, 2, 2],
-            "epochs": 4,
-            "learning_rate": 0.08,
+            "epochs": 18,
+            "learning_rate": 0.035,
+            "l2": 0.0025,
+            "blend_candidates": [0.55, 0.7, 0.82],
             "last_accuracy": 0.0,
             "last_total": 0
         },
-        "ai": {"history_window": 10, "temperature": 0.8, "last_accuracy": 0.0, "last_total": 0},
+        "ai": {"history_window": 12, "temperature": 0.35, "last_accuracy": 0.0, "last_total": 0},
     }
     return defaults.get(strategy, {})
 
@@ -998,24 +1186,7 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
         if pred.special_number == actual:
             correct += 1
             continue
-        if pred.normal_numbers:
-            normal_numbers = [n.strip() for n in pred.normal_numbers.split(',') if n.strip()]
-            if actual in normal_numbers:
-                correct += 1
-                continue
-        actual_zodiac = str(pred.actual_special_zodiac or "").strip()
-        predicted_zodiac = str(pred.special_zodiac or "").strip()
-        if actual_zodiac and predicted_zodiac and actual_zodiac == predicted_zodiac:
-            correct += 1
-            continue
-        actual_color = _get_color_zh(actual)
-        predicted_color = _get_color_zh(pred.special_number)
-        if actual_color and predicted_color and actual_color == predicted_color:
-            correct += 1
-            continue
-        actual_parity = _get_parity_zh(actual)
-        predicted_parity = _get_parity_zh(pred.special_number)
-        if actual_parity and predicted_parity and actual_parity == predicted_parity:
+        if _is_secondary_hit(pred, actual, pred.actual_special_zodiac):
             correct += 1
     total = len(predictions)
     return (correct / total) if total else 0.0, total
@@ -1123,8 +1294,8 @@ def _tune_strategy_config(strategy, region):
         config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
         config["trend_window"] = _clamp(int(8 + accuracy * 20), 8, 30)
     elif strategy == "ai":
-        config["temperature"] = round(_clamp(0.9 - accuracy * 0.4, 0.5, 0.9), 2)
-        config["history_window"] = _clamp(int(10 + (0.5 - accuracy) * 6), 6, 15)
+        config["temperature"] = round(_clamp(0.42 - accuracy * 0.18, 0.18, 0.45), 2)
+        config["history_window"] = _clamp(int(12 + (0.5 - accuracy) * 6), 8, 18)
     elif strategy == "ml":
         config["history_window"] = _clamp(int(90 + accuracy * 120), 80, 220)
         config["feature_window"] = _clamp(int(40 + accuracy * 40), 30, 80)
@@ -1132,6 +1303,7 @@ def _tune_strategy_config(strategy, region):
         config["special_pool"] = _clamp(int(6 + accuracy * 4), 6, 12)
         config["epochs"] = _clamp(int(15 + accuracy * 15), 15, 30)
         config["learning_rate"] = round(_clamp(0.02 + (1 - accuracy) * 0.08, 0.01, 0.08), 3)
+        config["l2"] = round(_clamp(0.001 + (1 - accuracy) * 0.004, 0.001, 0.005), 4)
 
     if weights:
         weights["feedback"] = round(_clamp(0.45 + learning_strength * 0.7 + accuracy * 0.3, 0.45, 1.35), 2)
@@ -1353,13 +1525,20 @@ def _personalized_predictions_enabled():
     raw = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower()
     return raw == 'true'
 
-def _build_prediction_feedback(region, strategy, limit=240):
+def _build_prediction_feedback(region, strategy, limit=240, cutoff_period=None):
     query = PredictionRecord.query.filter_by(
         region=region,
         strategy=strategy,
         is_result_updated=True
     ).filter(PredictionRecord.actual_special_number != None)
-    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+    predictions = query.order_by(PredictionRecord.created_at.desc()).all()
+    if cutoff_period:
+        predictions = [
+            pred for pred in predictions
+            if _is_period_before(pred.period, cutoff_period)
+        ]
+    if limit:
+        predictions = predictions[:limit]
 
     special_scores = Counter()
     normal_scores = Counter()
@@ -1567,6 +1746,57 @@ def _build_default_baseline_prediction():
         "recommendation_text": "系统当前可用历史数据不足，已返回基础保底号码组合。",
     }
 
+def _build_ai_system_prompt():
+    return (
+        "你是一个严格遵守格式的彩票数据分析助手。"
+        "你的目标不是泛泛分析，而是在给定历史数据、反馈和候选池中做克制的最终选择。"
+        "你必须优先参考系统提供的近期回测表现、历史命中反馈、号码属性偏好和本地策略共识。"
+        "不要输出免责声明。不要输出 1-49 以外的数字。不要重复数字。"
+        "最终必须输出固定格式："
+        "推荐号码：[n1, n2, n3, n4, n5, n6]\\n特码：[s]\\n理由：..."
+        "如果你愿意，也可以先额外输出一行 JSON："
+        "{\"normal\":[n1,n2,n3,n4,n5,n6],\"special\":s}"
+    )
+
+
+def _build_ai_candidate_context(data, region):
+    special_support = Counter()
+    normal_support = Counter()
+    strategy_lines = []
+    for strategy in ("ml", "hybrid", "balanced", "trend"):
+        try:
+            result = get_local_recommendations(strategy, data, region)
+        except Exception:
+            continue
+        special = str((result.get("special") or {}).get("number") or "").strip()
+        normal = [int(n) for n in (result.get("normal") or []) if str(n).isdigit()]
+        if special:
+            special_support[special] += 1
+        for number in normal:
+            normal_support[str(number)] += 1
+        if special or normal:
+            strategy_lines.append(
+                f"- {_get_strategy_label(strategy)}：平码 {', '.join(map(str, normal[:6])) if normal else '暂无'}；特码 {special or '暂无'}"
+            )
+
+    top_special = [
+        number for number, _ in sorted(
+            special_support.items(),
+            key=lambda item: (item[1], -abs(int(item[0]) - 25), -int(item[0])),
+            reverse=True
+        )
+    ][:8]
+    top_normal = [int(number) for number, _ in normal_support.most_common(12)]
+
+    lines = ["本地策略候选池："]
+    if strategy_lines:
+        lines.extend(strategy_lines)
+    lines.append(f"- 共识特码候选：{', '.join(top_special) if top_special else '暂无'}")
+    lines.append(f"- 共识平码候选：{', '.join(map(str, top_normal)) if top_normal else '暂无'}")
+    lines.append("决策要求：优先从共识候选中挑选；若偏离共识，必须在理由中简短说明。")
+    return "\n".join(lines)
+
+
 def _build_ai_learning_context(data, region, history_window=10):
     recent_data = data[:history_window]
     year = _infer_draw_year(recent_data or data)
@@ -1616,7 +1846,7 @@ def _sigmoid(value):
     return 1.0 / (1.0 + math.exp(-value))
 
 
-def _build_ml_feature_table(history_data, region, feature_window=60):
+def _build_ml_feature_table(history_data, region, feature_window=60, feedback=None):
     history = list(history_data or [])[:max(int(feature_window or 0), 10)]
     short_data = history[:min(len(history), 12)]
     medium_data = history[:min(len(history), 24)]
@@ -1624,33 +1854,59 @@ def _build_ml_feature_table(history_data, region, feature_window=60):
 
     short_special = _normalize_metric_map(analyze_special_number_frequency(short_data))
     medium_special = _normalize_metric_map(analyze_special_number_frequency(medium_data))
+    long_special = _normalize_metric_map(analyze_special_number_frequency(long_data))
     long_all = _normalize_metric_map(_build_number_frequency(long_data))
     overdue = _normalize_metric_map(_build_overdue_scores(long_data))
+    recent_all = _normalize_metric_map(_build_number_frequency(short_data))
     year = _infer_draw_year(history)
     number_to_zodiac = _get_number_to_zodiac_map(year)
-    feedback = _build_prediction_feedback(region, "ml")
+    feedback = feedback or _build_prediction_feedback(region, "ml")
     color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
         long_data, region, feedback, year
     )
-    recent_specials = {
-        str(item.get("sno"))
-        for item in short_data[:5]
-        if item.get("sno")
-    }
+    recent_specials = [str(item.get("sno")) for item in short_data[:5] if item.get("sno")]
+    recent_numbers = set()
+    for item in short_data[:8]:
+        for number in item.get("no", []):
+            if number:
+                recent_numbers.add(str(number))
+        special = item.get("sno")
+        if special:
+            recent_numbers.add(str(special))
 
     features = {}
     for number in range(1, 50):
         key = str(number)
+        distance_sum = 0.0
+        for recent_special in recent_specials:
+            try:
+                distance_sum += 1.0 / (1.0 + abs(number - int(recent_special)))
+            except (TypeError, ValueError):
+                continue
+        bucket_low = 1.0 if number <= 16 else 0.0
+        bucket_mid = 1.0 if 17 <= number <= 33 else 0.0
+        bucket_high = 1.0 if number >= 34 else 0.0
+        short_momentum = short_special.get(key, 0.0) - medium_special.get(key, 0.0)
+        medium_momentum = medium_special.get(key, 0.0) - long_special.get(key, 0.0)
         features[key] = [
             short_special.get(key, 0.0),
             medium_special.get(key, 0.0),
+            long_special.get(key, 0.0),
             long_all.get(key, 0.0),
             overdue.get(key, 0.0),
             1.0 - medium_special.get(key, 0.0),
             1.0 if key in recent_specials else 0.0,
+            1.0 if key in recent_numbers else 0.0,
+            round(distance_sum, 6),
             color_pref.get(_get_color_zh(number), 0.0),
             zodiac_pref.get(number_to_zodiac.get(key, ""), 0.0),
             parity_pref.get(_get_parity_zh(number), 0.0),
+            bucket_low,
+            bucket_mid,
+            bucket_high,
+            round(short_momentum, 6),
+            round(medium_momentum, 6),
+            recent_all.get(key, 0.0),
         ]
     return features
 
@@ -1659,20 +1915,37 @@ def _train_ml_number_model(data, region, config):
     history_window = _clamp(int(config.get("history_window") or 120), 80, 240)
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
     epochs = _clamp(int(config.get("epochs") or 15), 15, 30)
-    learning_rate = float(config.get("learning_rate") or 0.05)
+    learning_rate = float(config.get("learning_rate") or 0.035)
+    l2 = float(config.get("l2") or 0.0025)
 
     recent_desc = list(data or [])[:history_window + feature_window]
     chronological = list(reversed(recent_desc))
     min_history = min(24, max(12, feature_window // 2))
-    weights = [0.0] * 9
+    weights = None
     bias = 0.0
     sample_count = 0
+    training_steps = 0
+    top1_hits = 0
+    top6_hits = 0
+    target_probability_sum = 0.0
+    feature_cache = {}
+    blend_candidates = [
+        float(candidate)
+        for candidate in (config.get("blend_candidates") or [0.55, 0.7, 0.82])
+        if 0.0 <= float(candidate) <= 1.0
+    ]
+    if not blend_candidates:
+        blend_candidates = [0.7]
+    blend_stats = {
+        round(candidate, 4): {"top1": 0, "top6": 0}
+        for candidate in blend_candidates
+    }
 
     if len(chronological) <= min_history:
-        return {"weights": weights, "bias": bias, "samples": 0}
+        return {"weights": [], "bias": bias, "samples": 0, "draw_samples": 0}
 
     for epoch in range(epochs):
-        step = learning_rate * (0.95 ** epoch)
+        step = learning_rate * (0.94 ** epoch)
         for idx in range(min_history, len(chronological)):
             target_draw = chronological[idx]
             target_special = str(target_draw.get("sno") or "").strip()
@@ -1680,33 +1953,99 @@ def _train_ml_number_model(data, region, config):
                 continue
 
             history_desc = list(reversed(chronological[:idx]))
-            feature_table = _build_ml_feature_table(
-                history_desc,
-                region,
-                feature_window=feature_window,
-            )
+            cutoff_period = target_draw.get("id")
+            cache_key = _normalize_period_value(cutoff_period)
+            feature_table = feature_cache.get(cache_key)
+            if feature_table is None:
+                feedback = _build_prediction_feedback(
+                    region,
+                    "ml",
+                    cutoff_period=cutoff_period,
+                )
+                feature_table = _build_ml_feature_table(
+                    history_desc,
+                    region,
+                    feature_window=feature_window,
+                    feedback=feedback,
+                )
+                feature_cache[cache_key] = feature_table
+            if weights is None:
+                first_features = next(iter(feature_table.values()), [])
+                weights = [0.0] * len(first_features)
+
+            score_pairs = []
             for number in range(1, 50):
                 key = str(number)
                 features = feature_table.get(key)
                 if not features:
                     continue
+                score = bias + sum(weight * value for weight, value in zip(weights, features))
+                score_pairs.append((key, features, score))
+
+            if not score_pairs:
+                continue
+
+            probabilities = _softmax([item[2] for item in score_pairs])
+            target_probability = 0.0
+            for row_idx, (key, features, _) in enumerate(score_pairs):
+                probability = probabilities[row_idx]
                 label = 1.0 if key == target_special else 0.0
-                probability = _sigmoid(
-                    bias + sum(weight * value for weight, value in zip(weights, features))
-                )
-                class_weight = 8.0 if label > 0 else 1.0
-                error = (label - probability) * class_weight
+                error = label - probability
+                if label > 0:
+                    target_probability = probability
                 bias += step * error
                 for feature_idx, feature_value in enumerate(features):
-                    weights[feature_idx] += step * error * feature_value
+                    weights[feature_idx] += step * (error * feature_value - (l2 * weights[feature_idx]))
                 sample_count += 1
 
+            ranked_numbers = [int(item[0]) for item in sorted(score_pairs, key=lambda item: item[2], reverse=True)]
+            if ranked_numbers:
+                target_number = int(target_special)
+                if ranked_numbers[0] == target_number:
+                    top1_hits += 1
+                if target_number in ranked_numbers[:6]:
+                    top6_hits += 1
+
+                heuristic_map = _build_ml_heuristic_score_map(feature_table)
+                probability_map = {int(key): probabilities[row_idx] for row_idx, (key, _, _) in enumerate(score_pairs)}
+                for candidate in blend_candidates:
+                    blended_scores = _blend_ml_rankings(probability_map, heuristic_map, candidate)
+                    blended_rank = _rank_numbers(blended_scores)
+                    stats = blend_stats[round(candidate, 4)]
+                    if blended_rank and blended_rank[0] == target_number:
+                        stats["top1"] += 1
+                    if target_number in blended_rank[:6]:
+                        stats["top6"] += 1
+            target_probability_sum += target_probability
+            training_steps += 1
+
+    selected_blend = blend_candidates[0]
+    best_score = -1.0
+    for candidate in blend_candidates:
+        stats = blend_stats[round(candidate, 4)]
+        candidate_score = (stats["top6"] * 1.0) + (stats["top1"] * 1.5)
+        if candidate_score > best_score:
+            best_score = candidate_score
+            selected_blend = candidate
+
     return {
-        "weights": [round(weight, 6) for weight in weights],
+        "weights": [round(weight, 6) for weight in (weights or [])],
         "bias": round(bias, 6),
         "samples": sample_count,
+        "draw_samples": training_steps,
         "history_window": history_window,
         "feature_window": feature_window,
+        "avg_target_probability": round((target_probability_sum / training_steps), 6) if training_steps else 0.0,
+        "top1_hit_rate": round((top1_hits / training_steps), 6) if training_steps else 0.0,
+        "top6_hit_rate": round((top6_hits / training_steps), 6) if training_steps else 0.0,
+        "selected_blend": round(selected_blend, 4),
+        "blend_stats": {
+            str(candidate): {
+                "top1_hit_rate": round((blend_stats[round(candidate, 4)]["top1"] / training_steps), 6) if training_steps else 0.0,
+                "top6_hit_rate": round((blend_stats[round(candidate, 4)]["top6"] / training_steps), 6) if training_steps else 0.0,
+            }
+            for candidate in blend_candidates
+        },
     }
 
 
@@ -1715,22 +2054,30 @@ def _predict_with_ml(data, region, variation_key=None):
     model = _train_ml_number_model(data, region, config)
     feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
     feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
-    ranked = []
+    scored = []
     for number in range(1, 50):
         key = str(number)
         features = feature_table.get(key, [])
         score = model.get("bias", 0.0) + sum(
             weight * value for weight, value in zip(model.get("weights", []), features)
         )
-        probability = _sigmoid(score)
-        ranked.append((number, round(probability, 6)))
-    ranked.sort(key=lambda item: (item[1], -abs(item[0] - 25), -item[0]), reverse=True)
+        scored.append((number, score))
+    probabilities = _softmax([item[1] for item in scored])
+    raw_ranked = [
+        (number, round(probability, 6))
+        for (number, _), probability in zip(scored, probabilities)
+    ]
+    probability_map = dict(raw_ranked)
+    heuristic_map = _build_ml_heuristic_score_map(feature_table)
+    blend_weight = float(model.get("selected_blend", 0.7) or 0.7)
+    blended_scores = _blend_ml_rankings(probability_map, heuristic_map, blend_weight)
+    ranked_numbers = _rank_numbers(blended_scores)
+    ranked = [(number, round(blended_scores.get(number, 0.0), 6)) for number in ranked_numbers]
 
     pool_size = _clamp(int(config.get("pool") or 18), 12, 24)
     special_pool_size = _clamp(int(config.get("special_pool") or 8), 6, 12)
     bucket_counts = config.get("bucket_counts") or [2, 2, 2]
     low_count, mid_count, high_count = bucket_counts
-    ranked_numbers = [number for number, _ in ranked]
 
     low_bucket = [number for number in ranked_numbers[:pool_size * 2] if number <= 16]
     mid_bucket = [number for number in ranked_numbers[:pool_size * 2] if 17 <= number <= 33]
@@ -1762,8 +2109,7 @@ def _predict_with_ml(data, region, variation_key=None):
         window_size=max(special_pool_size // 2, 2)
     )
     special_num = special_pick[0] if special_pick else special_candidates[0]
-    probability_map = dict(ranked)
-    special_probability = round(probability_map.get(special_num, 0.0) * 100, 2)
+    special_probability = round(float(probability_map.get(special_num, 0.0)) * 100, 2)
     year = _infer_draw_year(data)
     number_to_zodiac = _get_number_to_zodiac_map(year)
     recommendation_text = (
@@ -1778,9 +2124,15 @@ def _predict_with_ml(data, region, variation_key=None):
         "recommendation_text": recommendation_text,
         "model_meta": {
             "samples": model.get("samples", 0),
+            "draw_samples": model.get("draw_samples", 0),
             "history_window": model.get("history_window", 0),
             "feature_window": model.get("feature_window", 0),
             "special_probability": special_probability,
+            "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
+            "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
+            "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
+            "selected_blend": round(blend_weight * 100, 2),
+            "blended_special_score": round(float(blended_scores.get(special_num, 0.0)) * 100, 2),
         },
     }
 
@@ -2060,15 +2412,152 @@ def _build_ai_prompt(data, region, history_window=10):
  5. 请显式参考历史学习反馈，避免只做泛泛分析。"""
     return prompt
 
+def _build_ai_prompt_v2(data, region, history_window=10):
+    history_lines = []
+    recent_data = data[:history_window]
+    learning_context = _build_ai_learning_context(data, region, history_window=history_window)
+    candidate_context = _build_ai_candidate_context(data, region)
+
+    if region == 'hk':
+        year = datetime.now().year
+        if recent_data:
+            try:
+                year = int(str(recent_data[0].get('date', ''))[:4])
+            except (TypeError, ValueError):
+                pass
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+        for d in recent_data:
+            zodiac = number_to_zodiac.get(str(d.get('sno')), '')
+            history_lines.append(
+                f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特码: {d.get('sno')}({zodiac})"
+            )
+        recent_history = "\n".join(history_lines)
+        return f"""请基于以下信息，为下一期香港六合彩给出一次更偏保守、优先参考候选池共识的预测。
+
+历史数据：
+{recent_history}
+
+{learning_context}
+
+{candidate_context}
+
+你的任务：
+1. 综合历史反馈、候选池共识、波色/生肖/单双偏好，再做最终选择。
+2. 平码 6 个必须互不重复，且不能与特码重复。
+3. 若多个候选接近，优先选择同时被多个本地策略支持的号码。
+4. 回复结尾必须严格使用下面格式，方便系统提取：
+推荐号码：[n1, n2, n3, n4, n5, n6]
+特码：[s]
+理由：用 2-4 句简要说明，重点说为什么选这个特码和这组平码。
+5. 不要输出多组方案，不要输出候补方案。"""
+
+    for d in recent_data:
+        all_numbers = d.get('no', []) + ([d.get('sno')] if d.get('sno') else [])
+        history_lines.append(
+            f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}"
+        )
+    recent_history = "\n".join(history_lines)
+    return f"""请基于以下信息，为下一期澳门六合彩给出一次更偏保守、优先参考候选池共识的预测。
+
+历史数据：
+{recent_history}
+
+{learning_context}
+
+{candidate_context}
+
+你的任务：
+1. 综合历史反馈、候选池共识、波色/生肖/单双偏好，再做最终选择。
+2. 平码 6 个必须互不重复，且不能与特码重复。
+3. 若多个候选接近，优先选择同时被多个本地策略支持的号码。
+4. 回复结尾必须严格使用下面格式，方便系统提取：
+推荐号码：[n1, n2, n3, n4, n5, n6]
+特码：[s]
+理由：用 2-4 句简要说明，重点说为什么选这个特码和这组平码。
+5. 不要输出多组方案，不要输出候补方案。"""
+
+
+def _build_ai_prompt_v3(data, region, history_window=10):
+    history_lines = []
+    recent_data = data[:history_window]
+    learning_context = _build_ai_learning_context(data, region, history_window=history_window)
+    candidate_context = _build_ai_candidate_context(data, region)
+
+    if region == 'hk':
+        year = datetime.now().year
+        if recent_data:
+            try:
+                year = int(str(recent_data[0].get('date', ''))[:4])
+            except (TypeError, ValueError):
+                pass
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+        for d in recent_data:
+            zodiac = number_to_zodiac.get(str(d.get('sno')), '')
+            history_lines.append(
+                f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特码: {d.get('sno')}({zodiac})"
+            )
+        recent_history = "\n".join(history_lines)
+        return f"""请基于以下信息，为下一期香港六合彩给出一次更偏保守、优先参考候选池共识的预测。
+
+历史数据：
+{recent_history}
+
+{learning_context}
+
+{candidate_context}
+
+香港专用决策要求：
+1. 特码优先参考近期回测更优策略的共识、历史反馈更强的特码候选，以及生肖匹配强度。
+2. 如果近期 5 期内某个特码或同生肖号码过热，不要机械追热，除非它同时得到多个本地策略支持。
+3. 平码尽量保持分散，避免 6 个号码过度集中在同一区间。
+4. 若两个特码候选接近，优先选择生肖反馈更强、且未在最近 2 期直接开出的号码。
+5. 回复结尾必须严格使用下面格式：
+推荐号码：[n1, n2, n3, n4, n5, n6]
+特码：[s]
+理由：用 2-4 句简要说明，重点说为什么选这个特码、为什么没有追某个热门候选。"""
+
+    for d in recent_data:
+        all_numbers = d.get('no', []) + ([d.get('sno')] if d.get('sno') else [])
+        history_lines.append(
+            f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}"
+        )
+    recent_history = "\n".join(history_lines)
+    return f"""请基于以下信息，为下一期澳门六合彩给出一次更偏保守、优先参考候选池共识的预测。
+
+历史数据：
+{recent_history}
+
+{learning_context}
+
+{candidate_context}
+
+澳门专用决策要求：
+1. 特码优先参考波色、生肖、单双三类属性是否同时得到历史反馈支持，而不是只看单个热门号码。
+2. 如果某个特码候选与当前更强的波色/生肖/单双结构明显冲突，降低它的优先级。
+3. 平码 6 个尽量保持波色和单双分布均衡，不要过度扎堆。
+4. 若两个特码候选接近，优先选择同时满足候选池共识和属性结构一致性的号码。
+5. 回复结尾必须严格使用下面格式：
+推荐号码：[n1, n2, n3, n4, n5, n6]
+特码：[s]
+理由：用 2-4 句简要说明，重点说为什么选这个特码，以及它和波色/生肖/单双结构如何匹配。"""
+
+
 def predict_with_ai(data, region):
     ai_config = get_ai_config()
     if not ai_config['api_key'] or "你的" in ai_config['api_key']:
         return {"error": "AI API Key 未配置"}
     tuned = _load_strategy_config("ai", region)
-    history_window = int(tuned.get("history_window") or 10)
-    temperature = float(tuned.get("temperature") or 0.8)
-    prompt = _build_ai_prompt(data, region, history_window=history_window)
-    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": temperature}
+    history_window = int(tuned.get("history_window") or 12)
+    temperature = float(tuned.get("temperature") or 0.35)
+    prompt = _build_ai_prompt_v3(data, region, history_window=history_window)
+    payload = {
+        "model": ai_config['model'],
+        "messages": [
+            {"role": "system", "content": _build_ai_system_prompt()},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": temperature
+    }
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
         response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120)
@@ -2077,7 +2566,7 @@ def predict_with_ai(data, region):
             response.encoding = "utf-8"
         ai_response = response.json()['choices'][0]['message']['content']
         
-        result, error = _finalize_ai_result(ai_response)
+        result, error = _finalize_ai_result_v2(ai_response, region=region)
         if error:
             return {"error": error}
         tuned_accuracy = round(float(tuned.get("last_accuracy") or 0.0) * 100, 1)
@@ -2094,7 +2583,10 @@ def predict_with_ai(data, region):
 def _iter_ai_stream(ai_config, prompt, temperature=0.8):
     payload = {
         "model": ai_config["model"],
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "system", "content": _build_ai_system_prompt()},
+            {"role": "user", "content": prompt}
+        ],
         "temperature": temperature,
         "stream": True
     }
@@ -2376,21 +2868,12 @@ def update_prediction_accuracy(data, region):
             
             # 特码号码是否命中
             special_hit = 1 if pred_special == result['special'] else 0
-            
-            zodiac_hit = 0
-            if pred_zodiac and result['special_zodiac'] and pred_zodiac == result['special_zodiac']:
-                zodiac_hit = 1
 
             # 计算准确率，统一按 0-1 分数存储
             accuracy = 0.0
-            
             if special_hit == 1:
                 accuracy = 1.0
-            elif pred.normal_numbers:
-                normal_numbers = pred.normal_numbers.split(',')
-                if result['special'] in normal_numbers:
-                    accuracy = 0.5
-            if accuracy == 0 and zodiac_hit == 1:
+            elif _is_secondary_hit(pred, result['special'], result['special_zodiac']):
                 accuracy = 0.5
             
             # 更新预测记录
@@ -2624,9 +3107,9 @@ def unified_predict_api():
                     yield _sse_event({"type": "error", "error": "AI API Key 未配置"})
                     return
                 tuned = _load_strategy_config("ai", region)
-                history_window = int(tuned.get("history_window") or 10)
-                temperature = float(tuned.get("temperature") or 0.8)
-                prompt = _build_ai_prompt(data, region, history_window=history_window)
+                history_window = int(tuned.get("history_window") or 12)
+                temperature = float(tuned.get("temperature") or 0.35)
+                prompt = _build_ai_prompt_v3(data, region, history_window=history_window)
                 full_text = ""
                 try:
                     for chunk in _iter_ai_stream(ai_config, prompt, temperature=temperature):
@@ -2647,7 +3130,7 @@ def unified_predict_api():
                         return
                     result = fallback
                 else:
-                    result, error = _finalize_ai_result(full_text)
+                    result, error = _finalize_ai_result_v2(full_text, region=region)
                     if error:
                         yield _sse_event({"type": "error", "error": error})
                         return
