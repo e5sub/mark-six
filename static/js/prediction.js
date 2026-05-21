@@ -305,7 +305,7 @@ function renderPredictionInsights(data, strategy) {
                     <div>${item.profile}</div>
                     <div>${item.top1_hit_rate}%</div>
                     <div>${item.top6_hit_rate}%</div>
-                    <div>${item.history_window}/${item.feature_window}</div>
+                    <div>${item.history_window}/${item.feature_window}${item.feature_profile && item.feature_profile !== 'full' ? ` · ${item.feature_profile}` : ''}</div>
                 </div>
             `).join('')
             : '<div style="font-size:0.82rem; color:#667085;">样本较少，当前使用基础参数。</div>';
@@ -314,8 +314,15 @@ function renderPredictionInsights(data, strategy) {
         const voteEntries = Object.entries(specialVotes)
             .sort((a, b) => Number(b[1]) - Number(a[1]) || Number(a[0]) - Number(b[0]))
             .slice(0, 5)
-            .map(([num, votes]) => `${num}(${votes})`)
+            .map(([num, votes]) => `${num}(${Number(votes).toFixed(2).replace(/\.00$/, '')})`)
             .join('、');
+        const ensembleWeights = meta.ensemble_strategy_weights || {};
+        const weightEntries = Object.entries(ensembleWeights)
+            .sort((a, b) => Number(b[1]) - Number(a[1]))
+            .map(([key, value]) => `${key}:${Number(value).toFixed(1).replace(/\.0$/, '')}%`)
+            .join('、');
+        const preferredFeatures = Array.isArray(meta.preferred_feature_profiles) ? meta.preferred_feature_profiles.join('、') : '';
+        const preferredRuntimes = Array.isArray(meta.preferred_runtime_profiles) ? meta.preferred_runtime_profiles.join('、') : '';
 
         sections.push(`
             <div style="margin-top: 18px; display:grid; gap:12px;">
@@ -328,7 +335,13 @@ function renderPredictionInsights(data, strategy) {
                         <div><strong>评估样本</strong><br>${meta.evaluation_draws ?? meta.draw_samples ?? 0}期</div>
                         <div><strong>参数档位</strong><br>${meta.runtime_profile || 'base'}</div>
                         <div><strong>综合评分</strong><br>${meta.runtime_score ?? 0}</div>
+                        <div><strong>特征档位</strong><br>${meta.feature_profile || 'full'}</div>
+                        <div><strong>固化状态</strong><br>${meta.promotion_strength || 'hold'}</div>
                     </div>
+                    ${meta.primary_feature_profile || meta.primary_runtime_profile ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前主配置：</strong>${meta.primary_runtime_profile || 'base'} · ${meta.primary_feature_profile || 'full'}</div>` : ''}
+                    ${preferredFeatures ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好特征：</strong>${preferredFeatures}${meta.profile_learning_confidence ? ` · 学习置信${meta.profile_learning_confidence}%` : ''}</div>` : ''}
+                    ${preferredRuntimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好参数：</strong>${preferredRuntimes}</div>` : ''}
+                    ${weightEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>集成权重：</strong>${weightEntries}${meta.ensemble_weight_confidence ? ` · 置信${meta.ensemble_weight_confidence}%` : ''}</div>` : ''}
                     ${voteEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>特码共识票：</strong>${voteEntries}</div>` : ''}
                 </div>
                 <div style="padding: 14px; border-radius: 12px; background: rgba(33, 150, 243, 0.06); border: 1px solid rgba(33, 150, 243, 0.16);">

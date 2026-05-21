@@ -18,7 +18,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 
 # 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord, BacktestRun
 from auth import auth_bp
 from admin import admin_bp
 from user import user_bp
@@ -1165,6 +1165,8 @@ def _default_strategy_config(strategy):
             "epochs": 18,
             "learning_rate": 0.035,
             "l2": 0.0025,
+            "primary_feature_profile": "full",
+            "primary_runtime_profile": "base",
             "blend_candidates": [0.55, 0.7, 0.82],
             "last_accuracy": 0.0,
             "last_total": 0
@@ -1229,6 +1231,230 @@ def _calculate_strategy_window_stats(region, strategy, limit=50):
         "total": total,
         "accuracy": round(accuracy * 100, 1),
     }
+
+
+def _score_prediction_outcome(prediction):
+    actual_special = str(getattr(prediction, "actual_special_number", "") or "").strip()
+    special_number = str(getattr(prediction, "special_number", "") or "").strip()
+    normal_numbers = {
+        item.strip()
+        for item in str(getattr(prediction, "normal_numbers", "") or "").split(",")
+        if item.strip()
+    }
+    actual_zodiac = str(getattr(prediction, "actual_special_zodiac", "") or "").strip()
+    special_zodiac = str(getattr(prediction, "special_zodiac", "") or "").strip()
+
+    if actual_special and actual_special == special_number:
+        return 1.0
+
+    score = 0.0
+    if actual_special and actual_special in normal_numbers:
+        score += 0.58
+    if actual_zodiac and special_zodiac and actual_zodiac == special_zodiac:
+        score += 0.26
+    return round(min(score, 0.9), 4)
+
+
+def _rank_weighted_preferences(counter_map, limit=3):
+    if not counter_map:
+        return []
+    return [
+        key
+        for key, _ in sorted(
+            counter_map.items(),
+            key=lambda item: (item[1], str(item[0])),
+            reverse=True,
+        )[:limit]
+    ]
+
+
+def _learn_ml_region_profile(region, limit=180):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy="ml",
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+
+    feature_scores = Counter()
+    runtime_scores = Counter()
+    blend_scores = Counter()
+    total_quality = 0.0
+
+    for idx, prediction in enumerate(predictions):
+        metadata = _deserialize_prediction_metadata(
+            getattr(prediction, "prediction_metadata", "")
+        )
+        if not metadata:
+            continue
+
+        recency_weight = max(0.25, 1.0 - (idx / max(limit, 1)) * 0.7)
+        quality = max(0.05, _score_prediction_outcome(prediction)) * recency_weight
+        total_quality += quality
+
+        feature_profile = str(metadata.get("feature_profile") or "").strip()
+        if feature_profile:
+            feature_scores[feature_profile] += quality
+
+        runtime_profile = str(metadata.get("runtime_profile") or "").strip()
+        if runtime_profile:
+            runtime_scores[runtime_profile] += quality
+
+        try:
+            blend_value = round(float(metadata.get("selected_blend", 0.0)) / 100.0, 2)
+        except (TypeError, ValueError):
+            blend_value = 0.0
+        if 0.0 < blend_value <= 1.0:
+            blend_scores[blend_value] += quality
+
+    ensemble_raw = {}
+    for strategy in ("hybrid", "balanced", "trend"):
+        weighted_scores = []
+        for idx, window in enumerate((20, 50, 100)):
+            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            if total <= 0:
+                continue
+            recency_weight = max(0.45, 1.0 - idx * 0.22)
+            confidence = _clamp(total / 10.0, 0.25, 1.0)
+            weighted_scores.append(accuracy * recency_weight * confidence)
+        ensemble_raw[strategy] = max(
+            0.08,
+            (sum(weighted_scores) / len(weighted_scores)) if weighted_scores else 0.18,
+        )
+
+    ensemble_total = sum(ensemble_raw.values()) or 1.0
+    ensemble_bias = {
+        key: round(value / ensemble_total, 4)
+        for key, value in ensemble_raw.items()
+    }
+
+    confidence = _clamp(len(predictions) / 24.0, 0.2, 1.0) * _clamp(total_quality / 10.0, 0.35, 1.0)
+    learned_blends = _rank_weighted_preferences(blend_scores, limit=3)
+    if not learned_blends:
+        learned_blends = [0.55, 0.7, 0.82]
+
+    return {
+        "feature_profiles": _rank_weighted_preferences(feature_scores, limit=3),
+        "runtime_profiles": _rank_weighted_preferences(runtime_scores, limit=3),
+        "blend_candidates": [round(float(item), 2) for item in learned_blends[:3]],
+        "ensemble_bias": ensemble_bias,
+        "confidence": round(confidence, 4),
+        "samples": len(predictions),
+    }
+
+
+def _load_latest_auto_backtest_payload(region):
+    record = (
+        BacktestRun.query.filter(
+            BacktestRun.region == region,
+            BacktestRun.name.like(f"auto-{region}-%"),
+        )
+        .order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+        .first()
+    )
+    if not record or not record.payload:
+        return {}
+    try:
+        payload = json.loads(record.payload)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _promote_ml_region_profile(region, persist=True):
+    config = _load_strategy_config("ml", region)
+    previous_primary_feature = str(config.get("primary_feature_profile") or "full").strip() or "full"
+    previous_primary_runtime = str(config.get("primary_runtime_profile") or "base").strip() or "base"
+    previous_promotion_strength = str(config.get("promotion_strength") or "hold").strip() or "hold"
+    learned_profile = _learn_ml_region_profile(region)
+    backtest_payload = _load_latest_auto_backtest_payload(region)
+    ranking = backtest_payload.get("ranking") or []
+    ml_rank = next((idx + 1 for idx, item in enumerate(ranking) if item.get("strategy") == "ml"), 0)
+    ml_entry = next((item for item in ranking if item.get("strategy") == "ml"), {})
+    leader_entry = ranking[0] if ranking else {}
+
+    ml_top1 = float(ml_entry.get("top1_hit_rate") or 0.0)
+    leader_top1 = float(leader_entry.get("top1_hit_rate") or 0.0)
+    ml_top6 = float(ml_entry.get("top6_hit_rate") or 0.0)
+    leader_top6 = float(leader_entry.get("top6_hit_rate") or 0.0)
+    close_to_leader = (
+        ml_rank == 1 or (
+            ranking and
+            (leader_top1 - ml_top1) <= 1.5 and
+            (leader_top6 - ml_top6) <= 2.5
+        )
+    )
+
+    feature_profiles = learned_profile.get("feature_profiles") or []
+    runtime_profiles = learned_profile.get("runtime_profiles") or []
+    blend_candidates = [
+        round(float(item), 2)
+        for item in (learned_profile.get("blend_candidates") or [])
+        if 0.0 < float(item) <= 1.0
+    ]
+    learning_confidence = float(learned_profile.get("confidence") or 0.0)
+
+    promotion_strength = "hold"
+    if close_to_leader and learning_confidence >= 0.45:
+        promotion_strength = "promoted"
+    elif learning_confidence >= 0.3:
+        promotion_strength = "watch"
+
+    if feature_profiles and promotion_strength in ("promoted", "watch"):
+        config["primary_feature_profile"] = feature_profiles[0]
+    if runtime_profiles and promotion_strength == "promoted":
+        config["primary_runtime_profile"] = runtime_profiles[0]
+
+    default_blends = [0.55, 0.7, 0.82]
+    merged_blends = []
+    for candidate in blend_candidates + default_blends:
+        rounded = round(float(candidate), 2)
+        if rounded not in merged_blends:
+            merged_blends.append(rounded)
+        if len(merged_blends) >= 4:
+            break
+    if merged_blends:
+        config["blend_candidates"] = merged_blends
+
+    config["preferred_feature_profiles"] = feature_profiles
+    config["preferred_runtime_profiles"] = runtime_profiles
+    config["profile_learning_confidence"] = round(learning_confidence, 4)
+    config["profile_learning_samples"] = int(learned_profile.get("samples") or 0)
+    config["ensemble_bias"] = learned_profile.get("ensemble_bias", {})
+    config["promotion_strength"] = promotion_strength
+    config["promotion_backtest_rank"] = ml_rank
+    config["promotion_backtest_top1"] = round(ml_top1, 2)
+    config["promotion_backtest_top6"] = round(ml_top6, 2)
+    config["promoted_at"] = datetime.now().isoformat()
+
+    promotion_history = list(config.get("promotion_history") or [])
+    current_primary_feature = str(config.get("primary_feature_profile") or "full").strip() or "full"
+    current_primary_runtime = str(config.get("primary_runtime_profile") or "base").strip() or "base"
+    change_detected = (
+        current_primary_feature != previous_primary_feature or
+        current_primary_runtime != previous_primary_runtime or
+        promotion_strength != previous_promotion_strength
+    )
+    if change_detected:
+        promotion_history.insert(0, {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "region": region,
+            "strength": promotion_strength,
+            "previous_feature_profile": previous_primary_feature,
+            "previous_runtime_profile": previous_primary_runtime,
+            "feature_profile": current_primary_feature,
+            "runtime_profile": current_primary_runtime,
+            "backtest_rank": ml_rank,
+            "top1_hit_rate": round(ml_top1, 2),
+            "top6_hit_rate": round(ml_top6, 2),
+            "learning_confidence": round(learning_confidence * 100, 2),
+        })
+    config["promotion_history"] = promotion_history[:8]
+
+    if persist:
+        _save_strategy_config("ml", region, config)
+    return config
+
 
 def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5):
     candidates = list(LOCAL_STRATEGY_KEYS)
@@ -1334,6 +1560,33 @@ def _tune_strategy_config(strategy, region):
         config["epochs"] = _clamp(int(15 + accuracy * 15), 15, 30)
         config["learning_rate"] = round(_clamp(0.02 + (1 - accuracy) * 0.08, 0.01, 0.08), 3)
         config["l2"] = round(_clamp(0.001 + (1 - accuracy) * 0.004, 0.001, 0.005), 4)
+        learned_profile = _learn_ml_region_profile(region)
+        config["preferred_feature_profiles"] = learned_profile.get("feature_profiles", [])
+        config["preferred_runtime_profiles"] = learned_profile.get("runtime_profiles", [])
+        config["profile_learning_confidence"] = learned_profile.get("confidence", 0.0)
+        config["profile_learning_samples"] = learned_profile.get("samples", 0)
+        config["ensemble_bias"] = learned_profile.get("ensemble_bias", {})
+
+        learned_blends = [
+            float(item)
+            for item in (learned_profile.get("blend_candidates") or [])
+            if 0.0 < float(item) <= 1.0
+        ]
+        default_blends = [0.55, 0.7, 0.82]
+        merged_blends = []
+        for candidate in learned_blends + default_blends:
+            rounded = round(float(candidate), 2)
+            if rounded not in merged_blends:
+                merged_blends.append(rounded)
+            if len(merged_blends) >= 4:
+                break
+        config["blend_candidates"] = merged_blends or default_blends
+        config["primary_feature_profile"] = (
+            (learned_profile.get("feature_profiles") or [config.get("primary_feature_profile") or "full"])[0]
+        )
+        config["primary_runtime_profile"] = (
+            (learned_profile.get("runtime_profiles") or [config.get("primary_runtime_profile") or "base"])[0]
+        )
 
     if weights:
         weights["feedback"] = round(_clamp(0.45 + learning_strength * 0.7 + accuracy * 0.3, 0.45, 1.35), 2)
@@ -1362,6 +1615,10 @@ def update_strategy_configs(region):
             _tune_strategy_config(strategy, region)
         except Exception as e:
             print(f"Strategy tuning failed for {strategy} ({region}): {e}")
+    try:
+        _promote_ml_region_profile(region, persist=True)
+    except Exception as e:
+        print(f"ML profile promotion failed for {region}: {e}")
 
 def _get_number_to_zodiac_map(year):
     number_to_zodiac = {}
@@ -1968,6 +2225,30 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
     return features
 
 
+ML_FEATURE_PROFILES = {
+    "full": set(),
+    "compact_attributes": {9, 10, 11},
+    "compact_structure": {18, 19, 20, 21, 22},
+    "compact_recency": {6, 7, 8, 15, 16},
+}
+
+
+def _apply_ml_feature_profile(feature_table, profile_name=None):
+    profile_key = str(profile_name or "full").strip() or "full"
+    disabled_indices = ML_FEATURE_PROFILES.get(profile_key, set())
+    if not disabled_indices:
+        return feature_table
+
+    transformed = {}
+    for key, features in (feature_table or {}).items():
+        row = list(features)
+        for idx in disabled_indices:
+            if 0 <= idx < len(row):
+                row[idx] = 0.0
+        transformed[key] = row
+    return transformed
+
+
 def _build_ml_score_pairs(feature_table, weights=None, bias=0.0):
     score_pairs = []
     weights = weights or []
@@ -2090,11 +2371,74 @@ def _estimate_ml_confidence(probability_map, blended_scores, special_num, model)
     return round(_clamp(confidence, 18.0, 92.0), 2)
 
 
+def _get_ml_ensemble_weights(region, strategies=None):
+    strategies = tuple(strategies or ("hybrid", "balanced", "trend"))
+    windows = (20, 50, 100)
+    raw_scores = {}
+    diagnostics = {}
+    confidence_values = []
+    ml_config = _load_strategy_config("ml", region)
+    learned_bias = ml_config.get("ensemble_bias") or {}
+    learning_confidence = float(ml_config.get("profile_learning_confidence") or 0.0)
+
+    for strategy in strategies:
+        config = _load_strategy_config(strategy, region)
+        score_parts = []
+        total_samples = 0
+
+        for idx, window in enumerate(windows):
+            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            total_samples = max(total_samples, total)
+            if total <= 0:
+                continue
+            recency_weight = max(0.45, 1.0 - idx * 0.22)
+            confidence = _clamp(total / 10.0, 0.25, 1.0)
+            confidence_values.append(confidence)
+            score_parts.append(accuracy * recency_weight * confidence)
+
+        config_bonus = float(config.get("last_accuracy") or 0.0) * 0.18
+        base_score = (sum(score_parts) / len(score_parts)) if score_parts else 0.18
+        bias_value = float(learned_bias.get(strategy, 0.0) or 0.0)
+        bias_multiplier = 1.0 + ((bias_value - (1.0 / max(len(strategies), 1))) * 0.9 * learning_confidence)
+        raw_score = max(0.08, (base_score + config_bonus) * bias_multiplier)
+        raw_scores[strategy] = raw_score
+        diagnostics[strategy] = {
+            "score": round(raw_score * 100, 2),
+            "samples": total_samples,
+            "bias": round(bias_value * 100, 2),
+        }
+
+    score_total = sum(raw_scores.values())
+    if score_total <= 0:
+        equal_weight = round(1.0 / max(len(strategies), 1), 4)
+        return {
+            "weights": {strategy: equal_weight for strategy in strategies},
+            "diagnostics": diagnostics,
+            "confidence": 0.0,
+        }
+
+    weights = {
+        strategy: round(raw_scores[strategy] / score_total, 4)
+        for strategy in strategies
+    }
+    return {
+        "weights": weights,
+        "diagnostics": diagnostics,
+        "confidence": round(
+            (sum(confidence_values) / len(confidence_values)) if confidence_values else 0.0,
+            4,
+        ),
+    }
+
+
 def _build_ml_ensemble_signals(data, region):
     strategies = ("hybrid", "balanced", "trend")
     normal_votes = Counter()
     special_votes = Counter()
     strategy_results = {}
+    weight_info = _get_ml_ensemble_weights(region, strategies)
+    strategy_weights = weight_info.get("weights") or {}
+    weight_scale = max(len(strategies), 1)
 
     for strategy in strategies:
         try:
@@ -2102,19 +2446,23 @@ def _build_ml_ensemble_signals(data, region):
         except Exception:
             continue
         strategy_results[strategy] = result
+        strategy_weight = float(strategy_weights.get(strategy, 0.0)) * weight_scale
         for number in result.get("normal", []) or []:
             try:
-                normal_votes[int(number)] += 1
+                normal_votes[int(number)] += strategy_weight
             except (TypeError, ValueError):
                 continue
         special_number = ((result.get("special") or {}).get("number") or "").strip()
         if special_number.isdigit():
-            special_votes[int(special_number)] += 1
+            special_votes[int(special_number)] += strategy_weight
 
     return {
         "normal_votes": normal_votes,
         "special_votes": special_votes,
         "strategy_results": strategy_results,
+        "strategy_weights": strategy_weights,
+        "weight_diagnostics": weight_info.get("diagnostics") or {},
+        "weight_confidence": weight_info.get("confidence", 0.0),
     }
 
 
@@ -2177,22 +2525,65 @@ def _optimize_ml_runtime_config(data, region, config):
     base_history = _clamp(int(base_config.get("history_window") or 120), 80, 240)
     base_feature = _clamp(int(base_config.get("feature_window") or 60), 30, 90)
     base_eval = _clamp(int(base_config.get("evaluation_window") or 30), 12, 60)
+    primary_feature_profile = str(base_config.get("primary_feature_profile") or "full").strip() or "full"
+    primary_runtime_profile = str(base_config.get("primary_runtime_profile") or "base").strip() or "base"
+    preferred_feature_profiles = [
+        str(item).strip()
+        for item in (base_config.get("preferred_feature_profiles") or [])
+        if str(item).strip()
+    ]
+    preferred_runtime_profiles = [
+        str(item).strip()
+        for item in (base_config.get("preferred_runtime_profiles") or [])
+        if str(item).strip()
+    ]
+    learning_confidence = float(base_config.get("profile_learning_confidence") or 0.0)
 
     candidate_specs = [
-        ("base", {}),
+        (primary_runtime_profile if primary_runtime_profile else "base", {"feature_profile": primary_feature_profile}),
         ("recent_bias", {
             "history_window": _clamp(base_history - 20, 80, 220),
             "feature_window": _clamp(base_feature - 8, 30, 80),
             "evaluation_window": _clamp(base_eval - 4, 12, 48),
             "learning_rate": round(_clamp(float(base_config.get("learning_rate") or 0.035) + 0.008, 0.01, 0.08), 3),
+            "feature_profile": "compact_structure",
         }),
         ("context_bias", {
             "history_window": _clamp(base_history + 25, 100, 240),
             "feature_window": _clamp(base_feature + 8, 36, 90),
             "evaluation_window": _clamp(base_eval + 4, 18, 60),
             "l2": round(_clamp(float(base_config.get("l2") or 0.0025) + 0.0008, 0.001, 0.005), 4),
+            "feature_profile": "compact_attributes",
+        }),
+        ("recency_trim", {
+            "history_window": _clamp(base_history, 80, 240),
+            "feature_window": _clamp(base_feature - 4, 30, 84),
+            "evaluation_window": _clamp(base_eval, 12, 60),
+            "feature_profile": "compact_recency",
         }),
     ]
+    normalized_specs = []
+    seen_profiles = set()
+    for profile_name, overrides in candidate_specs:
+        normalized_name = str(profile_name or "base").strip() or "base"
+        candidate_feature = str(overrides.get("feature_profile") or "full").strip() or "full"
+        dedupe_key = (normalized_name, candidate_feature)
+        if dedupe_key in seen_profiles:
+            continue
+        seen_profiles.add(dedupe_key)
+        normalized_specs.append((normalized_name, overrides))
+    candidate_specs = normalized_specs
+    top_feature_profile = preferred_feature_profiles[0] if preferred_feature_profiles else ""
+    if top_feature_profile and top_feature_profile not in {item[1].get("feature_profile") for item in candidate_specs}:
+        candidate_specs.append((
+            "learned_feature_bias",
+            {
+                "history_window": _clamp(base_history + 8, 80, 240),
+                "feature_window": _clamp(base_feature, 30, 90),
+                "evaluation_window": _clamp(base_eval, 12, 60),
+                "feature_profile": top_feature_profile,
+            },
+        ))
 
     evaluations = []
     best = None
@@ -2202,20 +2593,32 @@ def _optimize_ml_runtime_config(data, region, config):
         candidate_config = {**base_config, **overrides}
         model = _train_ml_number_model(data, region, candidate_config)
         runtime_score = _score_ml_model(model)
-        model["runtime_score"] = runtime_score
+        preference_bonus = 0.0
+        candidate_feature_profile = str(candidate_config.get("feature_profile") or "full").strip() or "full"
+        if candidate_feature_profile in preferred_feature_profiles:
+            rank_idx = preferred_feature_profiles.index(candidate_feature_profile)
+            preference_bonus += max(0.0, 0.07 - rank_idx * 0.025) * learning_confidence
+        if profile_name in preferred_runtime_profiles:
+            rank_idx = preferred_runtime_profiles.index(profile_name)
+            preference_bonus += max(0.0, 0.05 - rank_idx * 0.02) * learning_confidence
+
+        adjusted_runtime_score = runtime_score + preference_bonus
+        model["runtime_score"] = adjusted_runtime_score
         model["runtime_profile"] = profile_name
         model["runtime_config"] = candidate_config
         evaluations.append({
             "profile": profile_name,
-            "score": runtime_score,
+            "score": adjusted_runtime_score,
+            "raw_score": runtime_score,
             "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
             "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
             "history_window": candidate_config.get("history_window"),
             "feature_window": candidate_config.get("feature_window"),
             "evaluation_window": candidate_config.get("evaluation_window"),
+            "feature_profile": candidate_config.get("feature_profile", "full"),
         })
-        if best is None or runtime_score > best:
-            best = runtime_score
+        if best is None or adjusted_runtime_score > best:
+            best = adjusted_runtime_score
             best_model = model
             best_config = candidate_config
 
@@ -2230,6 +2633,7 @@ def _train_ml_number_model(data, region, config):
     learning_rate = float(config.get("learning_rate") or 0.035)
     l2 = float(config.get("l2") or 0.0025)
     evaluation_window = _clamp(int(config.get("evaluation_window") or 30), 12, 60)
+    feature_profile = str(config.get("feature_profile") or "full").strip() or "full"
 
     recent_desc = list(data or [])[:history_window + feature_window + evaluation_window]
     chronological = list(reversed(recent_desc))
@@ -2275,6 +2679,7 @@ def _train_ml_number_model(data, region, config):
                 feature_window=feature_window,
                 feedback=feedback,
             )
+            feature_table = _apply_ml_feature_profile(feature_table, feature_profile)
             feature_cache[cache_key] = feature_table
         return feature_table
 
@@ -2392,6 +2797,7 @@ def _train_ml_number_model(data, region, config):
         "history_window": history_window,
         "feature_window": feature_window,
         "evaluation_window": evaluation_window,
+        "feature_profile": feature_profile,
         "avg_target_probability": round((target_probability_sum / evaluation_steps), 6) if evaluation_steps else 0.0,
         "top1_hit_rate": round((top1_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
         "top6_hit_rate": round((top6_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
@@ -2411,6 +2817,10 @@ def _predict_with_ml(data, region, variation_key=None):
     runtime_config, model = _optimize_ml_runtime_config(data, region, config)
     feature_window = _clamp(int(runtime_config.get("feature_window") or 60), 30, 90)
     feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
+    feature_table = _apply_ml_feature_profile(
+        feature_table,
+        runtime_config.get("feature_profile") or model.get("feature_profile"),
+    )
     score_pairs = _build_ml_score_pairs(
         feature_table,
         model.get("weights", []),
@@ -2483,6 +2893,7 @@ def _predict_with_ml(data, region, variation_key=None):
             "history_window": model.get("history_window", 0),
             "feature_window": model.get("feature_window", 0),
             "evaluation_window": model.get("evaluation_window", 0),
+            "feature_profile": model.get("feature_profile", runtime_config.get("feature_profile", "full")),
             "runtime_profile": model.get("runtime_profile", "base"),
             "runtime_score": round(float(model.get("runtime_score", 0.0)) * 100, 2),
             "runtime_search": model.get("runtime_search", []),
@@ -2491,7 +2902,25 @@ def _predict_with_ml(data, region, variation_key=None):
             "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
             "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
             "selected_blend": round(blend_weight * 100, 2),
+            "preferred_feature_profiles": runtime_config.get("preferred_feature_profiles", []),
+            "preferred_runtime_profiles": runtime_config.get("preferred_runtime_profiles", []),
+            "profile_learning_confidence": round(
+                float(runtime_config.get("profile_learning_confidence", 0.0)) * 100,
+                2,
+            ),
+            "primary_feature_profile": runtime_config.get("primary_feature_profile", "full"),
+            "primary_runtime_profile": runtime_config.get("primary_runtime_profile", "base"),
+            "promotion_strength": runtime_config.get("promotion_strength", "hold"),
             "blended_special_score": round(float(special_score_map.get(special_num, 0.0)) * 100, 2),
+            "ensemble_strategy_weights": {
+                key: round(float(value) * 100, 2)
+                for key, value in (ensemble_signals.get("strategy_weights") or {}).items()
+            },
+            "ensemble_weight_diagnostics": ensemble_signals.get("weight_diagnostics", {}),
+            "ensemble_weight_confidence": round(
+                float(ensemble_signals.get("weight_confidence", 0.0)) * 100,
+                2,
+            ),
             "ensemble_normal_votes": dict(sorted((ensemble_signals.get("normal_votes") or Counter()).items())),
             "ensemble_special_votes": dict(sorted((ensemble_signals.get("special_votes") or Counter()).items())),
         },
@@ -3060,6 +3489,224 @@ def save_draws_to_database(draws, region):
         print(f"保存开奖记录到数据库失败: {e}")
         db.session.rollback()
 
+AUTO_BACKTEST_STRATEGIES = ("ml", "hybrid", "balanced", "trend", "hot", "cold", "smart")
+AUTO_BACKTEST_MIN_HISTORY = 60
+AUTO_BACKTEST_LIMIT = 240
+
+
+def _backtest_draw_sort_key(draw):
+    return (str(draw.get("date") or ""), _period_sort_key(draw.get("id")))
+
+
+def _normalize_backtest_draws(draws, limit=None):
+    normalized = []
+    for draw in draws or []:
+        if hasattr(draw, "to_dict"):
+            normalized.append(draw.to_dict())
+        elif isinstance(draw, dict):
+            normalized.append(draw)
+    normalized.sort(key=_backtest_draw_sort_key)
+    if limit and limit > 0 and len(normalized) > limit:
+        normalized = normalized[-limit:]
+    return normalized
+
+
+def _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT):
+    records = (
+        LotteryDraw.query.filter_by(region=region)
+        .order_by(LotteryDraw.draw_date.asc(), LotteryDraw.draw_id.asc())
+        .all()
+    )
+    return _normalize_backtest_draws(records, limit=limit)
+
+
+def _evaluate_backtest_prediction(result, draw):
+    actual_special = str(draw.get("sno") or "").strip()
+    actual_zodiac = str(draw.get("sno_zodiac") or "").strip()
+    predicted_special = str((result.get("special") or {}).get("number") or "").strip()
+    predicted_zodiac = str((result.get("special") or {}).get("sno_zodiac") or "").strip()
+    normal_numbers = [str(number) for number in (result.get("normal") or [])]
+    return {
+        "exact_hit": bool(actual_special and predicted_special == actual_special),
+        "top6_hit": bool(actual_special and actual_special in normal_numbers),
+        "zodiac_hit": bool(actual_zodiac and predicted_zodiac and actual_zodiac == predicted_zodiac),
+        "predicted_special": predicted_special,
+        "actual_special": actual_special,
+    }
+
+
+def _summarize_backtest_window(entries, window):
+    sample = entries[-window:] if window and len(entries) > window else list(entries)
+    total = len(sample)
+    if total <= 0:
+        return {"window": window, "total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0}
+    top1 = sum(1 for item in sample if item.get("exact_hit"))
+    top6 = sum(1 for item in sample if item.get("top6_hit"))
+    zodiac = sum(1 for item in sample if item.get("zodiac_hit"))
+    return {
+        "window": window,
+        "total": total,
+        "top1_hit_rate": round(top1 / total * 100, 2),
+        "top6_hit_rate": round(top6 / total * 100, 2),
+        "zodiac_hit_rate": round(zodiac / total * 100, 2),
+    }
+
+
+def _summarize_backtest_entries(entries):
+    total = len(entries)
+    if total <= 0:
+        return {"total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0, "windows": []}
+    top1 = sum(1 for item in entries if item.get("exact_hit"))
+    top6 = sum(1 for item in entries if item.get("top6_hit"))
+    zodiac = sum(1 for item in entries if item.get("zodiac_hit"))
+    return {
+        "total": total,
+        "top1_hit_rate": round(top1 / total * 100, 2),
+        "top6_hit_rate": round(top6 / total * 100, 2),
+        "zodiac_hit_rate": round(zodiac / total * 100, 2),
+        "windows": [
+            _summarize_backtest_window(entries, 20),
+            _summarize_backtest_window(entries, 50),
+            _summarize_backtest_window(entries, 100),
+        ],
+    }
+
+
+def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history=AUTO_BACKTEST_MIN_HISTORY):
+    strategies = list(strategies or AUTO_BACKTEST_STRATEGIES)
+    chronological = _normalize_backtest_draws(draws, limit=AUTO_BACKTEST_LIMIT)
+    strategy_logs = {strategy: [] for strategy in strategies}
+    detail_rows = []
+    if len(chronological) <= min_history:
+        return {
+            "region": region,
+            "strategies": strategies,
+            "periods_evaluated": 0,
+            "latest_period": chronological[-1].get("id") if chronological else "",
+            "strategy_results": {},
+            "ranking": [],
+            "details": [],
+        }
+
+    for idx in range(min_history, len(chronological)):
+        target_draw = chronological[idx]
+        history_desc = list(reversed(chronological[:idx]))
+        for strategy in strategies:
+            resolved_strategy = _get_recommended_strategy(region).get("strategy", "hybrid") if strategy == "smart" else strategy
+            try:
+                result = get_local_recommendations(resolved_strategy, history_desc, region)
+            except Exception as e:
+                strategy_logs[strategy].append({
+                    "period": target_draw.get("id"),
+                    "error": str(e),
+                    "exact_hit": False,
+                    "top6_hit": False,
+                    "zodiac_hit": False,
+                })
+                continue
+
+            evaluation = _evaluate_backtest_prediction(result, target_draw)
+            row = {
+                "period": target_draw.get("id"),
+                "strategy": strategy,
+                "resolved_strategy": resolved_strategy,
+                **evaluation,
+            }
+            strategy_logs[strategy].append(row)
+            detail_rows.append(row)
+
+    strategy_results = {
+        strategy: _summarize_backtest_entries(entries)
+        for strategy, entries in strategy_logs.items()
+    }
+    ranking = sorted(
+        [
+            {
+                "strategy": strategy,
+                "top1_hit_rate": summary.get("top1_hit_rate", 0.0),
+                "top6_hit_rate": summary.get("top6_hit_rate", 0.0),
+                "total": summary.get("total", 0),
+            }
+            for strategy, summary in strategy_results.items()
+        ],
+        key=lambda item: (item["top1_hit_rate"], item["top6_hit_rate"], item["total"]),
+        reverse=True,
+    )
+    return {
+        "region": region,
+        "strategies": strategies,
+        "periods_evaluated": max(0, len(chronological) - min_history),
+        "latest_period": chronological[-1].get("id") if chronological else "",
+        "strategy_results": strategy_results,
+        "ranking": ranking,
+        "details": detail_rows,
+    }
+
+
+def _persist_backtest_snapshot(region, payload):
+    latest_period = str(payload.get("latest_period") or "").strip() or "unknown"
+    name = f"auto-{region}-{latest_period}"
+    existing = BacktestRun.query.filter_by(region=region, name=name).first()
+    if existing:
+        existing.strategies = ",".join(payload.get("strategies") or [])
+        existing.periods_evaluated = int(payload.get("periods_evaluated") or 0)
+        existing.payload = json.dumps(payload, ensure_ascii=False)
+        existing.created_at = datetime.now()
+        db.session.commit()
+        return existing
+
+    record = BacktestRun(
+        name=name,
+        region=region,
+        strategies=",".join(payload.get("strategies") or []),
+        periods_evaluated=int(payload.get("periods_evaluated") or 0),
+        payload=json.dumps(payload, ensure_ascii=False),
+    )
+    db.session.add(record)
+    db.session.commit()
+    return record
+
+
+def refresh_auto_backtest_snapshot(region, draws=None, force=False):
+    region = (region or "").strip().lower()
+    if region not in ("hk", "macau"):
+        return None
+    source_draws = _normalize_backtest_draws(
+        draws if draws is not None else _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT),
+        limit=AUTO_BACKTEST_LIMIT,
+    )
+    if not source_draws:
+        return None
+
+    latest_period = str(source_draws[-1].get("id") or "").strip()
+    name = f"auto-{region}-{latest_period}"
+    existing = BacktestRun.query.filter_by(region=region, name=name).first()
+    if existing and not force:
+        return existing
+
+    payload = _build_backtest_snapshot_payload(region, source_draws)
+    payload["generated_at"] = datetime.now().isoformat(timespec="seconds")
+    record = _persist_backtest_snapshot(region, payload)
+    try:
+        _promote_ml_region_profile(region, persist=True)
+    except Exception as e:
+        print(f"ML auto-promotion after backtest failed for {region}: {e}")
+    return record
+
+
+def refresh_auto_backtest_snapshots(regions=None, force=False):
+    refreshed = []
+    for region in (regions or ("hk", "macau")):
+        try:
+            record = refresh_auto_backtest_snapshot(region, force=force)
+            if record:
+                refreshed.append(record)
+        except Exception as e:
+            print(f"Auto backtest snapshot failed for {region}: {e}")
+            db.session.rollback()
+    return refreshed
+
+
 def sync_draws_from_api(region, year=None, force=False):
     """从远程接口同步开奖记录并保存到数据库"""
     now = datetime.now()
@@ -3608,6 +4255,7 @@ def update_data_api():
             update_hk_next_draw_time_cache(force=True)
             if hk_filtered:
                 generate_auto_predictions(hk_filtered, 'hk')
+                refresh_auto_backtest_snapshot('hk', draws=hk_filtered, force=True)
         
         if region == 'all' or region == 'macau':
             # 更新澳门数据
@@ -3616,6 +4264,7 @@ def update_data_api():
             print(f"手动更新：成功更新澳门数据{len(macau_data)}条")
             if macau_data:
                 generate_auto_predictions(macau_data, 'macau')
+                refresh_auto_backtest_snapshot('macau', draws=macau_data, force=True)
         
         return jsonify({
             "success": True, 
@@ -4206,8 +4855,10 @@ def update_lottery_data():
             print("正在生成自动预测...")
             if hk_data:
                 generate_auto_predictions(hk_data, 'hk')
+                refresh_auto_backtest_snapshot('hk', draws=hk_data, force=True)
             if macau_data:
                 generate_auto_predictions(macau_data, 'macau')
+                refresh_auto_backtest_snapshot('macau', draws=macau_data, force=True)
             
             print(f"定时任务执行完成：成功更新香港数据{len(hk_data)}条，澳门数据{len(macau_data)}条")
             
@@ -4215,6 +4866,15 @@ def update_lottery_data():
             print(f"定时任务执行失败：{e}")
             import traceback
             traceback.print_exc()
+
+def warmup_auto_backtest_snapshots():
+    """Ensure current backtest snapshots exist after app startup."""
+    with app.app_context():
+        try:
+            refresh_auto_backtest_snapshots(force=False)
+        except Exception as e:
+            print(f"Auto backtest warmup failed: {e}")
+
 
 def start_scheduler(force=False):
     """Start the APScheduler job if enabled and not already running."""
@@ -4270,6 +4930,11 @@ if os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on")
         start_scheduler()
     except Exception as e:
         print(f"定时任务启动失败: {e}")
+
+try:
+    warmup_auto_backtest_snapshots()
+except Exception as e:
+    print(f"离线回测快照预热失败: {e}")
 
 if __name__ == '__main__':
     # 初始化数据库
