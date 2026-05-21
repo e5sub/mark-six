@@ -263,23 +263,78 @@ def _build_learning_comparison():
 
 
 def _latest_backtest_summary(limit=6):
-    records = BacktestRun.query.order_by(BacktestRun.created_at.desc()).limit(limit).all()
     items = []
-    for record in records:
+    region_order = [("hk", "香港"), ("macau", "澳门")]
+    seen_ids = set()
+
+    for region_key, region_label in region_order:
+        record = (
+            BacktestRun.query.filter_by(region=region_key)
+            .order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+            .first()
+        )
+        if not record:
+            items.append({
+                "id": None,
+                "name": f"auto-{region_key}",
+                "region": region_key,
+                "region_label": region_label,
+                "created_at": None,
+                "periods_evaluated": 0,
+                "top_items": [],
+                "has_data": False,
+                "status_text": "暂无回测快照",
+            })
+            continue
+
+        seen_ids.add(record.id)
         try:
             payload = json.loads(record.payload or "{}")
         except Exception:
             payload = {}
         ranking = payload.get("ranking") or []
         top_items = ranking[:3]
+        periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
         items.append({
             "id": record.id,
             "name": record.name,
             "region": record.region or payload.get("region") or "",
+            "region_label": region_label,
             "created_at": record.created_at,
-            "periods_evaluated": record.periods_evaluated or payload.get("periods_evaluated", 0),
+            "periods_evaluated": periods_evaluated,
             "top_items": top_items,
+            "has_data": periods_evaluated > 0 and bool(top_items),
+            "status_text": f"{periods_evaluated} 期回放" if periods_evaluated > 0 else "样本不足，暂未形成有效回测",
         })
+
+    extra_records = (
+        BacktestRun.query.order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+        .limit(limit)
+        .all()
+    )
+    for record in extra_records:
+        if record.id in seen_ids:
+            continue
+        try:
+            payload = json.loads(record.payload or "{}")
+        except Exception:
+            payload = {}
+        ranking = payload.get("ranking") or []
+        top_items = ranking[:3]
+        periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
+        items.append({
+            "id": record.id,
+            "name": record.name,
+            "region": record.region or payload.get("region") or "",
+            "region_label": "香港" if (record.region or payload.get("region")) == "hk" else "澳门" if (record.region or payload.get("region")) == "macau" else (record.region or payload.get("region") or ""),
+            "created_at": record.created_at,
+            "periods_evaluated": periods_evaluated,
+            "top_items": top_items,
+            "has_data": periods_evaluated > 0 and bool(top_items),
+            "status_text": f"{periods_evaluated} 期回放" if periods_evaluated > 0 else "样本不足，暂未形成有效回测",
+        })
+        if len(items) >= limit:
+            break
     return items
 
 def login_required(f):
