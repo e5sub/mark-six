@@ -20,6 +20,31 @@
             display: flex;
             overflow-x: hidden;
         }
+
+        .github-watermark {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.06;
+            overflow: hidden;
+        }
+
+        .github-watermark::before {
+            content: "github.com/e5sub/mark-six   github.com/e5sub/mark-six   github.com/e5sub/mark-six   github.com/e5sub/mark-six   github.com/e5sub/mark-six";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            transform-origin: center;
+            font-size: clamp(22px, 2.4vw, 34px);
+            letter-spacing: 0.28em;
+            white-space: pre;
+            color: #1f2937;
+            line-height: 3.2;
+            text-align: center;
+            width: 220%;
+        }
         
         .sidebar {
             width: 240px;
@@ -127,6 +152,26 @@
             padding: 2rem;
             width: calc(100% - 240px);
             transition: margin-left 0.3s ease, width 0.3s ease;
+            position: relative;
+            z-index: 1;
+        }
+
+        .app-footer {
+            margin-top: 2.5rem;
+            padding: 1rem 1.25rem;
+            text-align: center;
+            color: #5b6475;
+            font-size: 0.9rem;
+        }
+
+        .app-footer a {
+            color: #3451b2;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        .app-footer a:hover {
+            text-decoration: underline;
         }
         
         .top-bar {
@@ -407,6 +452,7 @@
     </style>
 </head>
 <body>
+    <div class="github-watermark" aria-hidden="true"></div>
     <div class="sidebar">
         <div class="sidebar-header">
             <a href="{{ url_for('user.dashboard') }}" class="sidebar-brand">用户中心</a>
@@ -438,8 +484,13 @@
                 {% endfor %}
             {% endif %}
         {% endwith %}
-
+        
         {% block content %}{% endblock %}
+
+        <footer class="app-footer">
+            GitHub：
+            <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
+        </footer>
     </div>
 
     <script>

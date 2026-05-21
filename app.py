@@ -4201,6 +4201,22 @@ def generate_prediction_for_user(user, region, period, strategy, data):
         print(f"自动预测成功：为用户 {user.username} 的{region}地区第{period}期生成了{strategy}策略的预测")
         return prediction
     except Exception as e:
+        duplicate_hint = str(e).lower()
+        if 'unique' in duplicate_hint or 'duplicate' in duplicate_hint:
+            db.session.rollback()
+            existing = (
+                PredictionRecord.query.filter_by(
+                    user_id=user.id,
+                    region=region,
+                    period=period,
+                    strategy=strategy
+                )
+                .order_by(PredictionRecord.id.desc())
+                .first()
+            )
+            if existing:
+                print(f"检测到自动预测重复记录，已复用现有记录：user={user.username}, region={region}, period={period}, strategy={strategy}")
+                return existing
         print(f"为用户 {user.username} 生成预测时出错：{e}")
         db.session.rollback()
         return None
@@ -4398,6 +4414,37 @@ def unified_predict_api():
             db.session.add(prediction)
             db.session.commit()
         except Exception as e:
+            duplicate_hint = str(e).lower()
+            if 'unique' in duplicate_hint or 'duplicate' in duplicate_hint:
+                db.session.rollback()
+                existing = (
+                    PredictionRecord.query.filter_by(
+                        user_id=user_id,
+                        region=region,
+                        period=current_period,
+                        strategy=resolved_strategy
+                    )
+                    .order_by(PredictionRecord.id.desc())
+                    .first()
+                )
+                if existing:
+                    result["saved"] = True
+                    result["duplicate_ignored"] = True
+                    result["normal"] = existing.normal_numbers.split(',')
+                    result["special"] = {
+                        "number": existing.special_number,
+                        "sno_zodiac": existing.special_zodiac,
+                    }
+                    existing_meta = _deserialize_prediction_metadata(
+                        getattr(existing, "prediction_metadata", "")
+                    )
+                    if existing_meta:
+                        result["model_meta"] = existing_meta
+                    if existing.prediction_text:
+                        result["recommendation_text"] = existing.prediction_text
+                    print(f"检测到接口重复预测记录，已返回现有记录：user={user_id}, region={region}, period={current_period}, strategy={resolved_strategy}")
+                    return jsonify(result)
+            db.session.rollback()
             print(f"保存预测记录失败: {e}")
             return jsonify({
                 "error": str(e),

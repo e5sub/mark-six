@@ -662,10 +662,20 @@ def predictions():
     grouped_predictions = []
     grouped_predictions_map = {}
     all_predictions = query.order_by(
-        PredictionRecord.created_at.desc()
+        PredictionRecord.created_at.desc(),
+        PredictionRecord.id.desc()
     ).all()
+    deduped_predictions = []
+    seen_prediction_keys = set()
 
     for prediction in all_predictions:
+        unique_key = (prediction.region, prediction.period, prediction.strategy)
+        if unique_key in seen_prediction_keys:
+            continue
+        seen_prediction_keys.add(unique_key)
+        deduped_predictions.append(prediction)
+
+    for prediction in deduped_predictions:
         prediction.display_actual_special_zodiac = (
             prediction.actual_special_zodiac or ''
         ).strip()
@@ -926,6 +936,13 @@ def save_prediction():
         })
         
     except Exception as e:
+        duplicate_hint = str(e).lower()
+        if 'unique' in duplicate_hint or 'duplicate' in duplicate_hint:
+            db.session.rollback()
+            return jsonify({
+                'success': False,
+                'message': '您已经为本期的该策略生成过预测，不能重复生成'
+            })
         db.session.rollback()
         return jsonify({
             'success': False,

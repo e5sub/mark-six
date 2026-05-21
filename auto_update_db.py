@@ -34,6 +34,15 @@ def check_table_exists(cursor, table_name):
     cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
     return cursor.fetchone() is not None
 
+
+def check_index_exists(cursor, index_name):
+    """检查索引是否存在"""
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+        (index_name,),
+    )
+    return cursor.fetchone() is not None
+
 def update_database():
     """更新数据库结构和数据"""
     if _using_mysql():
@@ -180,6 +189,30 @@ def update_database():
             print("backtest_runs table created")
         else:
             print("backtest_runs table already exists")
+
+        if check_table_exists(cursor, 'prediction_record'):
+            print("Cleaning duplicate prediction_record rows...")
+            cursor.execute('''
+                DELETE FROM prediction_record
+                WHERE id NOT IN (
+                    SELECT MAX(id)
+                    FROM prediction_record
+                    GROUP BY user_id, region, period, strategy
+                )
+            ''')
+            removed_duplicates = cursor.rowcount
+            print(f"Removed {removed_duplicates} duplicate prediction records")
+
+            unique_index_name = 'uq_prediction_record_user_region_period_strategy'
+            if not check_index_exists(cursor, unique_index_name):
+                print("Creating unique index for prediction_record...")
+                cursor.execute(f'''
+                    CREATE UNIQUE INDEX {unique_index_name}
+                    ON prediction_record (user_id, region, period, strategy)
+                ''')
+                print("Unique index for prediction_record created")
+            else:
+                print("Unique index for prediction_record already exists")
 
         if not check_table_exists(cursor, 'manual_bet_records'):
             print("创建 manual_bet_records 表...")
