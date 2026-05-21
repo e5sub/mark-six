@@ -86,13 +86,13 @@ def _translate_ml_runtime_profile(value):
 
 def _translate_ml_feature_profile(value):
     mapping = {
-        "full": "完整特征",
+        "full": "综合参考全部因素",
         "compact_attributes": "侧重波色生肖单双",
-        "compact_structure": "结构精简",
-        "compact_recency": "近期精简",
+        "compact_structure": "侧重整体结构",
+        "compact_recency": "侧重近期走势",
     }
     key = str(value or "").strip()
-    return mapping.get(key, key or "完整特征")
+    return mapping.get(key, key or "综合参考全部因素")
 
 
 def _translate_ml_promotion_strength(value):

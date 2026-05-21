@@ -313,12 +313,12 @@ function getMlRuntimeProfileLabel(value) {
 
 function getMlFeatureProfileLabel(value) {
     const labels = {
-        full: '完整特征',
-        compact_structure: '结构精简',
+        full: '综合参考全部因素',
+        compact_structure: '侧重整体结构',
         compact_attributes: '侧重波色生肖单双',
-        compact_recency: '近期精简',
+        compact_recency: '侧重近期走势',
     };
-    return labels[value] || value || '完整特征';
+    return labels[value] || value || '综合参考全部因素';
 }
 
 function getMlPromotionStrengthLabel(value) {
