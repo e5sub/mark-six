@@ -269,7 +269,11 @@
                     <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].normal_hit_rate or 0) }}%</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">特码命中率</span>
+                    <span class="stat-label">生肖命中率</span>
+                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].zodiac_hit_rate or 0) }}%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">综合命中率</span>
                     <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].accuracy or 0) }}%</span>
                 </div>
             </div>

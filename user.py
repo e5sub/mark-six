@@ -1301,6 +1301,12 @@ def analytics():
             PredictionRecord.special_number != PredictionRecord.actual_special_number,
             _secondary_hit_expr()
         ).count()
+
+        zodiac_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            _zodiac_hit_expr()
+        ).count()
         
         wrong = query.filter(
             PredictionRecord.is_result_updated == True,
@@ -1314,6 +1320,7 @@ def analytics():
         accuracy = (special_hit / updated * 100) if updated > 0 else 0
         special_hit_rate = (special_hit / updated * 100) if updated > 0 else 0
         normal_hit_rate = (normal_hit / updated * 100) if updated > 0 else 0
+        zodiac_hit_rate = (zodiac_hit / updated * 100) if updated > 0 else 0
         
         return {
             'total': total,
@@ -1322,9 +1329,11 @@ def analytics():
             'wrong': wrong,
             'special_hit': special_hit,
             'normal_hit': normal_hit,
+            'zodiac_hit': zodiac_hit,
             'accuracy': round(accuracy, 1),
             'special_hit_rate': round(special_hit_rate, 1),
-            'normal_hit_rate': round(normal_hit_rate, 1)
+            'normal_hit_rate': round(normal_hit_rate, 1),
+            'zodiac_hit_rate': round(zodiac_hit_rate, 1),
         }
     
     def calculate_region_stats(region):
@@ -1346,6 +1355,12 @@ def analytics():
             PredictionRecord.special_number != PredictionRecord.actual_special_number,
             _secondary_hit_expr()
         ).count()
+
+        zodiac_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            _zodiac_hit_expr()
+        ).count()
         
         wrong = query.filter(
             PredictionRecord.is_result_updated == True,
@@ -1359,6 +1374,7 @@ def analytics():
         accuracy = (special_hit / updated * 100) if updated > 0 else 0
         special_hit_rate = (special_hit / updated * 100) if updated > 0 else 0
         normal_hit_rate = (normal_hit / updated * 100) if updated > 0 else 0
+        zodiac_hit_rate = (zodiac_hit / updated * 100) if updated > 0 else 0
         
         return {
             'total': total,
@@ -1367,9 +1383,11 @@ def analytics():
             'wrong': wrong,
             'special_hit': special_hit,
             'normal_hit': normal_hit,
+            'zodiac_hit': zodiac_hit,
             'accuracy': round(accuracy, 1),
             'special_hit_rate': round(special_hit_rate, 1),
-            'normal_hit_rate': round(normal_hit_rate, 1)
+            'normal_hit_rate': round(normal_hit_rate, 1),
+            'zodiac_hit_rate': round(zodiac_hit_rate, 1),
         }
     
     stats = calculate_strategy_stats()
