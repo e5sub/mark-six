@@ -771,6 +771,49 @@ def predictions():
                 except Exception:
                     pred.display_actual_special_zodiac = ''
 
+            normal_numbers = [
+                value.strip()
+                for value in str(pred.normal_numbers or '').split(',')
+                if value.strip()
+            ]
+            pred.normal_numbers_list = normal_numbers
+            actual_special = str(pred.actual_special_number or '').strip()
+            pred.is_special_hit = bool(
+                pred.is_result_updated
+                and actual_special
+                and str(pred.special_number or '').strip() == actual_special
+            )
+            pred.is_normal_number_hit = bool(
+                pred.is_result_updated
+                and actual_special
+                and not pred.is_special_hit
+                and actual_special in normal_numbers
+            )
+            pred.is_zodiac_hit = bool(
+                pred.is_result_updated
+                and actual_special
+                and not pred.is_special_hit
+                and not pred.is_normal_number_hit
+                and pred.display_special_zodiac
+                and pred.display_actual_special_zodiac
+                and pred.display_special_zodiac == pred.display_actual_special_zodiac
+            )
+            if pred.is_special_hit:
+                pred.result_label = '特码命中'
+                pred.result_class = 'hit'
+            elif pred.is_normal_number_hit:
+                pred.result_label = '平码命中'
+                pred.result_class = 'partial'
+            elif pred.is_zodiac_hit:
+                pred.result_label = '生肖命中'
+                pred.result_class = 'partial'
+            elif pred.is_result_updated:
+                pred.result_label = '未命中'
+                pred.result_class = 'miss'
+            else:
+                pred.result_label = '待开奖'
+                pred.result_class = 'pending'
+
         if pending_updates:
             try:
                 db.session.commit()
@@ -798,6 +841,7 @@ def predictions():
                     'user_count': int(getattr(group_meta, 'user_count', 0) or 0),
                     'items': [],
                     '_seen_strategies': set(),
+                    '_users': set(),
                 }
 
             group = prediction_groups_map[group_key]
@@ -813,6 +857,8 @@ def predictions():
                 group['display_actual_special_zodiac'] = pred.display_actual_special_zodiac
             if pred.created_at and (group['created_at'] is None or pred.created_at > group['created_at']):
                 group['created_at'] = pred.created_at
+            if pred.username:
+                group['_users'].add(pred.username)
             group['items'].append(pred)
 
         for group in prediction_groups_map.values():
@@ -826,6 +872,21 @@ def predictions():
             for i, item in enumerate(group['items']):
                 item.is_first_in_group = (i == 0)
                 item.group_rowspan = len(group['items'])
+            group['hit_count'] = sum(1 for item in group['items'] if item.is_special_hit)
+            group['partial_count'] = sum(1 for item in group['items'] if item.is_normal_number_hit or item.is_zodiac_hit)
+            group['pending_count'] = sum(1 for item in group['items'] if not item.is_result_updated)
+            group['miss_count'] = sum(1 for item in group['items'] if item.is_result_updated and item.result_class == 'miss')
+            group['strategy_count'] = len(group['items'])
+            group['usernames'] = sorted(group['_users'])
+            group['top_usernames'] = group['usernames'][:3]
+            group['more_user_count'] = max(0, len(group['usernames']) - len(group['top_usernames']))
+            if group['actual_special_number']:
+                group['group_result_class'] = 'hit' if group['hit_count'] > 0 else 'miss'
+                group['group_result_label'] = '本期有策略命中特码' if group['hit_count'] > 0 else '本期未命中特码'
+            else:
+                group['group_result_class'] = 'pending'
+                group['group_result_label'] = '待开奖'
+            del group['_users']
 
         prediction_groups = [
             prediction_groups_map[f"{region}-{period}"]
