@@ -370,6 +370,14 @@ function renderPredictionInsights(data, strategy) {
         const selectedStrategies = Array.isArray(meta.ensemble_selected_strategies)
             ? meta.ensemble_selected_strategies.map(getStrategyLabel).join('、')
             : '';
+        const colorPreference = meta.preferred_special_color || '';
+        const colorConfidence = colorPreference && meta.color_preferences
+            ? meta.color_preferences[colorPreference]
+            : null;
+        const parityPreference = meta.preferred_special_parity || '';
+        const parityConfidence = parityPreference && meta.parity_preferences
+            ? meta.parity_preferences[parityPreference]
+            : null;
         const preferredFeatures = Array.isArray(meta.preferred_feature_profiles)
             ? meta.preferred_feature_profiles.map(getMlFeatureProfileLabel).join('、')
             : '';
@@ -394,6 +402,8 @@ function renderPredictionInsights(data, strategy) {
                     ${meta.primary_feature_profile || meta.primary_runtime_profile ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前主配置：</strong>${getMlRuntimeProfileLabel(meta.primary_runtime_profile)} · ${getMlFeatureProfileLabel(meta.primary_feature_profile)}<span style="color:#5b7c76;">（会根据近期表现自动微调）</span></div>` : ''}
                     ${preferredFeatures ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好特征：</strong>${preferredFeatures}${meta.profile_learning_confidence ? ` · 学习置信${meta.profile_learning_confidence}%` : ''}</div>` : ''}
                     ${preferredRuntimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好参数：</strong>${preferredRuntimes}</div>` : ''}
+                    ${colorPreference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>本期波色偏向：</strong>${colorPreference}${colorConfidence != null ? `（历史特码参考 ${colorConfidence}%）` : '（历史特码参考）'}</div>` : ''}
+                    ${parityPreference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>本期单双偏向：</strong>${parityPreference}${parityConfidence != null ? `（历史特码参考 ${parityConfidence}%）` : '（历史特码参考）'}</div>` : ''}
                     ${selectedStrategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前核心集成：</strong>${selectedStrategies}</div>` : ''}
                     ${weightEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>集成权重：</strong>${weightEntries}（按近20/50/100期表现自动分配）${meta.ensemble_weight_confidence ? ` · 置信${meta.ensemble_weight_confidence}%` : ''}</div>` : ''}
                     ${voteEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>特码共识票：</strong>${voteEntries}</div>` : ''}

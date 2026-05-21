@@ -1117,7 +1117,7 @@ def _default_strategy_config(strategy):
             "window": 50,
             "pool": 16,
             "special_pool": 10,
-            "weights": {"hot": 1.25, "trend": 0.55, "cold": 0.05, "normal": 0.35, "overdue": 0.15, "feedback": 0.95, "color": 0.18, "zodiac": 0.16, "parity": 0.12},
+            "weights": {"hot": 1.25, "trend": 0.55, "cold": 0.05, "normal": 0.35, "overdue": 0.15, "feedback": 0.95, "color": 0.18, "zodiac": 0.16, "parity": 0.18},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -1125,7 +1125,7 @@ def _default_strategy_config(strategy):
             "window": 50,
             "pool": 16,
             "special_pool": 10,
-            "weights": {"hot": 0.10, "trend": 0.25, "cold": 1.20, "normal": 0.15, "overdue": 0.95, "feedback": 0.75, "color": 0.15, "zodiac": 0.14, "parity": 0.10},
+            "weights": {"hot": 0.10, "trend": 0.25, "cold": 1.20, "normal": 0.15, "overdue": 0.95, "feedback": 0.75, "color": 0.15, "zodiac": 0.14, "parity": 0.16},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -1133,7 +1133,7 @@ def _default_strategy_config(strategy):
             "window": 15,
             "pool": 18,
             "special_pool": 10,
-            "weights": {"hot": 0.55, "trend": 1.30, "cold": 0.05, "normal": 0.40, "overdue": 0.12, "feedback": 0.90, "color": 0.18, "zodiac": 0.18, "parity": 0.12},
+            "weights": {"hot": 0.55, "trend": 1.30, "cold": 0.05, "normal": 0.40, "overdue": 0.12, "feedback": 0.90, "color": 0.18, "zodiac": 0.18, "parity": 0.18},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -1142,7 +1142,7 @@ def _default_strategy_config(strategy):
             "pool": 16,
             "special_pool": 10,
             "bucket_counts": [2, 2, 2],
-            "weights": {"hot": 0.55, "trend": 0.55, "cold": 0.45, "normal": 0.45, "overdue": 0.35, "feedback": 0.95, "color": 0.20, "zodiac": 0.20, "parity": 0.14},
+            "weights": {"hot": 0.55, "trend": 0.55, "cold": 0.45, "normal": 0.45, "overdue": 0.35, "feedback": 0.95, "color": 0.20, "zodiac": 0.20, "parity": 0.20},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -1152,7 +1152,7 @@ def _default_strategy_config(strategy):
             "special_pool": 10,
             "trend_window": 15,
             "mix": {"hot": 2, "cold": 2, "trend": 2},
-            "weights": {"hot": 0.85, "trend": 0.85, "cold": 0.70, "normal": 0.40, "overdue": 0.35, "feedback": 1.05, "color": 0.22, "zodiac": 0.22, "parity": 0.16},
+            "weights": {"hot": 0.85, "trend": 0.85, "cold": 0.70, "normal": 0.40, "overdue": 0.35, "feedback": 1.05, "color": 0.22, "zodiac": 0.22, "parity": 0.22},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -1713,7 +1713,7 @@ def _tune_strategy_config(strategy, region):
         weights["feedback"] = round(_clamp(0.45 + learning_strength * 0.7 + accuracy * 0.3, 0.45, 1.35), 2)
         weights["color"] = round(_clamp(0.10 + accuracy * 0.20, 0.08, 0.35), 2)
         weights["zodiac"] = round(_clamp(0.10 + accuracy * 0.18, 0.08, 0.32), 2)
-        weights["parity"] = round(_clamp(0.08 + accuracy * 0.14, 0.06, 0.24), 2)
+        weights["parity"] = round(_clamp(0.12 + accuracy * 0.18, 0.10, 0.30), 2)
         if strategy == "cold":
             weights["overdue"] = round(_clamp(0.70 + (1 - accuracy) * 0.35, 0.65, 1.20), 2)
         elif strategy == "trend":
@@ -1724,7 +1724,7 @@ def _tune_strategy_config(strategy, region):
             weights["cold"] = round(_clamp(0.30 + (1 - accuracy) * 0.20, 0.25, 0.60), 2)
         elif strategy == "hybrid":
             weights["feedback"] = round(_clamp(weights["feedback"] + 0.10, 0.5, 1.45), 2)
-            weights["parity"] = round(_clamp(weights["parity"] + 0.03, 0.08, 0.26), 2)
+            weights["parity"] = round(_clamp(weights["parity"] + 0.04, 0.12, 0.32), 2)
         config["weights"] = weights
 
     _save_strategy_config(strategy, region, config)
@@ -2088,6 +2088,54 @@ def _rank_numbers(number_scores, candidates=None, exclude=None):
     ranked.sort(key=lambda item: (item[1], -abs(item[0] - 25), -item[0]), reverse=True)
     return [number for number, _ in ranked]
 
+
+def _build_parity_target_counts(parity_pref, total=6):
+    total = max(1, int(total or 0))
+    odd_pref = float((parity_pref or {}).get("单", 0.5) or 0.5)
+    even_pref = float((parity_pref or {}).get("双", 0.5) or 0.5)
+    pref_sum = odd_pref + even_pref
+    if pref_sum <= 0:
+        odd_target = total // 2
+    else:
+        odd_target = int(round(total * (odd_pref / pref_sum)))
+    odd_target = _clamp(odd_target, max(1, total // 3), min(total - 1, total - (total // 3)))
+    return {"单": odd_target, "双": total - odd_target}
+
+
+def _rebalance_selected_numbers_by_parity(selected_numbers, ranked_numbers, score_map, parity_pref, count=6):
+    selected = [int(number) for number in (selected_numbers or []) if str(number).isdigit()]
+    ranked = [int(number) for number in (ranked_numbers or []) if str(number).isdigit()]
+    if not selected:
+        return selected
+
+    targets = _build_parity_target_counts(parity_pref, total=count)
+    parity_counts = Counter(_get_parity_zh(number) for number in selected if _get_parity_zh(number))
+
+    for overflow_parity in ("单", "双"):
+        under_parity = "双" if overflow_parity == "单" else "单"
+        while parity_counts.get(overflow_parity, 0) > targets.get(overflow_parity, 0):
+            replacement = next(
+                (
+                    number for number in ranked
+                    if number not in selected and _get_parity_zh(number) == under_parity
+                ),
+                None,
+            )
+            if replacement is None:
+                break
+            removable = sorted(
+                [number for number in selected if _get_parity_zh(number) == overflow_parity],
+                key=lambda number: (float(score_map.get(number, 0.0)), number),
+            )
+            if not removable:
+                break
+            removed = removable[0]
+            selected[selected.index(removed)] = replacement
+            parity_counts[overflow_parity] -= 1
+            parity_counts[under_parity] += 1
+
+    return sorted(selected[:count])
+
 def _take_ranked(ranked_numbers, count, exclude=None):
     exclude_set = {int(num) for num in (exclude or [])}
     chosen = []
@@ -2425,7 +2473,7 @@ def _get_ml_bucket_name(number):
     return "high"
 
 
-def _select_ml_normal_numbers(ranked_numbers, score_map, bucket_counts, variation_key=None, pool_size=18):
+def _select_ml_normal_numbers(ranked_numbers, score_map, bucket_counts, variation_key=None, pool_size=18, parity_pref=None):
     desired_counts = {
         "low": max(0, int(bucket_counts[0] if len(bucket_counts) > 0 else 2)),
         "mid": max(0, int(bucket_counts[1] if len(bucket_counts) > 1 else 2)),
@@ -2446,6 +2494,8 @@ def _select_ml_normal_numbers(ranked_numbers, score_map, bucket_counts, variatio
     while len(chosen) < 6:
         best_number = None
         best_score = None
+        parity_targets = _build_parity_target_counts(parity_pref, total=6)
+        parity_usage = Counter(_get_parity_zh(number) for number in chosen if _get_parity_zh(number))
         for number in candidates:
             if number in chosen:
                 continue
@@ -2456,6 +2506,11 @@ def _select_ml_normal_numbers(ranked_numbers, score_map, bucket_counts, variatio
             adjusted_score += bucket_gap * 0.045
             adjusted_score -= bucket_overflow * 0.09
             adjusted_score -= bucket_usage[bucket] * 0.015
+            number_parity = _get_parity_zh(number)
+            parity_gap = max(0, parity_targets.get(number_parity, 0) - parity_usage.get(number_parity, 0))
+            parity_overflow = max(0, parity_usage.get(number_parity, 0) - parity_targets.get(number_parity, 0))
+            adjusted_score += parity_gap * 0.06
+            adjusted_score -= parity_overflow * 0.08
             if (
                 best_score is None or
                 adjusted_score > best_score or
@@ -2470,7 +2525,7 @@ def _select_ml_normal_numbers(ranked_numbers, score_map, bucket_counts, variatio
         chosen.append(best_number)
         bucket_usage[_get_ml_bucket_name(best_number)] += 1
 
-    return sorted(chosen[:6])
+    return _rebalance_selected_numbers_by_parity(chosen[:6], ranked_numbers, score_map, parity_pref, count=6)
 
 
 def _estimate_ml_confidence(probability_map, blended_scores, special_num, model):
@@ -2929,6 +2984,9 @@ def _predict_with_ml(data, region, variation_key=None):
     config = _load_strategy_config("ml", region)
     runtime_config, model = _optimize_ml_runtime_config(enriched_data, region, config)
     feature_window = _clamp(int(runtime_config.get("feature_window") or 60), 30, 90)
+    year = _infer_draw_year(enriched_data)
+    feedback = _build_prediction_feedback(region, "ml")
+    _, _, parity_pref = _build_attribute_preferences(enriched_data[:feature_window], region, feedback, year)
     feature_table = _build_ml_feature_table(enriched_data, region, feature_window=feature_window)
     feature_table = _apply_ml_feature_profile(
         feature_table,
@@ -2963,14 +3021,25 @@ def _predict_with_ml(data, region, variation_key=None):
         bucket_counts,
         variation_key=variation_key,
         pool_size=pool_size,
+        parity_pref=parity_pref,
     )
 
+    preferred_special_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
+    preferred_special_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
     special_candidates = [
         number for number in special_ranked_numbers[:special_pool_size * 2]
         if number not in normal
     ]
     if not special_candidates:
         special_candidates = [number for number in special_ranked_numbers if number not in normal]
+    special_candidates = sorted(
+        special_candidates,
+        key=lambda number: (
+            special_score_map.get(number, 0.0) +
+            (0.08 if preferred_special_parity and _get_parity_zh(number) == preferred_special_parity else 0.0)
+        ),
+        reverse=True,
+    )
     special_pick = _take_personalized_ranked(
         special_candidates,
         1,
@@ -2984,7 +3053,6 @@ def _predict_with_ml(data, region, variation_key=None):
         special_num,
         model,
     )
-    year = _infer_draw_year(data)
     number_to_zodiac = _get_number_to_zodiac_map(year)
     samples = int(model.get("samples", 0) or 0)
     history_window = int(model.get("history_window", 0) or 0)
@@ -3049,6 +3117,16 @@ def _predict_with_ml(data, region, variation_key=None):
             "ensemble_special_votes": dict(sorted((ensemble_signals.get("special_votes") or Counter()).items())),
             "supplemental_draws": supplemental_draws,
             "training_draws": len(enriched_data),
+            "preferred_special_color": preferred_special_color,
+            "color_preferences": {
+                key: round(float(value) * 100, 2)
+                for key, value in sorted((color_pref or {}).items())
+            },
+            "preferred_special_parity": preferred_special_parity,
+            "parity_preferences": {
+                key: round(float(value) * 100, 2)
+                for key, value in sorted((parity_pref or {}).items())
+            },
         },
     }
 
@@ -3226,8 +3304,17 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     )
                 normal = sorted(normal)
 
+            normal = _rebalance_selected_numbers_by_parity(
+                normal,
+                overall_rank,
+                number_scores,
+                parity_pref,
+                count=6,
+            )
             remaining_numbers = [number for number in all_numbers if number not in normal]
             
+            preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
+
             def compute_special_score(number):
                 key = str(number)
                 base = (
@@ -3239,11 +3326,14 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 fb_norm = (feedback.get("normal", {}).get(key, 0.5) - 0.5) * feedback_confidence * 0.20
                 attr = attribute_score(number)
                 penalty = overheat_penalty(number)
-                
-                total = base + fb_spec + fb_norm + attr + penalty
+                parity_match_bonus = 0.12 if preferred_parity and _get_parity_zh(number) == preferred_parity else -0.05
+
+                total = base + fb_spec + fb_norm + attr + penalty + parity_match_bonus
                 # 对于只选1个的特码，多重利好共振放大 1.3 倍，确保优质号码碾压出线
                 if fb_spec > 0.1 and attr > 0.4 and penalty == 0:
                     total *= 1.3
+                if preferred_parity and _get_parity_zh(number) == preferred_parity and attr > 0.35:
+                    total *= 1.06
                 return total
 
             special_rank = _rank_numbers(

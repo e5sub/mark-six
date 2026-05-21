@@ -841,10 +841,20 @@ def predictions():
                     'user_count': int(getattr(group_meta, 'user_count', 0) or 0),
                     'items': [],
                     '_seen_strategies': set(),
+                    '_seen_prediction_signatures': set(),
                     '_users': set(),
                 }
 
             group = prediction_groups_map[group_key]
+
+            prediction_signature = (
+                str(pred.strategy or '').strip(),
+                str(pred.special_number or '').strip(),
+                ','.join(pred.normal_numbers_list),
+            )
+            if prediction_signature in group['_seen_prediction_signatures']:
+                continue
+            group['_seen_prediction_signatures'].add(prediction_signature)
             
             if not personalized_enabled:
                 if pred.strategy in group['_seen_strategies']:
@@ -887,6 +897,7 @@ def predictions():
                 group['group_result_class'] = 'pending'
                 group['group_result_label'] = '待开奖'
             del group['_users']
+            del group['_seen_prediction_signatures']
 
         prediction_groups = [
             prediction_groups_map[f"{region}-{period}"]
