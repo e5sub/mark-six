@@ -5,9 +5,15 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from types import SimpleNamespace
 import json
+import threading
+import time
 from collections import OrderedDict
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
+
+_BACKTEST_REFRESH_INTERVAL_SECONDS = 180
+_backtest_refresh_lock = threading.Lock()
+_backtest_refresh_state = {}
 
 STRATEGY_META = [
     {"key": "hot", "label": "热门", "icon": "🔥"},
@@ -31,6 +37,19 @@ def _get_prediction_display_info(prediction):
         "key": prediction.strategy,
         "label": _strategy_label_map().get(prediction.strategy, prediction.strategy)
     }
+
+
+def _sanitize_auto_prediction_strategies(user):
+    raw = str(getattr(user, "auto_prediction_strategies", "") or "").strip()
+    if not raw:
+        return False
+    allowed = {meta["key"] for meta in AUTO_STRATEGY_META}
+    cleaned = [item for item in raw.split(",") if item in allowed]
+    cleaned_csv = ",".join(cleaned)
+    if cleaned_csv == raw:
+        return False
+    user.auto_prediction_strategies = cleaned_csv
+    return True
 
 def _strategy_config(region, strategy):
     raw = SystemConfig.get_config(f"strategy_config_{region}_{strategy}", "")
@@ -329,6 +348,7 @@ def _latest_backtest_summary(limit=6):
             .first()
         )
         if not record:
+            _kickoff_backtest_snapshot_refresh(region_key)
             items.append({
                 "id": None,
                 "name": f"auto-{region_key}",
@@ -351,6 +371,8 @@ def _latest_backtest_summary(limit=6):
         ranking = payload.get("ranking") or []
         top_items = ranking[:3]
         periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
+        if periods_evaluated <= 0 or not top_items:
+            _kickoff_backtest_snapshot_refresh(region_key)
         items.append({
             "id": record.id,
             "name": record.name,
@@ -395,6 +417,45 @@ def _latest_backtest_summary(limit=6):
             break
     return items
 
+
+def _kickoff_backtest_snapshot_refresh(region):
+    region_key = str(region or "").strip().lower()
+    if region_key not in ("hk", "macau"):
+        return
+
+    now = time.time()
+    with _backtest_refresh_lock:
+        state = _backtest_refresh_state.get(region_key) or {}
+        if state.get("running"):
+            return
+        last_started = float(state.get("started_at") or 0.0)
+        if now - last_started < _BACKTEST_REFRESH_INTERVAL_SECONDS:
+            return
+        _backtest_refresh_state[region_key] = {
+            "running": True,
+            "started_at": now,
+        }
+
+    def _worker():
+        try:
+            from app import app, refresh_auto_backtest_snapshot
+            with app.app_context():
+                refresh_auto_backtest_snapshot(region_key, force=True)
+        except Exception as e:
+            print(f"async backtest snapshot refresh failed for {region_key}: {e}")
+        finally:
+            with _backtest_refresh_lock:
+                _backtest_refresh_state[region_key] = {
+                    "running": False,
+                    "started_at": time.time(),
+                }
+
+    threading.Thread(
+        target=_worker,
+        name=f"backtest-refresh-{region_key}",
+        daemon=True,
+    ).start()
+
 def login_required(f):
     """登录验证装饰器"""
     def decorated_function(*args, **kwargs):
@@ -433,6 +494,11 @@ def active_required(f):
 @login_required
 def dashboard():
     user = User.query.get(session['user_id'])
+    if _sanitize_auto_prediction_strategies(user):
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
     learning_snapshot = _learning_snapshot()
     learning_comparison = _build_learning_comparison()
@@ -980,6 +1046,11 @@ def check_prediction_exists():
 @login_required
 def profile():
     user = User.query.get(session['user_id'])
+    if _sanitize_auto_prediction_strategies(user):
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     
     if request.method == 'POST':
         new_email = request.form.get('email')

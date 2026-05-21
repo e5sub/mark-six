@@ -20,7 +20,7 @@ from models import (
 
 mobile_api_bp = Blueprint("mobile_api", __name__, url_prefix="/api/mobile")
 
-STRATEGY_KEYS = ["smart", "hot", "cold", "trend", "hybrid", "balanced", "ml", "ai"]
+STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml", "ai"]
 LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
 _RED_BALLS = {1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46}
 _BLUE_BALLS = {3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48}
@@ -1579,8 +1579,6 @@ def api_accuracy():
 
     strategy_stats = {}
     for key in STRATEGY_KEYS:
-        if key == "smart":
-            continue
         strategy_stats[key] = _calculate_accuracy(base_query.filter_by(strategy=key))
     backtests, best_strategy = _build_mobile_backtests(user.id)
 
