@@ -286,7 +286,6 @@ function shouldShowNormalNumbers() {
 
 function getStrategyLabel(strategy) {
     const labels = {
-        smart: '智能优选',
         hot: '热门预测',
         cold: '冷门预测',
         trend: '走势预测',
@@ -332,15 +331,6 @@ function getMlPromotionStrengthLabel(value) {
 
 function renderPredictionInsights(data, strategy) {
     const sections = [];
-
-    if (data.requested_strategy === 'smart' && data.recommended_strategy) {
-        sections.push(`
-            <div style="margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: rgba(255, 193, 7, 0.12); border: 1px solid rgba(255, 193, 7, 0.32);">
-                <div style="font-size: 0.9rem; font-weight: 700; color: #8a5a00; margin-bottom: 4px;">智能优选本期实际采用</div>
-                <div style="font-size: 1rem; color: #5c4400;">${getStrategyLabel(data.recommended_strategy)}</div>
-            </div>
-        `);
-    }
 
     if (strategy === 'ml' && data.model_meta) {
         const meta = data.model_meta;
@@ -600,7 +590,6 @@ function displayPrediction(data, strategy) {
     
     // 根据策略显示不同的标题
     const strategyTitles = {
-        'smart': '智能优选',
         'hot': '热门预测',
         'cold': '冷门预测',
         'trend': '走势预测',
@@ -611,7 +600,6 @@ function displayPrediction(data, strategy) {
     };
     
     const strategyIcons = {
-        'smart': 'brain',
         'hot': 'fire',
         'cold': 'snowflake',
         'trend': 'chart-line',

@@ -3051,7 +3051,6 @@ class _PredictScreenState extends State<PredictScreen> {
       widget.appState.user?.showNormalNumbers ?? false;
 
   final Map<String, String> _strategyLabels = const {
-    'smart': '智能优选',
     'hybrid': '综合',
     'balanced': '均衡',
     'ml': '机器学习',
@@ -3063,10 +3062,6 @@ class _PredictScreenState extends State<PredictScreen> {
 
   LinearGradient? _strategyGradient(String key) {
     switch (key) {
-      case 'smart':
-        return const LinearGradient(
-          colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
-        );
       case 'hot':
         return const LinearGradient(
           colors: [Color(0xFFFF6A00), Color(0xFFEE0979)],
@@ -3551,8 +3546,6 @@ class _PredictScreenState extends State<PredictScreen> {
         return const Color(0xFFFB8C00);
       case 'ml':
         return const Color(0xFF00897B);
-      case 'smart':
-        return const Color(0xFF1E88E5);
       case 'ai':
         return const Color(0xFF5E35B1);
       default:

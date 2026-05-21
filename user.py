@@ -21,24 +21,12 @@ STRATEGY_META = [
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
 AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
 
-STRATEGY_META.insert(0, {"key": "smart", "label": "智能优选", "icon": "🧠"})
-STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
-AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
 LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
-SMART_STRATEGY_PREFIX = '智能优选（本期采用：'
 
 def _strategy_label_map():
     return {item["key"]: item["label"] for item in STRATEGY_META}
 
 def _get_prediction_display_info(prediction):
-    raw_text = (prediction.prediction_text or '').strip()
-    if raw_text.startswith(SMART_STRATEGY_PREFIX):
-        first_line = raw_text.splitlines()[0].strip()
-        if first_line:
-            return {
-                "key": "smart",
-                "label": first_line
-            }
     return {
         "key": prediction.strategy,
         "label": _strategy_label_map().get(prediction.strategy, prediction.strategy)
@@ -1049,7 +1037,6 @@ def save_prediction_settings():
             valid_strategies.append(strategy)
 
     if not valid_strategies:
-        valid_strategies = ['smart', 'hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
         valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
 
     valid_regions = []
@@ -1093,7 +1080,6 @@ def update_auto_prediction():
                 valid_strategies.append(strategy)
 
         if not valid_strategies:
-            valid_strategies = ['smart', 'hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
             valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
 
         valid_regions = []

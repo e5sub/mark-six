@@ -144,7 +144,6 @@ def _mask_db_uri(uri):
     return re.sub(r'//([^:/@]+):([^@]+)@', r'//\1:***@', uri)
 
 STRATEGY_LABELS = {
-    'smart': '智能优选',
     'ml': '机器学习预测',
     'balanced': '均衡预测',
     'ai': 'AI智能预测',
@@ -158,8 +157,6 @@ def _get_strategy_label(strategy):
     return STRATEGY_LABELS.get(strategy, strategy or '未知策略')
 
 def _build_strategy_note(requested_strategy, resolved_strategy):
-    if requested_strategy == 'smart':
-        return f"智能优选（本期采用：{_get_strategy_label(resolved_strategy)}）"
     return _get_strategy_label(resolved_strategy)
 
 def _build_special_focus_text(special, normal=None, strategy_name=None, accuracy=None, samples=None, confidence=None, extra_reason=None):
@@ -179,15 +176,7 @@ def _build_special_focus_text(special, normal=None, strategy_name=None, accuracy
     return "\n".join(lines)
 
 def _decorate_recommendation_text(requested_strategy, resolved_strategy, recommendation_text):
-    if requested_strategy != 'smart':
-        return recommendation_text or ''
-
-    strategy_note = _build_strategy_note(requested_strategy, resolved_strategy)
-    if not recommendation_text:
-        return strategy_note
-    if recommendation_text.startswith(strategy_note):
-        return recommendation_text
-    return f"{strategy_note}\n{recommendation_text}"
+    return recommendation_text or ''
 
 def _get_email_strategy_display(prediction):
     return _get_strategy_label(prediction.strategy)
@@ -3240,8 +3229,6 @@ def _predict_with_ml(data, region, variation_key=None):
     }
 
 def get_local_recommendations(strategy, data, region, variation_key=None):
-    if strategy == 'smart':
-        strategy = _get_recommended_strategy(region).get("strategy", "hybrid")
     all_numbers = list(range(1, 50))
     if not data:
         return _build_default_baseline_prediction()
@@ -3811,7 +3798,7 @@ def save_draws_to_database(draws, region):
         print(f"保存开奖记录到数据库失败: {e}")
         db.session.rollback()
 
-AUTO_BACKTEST_STRATEGIES = ("ml", "hybrid", "balanced", "trend", "hot", "cold", "smart")
+AUTO_BACKTEST_STRATEGIES = ("ml", "hybrid", "balanced", "trend", "hot", "cold")
 AUTO_BACKTEST_MIN_HISTORY = 60
 AUTO_BACKTEST_LIMIT = 240
 
@@ -3960,7 +3947,7 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
         target_draw = chronological[idx]
         history_desc = list(reversed(chronological[:idx]))
         for strategy in strategies:
-            resolved_strategy = _get_recommended_strategy(region).get("strategy", "hybrid") if strategy == "smart" else strategy
+            resolved_strategy = strategy
             try:
                 result = get_local_recommendations(resolved_strategy, history_desc, region)
             except Exception as e:
@@ -4321,7 +4308,7 @@ def generate_auto_predictions(data, region):
             db.session.commit()
 
         for user in auto_predict_users:
-            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['smart', 'hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
             regions = user.auto_prediction_regions.split(',') if hasattr(user, 'auto_prediction_regions') and user.auto_prediction_regions else ['hk', 'macau']
 
             if region not in regions:
@@ -4332,7 +4319,7 @@ def generate_auto_predictions(data, region):
             seen_strategies = set()
 
             for strategy in strategies:
-                if strategy in ('ai', 'smart'):
+                if strategy == 'ai':
                     continue
                 resolved_strategy = strategy
 
@@ -4427,7 +4414,7 @@ def unified_predict_api():
 
     data = get_yearly_data(region, year)
     if not data: return jsonify({"error": f"无法加载{year}年的数据"}), 404
-    resolved_strategy = _get_recommended_strategy(region).get("strategy", "hybrid") if strategy == 'smart' else strategy
+    resolved_strategy = strategy
     
     # 检查用户是否登录和激活（对于需要保存记录的功能）
     user_id = session.get('user_id')
@@ -4474,8 +4461,6 @@ def unified_predict_api():
                 result["model_meta"] = existing_meta
             result["strategy"] = resolved_strategy
             result["requested_strategy"] = strategy
-            if strategy == 'smart':
-                result["recommended_strategy"] = resolved_strategy
             if stream_response and resolved_strategy == 'ai':
                 payload = {
                     "type": "done",
@@ -4657,8 +4642,6 @@ def unified_predict_api():
     
     result["strategy"] = resolved_strategy
     result["requested_strategy"] = strategy
-    if strategy == 'smart':
-        result["recommended_strategy"] = resolved_strategy
     return jsonify(result)
 
 # 手动更新数据API

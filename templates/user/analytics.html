@@ -49,26 +49,7 @@
 
 <div class="card-compact">
     <div class="card-header-compact">
-        <h2 class="card-title-compact">🧠 智能优选与回测</h2>
-    </div>
-
-    <div class="hero-grid">
-        <div class="hero-card hero-card-primary">
-            <div class="hero-label">系统当前推荐策略</div>
-            <div class="hero-title">{{ recommended_strategy.label }}</div>
-            <div class="hero-desc">综合评分 {{ recommended_strategy.score }}，回测样本 {{ recommended_strategy.samples }} 期</div>
-            <div class="hero-tip">自动预测支持“智能优选”，系统会按照近 20 / 50 / 100 期回测结果自动选择更优策略。</div>
-        </div>
-
-        <div class="hero-card hero-card-secondary">
-            <div class="hero-label">最近表现最好</div>
-            {% for item in top_strategies %}
-            <div class="hero-rank-row">
-                <span>{{ loop.index }}. {{ item.label }}</span>
-                <strong>{{ item.score }}</strong>
-            </div>
-            {% endfor %}
-        </div>
+        <h2 class="card-title-compact">📊 策略回测</h2>
     </div>
 
     <div class="table-wrap">
