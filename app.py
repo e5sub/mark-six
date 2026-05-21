@@ -342,6 +342,24 @@ def _parse_common_stake_entries(value):
             entries.append((key, amount))
     return entries
 
+
+def _serialize_prediction_metadata(metadata):
+    if not metadata:
+        return ""
+    try:
+        return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        return ""
+
+
+def _deserialize_prediction_metadata(value):
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except Exception:
+        return {}
+
 def _dedupe_keep_order(values):
     seen = set()
     result = []
@@ -3356,6 +3374,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
             normal_numbers=','.join(map(str, result.get('normal', []))),
             special_number=str(result.get('special', {}).get('number', '')),
             special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+            prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
             prediction_text=result.get('recommendation_text', '')
         )
         db.session.add(prediction)
@@ -3417,6 +3436,11 @@ def unified_predict_api():
             }
             if existing.prediction_text:
                 result["recommendation_text"] = existing.prediction_text
+            existing_meta = _deserialize_prediction_metadata(
+                getattr(existing, "prediction_metadata", "")
+            )
+            if existing_meta:
+                result["model_meta"] = existing_meta
             result["strategy"] = resolved_strategy
             result["requested_strategy"] = strategy
             if strategy == 'smart':
@@ -3495,6 +3519,7 @@ def unified_predict_api():
                             normal_numbers=','.join(map(str, result.get('normal', []))),
                             special_number=str(result.get('special', {}).get('number', '')),
                             special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+                            prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
                             prediction_text=_decorate_recommendation_text(
                                 strategy,
                                 resolved_strategy,
@@ -3544,6 +3569,7 @@ def unified_predict_api():
                 normal_numbers=','.join(map(str, result.get('normal', []))),
                 special_number=str(result.get('special', {}).get('number', '')),
                 special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+                prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
                 prediction_text=_decorate_recommendation_text(
                     strategy,
                     resolved_strategy,

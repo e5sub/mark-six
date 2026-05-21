@@ -264,6 +264,7 @@ function savePredictionRecord(data) {
         normal_numbers: data.normal,
         special_number: data.special.number,
         special_zodiac: data.special.sno_zodiac || '',
+        model_meta: data.model_meta || {},
         prediction_text: data.recommendation_text || ''
     };
 

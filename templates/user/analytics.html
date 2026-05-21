@@ -179,6 +179,37 @@
 
 <div class="card-compact">
     <div class="card-header-compact">
+        <h2 class="card-title-compact">🧪 离线回测快照</h2>
+    </div>
+
+    {% if latest_backtests %}
+    <div class="learning-grid">
+        {% for item in latest_backtests[:4] %}
+        <div class="learning-card">
+            <div class="learning-title">{{ item.name }}</div>
+            <div class="learning-meta" style="margin-bottom:0.8rem;">
+                {{ '香港' if item.region == 'hk' else '澳门' if item.region == 'macau' else item.region }} ·
+                {{ item.periods_evaluated }} 期 ·
+                {{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}
+            </div>
+            {% for rank in item.top_items %}
+            <div class="comparison-row">
+                <div class="comparison-main">
+                    <div class="comparison-title">{{ loop.index }}. {{ strategy_label_map.get(rank.strategy, rank.strategy) }}</div>
+                    <div class="comparison-meta">Top1 {{ rank.top1_hit_rate }}% · Top6 {{ rank.top6_hit_rate }}% · {{ rank.total }} 期样本</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-text">暂无离线回测结果。先运行 `python scripts/backtest_predictions.py --region macau`。</div>
+    {% endif %}
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
         <h2 class="card-title-compact">🎯 策略效果分析</h2>
     </div>
 

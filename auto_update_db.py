@@ -155,6 +155,32 @@ def update_database():
             print("zodiac_settings 表已存在")
 
         # 检查并创建 manual_bet_records 表
+        if not check_column_exists(cursor, 'prediction_record', 'prediction_metadata'):
+            print("Adding prediction_record.prediction_metadata column...")
+            cursor.execute('''
+                ALTER TABLE prediction_record ADD COLUMN prediction_metadata TEXT
+            ''')
+            print("prediction_record.prediction_metadata column added")
+        else:
+            print("prediction_record.prediction_metadata column already exists")
+
+        if not check_table_exists(cursor, 'backtest_runs'):
+            print("Creating backtest_runs table...")
+            cursor.execute('''
+            CREATE TABLE backtest_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(120) NOT NULL,
+                region VARCHAR(10),
+                strategies VARCHAR(255),
+                periods_evaluated INTEGER DEFAULT 0,
+                payload TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            print("backtest_runs table created")
+        else:
+            print("backtest_runs table already exists")
+
         if not check_table_exists(cursor, 'manual_bet_records'):
             print("创建 manual_bet_records 表...")
             cursor.execute('''

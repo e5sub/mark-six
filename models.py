@@ -181,8 +181,25 @@ class PredictionRecord(db.Model):
     accuracy_score = db.Column(db.Float)  # 准确率分数(0-1)
     is_result_updated = db.Column(db.Boolean, default=False)  # 是否已更新开奖结果
 
+    prediction_metadata = db.Column(db.Text)
+
     def __repr__(self):
         return f'<PredictionRecord {self.region}-{self.period}>'
+
+
+class BacktestRun(db.Model):
+    __tablename__ = 'backtest_runs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    region = db.Column(db.String(10))
+    strategies = db.Column(db.String(255))
+    periods_evaluated = db.Column(db.Integer, default=0)
+    payload = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    def __repr__(self):
+        return f'<BacktestRun {self.id}:{self.name}>'
 
 class InviteCode(db.Model):
     """邀请码模型"""

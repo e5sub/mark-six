@@ -26,6 +26,15 @@ _RED_BALLS = {1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46}
 _BLUE_BALLS = {3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48}
 
 
+def _safe_json_loads(value):
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except Exception:
+        return {}
+
+
 def _get_color_zh(number):
     try:
         num = int(number)
@@ -1419,6 +1428,9 @@ def api_predictions():
                 "special_number": record.special_number,
                 "special_zodiac": mapped_special,
                 "prediction_text": record.prediction_text,
+                "prediction_metadata": _safe_json_loads(
+                    getattr(record, "prediction_metadata", None)
+                ),
                 "actual_special_number": record.actual_special_number,
                 "actual_special_zodiac": actual_special_zodiac,
                 "accuracy_score": record.accuracy_score,

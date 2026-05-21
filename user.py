@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig, InviteCode
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
@@ -50,6 +50,24 @@ def _strategy_config(region, strategy):
         return {}
     try:
         return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def _serialize_prediction_metadata(metadata):
+    if not metadata:
+        return ""
+    try:
+        return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        return ""
+
+
+def _deserialize_prediction_metadata(value):
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
     except Exception:
         return {}
 
@@ -235,6 +253,27 @@ def _build_learning_comparison():
 
     return comparisons
 
+
+def _latest_backtest_summary(limit=6):
+    records = BacktestRun.query.order_by(BacktestRun.created_at.desc()).limit(limit).all()
+    items = []
+    for record in records:
+        try:
+            payload = json.loads(record.payload or "{}")
+        except Exception:
+            payload = {}
+        ranking = payload.get("ranking") or []
+        top_items = ranking[:3]
+        items.append({
+            "id": record.id,
+            "name": record.name,
+            "region": record.region or payload.get("region") or "",
+            "created_at": record.created_at,
+            "periods_evaluated": record.periods_evaluated or payload.get("periods_evaluated", 0),
+            "top_items": top_items,
+        })
+    return items
+
 def login_required(f):
     """登录验证装饰器"""
     def decorated_function(*args, **kwargs):
@@ -276,6 +315,7 @@ def dashboard():
     strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
     learning_snapshot = _learning_snapshot()
     learning_comparison = _build_learning_comparison()
+    latest_backtests = _latest_backtest_summary()
     
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
     updated_predictions = PredictionRecord.query.filter_by(
@@ -385,6 +425,7 @@ def dashboard():
                           top_strategies=top_strategies,
                           learning_snapshot=learning_snapshot,
                           learning_comparison=learning_comparison,
+                          latest_backtests=latest_backtests,
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac)
 
@@ -739,6 +780,7 @@ def save_prediction():
             normal_numbers=','.join(map(str, data['normal_numbers'])),
             special_number=str(data['special_number']),
             special_zodiac=data.get('special_zodiac', ''),
+            prediction_metadata=_serialize_prediction_metadata(data.get('model_meta')),
             prediction_text=data.get('prediction_text', '')
         )
         
@@ -786,6 +828,9 @@ def check_prediction_exists():
                 'normal_numbers': existing.normal_numbers.split(','),
                 'special_number': existing.special_number,
                 'special_zodiac': existing.special_zodiac,
+                'model_meta': _deserialize_prediction_metadata(
+                    getattr(existing, 'prediction_metadata', '')
+                ),
                 'prediction_text': existing.prediction_text,
                 'created_at': existing.created_at.strftime('%Y-%m-%d %H:%M:%S')
             }
@@ -1071,6 +1116,7 @@ def analytics():
     strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
     learning_snapshot = _learning_snapshot()
     learning_comparison = _build_learning_comparison()
+    latest_backtests = _latest_backtest_summary()
     
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
     updated_predictions = PredictionRecord.query.filter_by(
@@ -1260,6 +1306,7 @@ def analytics():
                           strategy_backtests=strategy_backtests,
                           learning_snapshot=learning_snapshot,
                           learning_comparison=learning_comparison,
+                          latest_backtests=latest_backtests,
                           region_stats=region_stats,
                           recent_predictions=recent_predictions,
                           trend_data=trend_data,

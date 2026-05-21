@@ -90,6 +90,7 @@ CREATE TABLE prediction_record (
     special_number VARCHAR(10) NOT NULL,
     special_zodiac VARCHAR(10),
     prediction_text TEXT,
+    prediction_metadata TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     actual_normal_numbers VARCHAR(50),
     actual_special_number VARCHAR(10),
@@ -97,6 +98,18 @@ CREATE TABLE prediction_record (
     accuracy_score FLOAT,
     is_result_updated BOOLEAN DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES user (id)
+)
+''')
+
+cursor.execute('''
+CREATE TABLE backtest_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(120) NOT NULL,
+    region VARCHAR(10),
+    strategies VARCHAR(255),
+    periods_evaluated INTEGER DEFAULT 0,
+    payload TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 ''')
 
