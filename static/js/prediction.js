@@ -395,7 +395,7 @@ function renderPredictionInsights(data, strategy) {
                     ${preferredFeatures ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好特征：</strong>${preferredFeatures}${meta.profile_learning_confidence ? ` · 学习置信${meta.profile_learning_confidence}%` : ''}</div>` : ''}
                     ${preferredRuntimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好参数：</strong>${preferredRuntimes}</div>` : ''}
                     ${selectedStrategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前核心集成：</strong>${selectedStrategies}</div>` : ''}
-                    ${weightEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>集成权重：</strong>${weightEntries}${meta.ensemble_weight_confidence ? ` · 置信${meta.ensemble_weight_confidence}%` : ''}</div>` : ''}
+                    ${weightEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>集成权重：</strong>${weightEntries}（按近20/50/100期表现自动分配）${meta.ensemble_weight_confidence ? ` · 置信${meta.ensemble_weight_confidence}%` : ''}</div>` : ''}
                     ${voteEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>特码共识票：</strong>${voteEntries}</div>` : ''}
                 </div>
                 <div style="padding: 14px; border-radius: 12px; background: rgba(33, 150, 243, 0.06); border: 1px solid rgba(33, 150, 243, 0.16);">
