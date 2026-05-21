@@ -3564,12 +3564,12 @@ class _PredictScreenState extends State<PredictScreen> {
     final actualSpecialZodiac = item.actualSpecialZodiac;
     final strategyLabel = _strategyLabels[item.strategy] ?? item.strategy;
     return Container(
-      width: inlineSpecialOnly ? 240 : null,
+      width: inlineSpecialOnly ? 168 : null,
       margin: EdgeInsets.only(
         bottom: inlineSpecialOnly ? 0 : 12,
-        right: inlineSpecialOnly ? 12 : 0,
+        right: 0,
       ),
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(inlineSpecialOnly ? 10 : 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -3855,11 +3855,11 @@ class _PredictScreenState extends State<PredictScreen> {
                                       .toList(),
                                 )
                               else
-                                SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Wrap(
+                                    spacing: 10,
+                                    runSpacing: 10,
                                     children: items
                                         .map(
                                           (item) => _buildPredictionRecordItem(
