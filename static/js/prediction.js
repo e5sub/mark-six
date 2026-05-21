@@ -304,6 +304,9 @@ function getMlRuntimeProfileLabel(value) {
         compact: '紧凑档',
         deep: '深度档',
         adaptive: '自适应档',
+        recent_bias: '近期强化',
+        context_bias: '属性强化',
+        recency_trim: '近期精简',
     };
     return labels[value] || value || '基础档';
 }
@@ -334,7 +337,7 @@ function renderPredictionInsights(data, strategy) {
         sections.push(`
             <div style="margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: rgba(255, 193, 7, 0.12); border: 1px solid rgba(255, 193, 7, 0.32);">
                 <div style="font-size: 0.9rem; font-weight: 700; color: #8a5a00; margin-bottom: 4px;">智能优选本期实际采用</div>
-                <div style="font-size: 1rem; color: #5c4400;">${data.recommended_strategy}</div>
+                <div style="font-size: 1rem; color: #5c4400;">${getStrategyLabel(data.recommended_strategy)}</div>
             </div>
         `);
     }
@@ -364,6 +367,9 @@ function renderPredictionInsights(data, strategy) {
             .sort((a, b) => Number(b[1]) - Number(a[1]))
             .map(([key, value]) => `${getStrategyLabel(key)}:${Number(value).toFixed(1).replace(/\.0$/, '')}%`)
             .join('、');
+        const selectedStrategies = Array.isArray(meta.ensemble_selected_strategies)
+            ? meta.ensemble_selected_strategies.map(getStrategyLabel).join('、')
+            : '';
         const preferredFeatures = Array.isArray(meta.preferred_feature_profiles)
             ? meta.preferred_feature_profiles.map(getMlFeatureProfileLabel).join('、')
             : '';
@@ -388,6 +394,7 @@ function renderPredictionInsights(data, strategy) {
                     ${meta.primary_feature_profile || meta.primary_runtime_profile ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前主配置：</strong>${getMlRuntimeProfileLabel(meta.primary_runtime_profile)} · ${getMlFeatureProfileLabel(meta.primary_feature_profile)}</div>` : ''}
                     ${preferredFeatures ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好特征：</strong>${preferredFeatures}${meta.profile_learning_confidence ? ` · 学习置信${meta.profile_learning_confidence}%` : ''}</div>` : ''}
                     ${preferredRuntimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好参数：</strong>${preferredRuntimes}</div>` : ''}
+                    ${selectedStrategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前核心集成：</strong>${selectedStrategies}</div>` : ''}
                     ${weightEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>集成权重：</strong>${weightEntries}${meta.ensemble_weight_confidence ? ` · 置信${meta.ensemble_weight_confidence}%` : ''}</div>` : ''}
                     ${voteEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>特码共识票：</strong>${voteEntries}</div>` : ''}
                 </div>

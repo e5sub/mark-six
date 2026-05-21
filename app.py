@@ -1169,6 +1169,9 @@ def _default_strategy_config(strategy):
             "primary_feature_profile": "full",
             "primary_runtime_profile": "base",
             "blend_candidates": [0.55, 0.7, 0.82],
+            "ensemble_core_strategies": ["hybrid", "balanced", "trend"],
+            "ensemble_replace_margin": 4.0,
+            "ensemble_replace_min_samples": 8,
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -1309,7 +1312,7 @@ def _learn_ml_region_profile(region, limit=180):
             blend_scores[blend_value] += quality
 
     ensemble_raw = {}
-    for strategy in ("hybrid", "balanced", "trend"):
+    for strategy in [item for item in LOCAL_STRATEGY_KEYS if item != "ml"]:
         weighted_scores = []
         for idx, window in enumerate((20, 50, 100)):
             accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
@@ -1488,6 +1491,123 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5):
 
     scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
     return scored[0]
+
+
+def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100), min_samples=5):
+    candidates = tuple(strategies or ("hybrid", "balanced", "trend", "hot", "cold"))
+    ml_config = _load_strategy_config("ml", region)
+    learned_bias = ml_config.get("ensemble_bias") or {}
+    learning_confidence = float(ml_config.get("profile_learning_confidence") or 0.0)
+    scored = []
+
+    for strategy in candidates:
+        config = _load_strategy_config(strategy, region)
+        score_parts = []
+        total_samples = 0
+
+        for idx, window in enumerate(windows):
+            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            total_samples = max(total_samples, total)
+            if total <= 0:
+                continue
+            recency_weight = max(0.45, 1.0 - idx * 0.22)
+            confidence = _clamp(total / max(min_samples, 1), 0.25, 1.0)
+            score_parts.append(accuracy * 100 * recency_weight * confidence)
+
+        config_bonus = float(config.get("last_accuracy") or 0.0) * 100 * 0.18
+        base_score = (sum(score_parts) / len(score_parts)) if score_parts else 18.0
+        bias_value = float(learned_bias.get(strategy, 0.0) or 0.0)
+        bias_multiplier = 1.0 + ((bias_value - (1.0 / max(len(candidates), 1))) * 0.9 * learning_confidence)
+        score = round(max(8.0, (base_score + config_bonus) * bias_multiplier), 2)
+        scored.append({
+            "strategy": strategy,
+            "label": _get_strategy_label(strategy),
+            "score": score,
+            "samples": total_samples,
+            "bias": round(bias_value * 100, 2),
+        })
+
+    scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
+    return scored
+
+
+def _select_ml_ensemble_strategies(region, slots=3, persist=True):
+    eligible = [strategy for strategy in LOCAL_STRATEGY_KEYS if strategy != "ml"]
+    if not eligible:
+        return []
+
+    config = _load_strategy_config("ml", region)
+    scored = _score_ml_ensemble_candidates(region, strategies=eligible)
+    score_map = {item["strategy"]: item for item in scored}
+    default_core = ["hybrid", "balanced", "trend"]
+    configured_core = [
+        strategy for strategy in (config.get("ensemble_core_strategies") or default_core)
+        if strategy in eligible
+    ]
+    current_core = []
+    for strategy in configured_core + default_core:
+        if strategy in eligible and strategy not in current_core:
+            current_core.append(strategy)
+        if len(current_core) >= slots:
+            break
+    for item in scored:
+        strategy = item["strategy"]
+        if strategy not in current_core:
+            current_core.append(strategy)
+        if len(current_core) >= slots:
+            break
+
+    replace_margin = float(config.get("ensemble_replace_margin") or 4.0)
+    min_replace_samples = int(config.get("ensemble_replace_min_samples") or 8)
+    challengers = [item for item in scored if item["strategy"] not in current_core]
+    incumbents = [
+        score_map.get(strategy, {"strategy": strategy, "score": 8.0, "samples": 0})
+        for strategy in current_core[:slots]
+    ]
+
+    replacement = None
+    if challengers and incumbents:
+        best_challenger = challengers[0]
+        weakest_incumbent = min(incumbents, key=lambda item: (item.get("score", 0.0), item.get("samples", 0)))
+        if (
+            best_challenger.get("samples", 0) >= min_replace_samples and
+            best_challenger.get("score", 0.0) >= weakest_incumbent.get("score", 0.0) + replace_margin
+        ):
+            current_core = [
+                best_challenger["strategy"] if strategy == weakest_incumbent["strategy"] else strategy
+                for strategy in current_core[:slots]
+            ]
+            replacement = {
+                "in": best_challenger["strategy"],
+                "out": weakest_incumbent["strategy"],
+                "score_margin": round(
+                    best_challenger.get("score", 0.0) - weakest_incumbent.get("score", 0.0),
+                    2,
+                ),
+            }
+
+    final_core = [strategy for strategy in current_core[:slots] if strategy in eligible]
+    final_core.sort(
+        key=lambda strategy: (
+            score_map.get(strategy, {}).get("score", 0.0),
+            score_map.get(strategy, {}).get("samples", 0),
+        ),
+        reverse=True,
+    )
+
+    if persist:
+        previous_core = list(config.get("ensemble_core_strategies") or [])
+        if previous_core != final_core or replacement:
+            config["ensemble_core_strategies"] = final_core
+            config["ensemble_last_selected_at"] = datetime.now().isoformat()
+            if replacement:
+                config["ensemble_last_replacement"] = {
+                    **replacement,
+                    "at": datetime.now().isoformat(),
+                }
+            _save_strategy_config("ml", region, config)
+
+    return final_core
 
 def _tune_strategy_config(strategy, region):
     accuracy, total = _calculate_strategy_accuracy(region, strategy)
@@ -2373,41 +2493,26 @@ def _estimate_ml_confidence(probability_map, blended_scores, special_num, model)
 
 
 def _get_ml_ensemble_weights(region, strategies=None):
-    strategies = tuple(strategies or ("hybrid", "balanced", "trend"))
+    strategies = tuple(strategies or _select_ml_ensemble_strategies(region))
     windows = (20, 50, 100)
     raw_scores = {}
     diagnostics = {}
     confidence_values = []
-    ml_config = _load_strategy_config("ml", region)
-    learned_bias = ml_config.get("ensemble_bias") or {}
-    learning_confidence = float(ml_config.get("profile_learning_confidence") or 0.0)
+    scored = _score_ml_ensemble_candidates(region, strategies=strategies)
 
-    for strategy in strategies:
-        config = _load_strategy_config(strategy, region)
-        score_parts = []
-        total_samples = 0
-
-        for idx, window in enumerate(windows):
-            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
-            total_samples = max(total_samples, total)
-            if total <= 0:
-                continue
-            recency_weight = max(0.45, 1.0 - idx * 0.22)
-            confidence = _clamp(total / 10.0, 0.25, 1.0)
-            confidence_values.append(confidence)
-            score_parts.append(accuracy * recency_weight * confidence)
-
-        config_bonus = float(config.get("last_accuracy") or 0.0) * 0.18
-        base_score = (sum(score_parts) / len(score_parts)) if score_parts else 0.18
-        bias_value = float(learned_bias.get(strategy, 0.0) or 0.0)
-        bias_multiplier = 1.0 + ((bias_value - (1.0 / max(len(strategies), 1))) * 0.9 * learning_confidence)
-        raw_score = max(0.08, (base_score + config_bonus) * bias_multiplier)
+    for item in scored:
+        strategy = item["strategy"]
+        raw_score = max(0.08, float(item.get("score", 0.0)) / 100.0)
         raw_scores[strategy] = raw_score
         diagnostics[strategy] = {
-            "score": round(raw_score * 100, 2),
-            "samples": total_samples,
-            "bias": round(bias_value * 100, 2),
+            "score": round(float(item.get("score", 0.0)), 2),
+            "samples": int(item.get("samples", 0) or 0),
+            "bias": round(float(item.get("bias", 0.0)), 2),
         }
+        for idx, window in enumerate(windows):
+            _, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            if total > 0:
+                confidence_values.append(_clamp(total / 10.0, 0.25, 1.0) * max(0.45, 1.0 - idx * 0.22))
 
     score_total = sum(raw_scores.values())
     if score_total <= 0:
@@ -2433,15 +2538,18 @@ def _get_ml_ensemble_weights(region, strategies=None):
 
 
 def _build_ml_ensemble_signals(data, region):
-    strategies = ("hybrid", "balanced", "trend")
+    strategies = tuple(_select_ml_ensemble_strategies(region, persist=False))
+    if not strategies:
+        strategies = ("hybrid", "balanced", "trend")
     normal_votes = Counter()
     special_votes = Counter()
     strategy_results = {}
     weight_info = _get_ml_ensemble_weights(region, strategies)
     strategy_weights = weight_info.get("weights") or {}
-    weight_scale = max(len(strategies), 1)
+    selected_strategies = tuple(strategy_weights.keys()) or strategies
+    weight_scale = max(len(selected_strategies), 1)
 
-    for strategy in strategies:
+    for strategy in selected_strategies:
         try:
             result = get_local_recommendations(strategy, data, region)
         except Exception:
@@ -2462,6 +2570,7 @@ def _build_ml_ensemble_signals(data, region):
         "special_votes": special_votes,
         "strategy_results": strategy_results,
         "strategy_weights": strategy_weights,
+        "selected_strategies": list(selected_strategies),
         "weight_diagnostics": weight_info.get("diagnostics") or {},
         "weight_confidence": weight_info.get("confidence", 0.0),
     }
@@ -2930,6 +3039,7 @@ def _predict_with_ml(data, region, variation_key=None):
                 key: round(float(value) * 100, 2)
                 for key, value in (ensemble_signals.get("strategy_weights") or {}).items()
             },
+            "ensemble_selected_strategies": list(ensemble_signals.get("selected_strategies") or []),
             "ensemble_weight_diagnostics": ensemble_signals.get("weight_diagnostics", {}),
             "ensemble_weight_confidence": round(
                 float(ensemble_signals.get("weight_confidence", 0.0)) * 100,
