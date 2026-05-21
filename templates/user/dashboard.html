@@ -227,7 +227,7 @@
                     <div style="font-weight:700; color:#24324a;">{{ item.display_name or item.name }}</div>
                     <div style="font-size:0.84rem; color:#6f7d90; margin-top:0.2rem;">
                         {{ item.region_label or ('香港' if item.region == 'hk' else '澳门' if item.region == 'macau' else item.region) }} ·
-                        {{ item.status_text }} ·
+                        {{ (item.periods_evaluated ~ ' 期回放') if item.has_data else '回测准备中' }} ·
                         {{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}
                     </div>
                 </div>
@@ -243,11 +243,7 @@
                 {% endfor %}
                 {% else %}
                 <div style="padding:0.75rem 0.85rem; border-radius:10px; background:white; border:1px dashed #dce5f1; color:#6f7d90;">
-                    {% if item.created_at %}
-                    当前这张快照还没有形成可用回测样本，通常是历史数据不足，或者该地区最近还没完成一次有效自动回测。
-                    {% else %}
-                    这个地区还没有生成回测快照。
-                    {% endif %}
+                    当前正在准备回测结果，等数据积累或自动回测完成后，这里会显示最新表现。
                 </div>
                 {% endif %}
             </div>
