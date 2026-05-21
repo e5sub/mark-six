@@ -3882,7 +3882,7 @@ class _PredictScreenState extends State<PredictScreen> {
 
                   final visiblePeriods = _showAllPredictionPeriods
                       ? orderedPeriods
-                      : orderedPeriods.take(4).toList();
+                      : orderedPeriods.take(3).toList();
 
                   return Column(
                     children: [
@@ -3970,7 +3970,7 @@ class _PredictScreenState extends State<PredictScreen> {
                         );
                       }).toList(),
                       if (!_showAllPredictionPeriods &&
-                          orderedPeriods.length > 4)
+                          orderedPeriods.length > 3)
                         TextButton(
                           onPressed: () {
                             setState(() {
@@ -3980,7 +3980,7 @@ class _PredictScreenState extends State<PredictScreen> {
                           child: const Text('显示更多'),
                         ),
                       if (_showAllPredictionPeriods &&
-                          orderedPeriods.length > 4)
+                          orderedPeriods.length > 3)
                         TextButton(
                           onPressed: () {
                             setState(() {
