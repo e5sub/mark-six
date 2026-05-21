@@ -3111,15 +3111,15 @@ def _predict_with_ml(data, region, variation_key=None):
     runtime_config = artifacts["runtime_config"]
     model = artifacts["model"]
     year = artifacts["year"]
-    color_pref = artifacts["color_pref"]
-    parity_pref = artifacts["parity_pref"]
-    probability_map = artifacts["probability_map"]
-    blend_weight = artifacts["blend_weight"]
-    ensemble_signals = artifacts["ensemble_signals"]
-    special_score_map = artifacts["special_score_map"]
-    normal_score_map = artifacts["normal_score_map"]
-    special_ranked_numbers = artifacts["special_ranked_numbers"]
-    normal_ranked_numbers = artifacts["normal_ranked_numbers"]
+    color_pref = artifacts.get("color_pref") or {}
+    parity_pref = artifacts.get("parity_pref") or {}
+    probability_map = artifacts.get("probability_map") or {}
+    blend_weight = float(artifacts.get("blend_weight", 0.7) or 0.7)
+    ensemble_signals = artifacts.get("ensemble_signals") or {}
+    special_score_map = artifacts.get("special_score_map") or {}
+    normal_score_map = artifacts.get("normal_score_map") or {}
+    special_ranked_numbers = list(artifacts.get("special_ranked_numbers") or [])
+    normal_ranked_numbers = list(artifacts.get("normal_ranked_numbers") or [])
 
     pool_size = _clamp(int(runtime_config.get("pool") or 18), 12, 24)
     special_pool_size = _clamp(int(runtime_config.get("special_pool") or 8), 6, 12)
@@ -3246,23 +3246,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
     if not data:
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
-        try:
-            return _predict_with_ml(data, region, variation_key=variation_key)
-        except Exception as e:
-            print(f"ml recommendation failed, falling back to balanced. Reason: {e}")
-            fallback = get_local_recommendations('balanced', data, region, variation_key=variation_key)
-            fallback_meta = dict(fallback.get("model_meta") or {})
-            fallback_meta.update({
-                "ml_fallback": True,
-                "ml_fallback_reason": str(e),
-            })
-            fallback["model_meta"] = fallback_meta
-            fallback["recommendation_text"] = _decorate_recommendation_text(
-                "ml",
-                "balanced",
-                fallback.get("recommendation_text", "")
-            )
-            return fallback
+        return _predict_with_ml(data, region, variation_key=variation_key)
     else:
         try:
             config = _load_strategy_config(strategy, region)
@@ -4607,25 +4591,10 @@ def unified_predict_api():
             result = get_local_recommendations(resolved_strategy, data, region, variation_key=variation_key)
         except Exception as e:
             print(f"Prediction failed for region={region}, strategy={resolved_strategy}, year={year}: {e}")
-            if resolved_strategy == 'ml':
-                result = get_local_recommendations('balanced', data, region, variation_key=variation_key)
-                fallback_meta = dict(result.get("model_meta") or {})
-                fallback_meta.update({
-                    "ml_fallback": True,
-                    "ml_fallback_reason": str(e),
-                })
-                result["model_meta"] = fallback_meta
-                result["recommendation_text"] = _decorate_recommendation_text(
-                    strategy,
-                    'balanced',
-                    result.get('recommendation_text', '')
-                )
-                result["strategy"] = 'balanced'
-            else:
-                return jsonify({
-                    "error": f"预测失败：{str(e)}",
-                    "error_type": "prediction_failed",
-                }), 500
+            return jsonify({
+                "error": f"预测失败：{str(e)}",
+                "error_type": "prediction_failed",
+            }), 500
     
     # 保存预测记录（仅对已激活用户）
     if user_id and is_active and not result.get('error'):
