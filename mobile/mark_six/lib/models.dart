@@ -89,6 +89,7 @@ class AccuracyStats {
     required this.normalHits,
     required this.correct,
     required this.accuracy,
+    required this.normalHitRate,
   });
 
   final int total;
@@ -96,6 +97,7 @@ class AccuracyStats {
   final int normalHits;
   final int correct;
   final double accuracy;
+  final double normalHitRate;
 
   factory AccuracyStats.fromJson(Map<String, dynamic> json) {
     return AccuracyStats(
@@ -104,6 +106,7 @@ class AccuracyStats {
       normalHits: (json['normal_hits'] as num?)?.toInt() ?? 0,
       correct: (json['correct'] as num?)?.toInt() ?? 0,
       accuracy: (json['accuracy'] as num?)?.toDouble() ?? 0.0,
+      normalHitRate: (json['normal_hit_rate'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
