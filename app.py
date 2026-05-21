@@ -2638,7 +2638,9 @@ def _train_ml_number_model(data, region, config):
 
     recent_desc = list(data or [])[:history_window + feature_window + evaluation_window]
     chronological = list(reversed(recent_desc))
-    min_history = min(24, max(12, feature_window // 2))
+    configured_min_history = min(24, max(12, feature_window // 2))
+    available_history = max(0, len(chronological) - 1)
+    min_history = min(configured_min_history, max(1, available_history))
     feature_cache = {}
     blend_candidates = [
         float(candidate)
@@ -2652,7 +2654,7 @@ def _train_ml_number_model(data, region, config):
         for candidate in blend_candidates
     }
 
-    if len(chronological) <= min_history:
+    if len(chronological) <= 1:
         return {
             "weights": [],
             "bias": 0.0,
@@ -2814,10 +2816,11 @@ def _train_ml_number_model(data, region, config):
 
 
 def _predict_with_ml(data, region, variation_key=None):
+    enriched_data, supplemental_draws = _ensure_ml_prediction_history(data, region)
     config = _load_strategy_config("ml", region)
-    runtime_config, model = _optimize_ml_runtime_config(data, region, config)
+    runtime_config, model = _optimize_ml_runtime_config(enriched_data, region, config)
     feature_window = _clamp(int(runtime_config.get("feature_window") or 60), 30, 90)
-    feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
+    feature_table = _build_ml_feature_table(enriched_data, region, feature_window=feature_window)
     feature_table = _apply_ml_feature_profile(
         feature_table,
         runtime_config.get("feature_profile") or model.get("feature_profile"),
@@ -2832,7 +2835,7 @@ def _predict_with_ml(data, region, variation_key=None):
     blend_weight = float(model.get("selected_blend", 0.7) or 0.7)
     blended_scores = _blend_ml_rankings(probability_map, heuristic_map, blend_weight)
     ranked_numbers = _rank_numbers(blended_scores)
-    ensemble_signals = _build_ml_ensemble_signals(data, region)
+    ensemble_signals = _build_ml_ensemble_signals(enriched_data, region)
     special_score_map, normal_score_map = _build_ml_dual_score_maps(
         ranked_numbers,
         probability_map,
@@ -2874,24 +2877,34 @@ def _predict_with_ml(data, region, variation_key=None):
     )
     year = _infer_draw_year(data)
     number_to_zodiac = _get_number_to_zodiac_map(year)
+    samples = int(model.get("samples", 0) or 0)
+    history_window = int(model.get("history_window", 0) or 0)
+    if samples > 0:
+        extra_reason = f"基于最近{history_window}期历史样本训练生成。"
+        if supplemental_draws > 0:
+            extra_reason += f" 当前年度样本不足，已自动补入{supplemental_draws}期跨年历史。"
+    else:
+        extra_reason = "当前年度历史样本不足，机器学习训练未完成，已回退为统计特征融合推荐。"
+        if supplemental_draws > 0:
+            extra_reason += f" 已额外补入{supplemental_draws}期历史记录。"
     recommendation_text = _build_special_focus_text(
         str(special_num),
         normal,
         strategy_name="机器学习预测",
-        samples=model.get("samples", 0),
+        samples=samples,
         confidence=special_probability,
-        extra_reason=f"基于最近{model.get('history_window', 0)}期历史样本训练生成。",
+        extra_reason=extra_reason,
     )
     return {
         "normal": normal,
         "special": {"number": str(special_num), "sno_zodiac": number_to_zodiac.get(str(special_num), "")},
         "recommendation_text": recommendation_text,
         "model_meta": {
-            "samples": model.get("samples", 0),
+            "samples": samples,
             "draw_samples": model.get("draw_samples", 0),
             "evaluation_draws": model.get("evaluation_draws", 0),
             "gradient_updates": model.get("gradient_updates", 0),
-            "history_window": model.get("history_window", 0),
+            "history_window": history_window,
             "feature_window": model.get("feature_window", 0),
             "evaluation_window": model.get("evaluation_window", 0),
             "feature_profile": model.get("feature_profile", runtime_config.get("feature_profile", "full")),
@@ -2924,6 +2937,8 @@ def _predict_with_ml(data, region, variation_key=None):
             ),
             "ensemble_normal_votes": dict(sorted((ensemble_signals.get("normal_votes") or Counter()).items())),
             "ensemble_special_votes": dict(sorted((ensemble_signals.get("special_votes") or Counter()).items())),
+            "supplemental_draws": supplemental_draws,
+            "training_draws": len(enriched_data),
         },
     }
 
@@ -3510,6 +3525,52 @@ def _normalize_backtest_draws(draws, limit=None):
     if limit and limit > 0 and len(normalized) > limit:
         normalized = normalized[-limit:]
     return normalized
+
+
+def _merge_draw_history_desc(*draw_groups, limit=None):
+    merged = []
+    seen_periods = set()
+    for group in draw_groups:
+        for draw in group or []:
+            if hasattr(draw, "to_dict"):
+                normalized = draw.to_dict()
+            elif isinstance(draw, dict):
+                normalized = dict(draw)
+            else:
+                continue
+            period = _normalize_period_value(normalized.get("id"))
+            if not period or period in seen_periods:
+                continue
+            seen_periods.add(period)
+            merged.append(normalized)
+    merged.sort(
+        key=lambda item: (str(item.get("date") or ""), _period_sort_key(item.get("id"))),
+        reverse=True,
+    )
+    if limit and limit > 0:
+        return merged[:limit]
+    return merged
+
+
+def _ensure_ml_prediction_history(data, region, minimum_draws=36, target_draws=240):
+    primary = _merge_draw_history_desc(data, limit=target_draws)
+    if len(primary) >= minimum_draws:
+        return primary, 0
+
+    try:
+        db_records = (
+            LotteryDraw.query.filter_by(region=region)
+            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+            .limit(max(target_draws * 2, 360))
+            .all()
+        )
+    except Exception as e:
+        print(f"补充{region}机器学习历史样本失败: {e}")
+        return primary, 0
+
+    merged = _merge_draw_history_desc(primary, db_records, limit=target_draws)
+    supplemental = max(0, len(merged) - len(primary))
+    return merged, supplemental
 
 
 def _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT):
