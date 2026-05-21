@@ -284,6 +284,49 @@ function shouldShowNormalNumbers() {
     return Boolean(window.userPredictionSettings && window.userPredictionSettings.showNormalNumbers);
 }
 
+function getStrategyLabel(strategy) {
+    const labels = {
+        smart: '智能优选',
+        hot: '热门预测',
+        cold: '冷门预测',
+        trend: '走势预测',
+        hybrid: '综合预测',
+        balanced: '均衡预测',
+        ml: '机器学习预测',
+        ai: 'AI智能预测',
+    };
+    return labels[strategy] || strategy || '未知';
+}
+
+function getMlRuntimeProfileLabel(value) {
+    const labels = {
+        base: '基础档',
+        compact: '紧凑档',
+        deep: '深度档',
+        adaptive: '自适应档',
+    };
+    return labels[value] || value || '基础档';
+}
+
+function getMlFeatureProfileLabel(value) {
+    const labels = {
+        full: '完整特征',
+        compact_structure: '结构精简',
+        compact_attributes: '属性精简',
+        compact_recency: '近期精简',
+    };
+    return labels[value] || value || '完整特征';
+}
+
+function getMlPromotionStrengthLabel(value) {
+    const labels = {
+        hold: '观察中',
+        watch: '重点观察',
+        promoted: '已提升',
+    };
+    return labels[value] || value || '观察中';
+}
+
 function renderPredictionInsights(data, strategy) {
     const sections = [];
 
@@ -302,13 +345,13 @@ function renderPredictionInsights(data, strategy) {
         const searchRows = runtimeSearch.length
             ? runtimeSearch.map(item => `
                 <div style="display:grid; grid-template-columns: 1.1fr 0.8fr 0.8fr 0.8fr; gap:8px; font-size:0.82rem; padding:6px 0; border-top:1px dashed rgba(0,0,0,0.08);">
-                    <div>${item.profile}</div>
+                    <div>${getMlRuntimeProfileLabel(item.profile)}</div>
                     <div>${item.top1_hit_rate}%</div>
                     <div>${item.top6_hit_rate}%</div>
-                    <div>${item.history_window}/${item.feature_window}${item.feature_profile && item.feature_profile !== 'full' ? ` · ${item.feature_profile}` : ''}</div>
+                    <div>${item.history_window}/${item.feature_window}${item.feature_profile && item.feature_profile !== 'full' ? ` · ${getMlFeatureProfileLabel(item.feature_profile)}` : ''}</div>
                 </div>
             `).join('')
-            : '<div style="font-size:0.82rem; color:#667085;">样本较少，当前使用基础参数。</div>';
+            : '<div style="font-size:0.82rem; color:#667085;">样本较少，当前使用基础档参数。</div>';
 
         const specialVotes = meta.ensemble_special_votes || {};
         const voteEntries = Object.entries(specialVotes)
@@ -319,10 +362,14 @@ function renderPredictionInsights(data, strategy) {
         const ensembleWeights = meta.ensemble_strategy_weights || {};
         const weightEntries = Object.entries(ensembleWeights)
             .sort((a, b) => Number(b[1]) - Number(a[1]))
-            .map(([key, value]) => `${key}:${Number(value).toFixed(1).replace(/\.0$/, '')}%`)
+            .map(([key, value]) => `${getStrategyLabel(key)}:${Number(value).toFixed(1).replace(/\.0$/, '')}%`)
             .join('、');
-        const preferredFeatures = Array.isArray(meta.preferred_feature_profiles) ? meta.preferred_feature_profiles.join('、') : '';
-        const preferredRuntimes = Array.isArray(meta.preferred_runtime_profiles) ? meta.preferred_runtime_profiles.join('、') : '';
+        const preferredFeatures = Array.isArray(meta.preferred_feature_profiles)
+            ? meta.preferred_feature_profiles.map(getMlFeatureProfileLabel).join('、')
+            : '';
+        const preferredRuntimes = Array.isArray(meta.preferred_runtime_profiles)
+            ? meta.preferred_runtime_profiles.map(getMlRuntimeProfileLabel).join('、')
+            : '';
 
         sections.push(`
             <div style="margin-top: 18px; display:grid; gap:12px;">
@@ -333,12 +380,12 @@ function renderPredictionInsights(data, strategy) {
                         <div><strong>Top6回测</strong><br>${meta.top6_hit_rate ?? 0}%</div>
                         <div><strong>置信度</strong><br>${meta.special_probability ?? 0}%</div>
                         <div><strong>评估样本</strong><br>${meta.evaluation_draws ?? meta.draw_samples ?? 0}期</div>
-                        <div><strong>参数档位</strong><br>${meta.runtime_profile || 'base'}</div>
+                        <div><strong>参数档位</strong><br>${getMlRuntimeProfileLabel(meta.runtime_profile)}</div>
                         <div><strong>综合评分</strong><br>${meta.runtime_score ?? 0}</div>
-                        <div><strong>特征档位</strong><br>${meta.feature_profile || 'full'}</div>
-                        <div><strong>固化状态</strong><br>${meta.promotion_strength || 'hold'}</div>
+                        <div><strong>特征档位</strong><br>${getMlFeatureProfileLabel(meta.feature_profile)}</div>
+                        <div><strong>固化状态</strong><br>${getMlPromotionStrengthLabel(meta.promotion_strength)}</div>
                     </div>
-                    ${meta.primary_feature_profile || meta.primary_runtime_profile ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前主配置：</strong>${meta.primary_runtime_profile || 'base'} · ${meta.primary_feature_profile || 'full'}</div>` : ''}
+                    ${meta.primary_feature_profile || meta.primary_runtime_profile ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前主配置：</strong>${getMlRuntimeProfileLabel(meta.primary_runtime_profile)} · ${getMlFeatureProfileLabel(meta.primary_feature_profile)}</div>` : ''}
                     ${preferredFeatures ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好特征：</strong>${preferredFeatures}${meta.profile_learning_confidence ? ` · 学习置信${meta.profile_learning_confidence}%` : ''}</div>` : ''}
                     ${preferredRuntimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>地区偏好参数：</strong>${preferredRuntimes}</div>` : ''}
                     ${weightEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>集成权重：</strong>${weightEntries}${meta.ensemble_weight_confidence ? ` · 置信${meta.ensemble_weight_confidence}%` : ''}</div>` : ''}
