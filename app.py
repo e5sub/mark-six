@@ -1064,7 +1064,12 @@ def _build_ml_heuristic_score_map(feature_table):
             momentum_medium * 0.08 -
             recent_special_penalty * 0.08 -
             recent_number_penalty * 0.04 +
-            (features[17] * 0.05 if len(features) > 17 else 0.0)
+            (features[17] * 0.05 if len(features) > 17 else 0.0) +
+            (features[18] * 0.06 if len(features) > 18 else 0.0) -
+            (features[19] * 0.07 if len(features) > 19 else 0.0) +
+            (features[20] * 0.05 if len(features) > 20 else 0.0) +
+            (features[21] * 0.06 if len(features) > 21 else 0.0) +
+            (features[22] * 0.03 if len(features) > 22 else 0.0)
         )
     return _normalize_metric_map(score_map)
 
@@ -1135,6 +1140,7 @@ def _default_strategy_config(strategy):
         "ml": {
             "history_window": 120,
             "feature_window": 60,
+            "evaluation_window": 30,
             "pool": 18,
             "special_pool": 8,
             "bucket_counts": [2, 2, 2],
@@ -1304,6 +1310,7 @@ def _tune_strategy_config(strategy, region):
     elif strategy == "ml":
         config["history_window"] = _clamp(int(90 + accuracy * 120), 80, 220)
         config["feature_window"] = _clamp(int(40 + accuracy * 40), 30, 80)
+        config["evaluation_window"] = _clamp(int(18 + accuracy * 24), 12, 48)
         config["pool"] = _clamp(int(14 + accuracy * 8), 12, 24)
         config["special_pool"] = _clamp(int(6 + accuracy * 4), 6, 12)
         config["epochs"] = _clamp(int(15 + accuracy * 15), 15, 30)
@@ -1878,13 +1885,19 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
     )
     recent_specials = [str(item.get("sno")) for item in short_data[:5] if item.get("sno")]
     recent_numbers = set()
+    recent_number_hits = Counter()
     for item in short_data[:8]:
         for number in item.get("no", []):
             if number:
                 recent_numbers.add(str(number))
+                recent_number_hits[str(number)] += 1
         special = item.get("sno")
         if special:
             recent_numbers.add(str(special))
+            recent_number_hits[str(special)] += 1
+
+    recent_special_gap = _build_overdue_scores(short_data[:8] or short_data)
+    recent_gap_norm = _normalize_metric_map(recent_special_gap)
 
     features = {}
     for number in range(1, 50):
@@ -1900,6 +1913,15 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
         bucket_high = 1.0 if number >= 34 else 0.0
         short_momentum = short_special.get(key, 0.0) - medium_special.get(key, 0.0)
         medium_momentum = medium_special.get(key, 0.0) - long_special.get(key, 0.0)
+        neighbor_density = (
+            recent_all.get(str(max(1, number - 1)), 0.0) * 0.25 +
+            recent_all.get(key, 0.0) * 0.5 +
+            recent_all.get(str(min(49, number + 1)), 0.0) * 0.25
+        )
+        repeat_pressure = min(1.0, recent_number_hits.get(key, 0) / 3.0)
+        normal_support = max(0.0, recent_all.get(key, 0.0) - short_special.get(key, 0.0))
+        recent_gap_score = recent_gap_norm.get(key, 0.0)
+        interval_balance = 1.0 - min(1.0, abs(number - 25) / 24.0)
         features[key] = [
             short_special.get(key, 0.0),
             medium_special.get(key, 0.0),
@@ -1919,8 +1941,268 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
             round(short_momentum, 6),
             round(medium_momentum, 6),
             recent_all.get(key, 0.0),
+            round(neighbor_density, 6),
+            round(repeat_pressure, 6),
+            round(normal_support, 6),
+            round(recent_gap_score, 6),
+            round(interval_balance, 6),
         ]
     return features
+
+
+def _build_ml_score_pairs(feature_table, weights=None, bias=0.0):
+    score_pairs = []
+    weights = weights or []
+    for number in range(1, 50):
+        key = str(number)
+        features = feature_table.get(key)
+        if not features:
+            continue
+        score = float(bias) + sum(
+            weight * value for weight, value in zip(weights, features)
+        )
+        score_pairs.append((key, features, score))
+    return score_pairs
+
+
+def _ensure_ml_weight_vector(weights, feature_table):
+    if weights is not None:
+        return list(weights)
+    first_features = next(iter(feature_table.values()), [])
+    return [0.0] * len(first_features)
+
+
+def _update_ml_weights(score_pairs, target_special, weights, bias, step, l2):
+    probabilities = _softmax([item[2] for item in score_pairs])
+    target_probability = 0.0
+    for row_idx, (key, features, _) in enumerate(score_pairs):
+        probability = probabilities[row_idx]
+        label = 1.0 if key == target_special else 0.0
+        error = label - probability
+        if label > 0:
+            target_probability = probability
+        bias += step * error
+        for feature_idx, feature_value in enumerate(features):
+            weights[feature_idx] += step * (
+                error * feature_value - (l2 * weights[feature_idx])
+            )
+    return weights, bias, probabilities, target_probability
+
+
+def _build_ml_probability_map(score_pairs):
+    probabilities = _softmax([item[2] for item in score_pairs])
+    return {
+        int(key): probabilities[row_idx]
+        for row_idx, (key, _, _) in enumerate(score_pairs)
+    }
+
+
+def _get_ml_bucket_name(number):
+    if number <= 16:
+        return "low"
+    if number <= 33:
+        return "mid"
+    return "high"
+
+
+def _select_ml_normal_numbers(ranked_numbers, score_map, bucket_counts, variation_key=None, pool_size=18):
+    desired_counts = {
+        "low": max(0, int(bucket_counts[0] if len(bucket_counts) > 0 else 2)),
+        "mid": max(0, int(bucket_counts[1] if len(bucket_counts) > 1 else 2)),
+        "high": max(0, int(bucket_counts[2] if len(bucket_counts) > 2 else 2)),
+    }
+    candidate_limit = max(int(pool_size) * 2, 18)
+    base_candidates = list(ranked_numbers[:candidate_limit]) or list(ranked_numbers)
+    candidates = _take_personalized_ranked(
+        base_candidates,
+        len(base_candidates),
+        variation_key=variation_key,
+        chunk_size=4,
+        window_size=len(base_candidates),
+    )
+    bucket_usage = {"low": 0, "mid": 0, "high": 0}
+    chosen = []
+
+    while len(chosen) < 6:
+        best_number = None
+        best_score = None
+        for number in candidates:
+            if number in chosen:
+                continue
+            bucket = _get_ml_bucket_name(number)
+            bucket_overflow = max(0, bucket_usage[bucket] - desired_counts.get(bucket, 0))
+            bucket_gap = max(0, desired_counts.get(bucket, 0) - bucket_usage[bucket])
+            adjusted_score = float(score_map.get(number, 0.0))
+            adjusted_score += bucket_gap * 0.045
+            adjusted_score -= bucket_overflow * 0.09
+            adjusted_score -= bucket_usage[bucket] * 0.015
+            if (
+                best_score is None or
+                adjusted_score > best_score or
+                (adjusted_score == best_score and (best_number is None or number > best_number))
+            ):
+                best_number = number
+                best_score = adjusted_score
+
+        if best_number is None:
+            break
+
+        chosen.append(best_number)
+        bucket_usage[_get_ml_bucket_name(best_number)] += 1
+
+    return sorted(chosen[:6])
+
+
+def _estimate_ml_confidence(probability_map, blended_scores, special_num, model):
+    ranked = sorted(blended_scores.items(), key=lambda item: item[1], reverse=True)
+    top_score = float(blended_scores.get(special_num, 0.0))
+    next_score = float(ranked[1][1]) if len(ranked) > 1 else 0.0
+    margin = max(0.0, top_score - next_score)
+    top1_rate = float(model.get("top1_hit_rate", 0.0))
+    top6_rate = float(model.get("top6_hit_rate", 0.0))
+    raw_probability = float(probability_map.get(special_num, 0.0))
+    confidence = (
+        28.0 +
+        min(top_score, 1.0) * 32.0 +
+        min(margin, 1.0) * 140.0 +
+        top1_rate * 18.0 +
+        top6_rate * 10.0 +
+        min(raw_probability * 100.0, 8.0)
+    )
+    return round(_clamp(confidence, 18.0, 92.0), 2)
+
+
+def _build_ml_ensemble_signals(data, region):
+    strategies = ("hybrid", "balanced", "trend")
+    normal_votes = Counter()
+    special_votes = Counter()
+    strategy_results = {}
+
+    for strategy in strategies:
+        try:
+            result = get_local_recommendations(strategy, data, region)
+        except Exception:
+            continue
+        strategy_results[strategy] = result
+        for number in result.get("normal", []) or []:
+            try:
+                normal_votes[int(number)] += 1
+            except (TypeError, ValueError):
+                continue
+        special_number = ((result.get("special") or {}).get("number") or "").strip()
+        if special_number.isdigit():
+            special_votes[int(special_number)] += 1
+
+    return {
+        "normal_votes": normal_votes,
+        "special_votes": special_votes,
+        "strategy_results": strategy_results,
+    }
+
+
+def _build_ml_dual_score_maps(ranked_numbers, probability_map, heuristic_map, ensemble_signals):
+    normal_votes = ensemble_signals.get("normal_votes") or Counter()
+    special_votes = ensemble_signals.get("special_votes") or Counter()
+    special_scores = {}
+    normal_scores = {}
+
+    for rank_idx, number in enumerate(ranked_numbers):
+        prob_score = float(probability_map.get(number, 0.0))
+        heuristic_score = float(heuristic_map.get(number, 0.0))
+        special_vote = float(special_votes.get(number, 0))
+        normal_vote = float(normal_votes.get(number, 0))
+        rank_bonus = max(0.0, 1.0 - (rank_idx / 18.0))
+
+        special_scores[number] = round(
+            prob_score * 0.60 +
+            heuristic_score * 0.22 +
+            special_vote * 0.14 +
+            normal_vote * 0.03 +
+            rank_bonus * 0.05,
+            6,
+        )
+        normal_scores[number] = round(
+            heuristic_score * 0.36 +
+            prob_score * 0.24 +
+            normal_vote * 0.24 +
+            special_vote * 0.04 +
+            rank_bonus * 0.12,
+            6,
+        )
+
+    return special_scores, normal_scores
+
+
+def _score_ml_model(model):
+    top1 = float(model.get("top1_hit_rate", 0.0))
+    top6 = float(model.get("top6_hit_rate", 0.0))
+    avg_target_probability = float(model.get("avg_target_probability", 0.0))
+    evaluation_draws = int(model.get("evaluation_draws", 0) or 0)
+    confidence = min(1.0, evaluation_draws / 20.0) if evaluation_draws > 0 else 0.0
+    return round(
+        ((top1 * 1.85) + (top6 * 1.0) + (avg_target_probability * 0.35)) * max(confidence, 0.35),
+        6,
+    )
+
+
+def _optimize_ml_runtime_config(data, region, config):
+    data_size = len(data or [])
+    base_config = dict(config or {})
+    if data_size < 80:
+        model = _train_ml_number_model(data, region, base_config)
+        model["runtime_config"] = base_config
+        model["runtime_search"] = []
+        model["runtime_profile"] = "base"
+        model["runtime_score"] = _score_ml_model(model)
+        return base_config, model
+
+    base_history = _clamp(int(base_config.get("history_window") or 120), 80, 240)
+    base_feature = _clamp(int(base_config.get("feature_window") or 60), 30, 90)
+    base_eval = _clamp(int(base_config.get("evaluation_window") or 30), 12, 60)
+
+    candidate_specs = [
+        ("base", {}),
+        ("recent_bias", {
+            "history_window": _clamp(base_history - 20, 80, 220),
+            "feature_window": _clamp(base_feature - 8, 30, 80),
+            "evaluation_window": _clamp(base_eval - 4, 12, 48),
+            "learning_rate": round(_clamp(float(base_config.get("learning_rate") or 0.035) + 0.008, 0.01, 0.08), 3),
+        }),
+        ("context_bias", {
+            "history_window": _clamp(base_history + 25, 100, 240),
+            "feature_window": _clamp(base_feature + 8, 36, 90),
+            "evaluation_window": _clamp(base_eval + 4, 18, 60),
+            "l2": round(_clamp(float(base_config.get("l2") or 0.0025) + 0.0008, 0.001, 0.005), 4),
+        }),
+    ]
+
+    evaluations = []
+    best = None
+    best_model = None
+    best_config = base_config
+    for profile_name, overrides in candidate_specs:
+        candidate_config = {**base_config, **overrides}
+        model = _train_ml_number_model(data, region, candidate_config)
+        runtime_score = _score_ml_model(model)
+        model["runtime_score"] = runtime_score
+        model["runtime_profile"] = profile_name
+        model["runtime_config"] = candidate_config
+        evaluations.append({
+            "profile": profile_name,
+            "score": runtime_score,
+            "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
+            "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
+            "history_window": candidate_config.get("history_window"),
+            "feature_window": candidate_config.get("feature_window"),
+            "evaluation_window": candidate_config.get("evaluation_window"),
+        })
+        if best is None or runtime_score > best:
+            best = runtime_score
+            best_model = model
+            best_config = candidate_config
+
+    best_model["runtime_search"] = evaluations
+    return best_config, best_model
 
 
 def _train_ml_number_model(data, region, config):
@@ -1929,17 +2211,11 @@ def _train_ml_number_model(data, region, config):
     epochs = _clamp(int(config.get("epochs") or 15), 15, 30)
     learning_rate = float(config.get("learning_rate") or 0.035)
     l2 = float(config.get("l2") or 0.0025)
+    evaluation_window = _clamp(int(config.get("evaluation_window") or 30), 12, 60)
 
-    recent_desc = list(data or [])[:history_window + feature_window]
+    recent_desc = list(data or [])[:history_window + feature_window + evaluation_window]
     chronological = list(reversed(recent_desc))
     min_history = min(24, max(12, feature_window // 2))
-    weights = None
-    bias = 0.0
-    sample_count = 0
-    training_steps = 0
-    top1_hits = 0
-    top6_hits = 0
-    target_probability_sum = 0.0
     feature_cache = {}
     blend_candidates = [
         float(candidate)
@@ -1954,107 +2230,158 @@ def _train_ml_number_model(data, region, config):
     }
 
     if len(chronological) <= min_history:
-        return {"weights": [], "bias": bias, "samples": 0, "draw_samples": 0}
+        return {
+            "weights": [],
+            "bias": 0.0,
+            "samples": 0,
+            "draw_samples": 0,
+            "evaluation_draws": 0,
+            "gradient_updates": 0,
+        }
+
+    def get_feature_table(idx):
+        target_draw = chronological[idx]
+        cutoff_period = target_draw.get("id")
+        cache_key = _normalize_period_value(cutoff_period)
+        feature_table = feature_cache.get(cache_key)
+        if feature_table is None:
+            history_desc = list(reversed(chronological[:idx]))
+            feedback = _build_prediction_feedback(
+                region,
+                "ml",
+                cutoff_period=cutoff_period,
+            )
+            feature_table = _build_ml_feature_table(
+                history_desc,
+                region,
+                feature_window=feature_window,
+                feedback=feedback,
+            )
+            feature_cache[cache_key] = feature_table
+        return feature_table
+
+    eval_start = max(min_history, len(chronological) - evaluation_window)
+    eval_weights = None
+    eval_bias = 0.0
+    evaluation_steps = 0
+    top1_hits = 0
+    top6_hits = 0
+    target_probability_sum = 0.0
+
+    for idx in range(min_history, len(chronological)):
+        target_draw = chronological[idx]
+        target_special = str(target_draw.get("sno") or "").strip()
+        if not target_special:
+            continue
+
+        feature_table = get_feature_table(idx)
+        eval_weights = _ensure_ml_weight_vector(eval_weights, feature_table)
+        score_pairs = _build_ml_score_pairs(feature_table, eval_weights, eval_bias)
+        if not score_pairs:
+            continue
+
+        if idx >= eval_start:
+            target_number = int(target_special)
+            probabilities = _softmax([item[2] for item in score_pairs])
+            ranked_numbers = [
+                int(item[0])
+                for item in sorted(score_pairs, key=lambda item: item[2], reverse=True)
+            ]
+            if ranked_numbers and ranked_numbers[0] == target_number:
+                top1_hits += 1
+            if target_number in ranked_numbers[:6]:
+                top6_hits += 1
+            target_probability_sum += next(
+                (
+                    probabilities[row_idx]
+                    for row_idx, (key, _, _) in enumerate(score_pairs)
+                    if key == target_special
+                ),
+                0.0,
+            )
+
+            heuristic_map = _build_ml_heuristic_score_map(feature_table)
+            probability_map = {
+                int(key): probabilities[row_idx]
+                for row_idx, (key, _, _) in enumerate(score_pairs)
+            }
+            for candidate in blend_candidates:
+                blended_scores = _blend_ml_rankings(probability_map, heuristic_map, candidate)
+                blended_rank = _rank_numbers(blended_scores)
+                stats = blend_stats[round(candidate, 4)]
+                if blended_rank and blended_rank[0] == target_number:
+                    stats["top1"] += 1
+                if target_number in blended_rank[:6]:
+                    stats["top6"] += 1
+            evaluation_steps += 1
+
+        eval_weights, eval_bias, _, _ = _update_ml_weights(
+            score_pairs,
+            target_special,
+            eval_weights,
+            eval_bias,
+            learning_rate,
+            l2,
+        )
+
+    fit_weights = None
+    fit_bias = 0.0
+    fit_steps = 0
+    gradient_updates = 0
+    train_start = max(min_history, 1)
 
     for epoch in range(epochs):
         step = learning_rate * (0.94 ** epoch)
-        for idx in range(min_history, len(chronological)):
+        for idx in range(train_start, len(chronological)):
             target_draw = chronological[idx]
             target_special = str(target_draw.get("sno") or "").strip()
             if not target_special:
                 continue
 
-            history_desc = list(reversed(chronological[:idx]))
-            cutoff_period = target_draw.get("id")
-            cache_key = _normalize_period_value(cutoff_period)
-            feature_table = feature_cache.get(cache_key)
-            if feature_table is None:
-                feedback = _build_prediction_feedback(
-                    region,
-                    "ml",
-                    cutoff_period=cutoff_period,
-                )
-                feature_table = _build_ml_feature_table(
-                    history_desc,
-                    region,
-                    feature_window=feature_window,
-                    feedback=feedback,
-                )
-                feature_cache[cache_key] = feature_table
-            if weights is None:
-                first_features = next(iter(feature_table.values()), [])
-                weights = [0.0] * len(first_features)
-
-            score_pairs = []
-            for number in range(1, 50):
-                key = str(number)
-                features = feature_table.get(key)
-                if not features:
-                    continue
-                score = bias + sum(weight * value for weight, value in zip(weights, features))
-                score_pairs.append((key, features, score))
-
+            feature_table = get_feature_table(idx)
+            fit_weights = _ensure_ml_weight_vector(fit_weights, feature_table)
+            score_pairs = _build_ml_score_pairs(feature_table, fit_weights, fit_bias)
             if not score_pairs:
                 continue
 
-            probabilities = _softmax([item[2] for item in score_pairs])
-            target_probability = 0.0
-            for row_idx, (key, features, _) in enumerate(score_pairs):
-                probability = probabilities[row_idx]
-                label = 1.0 if key == target_special else 0.0
-                error = label - probability
-                if label > 0:
-                    target_probability = probability
-                bias += step * error
-                for feature_idx, feature_value in enumerate(features):
-                    weights[feature_idx] += step * (error * feature_value - (l2 * weights[feature_idx]))
-                sample_count += 1
-
-            ranked_numbers = [int(item[0]) for item in sorted(score_pairs, key=lambda item: item[2], reverse=True)]
-            if ranked_numbers:
-                target_number = int(target_special)
-                if ranked_numbers[0] == target_number:
-                    top1_hits += 1
-                if target_number in ranked_numbers[:6]:
-                    top6_hits += 1
-
-                heuristic_map = _build_ml_heuristic_score_map(feature_table)
-                probability_map = {int(key): probabilities[row_idx] for row_idx, (key, _, _) in enumerate(score_pairs)}
-                for candidate in blend_candidates:
-                    blended_scores = _blend_ml_rankings(probability_map, heuristic_map, candidate)
-                    blended_rank = _rank_numbers(blended_scores)
-                    stats = blend_stats[round(candidate, 4)]
-                    if blended_rank and blended_rank[0] == target_number:
-                        stats["top1"] += 1
-                    if target_number in blended_rank[:6]:
-                        stats["top6"] += 1
-            target_probability_sum += target_probability
-            training_steps += 1
+            fit_weights, fit_bias, _, _ = _update_ml_weights(
+                score_pairs,
+                target_special,
+                fit_weights,
+                fit_bias,
+                step,
+                l2,
+            )
+            fit_steps += 1
+            gradient_updates += len(score_pairs)
 
     selected_blend = blend_candidates[0]
     best_score = -1.0
     for candidate in blend_candidates:
         stats = blend_stats[round(candidate, 4)]
-        candidate_score = (stats["top6"] * 1.0) + (stats["top1"] * 1.5)
+        candidate_score = (stats["top6"] * 1.0) + (stats["top1"] * 1.8)
         if candidate_score > best_score:
             best_score = candidate_score
             selected_blend = candidate
 
     return {
-        "weights": [round(weight, 6) for weight in (weights or [])],
-        "bias": round(bias, 6),
-        "samples": sample_count,
-        "draw_samples": training_steps,
+        "weights": [round(weight, 6) for weight in (fit_weights or [])],
+        "bias": round(fit_bias, 6),
+        "samples": fit_steps,
+        "draw_samples": fit_steps,
+        "evaluation_draws": evaluation_steps,
+        "gradient_updates": gradient_updates,
         "history_window": history_window,
         "feature_window": feature_window,
-        "avg_target_probability": round((target_probability_sum / training_steps), 6) if training_steps else 0.0,
-        "top1_hit_rate": round((top1_hits / training_steps), 6) if training_steps else 0.0,
-        "top6_hit_rate": round((top6_hits / training_steps), 6) if training_steps else 0.0,
+        "evaluation_window": evaluation_window,
+        "avg_target_probability": round((target_probability_sum / evaluation_steps), 6) if evaluation_steps else 0.0,
+        "top1_hit_rate": round((top1_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
+        "top6_hit_rate": round((top6_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
         "selected_blend": round(selected_blend, 4),
         "blend_stats": {
             str(candidate): {
-                "top1_hit_rate": round((blend_stats[round(candidate, 4)]["top1"] / training_steps), 6) if training_steps else 0.0,
-                "top6_hit_rate": round((blend_stats[round(candidate, 4)]["top6"] / training_steps), 6) if training_steps else 0.0,
+                "top1_hit_rate": round((blend_stats[round(candidate, 4)]["top1"] / evaluation_steps), 6) if evaluation_steps else 0.0,
+                "top6_hit_rate": round((blend_stats[round(candidate, 4)]["top6"] / evaluation_steps), 6) if evaluation_steps else 0.0,
             }
             for candidate in blend_candidates
         },
@@ -2063,57 +2390,46 @@ def _train_ml_number_model(data, region, config):
 
 def _predict_with_ml(data, region, variation_key=None):
     config = _load_strategy_config("ml", region)
-    model = _train_ml_number_model(data, region, config)
-    feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
+    runtime_config, model = _optimize_ml_runtime_config(data, region, config)
+    feature_window = _clamp(int(runtime_config.get("feature_window") or 60), 30, 90)
     feature_table = _build_ml_feature_table(data, region, feature_window=feature_window)
-    scored = []
-    for number in range(1, 50):
-        key = str(number)
-        features = feature_table.get(key, [])
-        score = model.get("bias", 0.0) + sum(
-            weight * value for weight, value in zip(model.get("weights", []), features)
-        )
-        scored.append((number, score))
-    probabilities = _softmax([item[1] for item in scored])
-    raw_ranked = [
-        (number, round(probability, 6))
-        for (number, _), probability in zip(scored, probabilities)
-    ]
-    probability_map = dict(raw_ranked)
+    score_pairs = _build_ml_score_pairs(
+        feature_table,
+        model.get("weights", []),
+        model.get("bias", 0.0),
+    )
+    probability_map = _build_ml_probability_map(score_pairs)
     heuristic_map = _build_ml_heuristic_score_map(feature_table)
     blend_weight = float(model.get("selected_blend", 0.7) or 0.7)
     blended_scores = _blend_ml_rankings(probability_map, heuristic_map, blend_weight)
     ranked_numbers = _rank_numbers(blended_scores)
-    ranked = [(number, round(blended_scores.get(number, 0.0), 6)) for number in ranked_numbers]
+    ensemble_signals = _build_ml_ensemble_signals(data, region)
+    special_score_map, normal_score_map = _build_ml_dual_score_maps(
+        ranked_numbers,
+        probability_map,
+        heuristic_map,
+        ensemble_signals,
+    )
+    special_ranked_numbers = _rank_numbers(special_score_map)
+    normal_ranked_numbers = _rank_numbers(normal_score_map)
 
-    pool_size = _clamp(int(config.get("pool") or 18), 12, 24)
-    special_pool_size = _clamp(int(config.get("special_pool") or 8), 6, 12)
-    bucket_counts = config.get("bucket_counts") or [2, 2, 2]
-    low_count, mid_count, high_count = bucket_counts
-
-    low_bucket = [number for number in ranked_numbers[:pool_size * 2] if number <= 16]
-    mid_bucket = [number for number in ranked_numbers[:pool_size * 2] if 17 <= number <= 33]
-    high_bucket = [number for number in ranked_numbers[:pool_size * 2] if number >= 34]
-    normal = []
-    normal += _take_personalized_ranked(low_bucket, int(low_count), variation_key=variation_key)
-    normal += _take_personalized_ranked(mid_bucket, int(mid_count), variation_key=variation_key, exclude=normal)
-    normal += _take_personalized_ranked(high_bucket, int(high_count), variation_key=variation_key, exclude=normal)
-    if len(normal) < 6:
-        normal += _take_personalized_ranked(
-            ranked_numbers[:pool_size * 2],
-            6 - len(normal),
-            variation_key=variation_key,
-            exclude=normal,
-            window_size=max(pool_size * 2, 12)
-        )
-    normal = sorted(normal[:6])
+    pool_size = _clamp(int(runtime_config.get("pool") or 18), 12, 24)
+    special_pool_size = _clamp(int(runtime_config.get("special_pool") or 8), 6, 12)
+    bucket_counts = runtime_config.get("bucket_counts") or [2, 2, 2]
+    normal = _select_ml_normal_numbers(
+        normal_ranked_numbers,
+        normal_score_map,
+        bucket_counts,
+        variation_key=variation_key,
+        pool_size=pool_size,
+    )
 
     special_candidates = [
-        number for number in ranked_numbers[:special_pool_size * 2]
+        number for number in special_ranked_numbers[:special_pool_size * 2]
         if number not in normal
     ]
     if not special_candidates:
-        special_candidates = [number for number in ranked_numbers if number not in normal]
+        special_candidates = [number for number in special_ranked_numbers if number not in normal]
     special_pick = _take_personalized_ranked(
         special_candidates,
         1,
@@ -2121,7 +2437,12 @@ def _predict_with_ml(data, region, variation_key=None):
         window_size=max(special_pool_size // 2, 2)
     )
     special_num = special_pick[0] if special_pick else special_candidates[0]
-    special_probability = round(float(probability_map.get(special_num, 0.0)) * 100, 2)
+    special_probability = _estimate_ml_confidence(
+        probability_map,
+        special_score_map,
+        special_num,
+        model,
+    )
     year = _infer_draw_year(data)
     number_to_zodiac = _get_number_to_zodiac_map(year)
     recommendation_text = _build_special_focus_text(
@@ -2139,14 +2460,22 @@ def _predict_with_ml(data, region, variation_key=None):
         "model_meta": {
             "samples": model.get("samples", 0),
             "draw_samples": model.get("draw_samples", 0),
+            "evaluation_draws": model.get("evaluation_draws", 0),
+            "gradient_updates": model.get("gradient_updates", 0),
             "history_window": model.get("history_window", 0),
             "feature_window": model.get("feature_window", 0),
+            "evaluation_window": model.get("evaluation_window", 0),
+            "runtime_profile": model.get("runtime_profile", "base"),
+            "runtime_score": round(float(model.get("runtime_score", 0.0)) * 100, 2),
+            "runtime_search": model.get("runtime_search", []),
             "special_probability": special_probability,
             "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
             "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
             "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
             "selected_blend": round(blend_weight * 100, 2),
-            "blended_special_score": round(float(blended_scores.get(special_num, 0.0)) * 100, 2),
+            "blended_special_score": round(float(special_score_map.get(special_num, 0.0)) * 100, 2),
+            "ensemble_normal_votes": dict(sorted((ensemble_signals.get("normal_votes") or Counter()).items())),
+            "ensemble_special_votes": dict(sorted((ensemble_signals.get("special_votes") or Counter()).items())),
         },
     }
 

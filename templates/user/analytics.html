@@ -113,10 +113,17 @@
                 <div class="learning-row">
                     <div class="learning-name">{{ strategy_label_map.get(strategy_key, strategy_key) }}：{{ current[strategy_key].last_accuracy }}%</div>
                     <div class="learning-meta">
+                        {% if strategy_key == 'ml' %}
+                        历史窗 {{ current[strategy_key].history_window or '-' }}，
+                        特征窗 {{ current[strategy_key].feature_window or '-' }}，
+                        评估窗 {{ current[strategy_key].evaluation_window or '-' }}，
+                        学习样本 {{ current[strategy_key].last_total or 0 }}
+                        {% else %}
                         参考期数 {{ current[strategy_key].window or '-' }}，
                         平码候选池 {{ current[strategy_key].pool or '-' }}，
                         特码候选池 {{ current[strategy_key].special_pool or '-' }}，
                         学习样本 {{ current[strategy_key].last_total or 0 }}
+                        {% endif %}
                     </div>
                 </div>
                 {% endfor %}

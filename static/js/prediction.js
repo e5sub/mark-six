@@ -283,6 +283,70 @@ function shouldShowNormalNumbers() {
     return Boolean(window.userPredictionSettings && window.userPredictionSettings.showNormalNumbers);
 }
 
+function renderPredictionInsights(data, strategy) {
+    const sections = [];
+
+    if (data.requested_strategy === 'smart' && data.recommended_strategy) {
+        sections.push(`
+            <div style="margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: rgba(255, 193, 7, 0.12); border: 1px solid rgba(255, 193, 7, 0.32);">
+                <div style="font-size: 0.9rem; font-weight: 700; color: #8a5a00; margin-bottom: 4px;">智能优选本期实际采用</div>
+                <div style="font-size: 1rem; color: #5c4400;">${data.recommended_strategy}</div>
+            </div>
+        `);
+    }
+
+    if (strategy === 'ml' && data.model_meta) {
+        const meta = data.model_meta;
+        const runtimeSearch = Array.isArray(meta.runtime_search) ? meta.runtime_search : [];
+        const searchRows = runtimeSearch.length
+            ? runtimeSearch.map(item => `
+                <div style="display:grid; grid-template-columns: 1.1fr 0.8fr 0.8fr 0.8fr; gap:8px; font-size:0.82rem; padding:6px 0; border-top:1px dashed rgba(0,0,0,0.08);">
+                    <div>${item.profile}</div>
+                    <div>${item.top1_hit_rate}%</div>
+                    <div>${item.top6_hit_rate}%</div>
+                    <div>${item.history_window}/${item.feature_window}</div>
+                </div>
+            `).join('')
+            : '<div style="font-size:0.82rem; color:#667085;">样本较少，当前使用基础参数。</div>';
+
+        const specialVotes = meta.ensemble_special_votes || {};
+        const voteEntries = Object.entries(specialVotes)
+            .sort((a, b) => Number(b[1]) - Number(a[1]) || Number(a[0]) - Number(b[0]))
+            .slice(0, 5)
+            .map(([num, votes]) => `${num}(${votes})`)
+            .join('、');
+
+        sections.push(`
+            <div style="margin-top: 18px; display:grid; gap:12px;">
+                <div style="padding: 14px; border-radius: 12px; background: rgba(0, 137, 123, 0.08); border: 1px solid rgba(0, 137, 123, 0.18);">
+                    <div style="font-size: 0.95rem; font-weight: 700; color: #0f5f56; margin-bottom: 10px;">机器学习诊断</div>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; font-size:0.85rem; color:#23403b;">
+                        <div><strong>Top1回测</strong><br>${meta.top1_hit_rate ?? 0}%</div>
+                        <div><strong>Top6回测</strong><br>${meta.top6_hit_rate ?? 0}%</div>
+                        <div><strong>置信度</strong><br>${meta.special_probability ?? 0}%</div>
+                        <div><strong>评估样本</strong><br>${meta.evaluation_draws ?? meta.draw_samples ?? 0}期</div>
+                        <div><strong>参数档位</strong><br>${meta.runtime_profile || 'base'}</div>
+                        <div><strong>综合评分</strong><br>${meta.runtime_score ?? 0}</div>
+                    </div>
+                    ${voteEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>特码共识票：</strong>${voteEntries}</div>` : ''}
+                </div>
+                <div style="padding: 14px; border-radius: 12px; background: rgba(33, 150, 243, 0.06); border: 1px solid rgba(33, 150, 243, 0.16);">
+                    <div style="font-size: 0.92rem; font-weight: 700; color: #155d9a; margin-bottom: 8px;">运行时参数搜索</div>
+                    <div style="display:grid; grid-template-columns: 1.1fr 0.8fr 0.8fr 0.8fr; gap:8px; font-size:0.78rem; color:#4b5563; font-weight:700; padding-bottom:6px;">
+                        <div>档位</div>
+                        <div>Top1</div>
+                        <div>Top6</div>
+                        <div>窗长</div>
+                    </div>
+                    ${searchRows}
+                </div>
+            </div>
+        `);
+    }
+
+    return sections.join('');
+}
+
 // 显示最终结果（包括号码）
 function displayFinalResult(data, strategy) {
     const predictionContent = document.getElementById('predictionContent');
@@ -526,6 +590,11 @@ function displayPrediction(data, strategy) {
                 </div>
             </div>
         `;
+    }
+
+    const insightsHtml = renderPredictionInsights(data, strategy);
+    if (insightsHtml) {
+        html += insightsHtml;
     }
     
     // 显示AI分析文本
