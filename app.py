@@ -3932,7 +3932,8 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
     chronological = _normalize_backtest_draws(draws, limit=AUTO_BACKTEST_LIMIT)
     strategy_logs = {strategy: [] for strategy in strategies}
     detail_rows = []
-    if len(chronological) <= min_history:
+    effective_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
+    if len(chronological) <= 1:
         return {
             "region": region,
             "strategies": strategies,
@@ -3943,7 +3944,7 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
             "details": [],
         }
 
-    for idx in range(min_history, len(chronological)):
+    for idx in range(effective_min_history, len(chronological)):
         target_draw = chronological[idx]
         history_desc = list(reversed(chronological[:idx]))
         for strategy in strategies:
@@ -3990,7 +3991,7 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
     return {
         "region": region,
         "strategies": strategies,
-        "periods_evaluated": max(0, len(chronological) - min_history),
+        "periods_evaluated": max(0, len(chronological) - effective_min_history),
         "latest_period": chronological[-1].get("id") if chronological else "",
         "strategy_results": strategy_results,
         "ranking": ranking,

@@ -138,7 +138,8 @@ def run_backtest(region, strategies, min_history=60, limit=None):
 
     strategy_logs = defaultdict(list)
     detailed_rows = []
-    if len(draws) <= min_history:
+    effective_min_history = min(max(1, int(min_history or 1)), max(1, len(draws) - 1))
+    if len(draws) <= 1:
         return {
             "region": region,
             "strategies": strategies,
@@ -147,7 +148,7 @@ def run_backtest(region, strategies, min_history=60, limit=None):
             "details": [],
         }
 
-    for idx in range(min_history, len(draws)):
+    for idx in range(effective_min_history, len(draws)):
         target_draw = draws[idx]
         history_desc = list(reversed(draws[:idx]))
         period = str(target_draw.get("id") or "")
@@ -199,7 +200,7 @@ def run_backtest(region, strategies, min_history=60, limit=None):
     return {
         "region": region,
         "strategies": strategies,
-        "periods_evaluated": max(0, len(draws) - min_history),
+        "periods_evaluated": max(0, len(draws) - effective_min_history),
         "strategy_results": strategy_results,
         "ranking": ranking,
         "details": detailed_rows,
