@@ -315,7 +315,7 @@ function getMlFeatureProfileLabel(value) {
     const labels = {
         full: '完整特征',
         compact_structure: '结构精简',
-        compact_attributes: '属性精简',
+        compact_attributes: '侧重波色生肖单双',
         compact_recency: '近期精简',
     };
     return labels[value] || value || '完整特征';

@@ -87,7 +87,7 @@ def _translate_ml_runtime_profile(value):
 def _translate_ml_feature_profile(value):
     mapping = {
         "full": "完整特征",
-        "compact_attributes": "属性精简",
+        "compact_attributes": "侧重波色生肖单双",
         "compact_structure": "结构精简",
         "compact_recency": "近期精简",
     }
