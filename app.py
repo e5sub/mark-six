@@ -156,6 +156,22 @@ def _build_strategy_note(requested_strategy, resolved_strategy):
         return f"智能优选（本期采用：{_get_strategy_label(resolved_strategy)}）"
     return _get_strategy_label(resolved_strategy)
 
+def _build_special_focus_text(special, normal=None, strategy_name=None, accuracy=None, samples=None, confidence=None, extra_reason=None):
+    lines = [f"本期主推特码：{special}"]
+    if normal:
+        lines.append(f"参考平码：{', '.join(map(str, normal))}")
+    if strategy_name:
+        lines.append(f"预测策略：{strategy_name}")
+    if accuracy is not None:
+        lines.append(f"历史参考值：{accuracy}%")
+    if samples is not None:
+        lines.append(f"学习样本：{samples}期")
+    if confidence is not None:
+        lines.append(f"参考置信度：{confidence}%")
+    if extra_reason:
+        lines.append(f"简要说明：{extra_reason}")
+    return "\n".join(lines)
+
 def _decorate_recommendation_text(requested_strategy, resolved_strategy, recommendation_text):
     if requested_strategy != 'smart':
         return recommendation_text or ''
@@ -482,7 +498,7 @@ def _finalize_ai_result(ai_response):
 
     sno_zodiac = ""
     return {
-        "recommendation_text": ai_response,
+        "recommendation_text": _build_special_focus_text(special_number, normal_numbers),
         "normal": normal_numbers,
         "special": {
             "number": special_number,
@@ -518,8 +534,10 @@ def _extract_ai_numbers(ai_response):
     list_patterns = [
         r'推荐号码\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
         r'号码推荐\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
+        r'参考平码\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
         r'推荐号码\s*[:：]\s*([0-9\s,，]{5,})',
         r'号码推荐\s*[:：]\s*([0-9\s,，]{5,})',
+        r'参考平码\s*[:：]\s*([0-9\s,，]{5,})',
     ]
     special_patterns = [
         r'特?码\s*[:：]\s*\[\s*(\d{1,2})(?:\s*[^\d\]]+)?\s*\]',
@@ -555,7 +573,7 @@ def _extract_ai_numbers(ai_response):
     lines = [line.strip() for line in normalized.splitlines() if line.strip()]
     candidate_lines = [
         line for line in lines
-        if any(k in line for k in ("推荐号码", "号码推荐", "特码"))
+        if any(k in line for k in ("推荐号码", "号码推荐", "参考平码", "特码"))
     ]
 
     for line in candidate_lines:
@@ -608,7 +626,7 @@ def _extract_ai_numbers_v2(ai_response, region=None):
         if len(normal_numbers) >= 6:
             return normal_numbers[:6], match.group(2)
 
-    label_pairs = [("推荐号码", "特码"), ("号码推荐", "特码")]
+    label_pairs = [("推荐号码", "特码"), ("号码推荐", "特码"), ("参考平码", "本期主推特码"), ("参考平码", "特码")]
     if region == "macau":
         label_pairs.extend([("平码", "特码"), ("号码", "特码")])
     for normal_label, special_label in label_pairs:
@@ -646,7 +664,7 @@ def _finalize_ai_result_v2(ai_response, region=None):
         return None, "AI生成的平码数量不足"
 
     return {
-        "recommendation_text": ai_response,
+        "recommendation_text": _build_special_focus_text(str(special_num_value), normal_numbers),
         "normal": normal_numbers,
         "special": {
             "number": str(special_num_value),
@@ -1730,10 +1748,13 @@ def _build_local_recommendation_text(strategy, config, normal, special, feedback
     accuracy = round(float(config.get("last_accuracy") or 0.0) * 100, 1)
     samples = int(feedback.get("samples") or 0)
     confidence = round(float(feedback.get("confidence") or 0.0) * 100, 1)
-    return (
-        f"{strategy_name}已结合最近历史开奖、号码冷热变化和历史命中反馈完成自动调优。"
-        f"当前策略回测命中率约{accuracy}%，学习样本{samples}期，反馈置信度{confidence}%，"
-        f"推荐平码 {', '.join(map(str, normal))}，特码 {special}。"
+    return _build_special_focus_text(
+        special,
+        normal,
+        strategy_name=strategy_name,
+        accuracy=accuracy,
+        samples=samples,
+        confidence=confidence,
     )
 
 
@@ -1743,7 +1764,11 @@ def _build_default_baseline_prediction():
     return {
         "normal": normal,
         "special": {"number": str(special_num), "sno_zodiac": ""},
-        "recommendation_text": "系统当前可用历史数据不足，已返回基础保底号码组合。",
+        "recommendation_text": _build_special_focus_text(
+            str(special_num),
+            normal,
+            extra_reason="当前历史数据不足，已返回基础保底组合。",
+        ),
     }
 
 def _build_ai_system_prompt():
@@ -1753,7 +1778,7 @@ def _build_ai_system_prompt():
         "你必须优先参考系统提供的近期回测表现、历史命中反馈、号码属性偏好和本地策略共识。"
         "不要输出免责声明。不要输出 1-49 以外的数字。不要重复数字。"
         "最终必须输出固定格式："
-        "推荐号码：[n1, n2, n3, n4, n5, n6]\\n特码：[s]\\n理由：..."
+        "本期主推特码：[s]\\n参考平码：[n1, n2, n3, n4, n5, n6]\\n理由：..."
         "如果你愿意，也可以先额外输出一行 JSON："
         "{\"normal\":[n1,n2,n3,n4,n5,n6],\"special\":s}"
     )
@@ -2112,11 +2137,13 @@ def _predict_with_ml(data, region, variation_key=None):
     special_probability = round(float(probability_map.get(special_num, 0.0)) * 100, 2)
     year = _infer_draw_year(data)
     number_to_zodiac = _get_number_to_zodiac_map(year)
-    recommendation_text = (
-        f"机器学习原型已基于最近{model.get('history_window', 0)}期历史开奖样本训练。"
-        f"训练样本 {model.get('samples', 0)} 条，并融合了号码、波色、单双、生肖与历史命中反馈，"
-        f"推荐平码 {', '.join(map(str, normal))}，特码 {special_num}，"
-        f"模型评分约 {special_probability}% 。"
+    recommendation_text = _build_special_focus_text(
+        str(special_num),
+        normal,
+        strategy_name="机器学习预测",
+        samples=model.get("samples", 0),
+        confidence=special_probability,
+        extra_reason=f"基于最近{model.get('history_window', 0)}期历史样本训练生成。",
     )
     return {
         "normal": normal,
@@ -2571,10 +2598,13 @@ def predict_with_ai(data, region):
             return {"error": error}
         tuned_accuracy = round(float(tuned.get("last_accuracy") or 0.0) * 100, 1)
         feedback = _build_prediction_feedback(region, "ai")
-        result["recommendation_text"] = (
-            f"AI智能预测已结合最近历史开奖与自动学习反馈完成分析。"
-            f"当前AI回测命中率约{tuned_accuracy}%，学习样本{feedback.get('samples', 0)}期。\n"
-            f"{result.get('recommendation_text', '')}"
+        result["recommendation_text"] = _build_special_focus_text(
+            result.get("special", {}).get("number", ""),
+            result.get("normal", []),
+            strategy_name="AI智能预测",
+            accuracy=tuned_accuracy,
+            samples=feedback.get("samples", 0),
+            extra_reason="已结合最近历史开奖与自动学习反馈。",
         )
         return result
     except Exception as e:

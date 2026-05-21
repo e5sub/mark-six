@@ -3751,11 +3751,11 @@ class _PredictScreenState extends State<PredictScreen> {
                     runSpacing: 12,
                     alignment: WrapAlignment.spaceEvenly,
                     children: [
-                      SizedBox(width: 50, child: _buildSummaryStatItem('当前连错', missStreak.toString(), missStreak > 0 ? Colors.redAccent : const Color(0xFF0B6B4F))),
-                      SizedBox(width: 50, child: _buildSummaryStatItem('最高连错', maxMissStreak.toString(), Colors.redAccent)),
-                      SizedBox(width: 50, child: _buildSummaryStatItem('最高连中', maxHitStreak.toString(), const Color(0xFF0B6B4F))),
-                      SizedBox(width: 50, child: _buildSummaryStatItem('累计命中', hitPeriods.toString(), const Color(0xFF2D6CDF))),
-                      SizedBox(width: 50, child: _buildSummaryStatItem('准确率', '${accuracy}%', const Color(0xFF2D6CDF))),
+                      SizedBox(width: 58, child: _buildSummaryStatItem('当前连错', missStreak.toString(), missStreak > 0 ? Colors.redAccent : const Color(0xFF0B6B4F))),
+                      SizedBox(width: 58, child: _buildSummaryStatItem('最高连错', maxMissStreak.toString(), Colors.redAccent)),
+                      SizedBox(width: 58, child: _buildSummaryStatItem('最高连中', maxHitStreak.toString(), const Color(0xFF0B6B4F))),
+                      SizedBox(width: 58, child: _buildSummaryStatItem('累计中特', hitPeriods.toString(), const Color(0xFF2D6CDF))),
+                      SizedBox(width: 58, child: _buildSummaryStatItem('特码命中率', '${accuracy}%', const Color(0xFF2D6CDF))),
                     ],
                   ),
                 ),
@@ -4334,7 +4334,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 12),
                         const Text(
-                          '预测准确率',
+                          '特码准确率',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -4342,7 +4342,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 8),
                         if (_overall != null) ...[
-                          Text('总体命中率：${_overall!.accuracy}%'),
+                          Text('特码命中率：${_overall!.accuracy}%'),
                           Text('总预测次数：${_overall!.total}'),
                           Text('特码命中：${_overall!.specialHits}'),
                           Text('平码/生肖命中：${_overall!.normalHits}'),

@@ -1488,14 +1488,19 @@ def _calculate_accuracy(query):
     special_hits = agg.special_hits or 0
     normal_hits = agg.normal_hits or 0
     correct = special_hits + normal_hits
-    accuracy = round((correct / total) * 100, 1) if total else 0.0
+    special_hit_rate = round((special_hits / total) * 100, 1) if total else 0.0
+    normal_hit_rate = round((normal_hits / total) * 100, 1) if total else 0.0
+    combined_accuracy = round((correct / total) * 100, 1) if total else 0.0
 
     return {
         "total": total,
         "special_hits": special_hits,
         "normal_hits": normal_hits,
         "correct": correct,
-        "accuracy": accuracy,
+        "accuracy": special_hit_rate,
+        "special_hit_rate": special_hit_rate,
+        "normal_hit_rate": normal_hit_rate,
+        "combined_accuracy": combined_accuracy,
     }
 
 def _strategy_config(region, strategy):
