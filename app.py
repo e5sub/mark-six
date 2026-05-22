@@ -365,6 +365,8 @@ def _hydrate_prediction_model_meta(strategy, existing_meta, data, region):
         refreshed = (_predict_with_ml(data, region) or {}).get("model_meta") or {}
         if refreshed:
             meta = {**meta, **refreshed}
+        if meta:
+            meta["display_copy"] = _build_ml_display_copy(meta)
     except Exception as e:
         print(f"补齐机器学习预测诊断信息失败: {e}")
     return meta
@@ -1220,6 +1222,161 @@ def _normalize_draw_number(value):
         return str(int(text))
     except (TypeError, ValueError):
         return text
+
+
+def _ml_runtime_profile_label(value):
+    mapping = {
+        "base": "标准模式",
+        "compact": "轻量模式",
+        "deep": "深度模式",
+        "adaptive": "自动调整",
+        "recent_bias": "侧重近期走势",
+        "context_bias": "侧重号码属性",
+        "recency_trim": "近期简化模式",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "标准模式")
+
+
+def _ml_feature_profile_label(value):
+    mapping = {
+        "full": "综合参考全部因素",
+        "compact_structure": "侧重整体结构",
+        "compact_attributes": "侧重波色生肖单双",
+        "compact_recency": "侧重近期走势",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "综合参考全部因素")
+
+
+def _ml_promotion_strength_label(value):
+    mapping = {
+        "hold": "观察中",
+        "watch": "重点观察",
+        "promoted": "已提升",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "观察中")
+
+
+def _build_ml_display_copy(model_meta):
+    meta = dict(model_meta or {})
+    display = {}
+
+    primary_runtime = _ml_runtime_profile_label(meta.get("primary_runtime_profile"))
+    primary_feature = _ml_feature_profile_label(meta.get("primary_feature_profile"))
+    display["primary_config"] = (
+        f"当前主配置：{primary_runtime} · {primary_feature}（会根据近期表现自动微调）"
+    )
+
+    preferred_features = [
+        _ml_feature_profile_label(item)
+        for item in (meta.get("preferred_feature_profiles") or [])
+        if str(item or "").strip()
+    ]
+    if preferred_features:
+        line = f"地区偏好特征：{'、'.join(preferred_features)}"
+        if meta.get("profile_learning_confidence") is not None:
+            line += f" · 学习置信{meta.get('profile_learning_confidence')}%"
+        display["preferred_features"] = line
+
+    preferred_runtimes = [
+        _ml_runtime_profile_label(item)
+        for item in (meta.get("preferred_runtime_profiles") or [])
+        if str(item or "").strip()
+    ]
+    if preferred_runtimes:
+        display["preferred_runtimes"] = f"地区偏好参数：{'、'.join(preferred_runtimes)}"
+
+    color_preference = str(meta.get("preferred_special_color") or "").strip()
+    color_preferences = meta.get("color_preferences") or {}
+    if color_preference:
+        color_conf = color_preferences.get(color_preference)
+        suffix = (
+            f"（历史特码参考 {color_conf}%）"
+            if color_conf is not None else "（历史特码参考）"
+        )
+        display["color_preference"] = f"本期波色偏向：{color_preference}{suffix}"
+
+    parity_preference = str(meta.get("preferred_special_parity") or "").strip()
+    parity_preferences = meta.get("parity_preferences") or {}
+    if parity_preference:
+        parity_conf = parity_preferences.get(parity_preference)
+        suffix = (
+            f"（历史特码参考 {parity_conf}%）"
+            if parity_conf is not None else "（历史特码参考）"
+        )
+        display["parity_preference"] = f"本期单双偏向：{parity_preference}{suffix}"
+
+    selected_strategies = [
+        _get_strategy_label(item)
+        for item in (meta.get("ensemble_selected_strategies") or [])
+        if str(item or "").strip()
+    ]
+    if selected_strategies:
+        display["selected_strategies"] = f"当前核心集成：{'、'.join(selected_strategies)}"
+
+    weight_entries = sorted(
+        (meta.get("ensemble_strategy_weights") or {}).items(),
+        key=lambda item: float(item[1] or 0.0),
+        reverse=True,
+    )
+    if weight_entries:
+        weight_text = "、".join(
+            f"{_get_strategy_label(key)}:{str(round(float(value), 1)).rstrip('0').rstrip('.') if '.' in str(round(float(value), 1)) else round(float(value), 1)}%"
+            for key, value in weight_entries
+        )
+        line = f"集成权重：{weight_text}（按近20/50/100期表现自动分配）"
+        if meta.get("ensemble_weight_confidence") is not None:
+            line += f" · 置信{meta.get('ensemble_weight_confidence')}%"
+        display["weight_summary"] = line
+
+    special_votes = meta.get("ensemble_special_votes") or {}
+    if special_votes:
+        vote_entries = "、".join(
+            f"{num}({str(round(float(votes), 2)).rstrip('0').rstrip('.')})"
+            for num, votes in sorted(
+                special_votes.items(),
+                key=lambda item: (float(item[1] or 0.0), int(item[0])),
+                reverse=True,
+            )[:5]
+        )
+        display["special_votes"] = f"特码共识票：{vote_entries}"
+
+    diagnostics = meta.get("ensemble_weight_diagnostics") or {}
+    weight_reason_items = []
+    rank_titles = [
+        ("冠军策略", "当前集成优先级最高"),
+        ("亚军策略", "当前集成优先级第二"),
+        ("季军策略", "当前集成优先级第三"),
+    ]
+    for idx, (key, value) in enumerate(sorted(
+        diagnostics.items(),
+        key=lambda item: float((item[1] or {}).get("weighted_score", 0.0) or 0.0),
+        reverse=True,
+    )):
+        title, note = rank_titles[min(idx, 2)]
+        overall_total = int((value or {}).get("overall_total", 0) or 0)
+        overall_accuracy = float((value or {}).get("overall_accuracy", 0.0) or 0.0)
+        accuracy_text = (
+            f"特码命中率：{overall_accuracy}% ({overall_total}条)"
+            if overall_total > 0 else "特码命中率：样本不足"
+        )
+        weight_value = float((meta.get("ensemble_strategy_weights") or {}).get(key, 0.0) or 0.0)
+        weight_reason_items.append({
+            "rank": idx + 1,
+            "ribbon_title": title,
+            "ribbon_note": note,
+            "strategy_label": _get_strategy_label(key),
+            "weight_text": f"权重{round(weight_value, 1)}%",
+            "accuracy_text": accuracy_text,
+            "multiplier_text": (
+                f"排名系数×命中率加成：{(value or {}).get('rank_multiplier', '-')} × "
+                f"{(value or {}).get('accuracy_multiplier', '-')}，加权分 {(value or {}).get('weighted_score', '-')}"
+            ),
+        })
+    display["weight_reason_items"] = weight_reason_items
+    return display
 
 
 def _calculate_strategy_accuracy(region, strategy, limit=200):
@@ -3219,62 +3376,65 @@ def _predict_with_ml(data, region, variation_key=None):
         confidence=special_probability,
         extra_reason=extra_reason,
     )
+    model_meta = {
+        "samples": samples,
+        "draw_samples": model.get("draw_samples", 0),
+        "evaluation_draws": model.get("evaluation_draws", 0),
+        "gradient_updates": model.get("gradient_updates", 0),
+        "history_window": history_window,
+        "feature_window": model.get("feature_window", 0),
+        "evaluation_window": model.get("evaluation_window", 0),
+        "feature_profile": model.get("feature_profile", runtime_config.get("feature_profile", "full")),
+        "runtime_profile": model.get("runtime_profile", "base"),
+        "runtime_score": round(float(model.get("runtime_score", 0.0)) * 100, 2),
+        "runtime_search": model.get("runtime_search", []),
+        "special_probability": special_probability,
+        "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
+        "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
+        "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
+        "selected_blend": round(blend_weight * 100, 2),
+        "preferred_feature_profiles": runtime_config.get("preferred_feature_profiles", []),
+        "preferred_runtime_profiles": runtime_config.get("preferred_runtime_profiles", []),
+        "profile_learning_confidence": round(
+            float(runtime_config.get("profile_learning_confidence", 0.0)) * 100,
+            2,
+        ),
+        "primary_feature_profile": runtime_config.get("primary_feature_profile", "full"),
+        "primary_runtime_profile": runtime_config.get("primary_runtime_profile", "base"),
+        "promotion_strength": runtime_config.get("promotion_strength", "hold"),
+        "blended_special_score": round(float(special_score_map.get(special_num, 0.0)) * 100, 2),
+        "ensemble_strategy_weights": {
+            key: round(float(value) * 100, 2)
+            for key, value in (ensemble_signals.get("strategy_weights") or {}).items()
+        },
+        "ensemble_selected_strategies": list(ensemble_signals.get("selected_strategies") or []),
+        "ensemble_weight_diagnostics": ensemble_signals.get("weight_diagnostics", {}),
+        "ensemble_weight_confidence": round(
+            float(ensemble_signals.get("weight_confidence", 0.0)) * 100,
+            2,
+        ),
+        "ensemble_normal_votes": dict(sorted((ensemble_signals.get("normal_votes") or Counter()).items())),
+        "ensemble_special_votes": dict(sorted((ensemble_signals.get("special_votes") or Counter()).items())),
+        "supplemental_draws": supplemental_draws,
+        "training_draws": len(enriched_data),
+        "preferred_special_color": preferred_special_color,
+        "color_preferences": {
+            key: round(float(value) * 100, 2)
+            for key, value in sorted((color_pref or {}).items())
+        },
+        "preferred_special_parity": preferred_special_parity,
+        "parity_preferences": {
+            key: round(float(value) * 100, 2)
+            for key, value in sorted((parity_pref or {}).items())
+        },
+    }
+    model_meta["display_copy"] = _build_ml_display_copy(model_meta)
+
     return {
         "normal": normal,
         "special": {"number": str(special_num), "sno_zodiac": number_to_zodiac.get(str(special_num), "")},
         "recommendation_text": recommendation_text,
-        "model_meta": {
-            "samples": samples,
-            "draw_samples": model.get("draw_samples", 0),
-            "evaluation_draws": model.get("evaluation_draws", 0),
-            "gradient_updates": model.get("gradient_updates", 0),
-            "history_window": history_window,
-            "feature_window": model.get("feature_window", 0),
-            "evaluation_window": model.get("evaluation_window", 0),
-            "feature_profile": model.get("feature_profile", runtime_config.get("feature_profile", "full")),
-            "runtime_profile": model.get("runtime_profile", "base"),
-            "runtime_score": round(float(model.get("runtime_score", 0.0)) * 100, 2),
-            "runtime_search": model.get("runtime_search", []),
-            "special_probability": special_probability,
-            "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
-            "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
-            "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
-            "selected_blend": round(blend_weight * 100, 2),
-            "preferred_feature_profiles": runtime_config.get("preferred_feature_profiles", []),
-            "preferred_runtime_profiles": runtime_config.get("preferred_runtime_profiles", []),
-            "profile_learning_confidence": round(
-                float(runtime_config.get("profile_learning_confidence", 0.0)) * 100,
-                2,
-            ),
-            "primary_feature_profile": runtime_config.get("primary_feature_profile", "full"),
-            "primary_runtime_profile": runtime_config.get("primary_runtime_profile", "base"),
-            "promotion_strength": runtime_config.get("promotion_strength", "hold"),
-            "blended_special_score": round(float(special_score_map.get(special_num, 0.0)) * 100, 2),
-            "ensemble_strategy_weights": {
-                key: round(float(value) * 100, 2)
-                for key, value in (ensemble_signals.get("strategy_weights") or {}).items()
-            },
-            "ensemble_selected_strategies": list(ensemble_signals.get("selected_strategies") or []),
-            "ensemble_weight_diagnostics": ensemble_signals.get("weight_diagnostics", {}),
-            "ensemble_weight_confidence": round(
-                float(ensemble_signals.get("weight_confidence", 0.0)) * 100,
-                2,
-            ),
-            "ensemble_normal_votes": dict(sorted((ensemble_signals.get("normal_votes") or Counter()).items())),
-            "ensemble_special_votes": dict(sorted((ensemble_signals.get("special_votes") or Counter()).items())),
-            "supplemental_draws": supplemental_draws,
-            "training_draws": len(enriched_data),
-            "preferred_special_color": preferred_special_color,
-            "color_preferences": {
-                key: round(float(value) * 100, 2)
-                for key, value in sorted((color_pref or {}).items())
-            },
-            "preferred_special_parity": preferred_special_parity,
-            "parity_preferences": {
-                key: round(float(value) * 100, 2)
-                for key, value in sorted((parity_pref or {}).items())
-            },
-        },
+        "model_meta": model_meta,
     }
 
 def get_local_recommendations(strategy, data, region, variation_key=None):

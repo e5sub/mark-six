@@ -3667,6 +3667,9 @@ class _PredictScreenState extends State<PredictScreen> {
     final primaryFeature = _mlFeatureProfileLabel(
       metaMap['primary_feature_profile']?.toString() ?? '',
     );
+    final displayCopy = Map<String, dynamic>.from(
+      (metaMap['display_copy'] as Map?) ?? const {},
+    );
     final ensembleWeights = Map<String, dynamic>.from(
       (metaMap['ensemble_strategy_weights'] as Map?) ?? const {},
     );
@@ -3718,13 +3721,92 @@ class _PredictScreenState extends State<PredictScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            '当前主配置：$primaryRuntime · $primaryFeature',
+            (displayCopy['primary_config']?.toString().isNotEmpty ?? false)
+                ? displayCopy['primary_config'].toString()
+                : '当前主配置：$primaryRuntime · $primaryFeature',
             style: TextStyle(
               fontSize: 12,
               color: Colors.grey.shade800,
               height: 1.5,
             ),
           ),
+          if ((displayCopy['preferred_features']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 8),
+            Text(
+              displayCopy['preferred_features'].toString(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
+                height: 1.5,
+              ),
+            ),
+          ],
+          if ((displayCopy['preferred_runtimes']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 8),
+            Text(
+              displayCopy['preferred_runtimes'].toString(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
+                height: 1.5,
+              ),
+            ),
+          ],
+          if ((displayCopy['color_preference']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 8),
+            Text(
+              displayCopy['color_preference'].toString(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
+                height: 1.5,
+              ),
+            ),
+          ],
+          if ((displayCopy['parity_preference']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 8),
+            Text(
+              displayCopy['parity_preference'].toString(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
+                height: 1.5,
+              ),
+            ),
+          ],
+          if ((displayCopy['selected_strategies']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 8),
+            Text(
+              displayCopy['selected_strategies'].toString(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
+                height: 1.5,
+              ),
+            ),
+          ],
+          if ((displayCopy['weight_summary']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 8),
+            Text(
+              displayCopy['weight_summary'].toString(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
+                height: 1.5,
+              ),
+            ),
+          ],
+          if ((displayCopy['special_votes']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 8),
+            Text(
+              displayCopy['special_votes'].toString(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
+                height: 1.5,
+              ),
+            ),
+          ],
           if (weightKeys.isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
@@ -3741,14 +3823,20 @@ class _PredictScreenState extends State<PredictScreen> {
               final item = Map<String, dynamic>.from(
                 (weightDiagnostics[key] as Map?) ?? const {},
               );
-              final overallTotal =
-                  (item['overall_total'] as num?)?.toInt() ?? 0;
+              final copyItems =
+                  (displayCopy['weight_reason_items'] as List?) ?? const [];
+              final copyItem = entry.key < copyItems.length
+                  ? Map<String, dynamic>.from(
+                      (copyItems[entry.key] as Map?) ?? const {},
+                    )
+                  : const <String, dynamic>{};
+              final overallTotal = (item['overall_total'] as num?)?.toInt() ?? 0;
               final overallAccuracy =
                   (item['overall_accuracy'] as num?)?.toDouble() ?? 0.0;
-              final accuracyText = overallTotal > 0
-                  ? '${overallAccuracy.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '')}% ($overallTotal条)'
-                  : '样本不足';
-              final multiplierText =
+              final fallbackAccuracyText = overallTotal > 0
+                  ? '特码命中率：${overallAccuracy.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '')}% ($overallTotal条)'
+                  : '特码命中率：样本不足';
+              final fallbackMultiplierText =
                   '排名系数×命中率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，加权分 ${item['weighted_score'] ?? '-'}';
               final weightValue =
                   ((ensembleWeights[key] as num?)?.toDouble() ?? 0.0)
@@ -3756,10 +3844,12 @@ class _PredictScreenState extends State<PredictScreen> {
                       .replaceAll(RegExp(r'\.0$'), '');
               return _buildMlWeightReasonCard(
                 rank,
-                _strategyLabels[key] ?? key,
-                '$weightValue%',
-                accuracyText,
-                multiplierText,
+                copyItem['strategy_label']?.toString() ?? (_strategyLabels[key] ?? key),
+                copyItem['weight_text']?.toString().replaceFirst('权重', '') ?? '$weightValue%',
+                (copyItem['accuracy_text']?.toString().replaceFirst('特码命中率：', '').trim().isNotEmpty ?? false)
+                    ? copyItem['accuracy_text'].toString().replaceFirst('特码命中率：', '').trim()
+                    : fallbackAccuracyText.replaceFirst('特码命中率：', '').trim(),
+                copyItem['multiplier_text']?.toString() ?? fallbackMultiplierText,
               );
             }),
           ],
