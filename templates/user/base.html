@@ -404,6 +404,160 @@
             color: #fca5a5;
             border: 1px solid rgba(220, 53, 69, 0.2);
         }
+
+        /* Force dark styling for child templates that still ship light cards or inline colors. */
+        .main-content .card,
+        .main-content .card-compact,
+        .main-content .stat-card,
+        .main-content .stat-card-compact,
+        .main-content .prediction-card-compact,
+        .main-content .prediction-period-compare,
+        .main-content .strategy-compare-card,
+        .main-content .help-card,
+        .main-content .help-item,
+        .main-content .accuracy-item,
+        .main-content .learning-card,
+        .main-content .strategy-item,
+        .main-content .region-item,
+        .main-content .trend-item,
+        .main-content .suggestion-item,
+        .main-content .hero-card,
+        .main-content .invite-code-item,
+        .main-content .table-wrap,
+        .main-content .modal-content,
+        .main-content [style*="background: white"],
+        .main-content [style*="background:white"],
+        .main-content [style*="background-color: #fff"],
+        .main-content [style*="background-color:#fff"],
+        .main-content [style*="background: #fff"],
+        .main-content [style*="background:#fff"],
+        .main-content [style*="#f8f9ff"],
+        .main-content [style*="#fbfcfe"],
+        .main-content [style*="#f8f9fa"],
+        .main-content [style*="#ffffff"] {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e5e7eb !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+            box-shadow: 0 14px 32px rgba(2, 6, 23, 0.28) !important;
+        }
+
+        .main-content .card-header,
+        .main-content .card-header-compact,
+        .main-content .period-compare-header,
+        .main-content [style*="border-bottom: 1px solid #f0f0f0"],
+        .main-content [style*="border-bottom:1px solid #f0f0f0"],
+        .main-content [style*="border-top:1px solid #eef2f6"],
+        .main-content [style*="border-top: 1px solid #eef2f6"],
+        .main-content [style*="border:1px solid #edf0f4"],
+        .main-content [style*="border: 1px solid #edf0f4"],
+        .main-content [style*="border:1px solid #e8edf5"],
+        .main-content [style*="border: 1px solid #e8edf5"] {
+            border-color: rgba(148, 163, 184, 0.14) !important;
+        }
+
+        .main-content h1,
+        .main-content h2,
+        .main-content h3,
+        .main-content h4,
+        .main-content .card-title,
+        .main-content .card-title-compact,
+        .main-content .prediction-title-compact,
+        .main-content .period-compare-title,
+        .main-content .strategy-special-zodiac,
+        .main-content .learning-title,
+        .main-content .comparison-title,
+        .main-content .strategy-name,
+        .main-content .region-name,
+        .main-content .empty-state h3,
+        .main-content .modal-body h3,
+        .main-content [style*="color: #333"],
+        .main-content [style*="color:#333"],
+        .main-content [style*="color: #24324a"],
+        .main-content [style*="color:#24324a"],
+        .main-content [style*="color: #1f3a56"],
+        .main-content [style*="color:#1f3a56"] {
+            color: #f8fafc !important;
+        }
+
+        .main-content p,
+        .main-content li,
+        .main-content small,
+        .main-content label,
+        .main-content .stat-label,
+        .main-content .invite-detail-label,
+        .main-content .strategy-time-mini,
+        .main-content .strategy-special-label,
+        .main-content .comparison-meta,
+        .main-content .table-sub,
+        .main-content .empty-text,
+        .main-content .region-details,
+        .main-content .trend-count,
+        .main-content .trend-accuracy,
+        .main-content .help-text,
+        .main-content .zodiac-info-compact,
+        .main-content [style*="color: #666"],
+        .main-content [style*="color:#666"],
+        .main-content [style*="color: #667"],
+        .main-content [style*="color:#667"],
+        .main-content [style*="color: #778"],
+        .main-content [style*="color:#778"],
+        .main-content [style*="color: #888"],
+        .main-content [style*="color:#888"] {
+            color: #94a3b8 !important;
+        }
+
+        .main-content .stat-number,
+        .main-content .accuracy-value,
+        .main-content .region-accuracy,
+        .main-content .table-main,
+        .main-content .invite-detail-value {
+            color: #a5b4fc !important;
+        }
+
+        .main-content table,
+        .main-content .analytics-table,
+        .main-content .modern-table {
+            background: transparent !important;
+            color: #e5e7eb !important;
+        }
+
+        .main-content th,
+        .main-content thead th,
+        .main-content .modern-table th {
+            background: rgba(30, 41, 59, 0.92) !important;
+            color: #e2e8f0 !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+        }
+
+        .main-content td,
+        .main-content .modern-table td {
+            color: #cbd5e1 !important;
+            border-color: rgba(148, 163, 184, 0.12) !important;
+        }
+
+        .main-content input,
+        .main-content select,
+        .main-content textarea,
+        .main-content .form-control,
+        .main-content .compact-select {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e5e7eb !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+        }
+
+        .main-content input::placeholder,
+        .main-content textarea::placeholder {
+            color: #94a3b8 !important;
+        }
+
+        .main-content .alert-card {
+            background: rgba(120, 53, 15, 0.3) !important;
+            border-left-color: #fbbf24 !important;
+        }
+
+        .main-content .alert-text {
+            color: #fde68a !important;
+        }
         
         @media (max-width: 768px) {
             .sidebar {

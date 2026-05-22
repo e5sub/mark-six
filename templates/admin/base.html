@@ -355,6 +355,70 @@
             background: rgba(108, 117, 125, 0.1);
             color: #cbd5e1;
         }
+
+        /* Force dark styling for admin child templates that still embed light cards or inline colors. */
+        .main-content .card,
+        .main-content .stat-card,
+        .main-content .table,
+        .main-content .modal-content,
+        .main-content [style*="background: white"],
+        .main-content [style*="background:white"],
+        .main-content [style*="background: #fff"],
+        .main-content [style*="background:#fff"],
+        .main-content [style*="background-color: #f8f9fa"],
+        .main-content [style*="background-color:#f8f9fa"],
+        .main-content [style*="#f8f9fa"],
+        .main-content [style*="#f8f9ff"],
+        .main-content [style*="#ffffff"] {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e5e7eb !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+            box-shadow: 0 14px 32px rgba(2, 6, 23, 0.28) !important;
+        }
+
+        .main-content h1,
+        .main-content h2,
+        .main-content h3,
+        .main-content h4,
+        .main-content .card-title,
+        .main-content [style*="color: #333"],
+        .main-content [style*="color:#333"] {
+            color: #f8fafc !important;
+        }
+
+        .main-content p,
+        .main-content li,
+        .main-content small,
+        .main-content label,
+        .main-content td,
+        .main-content [style*="color: #666"],
+        .main-content [style*="color:#666"] {
+            color: #94a3b8 !important;
+        }
+
+        .main-content th,
+        .main-content thead th {
+            background: rgba(30, 41, 59, 0.92) !important;
+            color: #e2e8f0 !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+        }
+
+        .main-content td,
+        .main-content tr,
+        .main-content [style*="border-top:1px solid #"],
+        .main-content [style*="border: 1px solid #"],
+        .main-content [style*="border:1px solid #"] {
+            border-color: rgba(148, 163, 184, 0.12) !important;
+        }
+
+        .main-content input,
+        .main-content select,
+        .main-content textarea,
+        .main-content .form-control {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e5e7eb !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+        }
         
         .invite-code {
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;

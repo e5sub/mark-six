@@ -204,32 +204,32 @@
 <div class="summary-cards-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: 1rem; margin-bottom: 1rem;">
     {% for card in prediction_summary_cards %}
     <div class="card" style="margin-bottom: 0; padding: 0;">
-        <div class="card-header" style="padding-bottom: 0.5rem; border-bottom: 1px solid #f0f0f0;">
-            <h3 class="card-title" style="font-size: 1.1rem; color: #333;">
+        <div class="card-header" style="padding-bottom: 0.5rem; border-bottom: 1px solid rgba(148, 163, 184, 0.12);">
+            <h3 class="card-title" style="font-size: 1.1rem; color: #f8fafc;">
                 📈 {{ card.region_label }} 连错/连中走势
             </h3>
         </div>
         <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem; padding: 1rem 0.5rem; text-align: center; overflow-x: auto;">
             <div>
-                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">当前连错</div>
+                <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.3rem; white-space: nowrap;">当前连错</div>
                 <div style="font-size: 1.1rem; font-weight: bold; color: {% if card.miss_streak > 0 %}#dc3545{% else %}#28a745{% endif %};">
                     {{ card.miss_streak }}
                 </div>
             </div>
             <div>
-                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">最高连错</div>
+                <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.3rem; white-space: nowrap;">最高连错</div>
                 <div style="font-size: 1.1rem; font-weight: bold; color: #dc3545;">{{ card.max_miss_streak }}</div>
             </div>
             <div>
-                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">最高连中</div>
+                <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.3rem; white-space: nowrap;">最高连中</div>
                 <div style="font-size: 1.1rem; font-weight: bold; color: #28a745;">{{ card.max_hit_streak }}</div>
             </div>
             <div>
-                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">累计命中</div>
+                <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.3rem; white-space: nowrap;">累计命中</div>
                 <div style="font-size: 1.1rem; font-weight: bold; color: #667eea;">{{ card.hit_periods }}</div>
             </div>
             <div>
-                <div style="font-size: 0.75rem; color: #666; margin-bottom: 0.3rem; white-space: nowrap;">特码命中率</div>
+                <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.3rem; white-space: nowrap;">特码命中率</div>
                 <div style="font-size: 1.1rem; font-weight: bold; color: #667eea;">{{ card.accuracy }}%</div>
             </div>
         </div>
@@ -353,12 +353,12 @@
 
 <style>
 .stat-card {
-    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(30, 41, 59, 0.88) 100%);
     border-radius: 12px;
     padding: 1rem;
     text-align: center;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(102, 126, 234, 0.1);
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.28);
+    border: 1px solid rgba(148, 163, 184, 0.14);
     transition: all 0.3s ease;
     min-height: 120px;
     display: flex;
@@ -368,7 +368,7 @@
 
 .stat-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 18px 32px rgba(2, 6, 23, 0.34);
 }
 
 .clickable-stat {
@@ -392,9 +392,9 @@
 }
 
 .clickable-stat:hover {
-    background: linear-gradient(135deg, #f8f9ff 0%, #eef1ff 100%);
-    border: 1px solid rgba(102, 126, 234, 0.3);
-    box-shadow: 0 8px 30px rgba(102, 126, 234, 0.2);
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.96) 0%, rgba(51, 65, 85, 0.92) 100%);
+    border: 1px solid rgba(129, 140, 248, 0.35);
+    box-shadow: 0 14px 34px rgba(79, 70, 229, 0.18);
 }
 
 .inline-search-form {
@@ -410,10 +410,11 @@
 
 .compact-select {
     padding: 0.4rem 0.6rem;
-    border: 1px solid #ddd;
+    border: 1px solid rgba(148, 163, 184, 0.18);
     border-radius: 6px;
     font-size: 0.85rem;
-    background: #fff;
+    background: rgba(15, 23, 42, 0.88);
+    color: #e5e7eb;
     transition: all 0.2s ease;
     min-width: 120px;
 }
@@ -498,11 +499,11 @@
 }
 
 .prediction-card-compact {
-    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
     border-radius: 12px;
     padding: 1rem;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-    border: 1px solid rgba(102, 126, 234, 0.08);
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.24);
+    border: 1px solid rgba(148, 163, 184, 0.12);
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
@@ -525,7 +526,7 @@
 
 .prediction-card-compact:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 18px 34px rgba(2, 6, 23, 0.32);
 }
 
 .prediction-left {
@@ -536,7 +537,7 @@
 }
 
 .prediction-title-compact {
-    color: #333;
+    color: #f8fafc;
     font-size: 1rem;
     font-weight: 700;
     display: flex;
@@ -632,11 +633,11 @@
 }
 
 .prediction-period-compare {
-    background: linear-gradient(180deg, #ffffff 0%, #f8faff 100%);
-    border: 1px solid #e7ecf7;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.88) 100%);
+    border: 1px solid rgba(148, 163, 184, 0.14);
     border-radius: 18px;
     padding: 1rem 1.1rem;
-    box-shadow: 0 8px 24px rgba(32, 52, 89, 0.08);
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
 }
 
 .period-compare-header {
@@ -646,19 +647,19 @@
     gap: 1rem;
     padding-bottom: 0.9rem;
     margin-bottom: 0.9rem;
-    border-bottom: 1px solid #edf1f7;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .period-compare-title {
     font-size: 1.05rem;
     font-weight: 800;
-    color: #24324a;
+    color: #f8fafc;
 }
 
 .period-compare-subtitle {
     margin-top: 0.25rem;
     font-size: 0.82rem;
-    color: #7b8798;
+    color: #94a3b8;
 }
 
 .period-draw-summary {
@@ -667,8 +668,8 @@
     gap: 0.75rem;
     padding: 0.55rem 0.8rem;
     border-radius: 14px;
-    background: #fff8ec;
-    border: 1px solid #ffe3ad;
+    background: rgba(120, 53, 15, 0.18);
+    border: 1px solid rgba(251, 191, 36, 0.24);
 }
 
 .period-draw-label {
@@ -707,12 +708,12 @@
 
 .strategy-compare-card {
     border-radius: 16px;
-    border: 1px solid #e9eef7;
-    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(15, 23, 42, 0.82);
     padding: 0.9rem;
     display: grid;
     gap: 0.8rem;
-    box-shadow: 0 4px 14px rgba(30, 41, 59, 0.06);
+    box-shadow: 0 10px 22px rgba(2, 6, 23, 0.22);
 }
 
 .strategy-compare-top {
@@ -724,7 +725,7 @@
 
 .strategy-time-mini {
     font-size: 0.75rem;
-    color: #8a94a6;
+    color: #94a3b8;
     white-space: nowrap;
 }
 
@@ -741,13 +742,13 @@
 
 .strategy-special-label {
     font-size: 0.78rem;
-    color: #8a94a6;
+    color: #94a3b8;
 }
 
 .strategy-special-zodiac {
     font-size: 1rem;
     font-weight: 700;
-    color: #24324a;
+    color: #e2e8f0;
 }
 
 .strategy-compare-bottom .result-badge-compact {
@@ -779,8 +780,8 @@
     left: 50%;
     transform: translateX(-50%);
     font-size: 0.7rem;
-    color: #333;
-    background-color: rgba(255, 255, 255, 0.9);
+    color: #e2e8f0;
+    background-color: rgba(15, 23, 42, 0.92);
     padding: 1px 4px;
     border-radius: 3px;
     white-space: nowrap;
@@ -796,7 +797,7 @@
 }
 
 .zodiac-info-compact {
-    color: #666;
+    color: #cbd5e1;
     font-size: 0.85rem;
     font-weight: 500;
     display: flex;
@@ -835,7 +836,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background-color: rgba(255, 193, 7, 0.1);
+    background-color: rgba(120, 53, 15, 0.16);
     padding: 0.8rem;
     border-radius: 8px;
     border: 1px solid rgba(255, 193, 7, 0.3);
@@ -874,7 +875,7 @@
     font-size: 0.9rem;
     font-weight: 600;
     color: #ff5722;
-    background-color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(15, 23, 42, 0.92);
     padding: 2px 8px;
     border-radius: 4px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -927,7 +928,7 @@
 .empty-state {
     text-align: center;
     padding: 4rem 2rem;
-    color: #666;
+    color: #94a3b8;
 }
 
 .empty-icon {
@@ -938,7 +939,7 @@
 .empty-state h3 {
     margin: 0 0 1rem 0;
     font-size: 1.5rem;
-    color: #333;
+    color: #f8fafc;
 }
 
 .empty-state p {
@@ -957,12 +958,16 @@
     padding: 2rem;
     border-radius: 16px;
     border-left: 4px solid;
+    background: rgba(15, 23, 42, 0.72);
+    border-top: 1px solid rgba(148, 163, 184, 0.08);
+    border-right: 1px solid rgba(148, 163, 184, 0.08);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.08);
 }
 
-.help-search { background: rgba(23, 162, 184, 0.05); border-left-color: #17a2b8; }
-.help-numbers { background: rgba(40, 167, 69, 0.05); border-left-color: #28a745; }
-.help-strategy { background: rgba(255, 193, 7, 0.05); border-left-color: #ffc107; }
-.help-accuracy { background: rgba(102, 126, 234, 0.05); border-left-color: #667eea; }
+.help-search { background: rgba(8, 47, 73, 0.46); border-left-color: #22d3ee; }
+.help-numbers { background: rgba(20, 83, 45, 0.42); border-left-color: #4ade80; }
+.help-strategy { background: rgba(120, 53, 15, 0.38); border-left-color: #fbbf24; }
+.help-accuracy { background: rgba(49, 46, 129, 0.42); border-left-color: #818cf8; }
 
 .help-card h3 {
     margin: 0 0 1rem 0;
@@ -978,8 +983,17 @@
 .help-card ul {
     margin: 0;
     padding-left: 1.5rem;
-    color: #666;
+    color: #cbd5e1;
     line-height: 1.6;
+}
+
+.stat-number {
+    color: #818cf8;
+}
+
+.stat-label,
+.card-title {
+    color: #e5e7eb;
 }
 
 .help-card li { margin-bottom: 0.5rem; }
