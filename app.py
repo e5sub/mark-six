@@ -258,6 +258,129 @@ def _compose_ai_recommendation_text(ai_response, special_number, normal_numbers,
 def _decorate_recommendation_text(requested_strategy, resolved_strategy, recommendation_text):
     return recommendation_text or ''
 
+
+def _normalize_special_candidate_numbers(candidates):
+    normalized = []
+    seen = set()
+    for value in candidates or []:
+        try:
+            number = int(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= number <= 49) or number in seen:
+            continue
+        seen.add(number)
+        normalized.append(number)
+    return normalized
+
+
+def _load_used_special_numbers(user_id, region, period, exclude_strategy=None):
+    if not user_id or not region or not period:
+        return set()
+
+    query = PredictionRecord.query.filter_by(
+        user_id=user_id,
+        region=region,
+        period=period,
+    )
+    if exclude_strategy:
+        query = query.filter(PredictionRecord.strategy != exclude_strategy)
+
+    used_numbers = set()
+    for row in query.with_entities(PredictionRecord.special_number).all():
+        raw = str(row[0] or "").strip()
+        if raw.isdigit():
+            used_numbers.add(int(raw))
+    return used_numbers
+
+
+def _refresh_special_recommendation_text(strategy, recommendation_text, special_number, normal_numbers, region=None):
+    if strategy == "ai":
+        return _compose_ai_recommendation_text(
+            recommendation_text,
+            str(special_number),
+            normal_numbers,
+            region=region,
+        )
+
+    return _build_special_focus_text(
+        str(special_number),
+        normal_numbers,
+        strategy_name=_get_strategy_label(strategy),
+    )
+
+
+def _ensure_period_unique_special(
+    result,
+    strategy,
+    region,
+    period,
+    user_id=None,
+    prediction_zodiac_year=None,
+    used_special_numbers=None,
+):
+    if not result or not user_id:
+        return result
+
+    special_info = result.get("special") or {}
+    special_raw = str(special_info.get("number") or "").strip()
+    if not special_raw.isdigit():
+        return result
+
+    current_special = int(special_raw)
+    used_numbers = set(used_special_numbers or _load_used_special_numbers(
+        user_id,
+        region,
+        period,
+        exclude_strategy=strategy,
+    ))
+    if current_special not in used_numbers:
+        return result
+
+    normal_numbers = []
+    for value in result.get("normal") or []:
+        try:
+            normal_numbers.append(int(str(value).strip()))
+        except (TypeError, ValueError):
+            continue
+
+    model_meta = dict(result.get("model_meta") or {})
+    candidate_numbers = _normalize_special_candidate_numbers(model_meta.get("special_candidates"))
+    if current_special not in candidate_numbers:
+        candidate_numbers.insert(0, current_special)
+
+    replacement = None
+    for candidate in candidate_numbers:
+        if candidate == current_special:
+            continue
+        if candidate in used_numbers or candidate in normal_numbers:
+            continue
+        replacement = candidate
+        break
+
+    if replacement is None:
+        return result
+
+    zodiac_year = prediction_zodiac_year or datetime.now().year
+    zodiac_map = _get_number_to_zodiac_map(zodiac_year)
+    result["special"] = {
+        "number": str(replacement),
+        "sno_zodiac": zodiac_map.get(str(replacement), ""),
+    }
+    model_meta["special_candidates"] = candidate_numbers
+    model_meta["special_unique_original"] = str(current_special)
+    model_meta["special_unique_adjusted"] = True
+    model_meta["special_unique_reason"] = "deduplicated_within_period"
+    result["model_meta"] = model_meta
+    result["recommendation_text"] = _refresh_special_recommendation_text(
+        strategy,
+        result.get("recommendation_text", ""),
+        replacement,
+        normal_numbers,
+        region=region,
+    )
+    return result
+
 def _get_email_strategy_display(prediction):
     return _get_strategy_label(prediction.strategy)
 
@@ -3606,6 +3729,7 @@ def _predict_with_ml(data, region, variation_key=None):
         ),
         "ensemble_normal_votes": dict(sorted((ensemble_signals.get("normal_votes") or Counter()).items())),
         "ensemble_special_votes": dict(sorted((ensemble_signals.get("special_votes") or Counter()).items())),
+        "special_candidates": list(special_candidates[:max(special_pool_size, 6)]),
         "supplemental_draws": supplemental_draws,
         "training_draws": len(enriched_data),
         "preferred_special_color": preferred_special_color,
@@ -3851,7 +3975,10 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             return {
                 "normal": normal,
                 "special": {"number": str(special_num), "sno_zodiac": special_zodiac},
-                "recommendation_text": recommendation_text
+                "recommendation_text": recommendation_text,
+                "model_meta": {
+                    "special_candidates": list(special_candidates[:max(special_pool_size, 6)]),
+                },
             }
         except Exception as e:
             print(f"{strategy} recommendation failed, falling back to balanced. Reason: {e}")
@@ -4552,6 +4679,9 @@ def _finalize_ai_multi_sample_result(ai_responses, region, context):
                 }
                 for item in ranked[:5]
             ],
+            "special_candidates": _normalize_special_candidate_numbers(
+                [item.get("special") for item in ranked]
+            ),
         },
     }
     return result, None
@@ -5364,6 +5494,14 @@ def generate_prediction_for_user(user, region, period, strategy, data):
         if _personalized_predictions_enabled():
             variation_key = f"user:{user.id}|region:{region}|period:{period}|strategy:{strategy}"
         result = get_local_recommendations(strategy, data, region, variation_key=variation_key)
+        result = _ensure_period_unique_special(
+            result,
+            strategy,
+            region,
+            period,
+            user_id=user.id,
+            prediction_zodiac_year=_infer_draw_year(data),
+        )
 
         if result.get('error'):
             print(f"用户 {user.username} 的自动预测失败：{result.get('error')}")
@@ -5519,6 +5657,15 @@ def unified_predict_api():
                     fallback_meta["ai_gated"] = True
                     fallback_meta["ai_gate_reason"] = "fallback_to_local_strategy"
                     fallback_result["model_meta"] = fallback_meta
+                    if user_id and is_active:
+                        fallback_result = _ensure_period_unique_special(
+                            fallback_result,
+                            resolved_strategy,
+                            region,
+                            current_period,
+                            user_id=user_id,
+                            prediction_zodiac_year=prediction_zodiac_year,
+                        )
                     fallback_result.update({
                         "type": "done",
                         "region": region,
@@ -5567,6 +5714,16 @@ def unified_predict_api():
                     if error:
                         yield _sse_event({"type": "error", "error": error})
                         return
+
+                if user_id and is_active:
+                    result = _ensure_period_unique_special(
+                        result,
+                        resolved_strategy,
+                        region,
+                        current_period,
+                        user_id=user_id,
+                        prediction_zodiac_year=prediction_zodiac_year,
+                    )
 
                 result.update({
                     "type": "done",
@@ -5620,12 +5777,30 @@ def unified_predict_api():
                 "error_type": "ai_prediction_failed",
                 "message": f"AI预测失败：{error_message}，请稍后再试或联系管理员检查AI API配置。"
             }), 400
+        if user_id and is_active:
+            result = _ensure_period_unique_special(
+                result,
+                resolved_strategy,
+                region,
+                current_period,
+                user_id=user_id,
+                prediction_zodiac_year=prediction_zodiac_year,
+            )
     else:
         variation_key = None
         if user_id and is_active and _personalized_predictions_enabled():
             variation_key = f"user:{user_id}|region:{region}|period:{current_period}|strategy:{resolved_strategy}"
         try:
             result = get_local_recommendations(resolved_strategy, data, region, variation_key=variation_key)
+            if user_id and is_active:
+                result = _ensure_period_unique_special(
+                    result,
+                    resolved_strategy,
+                    region,
+                    current_period,
+                    user_id=user_id,
+                    prediction_zodiac_year=prediction_zodiac_year,
+                )
         except Exception as e:
             print(f"Prediction failed for region={region}, strategy={resolved_strategy}, year={year}: {e}")
             return jsonify({
