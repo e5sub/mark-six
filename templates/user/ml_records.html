@@ -1,6 +1,8 @@
 {% extends "user/base.html" %}
 
-{% block page_title %}机器学习记录{% endblock %}
+{% block page_title %}机器学习{% endblock %}
+
+{% block content %}
 
 {% macro result_badge(prediction) -%}
     {% if prediction.is_result_updated and prediction.actual_special_number %}
@@ -22,7 +24,7 @@
     <div class="stat-card">
         <div class="stat-icon">🧪</div>
         <div class="stat-number">{{ total_ml_predictions }}</div>
-        <div class="stat-label">机器学习记录</div>
+        <div class="stat-label">机器学习</div>
     </div>
     <div class="stat-card">
         <div class="stat-icon">🎯</div>
@@ -48,7 +50,7 @@
 
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">🧪 机器学习记录</h2>
+        <h2 class="card-title">🧪 机器学习</h2>
         <form method="GET" class="inline-search-form">
             <div class="search-controls">
                 <select name="region" class="compact-select" title="地区">
@@ -413,3 +415,5 @@
     }
 }
 </style>
+
+{% endblock %}
