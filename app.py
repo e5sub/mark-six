@@ -1511,41 +1511,27 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
 
     for strategy in candidates:
         config = _load_strategy_config(strategy, region)
-        score_parts = []
-        total_samples = 0
-        accuracy_by_window = {}
-        totals_by_window = {}
         overall_accuracy, overall_total = _calculate_strategy_accuracy(
             region, strategy, limit=None
         )
-
-        for idx, window in enumerate(windows):
-            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
-            total_samples = max(total_samples, total)
-            accuracy_by_window[str(window)] = round(float(accuracy or 0.0) * 100, 2)
-            totals_by_window[str(window)] = int(total or 0)
-            if total <= 0:
-                continue
-            recency_weight = max(0.45, 1.0 - idx * 0.22)
-            confidence = _clamp(total / max(min_samples, 1), 0.25, 1.0)
-            score_parts.append(accuracy * 100 * recency_weight * confidence)
-
-        config_bonus = float(config.get("last_accuracy") or 0.0) * 100 * 0.18
-        base_score = (sum(score_parts) / len(score_parts)) if score_parts else 18.0
+        total_samples = int(overall_total or 0)
+        accuracy_percent = round(float(overall_accuracy or 0.0) * 100, 2)
+        confidence = _clamp(total_samples / max(min_samples, 1), 0.25, 1.0)
+        base_score = max(8.0, accuracy_percent * confidence)
         bias_value = float(learned_bias.get(strategy, 0.0) or 0.0)
-        bias_multiplier = 1.0 + ((bias_value - (1.0 / max(len(candidates), 1))) * 0.9 * learning_confidence)
-        score = round(max(8.0, (base_score + config_bonus) * bias_multiplier), 2)
+        bias_multiplier = 1.0 + (
+            (bias_value - (1.0 / max(len(candidates), 1))) * 0.12 * learning_confidence
+        )
+        score = round(max(8.0, base_score * bias_multiplier), 2)
         scored.append({
             "strategy": strategy,
             "label": _get_strategy_label(strategy),
             "score": score,
             "samples": total_samples,
             "bias": round(bias_value * 100, 2),
-            "recent_accuracy": accuracy_by_window.get("20", 0.0),
-            "accuracy_by_window": accuracy_by_window,
-            "totals_by_window": totals_by_window,
-            "overall_accuracy": round(float(overall_accuracy or 0.0) * 100, 2),
-            "overall_total": int(overall_total or 0),
+            "recent_accuracy": accuracy_percent,
+            "overall_accuracy": accuracy_percent,
+            "overall_total": total_samples,
         })
 
     scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
@@ -2590,8 +2576,6 @@ def _get_ml_ensemble_weights(region, strategies=None):
             "samples": int(item.get("samples", 0) or 0),
             "bias": round(float(item.get("bias", 0.0)), 2),
             "recent_accuracy": round(float(item.get("recent_accuracy", 0.0)), 2),
-            "accuracy_by_window": dict(item.get("accuracy_by_window") or {}),
-            "totals_by_window": dict(item.get("totals_by_window") or {}),
             "overall_accuracy": round(float(item.get("overall_accuracy", 0.0)), 2),
             "overall_total": int(item.get("overall_total", 0) or 0),
             "rank_multiplier": round(rank_multiplier, 4),
