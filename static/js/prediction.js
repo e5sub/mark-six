@@ -383,7 +383,7 @@ function renderPredictionInsights(data, strategy) {
                     : '0 6px 14px rgba(15, 95, 86, 0.05)';
                 const cardScale = index === 0 ? 'transform: translateY(-1px);' : '';
                 return `
-                    <div style="margin-top:8px; padding:10px 12px; border-radius:10px; background: ${accentPalette.bg}; border:1px solid ${accentPalette.border}; box-shadow: ${cardShadow}; ${cardScale}">
+                    <div style="min-width:0; padding:10px 12px; border-radius:10px; background: ${accentPalette.bg}; border:1px solid ${accentPalette.border}; box-shadow: ${cardShadow}; ${cardScale}">
                         ${championRibbon}
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
                             <div style="display:flex; align-items:center; gap:8px;">
@@ -437,7 +437,7 @@ function renderPredictionInsights(data, strategy) {
                     ${parityPreference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>本期单双偏向：</strong>${parityPreference}${parityConfidence != null ? `（历史特码参考 ${parityConfidence}%）` : '（历史特码参考）'}</div>` : ''}
                     ${selectedStrategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前核心集成：</strong>${selectedStrategies}</div>` : ''}
                     ${weightEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>集成权重：</strong>${weightEntries}（按近20/50/100期表现自动分配）${meta.ensemble_weight_confidence ? ` · 置信${meta.ensemble_weight_confidence}%` : ''}</div>` : ''}
-                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>权重依据：</strong>${weightReasonRows}</div>` : ''}
+                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>权重依据：</strong><div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
                     ${voteEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>特码共识票：</strong>${voteEntries}</div>` : ''}
                 </div>
                 <div style="padding: 14px; border-radius: 12px; background: rgba(33, 150, 243, 0.06); border: 1px solid rgba(33, 150, 243, 0.16);">
