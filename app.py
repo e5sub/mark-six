@@ -175,6 +175,86 @@ def _build_special_focus_text(special, normal=None, strategy_name=None, accuracy
         lines.append(f"简要说明：{extra_reason}")
     return "\n".join(lines)
 
+def _has_meaningful_ai_reasoning(text):
+    content = str(text or "").strip()
+    if not content:
+        return False
+    if len(content) >= 120:
+        return True
+    return any(token in content for token in ("理由", "分析", "排除", "风险", "信心", "波色", "生肖", "单双"))
+
+
+def _build_ai_number_reason(number, zodiac_map):
+    value = str(number).strip()
+    try:
+        num = int(value)
+    except (TypeError, ValueError):
+        return None
+
+    color = _get_color_zh(num) or "待定"
+    zodiac = zodiac_map.get(str(num), "") or "待定"
+    parity = "双" if num % 2 == 0 else "单"
+    zone = "小号区" if num <= 16 else "中段区" if num <= 33 else "大号区"
+    tail = num % 10
+    return (
+        f"号码：`{num:02d}`\n"
+        f"理由：{color}波、生肖{zodiac}、{parity}数，落在{zone}，尾数为`{tail}`，用于补齐组合的区间与属性分布。\n"
+        f"风险：如果本期继续集中在相邻区间或同属性号码，这个点位会先被挤掉。"
+    )
+
+
+def _build_ai_reason_fallback(special_number, normal_numbers, region=None):
+    year = datetime.now().year
+    try:
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+    except Exception:
+        number_to_zodiac = {}
+
+    normal_sections = []
+    for number in normal_numbers or []:
+        section = _build_ai_number_reason(number, number_to_zodiac)
+        if section:
+            normal_sections.append(section)
+
+    try:
+        special_num = int(str(special_number).strip())
+    except (TypeError, ValueError):
+        special_num = None
+
+    special_color = _get_color_zh(special_num) if special_num is not None else ""
+    special_zodiac = number_to_zodiac.get(str(special_num), "") if special_num is not None else ""
+    special_parity = ""
+    if special_num is not None:
+        special_parity = "双" if special_num % 2 == 0 else "单"
+
+    normal_text = "\n\n".join(normal_sections) if normal_sections else "暂无可用的平码说明。"
+    region_label = "香港" if str(region or "").lower() == "hk" else "澳门" if str(region or "").lower() == "macau" else "当前"
+
+    return (
+        f"**平码预测**\n\n{normal_text}\n\n"
+        f"**特别号**\n\n"
+        f"号码：`{special_number}`\n"
+        f"理由：作为本期主推特码，优先参考{region_label}最近样本里的结构平衡；当前属性为{special_color or '待定'}波、生肖{special_zodiac or '待定'}、{special_parity or '待定'}数，用来和平码候选拉开主次。\n"
+        f"风险：特码本身波动更大，即使属性匹配，也可能被临场冷号打断。\n\n"
+        f"**排除逻辑**\n\n"
+        f"1. 不优先追与主推号完全同属性、且最近已经连续出现的过热号码。\n"
+        f"2. 不把六码全部压在同一区间，尽量避免小号、中段、大号失衡。\n"
+        f"3. 如果 AI 原始回复只给了号码，这一段是系统自动补的结构化理由。"
+    )
+
+
+def _compose_ai_recommendation_text(ai_response, special_number, normal_numbers, region=None):
+    raw_text = str(ai_response or "").strip()
+    fallback_text = _build_ai_reason_fallback(special_number, normal_numbers, region=region)
+    if not _has_meaningful_ai_reasoning(raw_text):
+        return fallback_text
+
+    has_structured_sections = all(token in raw_text for token in ("号码", "理由")) and "排除" in raw_text
+    if has_structured_sections:
+        return raw_text
+    return f"{raw_text}\n\n{fallback_text}"
+
+
 def _decorate_recommendation_text(requested_strategy, resolved_strategy, recommendation_text):
     return recommendation_text or ''
 
@@ -381,6 +461,24 @@ def _hydrate_prediction_recommendation_text(
     normal_numbers=None,
     existing_meta=None,
 ):
+    normal_values = []
+    if isinstance(normal_numbers, str):
+        normal_values = [item.strip() for item in normal_numbers.split(",") if item.strip()]
+    elif isinstance(normal_numbers, (list, tuple)):
+        normal_values = [str(item).strip() for item in normal_numbers if str(item).strip()]
+
+    special_value = str(special_number or "").strip()
+
+    if strategy == "ai":
+        if special_value:
+            return _compose_ai_recommendation_text(
+                existing_text,
+                special_value,
+                normal_values,
+                region=region,
+            )
+        return existing_text or ""
+
     if strategy != "ml":
         return existing_text or ""
 
@@ -391,13 +489,6 @@ def _hydrate_prediction_recommendation_text(
             data,
             region,
         )
-        normal_values = []
-        if isinstance(normal_numbers, str):
-            normal_values = [item.strip() for item in normal_numbers.split(",") if item.strip()]
-        elif isinstance(normal_numbers, (list, tuple)):
-            normal_values = [str(item).strip() for item in normal_numbers if str(item).strip()]
-
-        special_value = str(special_number or "").strip()
         if special_value:
             rebuilt_text = _build_special_focus_text(
                 special_value,
@@ -734,7 +825,12 @@ def _finalize_ai_result_v2(ai_response, region=None):
         return None, "AI生成的平码数量不足"
 
     return {
-        "recommendation_text": _build_special_focus_text(str(special_num_value), normal_numbers),
+        "recommendation_text": _compose_ai_recommendation_text(
+            ai_response,
+            str(special_num_value),
+            normal_numbers,
+            region=region,
+        ),
         "normal": normal_numbers,
         "special": {
             "number": str(special_num_value),
@@ -1226,7 +1322,16 @@ def _default_strategy_config(strategy):
             "last_accuracy": 0.0,
             "last_total": 0
         },
-        "ai": {"history_window": 12, "temperature": 0.35, "last_accuracy": 0.0, "last_total": 0},
+        "ai": {
+            "history_window": 12,
+            "temperature": 0.35,
+            "sample_count": 3,
+            "candidate_count": 3,
+            "special_shortlist": 8,
+            "normal_shortlist": 18,
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
     }
     return defaults.get(strategy, {})
 
@@ -1760,6 +1865,38 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
     return scored
 
 
+def _build_ai_gate_profile(region, windows=(20, 50), min_samples=6):
+    ai_scores = []
+    anchor_scores = []
+    for idx, window in enumerate(windows):
+        ai_accuracy, ai_total = _calculate_strategy_accuracy(region, "ai", limit=window)
+        recommended = _get_recommended_strategy(region, windows=(window,), min_samples=min_samples)
+        anchor_strategy = str(recommended.get("strategy") or "hybrid")
+        anchor_accuracy, anchor_total = _calculate_strategy_accuracy(region, anchor_strategy, limit=window)
+        weight = max(0.55, 1.0 - idx * 0.18)
+        ai_confidence = _clamp(ai_total / max(min_samples, 1), 0.2, 1.0)
+        anchor_confidence = _clamp(anchor_total / max(min_samples, 1), 0.2, 1.0)
+        ai_scores.append(ai_accuracy * 100 * weight * ai_confidence)
+        anchor_scores.append(anchor_accuracy * 100 * weight * anchor_confidence)
+
+    ai_score = round(sum(ai_scores) / len(ai_scores), 2) if ai_scores else 0.0
+    anchor_score = round(sum(anchor_scores) / len(anchor_scores), 2) if anchor_scores else 0.0
+    score_gap = round(anchor_score - ai_score, 2)
+    status = "active"
+    if score_gap >= 5.0:
+        status = "fallback"
+    elif score_gap >= 2.5:
+        status = "guarded"
+
+    return {
+        "status": status,
+        "ai_score": ai_score,
+        "anchor_score": anchor_score,
+        "score_gap": score_gap,
+        "anchor_strategy": str((_get_recommended_strategy(region, windows=windows, min_samples=min_samples) or {}).get("strategy") or "hybrid"),
+    }
+
+
 def _select_ml_ensemble_strategies(region, slots=3, persist=True):
     eligible = [strategy for strategy in LOCAL_STRATEGY_KEYS if strategy != "ml"]
     if not eligible:
@@ -1901,6 +2038,10 @@ def _tune_strategy_config(strategy, region):
     elif strategy == "ai":
         config["temperature"] = round(_clamp(0.42 - accuracy * 0.18, 0.18, 0.45), 2)
         config["history_window"] = _clamp(int(12 + (0.5 - accuracy) * 6), 8, 18)
+        config["sample_count"] = _clamp(int(4 - accuracy * 2), 2, 5)
+        config["candidate_count"] = _clamp(int(4 - accuracy), 2, 4)
+        config["special_shortlist"] = _clamp(int(10 - accuracy * 4), 6, 10)
+        config["normal_shortlist"] = _clamp(int(20 - accuracy * 6), 14, 22)
     elif strategy == "ml":
         config["history_window"] = _clamp(int(90 + accuracy * 120), 80, 220)
         config["feature_window"] = _clamp(int(40 + accuracy * 40), 30, 80)
@@ -3903,14 +4044,18 @@ def _build_ai_prompt_v3(data, region, history_window=10):
 理由：用 2-4 句简要说明，重点说为什么选这个特码，以及它和波色/生肖/单双结构如何匹配。"""
 
 
-def predict_with_ai(data, region):
-    ai_config = get_ai_config()
-    if not ai_config['api_key'] or "你的" in ai_config['api_key']:
-        return {"error": "AI API Key 未配置"}
-    tuned = _load_strategy_config("ai", region)
-    history_window = int(tuned.get("history_window") or 12)
-    temperature = float(tuned.get("temperature") or 0.35)
-    prompt = _build_ai_prompt_v3(data, region, history_window=history_window)
+def _build_ai_sampling_temperatures(base_temperature, sample_count):
+    count = max(1, int(sample_count or 1))
+    base = float(base_temperature or 0.35)
+    offsets = [0.0, 0.06, -0.05, 0.1, -0.09]
+    values = []
+    for index in range(count):
+        offset = offsets[index] if index < len(offsets) else ((index % 2) * 0.08 - 0.04)
+        values.append(round(_clamp(base + offset, 0.16, 0.52), 2))
+    return values
+
+
+def _call_ai_completion(ai_config, prompt, temperature=0.35):
     payload = {
         "model": ai_config['model'],
         "messages": [
@@ -3920,16 +4065,533 @@ def predict_with_ai(data, region):
         "temperature": temperature
     }
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
+    response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120)
+    response.raise_for_status()
+    if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+        response.encoding = "utf-8"
+    return response.json()['choices'][0]['message']['content']
+
+
+def _safe_float(value, default=0.0):
     try:
-        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120)
-        response.raise_for_status()
-        if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
-            response.encoding = "utf-8"
-        ai_response = response.json()['choices'][0]['message']['content']
-        
-        result, error = _finalize_ai_result_v2(ai_response, region=region)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _build_ai_shortlist_context(data, region, config=None):
+    config = config or {}
+    special_limit = _clamp(int(config.get("special_shortlist") or 8), 6, 12)
+    normal_limit = _clamp(int(config.get("normal_shortlist") or 18), 12, 24)
+    artifacts = _build_ml_prediction_artifacts(data, region)
+    year = int(artifacts.get("year") or _infer_draw_year(data))
+    number_to_zodiac = _get_number_to_zodiac_map(year)
+    ensemble_signals = artifacts.get("ensemble_signals") or {}
+    special_votes = Counter(ensemble_signals.get("special_votes") or {})
+    normal_votes = Counter(ensemble_signals.get("normal_votes") or {})
+
+    special_ranked = [int(number) for number in (artifacts.get("special_ranked_numbers") or [])]
+    normal_ranked = [int(number) for number in (artifacts.get("normal_ranked_numbers") or [])]
+    special_score_map = {int(key): _safe_float(value) for key, value in (artifacts.get("special_score_map") or {}).items()}
+    normal_score_map = {int(key): _safe_float(value) for key, value in (artifacts.get("normal_score_map") or {}).items()}
+    probability_map = {int(key): _safe_float(value) for key, value in (artifacts.get("probability_map") or {}).items()}
+    parity_pref = dict(artifacts.get("parity_pref") or {})
+    color_pref = dict(artifacts.get("color_pref") or {})
+
+    feedback = _build_prediction_feedback(region, "ml")
+    _, zodiac_pref, _ = _build_attribute_preferences(data[:min(len(data), 24)], region, feedback, year)
+    preferred_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
+    preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
+    preferred_zodiac = max(zodiac_pref.items(), key=lambda item: item[1])[0] if zodiac_pref else ""
+
+    strategy_results = dict(ensemble_signals.get("strategy_results") or {})
+    try:
+        ml_result = _predict_with_ml(data, region)
+        strategy_results["ml"] = ml_result
+        ml_special = ((ml_result.get("special") or {}).get("number") or "").strip()
+        if ml_special.isdigit():
+            special_votes[int(ml_special)] += 1.35
+        for number in ml_result.get("normal", []) or []:
+            try:
+                normal_votes[int(number)] += 1.0
+            except (TypeError, ValueError):
+                continue
+    except Exception:
+        pass
+
+    recent_specials = []
+    for record in list(data or [])[:5]:
+        try:
+            recent_specials.append(int(str(record.get("sno") or "").strip()))
+        except (TypeError, ValueError):
+            continue
+
+    special_shortlist = _dedupe_keep_order(
+        special_ranked[:special_limit] +
+        [int(number) for number, _ in special_votes.most_common(special_limit)]
+    )[:special_limit]
+    normal_shortlist = _dedupe_keep_order(
+        normal_ranked[:normal_limit] +
+        [int(number) for number, _ in normal_votes.most_common(normal_limit)]
+    )[:normal_limit]
+
+    special_rows = []
+    for number in special_shortlist:
+        special_rows.append({
+            "number": number,
+            "score": round(special_score_map.get(number, 0.0), 6),
+            "probability": round(probability_map.get(number, 0.0), 6),
+            "votes": round(_safe_float(special_votes.get(number, 0.0)), 4),
+            "color": _get_color_zh(number),
+            "zodiac": number_to_zodiac.get(str(number), ""),
+            "parity": _get_parity_zh(number),
+        })
+
+    normal_rows = []
+    for number in normal_shortlist:
+        normal_rows.append({
+            "number": number,
+            "score": round(normal_score_map.get(number, 0.0), 6),
+            "votes": round(_safe_float(normal_votes.get(number, 0.0)), 4),
+            "color": _get_color_zh(number),
+            "zodiac": number_to_zodiac.get(str(number), ""),
+            "parity": _get_parity_zh(number),
+        })
+
+    strategy_summary = []
+    for strategy, result in strategy_results.items():
+        special_number = ((result.get("special") or {}).get("number") or "").strip()
+        strategy_summary.append({
+            "strategy": strategy,
+            "label": _get_strategy_label(strategy),
+            "special": special_number,
+            "normal": [int(item) for item in (result.get("normal") or []) if str(item).isdigit()][:6],
+        })
+
+    structured_payload = {
+        "region": region,
+        "special_shortlist": special_rows,
+        "normal_shortlist": normal_rows,
+        "preferred": {
+            "color": preferred_color,
+            "parity": preferred_parity,
+            "zodiac": preferred_zodiac,
+        },
+        "recent_specials": recent_specials,
+        "strategy_summary": strategy_summary,
+    }
+
+    shortlist_prompt = (
+        "候选约束(JSON)：\n"
+        f"{json.dumps(structured_payload, ensure_ascii=False, separators=(',', ':'))}\n"
+        "你必须优先从 special_shortlist 中选择 1 个特码，并从 normal_shortlist 中选择 6 个不重复平码；"
+        "若偏离 shortlist，必须在理由中明确说明。"
+    )
+
+    return {
+        "year": year,
+        "number_to_zodiac": number_to_zodiac,
+        "special_score_map": special_score_map,
+        "normal_score_map": normal_score_map,
+        "probability_map": probability_map,
+        "special_votes": special_votes,
+        "normal_votes": normal_votes,
+        "special_shortlist": special_shortlist,
+        "normal_shortlist": normal_shortlist,
+        "preferred_color": preferred_color,
+        "preferred_parity": preferred_parity,
+        "preferred_zodiac": preferred_zodiac,
+        "recent_specials": recent_specials,
+        "shortlist_prompt": shortlist_prompt,
+        "structured_payload": structured_payload,
+        "gate_profile": _build_ai_gate_profile(region),
+    }
+
+
+def _build_ai_prompt_v4(data, region, shortlist_context, history_window=10, candidate_count=3):
+    base_prompt = _build_ai_prompt_v3(data, region, history_window=history_window)
+    candidate_count = _clamp(int(candidate_count or 3), 2, 5)
+    return (
+        f"{base_prompt}\n\n"
+        f"{shortlist_context.get('shortlist_prompt', '')}\n\n"
+        "请先输出一段严格 JSON，格式如下：\n"
+        "{\"candidates\":[{\"special\":12,\"normal\":[1,2,3,4,5,6],\"confidence\":0.72,\"why\":\"...\"}]}\n"
+        f"其中 candidates 数量必须为 {candidate_count} 组，按优先级从高到低排序。\n"
+        "然后再输出简短分析。不要输出 shortlist 之外的大量号码。"
+    )
+
+
+def _extract_json_objects_from_text(text):
+    content = str(text or "")
+    objects = []
+    for start in range(len(content)):
+        if content[start] != "{":
+            continue
+        depth = 0
+        in_string = False
+        escape = False
+        for end in range(start, len(content)):
+            char = content[end]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    snippet = content[start:end + 1]
+                    try:
+                        objects.append(json.loads(snippet))
+                    except Exception:
+                        pass
+                    break
+    return objects
+
+
+def _normalize_ai_candidate_entry(entry, region=None, source_text=""):
+    if not isinstance(entry, dict):
+        return None
+    normal = entry.get("normal")
+    special = entry.get("special")
+    if isinstance(special, dict):
+        special = special.get("number") or special.get("value")
+    if isinstance(normal, str):
+        normal = [int(item) for item in re.findall(r"\d{1,2}", normal)]
+    elif isinstance(normal, (list, tuple)):
+        parsed = []
+        for item in normal:
+            try:
+                parsed.append(int(str(item).strip()))
+            except (TypeError, ValueError):
+                continue
+        normal = parsed
+    else:
+        normal = []
+
+    try:
+        special_value = int(str(special).strip())
+    except (TypeError, ValueError):
+        return None
+
+    normal = [number for number in normal if 1 <= int(number) <= 49 and int(number) != special_value]
+    normal = _dedupe_keep_order([int(number) for number in normal])[:6]
+    if len(normal) < 6 or not (1 <= special_value <= 49):
+        return None
+
+    return {
+        "special": special_value,
+        "normal": normal,
+        "confidence": _safe_float(entry.get("confidence"), 0.0),
+        "why": str(entry.get("why") or entry.get("reason") or "").strip(),
+        "source_text": str(source_text or "").strip(),
+    }
+
+
+def _extract_ai_candidate_entries(ai_response, region=None):
+    candidates = []
+    for obj in _extract_json_objects_from_text(ai_response):
+        if isinstance(obj, dict) and isinstance(obj.get("candidates"), list):
+            for item in obj.get("candidates") or []:
+                normalized = _normalize_ai_candidate_entry(item, region=region, source_text=ai_response)
+                if normalized:
+                    candidates.append(normalized)
+        else:
+            normalized = _normalize_ai_candidate_entry(obj, region=region, source_text=ai_response)
+            if normalized:
+                candidates.append(normalized)
+
+    if candidates:
+        return candidates
+
+    normal_numbers, special_number = _extract_ai_numbers_v2(ai_response, region=region)
+    if not normal_numbers or not special_number:
+        return []
+    normalized = _normalize_ai_candidate_entry(
+        {
+            "special": special_number,
+            "normal": normal_numbers,
+            "why": str(ai_response or "").strip(),
+        },
+        region=region,
+        source_text=ai_response,
+    )
+    return [normalized] if normalized else []
+
+
+def _score_ai_combination_shape(normal, special, context):
+    numbers = [int(number) for number in (normal or []) if str(number).isdigit()]
+    if special is not None:
+        try:
+            numbers.append(int(special))
+        except (TypeError, ValueError):
+            pass
+    if len(numbers) < 7:
+        return -0.2, {"shape_score": -0.2}
+
+    zone_counts = Counter(1 if number <= 16 else 2 if number <= 33 else 3 for number in numbers)
+    zone_penalty = 0.0
+    for count in zone_counts.values():
+        if count >= 5:
+            zone_penalty -= 0.18
+        elif count == 4:
+            zone_penalty -= 0.08
+    covered_zones = len(zone_counts)
+    zone_bonus = 0.06 if covered_zones == 3 else -0.05
+
+    tails = [number % 10 for number in numbers]
+    tail_counts = Counter(tails)
+    tail_penalty = 0.0
+    for count in tail_counts.values():
+        if count >= 3:
+            tail_penalty -= 0.12
+
+    colors = [_get_color_zh(number) for number in numbers if _get_color_zh(number)]
+    color_counts = Counter(colors)
+    color_penalty = 0.0
+    if color_counts and max(color_counts.values()) >= 5:
+        color_penalty -= 0.12
+    elif len(color_counts) == 3:
+        color_penalty += 0.05
+
+    parities = [_get_parity_zh(number) for number in numbers if _get_parity_zh(number)]
+    parity_counts = Counter(parities)
+    parity_penalty = -0.06 if parity_counts and max(parity_counts.values()) >= 6 else 0.03 if len(parity_counts) == 2 else 0.0
+
+    special_shortlist = set(context.get("special_shortlist") or [])
+    normal_shortlist = set(context.get("normal_shortlist") or [])
+    shortlist_coverage = sum(1 for number in normal if int(number) in normal_shortlist)
+    if special in special_shortlist:
+        shortlist_coverage += 1
+    shortlist_bonus = max(0.0, (shortlist_coverage - 4) * 0.03)
+
+    total = round(zone_penalty + zone_bonus + tail_penalty + color_penalty + parity_penalty + shortlist_bonus, 6)
+    return total, {
+        "zone_penalty": round(zone_penalty, 4),
+        "zone_bonus": round(zone_bonus, 4),
+        "tail_penalty": round(tail_penalty, 4),
+        "color_penalty": round(color_penalty, 4),
+        "parity_penalty": round(parity_penalty, 4),
+        "shortlist_coverage_bonus": round(shortlist_bonus, 4),
+        "shape_score": total,
+    }
+
+
+def _score_ai_candidate(candidate, context):
+    special = int(candidate.get("special"))
+    normal = [int(number) for number in candidate.get("normal") or []]
+    if len(normal) < 6:
+        return -999.0, {}
+
+    special_score_map = context.get("special_score_map") or {}
+    normal_score_map = context.get("normal_score_map") or {}
+    special_votes = context.get("special_votes") or Counter()
+    normal_votes = context.get("normal_votes") or Counter()
+    number_to_zodiac = context.get("number_to_zodiac") or {}
+    special_shortlist = set(context.get("special_shortlist") or [])
+    normal_shortlist = set(context.get("normal_shortlist") or [])
+    recent_specials = list(context.get("recent_specials") or [])
+
+    base_special = special_score_map.get(special, 0.0)
+    avg_normal = sum(normal_score_map.get(number, 0.0) for number in normal) / max(len(normal), 1)
+    special_vote = _safe_float(special_votes.get(special, 0.0))
+    normal_vote_avg = sum(_safe_float(normal_votes.get(number, 0.0)) for number in normal) / max(len(normal), 1)
+    shortlist_bonus = (0.16 if special in special_shortlist else -0.18)
+    shortlist_bonus += sum(0.028 if number in normal_shortlist else -0.04 for number in normal)
+
+    special_color = _get_color_zh(special)
+    special_parity = _get_parity_zh(special)
+    special_zodiac = number_to_zodiac.get(str(special), "")
+    attr_bonus = 0.0
+    if context.get("preferred_color") and special_color == context.get("preferred_color"):
+        attr_bonus += 0.08
+    if context.get("preferred_parity") and special_parity == context.get("preferred_parity"):
+        attr_bonus += 0.06
+    if context.get("preferred_zodiac") and special_zodiac == context.get("preferred_zodiac"):
+        attr_bonus += 0.08
+
+    zones = set(1 if number <= 16 else 2 if number <= 33 else 3 for number in normal)
+    diversity_bonus = len(zones) * 0.04
+    parity_mix = len(set(_get_parity_zh(number) for number in normal if _get_parity_zh(number)))
+    diversity_bonus += 0.04 if parity_mix >= 2 else -0.03
+
+    repeat_penalty = 0.0
+    if recent_specials[:2] and special in recent_specials[:2]:
+        repeat_penalty -= 0.2
+    elif special in recent_specials:
+        repeat_penalty -= 0.08
+
+    confidence_bonus = _clamp(candidate.get("confidence", 0.0), 0.0, 1.0) * 0.08
+    shape_score, shape_diagnostics = _score_ai_combination_shape(normal, special, context)
+    gate_profile = dict(context.get("gate_profile") or {})
+    gate_adjustment = 0.0
+    if gate_profile.get("status") == "guarded":
+        gate_adjustment -= 0.08
+    elif gate_profile.get("status") == "fallback":
+        gate_adjustment -= 0.2
+    total = (
+        base_special * 0.9 +
+        avg_normal * 0.55 +
+        special_vote * 0.18 +
+        normal_vote_avg * 0.1 +
+        shortlist_bonus +
+        attr_bonus +
+        diversity_bonus +
+        repeat_penalty +
+        confidence_bonus +
+        shape_score +
+        gate_adjustment
+    )
+    diagnostics = {
+        "base_special": round(base_special, 6),
+        "avg_normal": round(avg_normal, 6),
+        "special_vote": round(special_vote, 4),
+        "normal_vote_avg": round(normal_vote_avg, 4),
+        "shortlist_bonus": round(shortlist_bonus, 4),
+        "attr_bonus": round(attr_bonus, 4),
+        "diversity_bonus": round(diversity_bonus, 4),
+        "repeat_penalty": round(repeat_penalty, 4),
+        "confidence_bonus": round(confidence_bonus, 4),
+        "shape_score": round(shape_score, 4),
+        "gate_adjustment": round(gate_adjustment, 4),
+        "total": round(total, 6),
+    }
+    diagnostics.update(shape_diagnostics)
+    return round(total, 6), diagnostics
+
+
+def _build_ai_selection_recommendation(best_candidate, context, ranked_candidates):
+    special = best_candidate.get("special")
+    normal = best_candidate.get("normal") or []
+    special_votes = context.get("special_votes") or Counter()
+    normal_votes = context.get("normal_votes") or Counter()
+    rationale = str(best_candidate.get("why") or "").strip()
+    consensus_text = (
+        f"系统重排得分：{best_candidate.get('rerank_score', 0.0):.4f}；"
+        f"特码票数：{round(_safe_float(special_votes.get(int(special), 0.0)), 2)}；"
+        f"六码平均票数："
+        f"{round(sum(_safe_float(normal_votes.get(int(number), 0.0)) for number in normal) / max(len(normal), 1), 2)}。"
+    )
+    top_alternatives = "、".join(
+        f"{item['special']}({item['aggregate_score']:.3f})"
+        for item in ranked_candidates[:3]
+    )
+    raw_text = "\n".join(
+        part for part in (
+            rationale,
+            f"补充说明：{consensus_text}" if consensus_text else "",
+            f"候选排序：{top_alternatives}" if top_alternatives else "",
+        ) if part
+    )
+    return _compose_ai_recommendation_text(raw_text, str(special), normal, region=context.get("structured_payload", {}).get("region"))
+
+
+def _finalize_ai_multi_sample_result(ai_responses, region, context):
+    signature_votes = Counter()
+    best_by_signature = {}
+
+    for sample_index, response_text in enumerate(ai_responses or []):
+        entries = _extract_ai_candidate_entries(response_text, region=region)
+        for rank_index, candidate in enumerate(entries):
+            signature = f"{candidate['special']}|{','.join(map(str, candidate['normal']))}"
+            appearance_weight = max(0.35, 1.0 - rank_index * 0.18) * max(0.6, 1.0 - sample_index * 0.08)
+            signature_votes[signature] += appearance_weight
+            score, diagnostics = _score_ai_candidate(candidate, context)
+            enriched = {
+                **candidate,
+                "signature": signature,
+                "rerank_score": score,
+                "score_diagnostics": diagnostics,
+            }
+            previous = best_by_signature.get(signature)
+            if previous is None or enriched["rerank_score"] > previous["rerank_score"]:
+                best_by_signature[signature] = enriched
+
+    if not best_by_signature:
+        return None, "无法从AI回复中生成有效候选组合"
+
+    ranked = sorted(
+        [
+            {
+                **candidate,
+                "appearance_votes": round(signature_votes[candidate["signature"]], 4),
+                "aggregate_score": round(candidate["rerank_score"] + signature_votes[candidate["signature"]] * 0.24, 6),
+            }
+            for candidate in best_by_signature.values()
+        ],
+        key=lambda item: (item["aggregate_score"], item["rerank_score"], item["appearance_votes"]),
+        reverse=True,
+    )
+    best = ranked[0]
+
+    result = {
+        "normal": [int(number) for number in best.get("normal") or []],
+        "special": {
+            "number": str(best.get("special")),
+            "sno_zodiac": "",
+        },
+        "recommendation_text": _build_ai_selection_recommendation(best, context, ranked),
+        "model_meta": {
+            "ai_sampling_count": len(ai_responses or []),
+            "ai_unique_candidates": len(ranked),
+            "ai_selected_score": round(best.get("aggregate_score", 0.0), 6),
+            "ai_gate_profile": dict(context.get("gate_profile") or {}),
+            "ai_candidate_ranking": [
+                {
+                    "special": item["special"],
+                    "normal": item["normal"],
+                    "score": round(item["aggregate_score"], 6),
+                    "votes": round(item["appearance_votes"], 4),
+                }
+                for item in ranked[:5]
+            ],
+        },
+    }
+    return result, None
+
+
+def predict_with_ai(data, region):
+    ai_config = get_ai_config()
+    if not ai_config['api_key'] or "你的" in ai_config['api_key']:
+        return {"error": "AI API Key 未配置"}
+    tuned = _load_strategy_config("ai", region)
+    history_window = int(tuned.get("history_window") or 12)
+    temperature = float(tuned.get("temperature") or 0.35)
+    sample_count = _clamp(int(tuned.get("sample_count") or 3), 1, 5)
+    candidate_count = _clamp(int(tuned.get("candidate_count") or 3), 2, 5)
+    try:
+        shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
+        gate_profile = dict(shortlist_context.get("gate_profile") or {})
+        if gate_profile.get("status") == "fallback":
+            fallback_strategy = gate_profile.get("anchor_strategy") or "hybrid"
+            fallback_result = get_local_recommendations(fallback_strategy, data, region)
+            fallback_meta = dict(fallback_result.get("model_meta") or {})
+            fallback_meta["ai_gate_profile"] = gate_profile
+            fallback_meta["ai_gated"] = True
+            fallback_meta["ai_gate_reason"] = "fallback_to_local_strategy"
+            fallback_result["model_meta"] = fallback_meta
+            return fallback_result
+        prompt = _build_ai_prompt_v4(
+            data,
+            region,
+            shortlist_context,
+            history_window=history_window,
+            candidate_count=candidate_count,
+        )
+        responses = []
+        for temp in _build_ai_sampling_temperatures(temperature, sample_count):
+            responses.append(_call_ai_completion(ai_config, prompt, temperature=temp))
+        result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
         if error:
             return {"error": error}
+        return result
         tuned_accuracy = round(float(tuned.get("last_accuracy") or 0.0) * 100, 1)
         feedback = _build_prediction_feedback(region, "ai")
         result["recommendation_text"] = _build_special_focus_text(
@@ -4845,7 +5507,35 @@ def unified_predict_api():
                 tuned = _load_strategy_config("ai", region)
                 history_window = int(tuned.get("history_window") or 12)
                 temperature = float(tuned.get("temperature") or 0.35)
-                prompt = _build_ai_prompt_v3(data, region, history_window=history_window)
+                sample_count = _clamp(int(tuned.get("sample_count") or 3), 1, 5)
+                candidate_count = _clamp(int(tuned.get("candidate_count") or 3), 2, 5)
+                shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
+                gate_profile = dict(shortlist_context.get("gate_profile") or {})
+                if gate_profile.get("status") == "fallback":
+                    fallback_strategy = gate_profile.get("anchor_strategy") or "hybrid"
+                    fallback_result = get_local_recommendations(fallback_strategy, data, region)
+                    fallback_meta = dict(fallback_result.get("model_meta") or {})
+                    fallback_meta["ai_gate_profile"] = gate_profile
+                    fallback_meta["ai_gated"] = True
+                    fallback_meta["ai_gate_reason"] = "fallback_to_local_strategy"
+                    fallback_result["model_meta"] = fallback_meta
+                    fallback_result.update({
+                        "type": "done",
+                        "region": region,
+                        "strategy": resolved_strategy,
+                        "requested_strategy": strategy,
+                        "period": current_period,
+                        "prediction_zodiac_year": prediction_zodiac_year,
+                    })
+                    yield _sse_event(fallback_result)
+                    return
+                prompt = _build_ai_prompt_v4(
+                    data,
+                    region,
+                    shortlist_context,
+                    history_window=history_window,
+                    candidate_count=candidate_count,
+                )
                 full_text = ""
                 try:
                     for chunk in _iter_ai_stream(ai_config, prompt, temperature=temperature):
@@ -4866,7 +5556,14 @@ def unified_predict_api():
                         return
                     result = fallback
                 else:
-                    result, error = _finalize_ai_result_v2(full_text, region=region)
+                    responses = [full_text]
+                    extra_temperatures = _build_ai_sampling_temperatures(temperature, sample_count)[1:]
+                    for temp in extra_temperatures:
+                        try:
+                            responses.append(_call_ai_completion(ai_config, prompt, temperature=temp))
+                        except Exception:
+                            continue
+                    result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
                     if error:
                         yield _sse_event({"type": "error", "error": error})
                         return
