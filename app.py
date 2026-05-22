@@ -1211,6 +1211,17 @@ def _save_strategy_config(strategy, region, config):
     payload = json.dumps(config, ensure_ascii=True)
     SystemConfig.set_config(key, payload, f"Auto-tuned config for {strategy} ({region})")
 
+
+def _normalize_draw_number(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return str(int(text))
+    except (TypeError, ValueError):
+        return text
+
+
 def _calculate_strategy_accuracy(region, strategy, limit=200):
     query = PredictionRecord.query.filter_by(
         region=region,
@@ -1226,10 +1237,10 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
 
     correct = 0
     for pred in predictions:
-        actual = pred.actual_special_number
+        actual = _normalize_draw_number(pred.actual_special_number)
         if not actual:
             continue
-        if pred.special_number == actual:
+        if _normalize_draw_number(pred.special_number) == actual:
             correct += 1
     total = len(predictions)
     return (correct / total) if total else 0.0, total
@@ -1247,12 +1258,16 @@ def _calculate_strategy_window_stats(region, strategy, limit=50):
 
 
 def _score_prediction_outcome(prediction):
-    actual_special = str(getattr(prediction, "actual_special_number", "") or "").strip()
-    special_number = str(getattr(prediction, "special_number", "") or "").strip()
+    actual_special = _normalize_draw_number(
+        getattr(prediction, "actual_special_number", "")
+    )
+    special_number = _normalize_draw_number(
+        getattr(prediction, "special_number", "")
+    )
     normal_numbers = {
-        item.strip()
+        _normalize_draw_number(item)
         for item in str(getattr(prediction, "normal_numbers", "") or "").split(",")
-        if item.strip()
+        if _normalize_draw_number(item)
     }
     actual_zodiac = str(getattr(prediction, "actual_special_zodiac", "") or "").strip()
     special_zodiac = str(getattr(prediction, "special_zodiac", "") or "").strip()
