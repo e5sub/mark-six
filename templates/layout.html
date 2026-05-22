@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +7,10 @@
     <link href="https://fastly.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://fastly.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background-color: #f8f9fa; }
+        body {
+            background-color: #0f172a;
+            color: #e5e7eb;
+        }
         .flash-messages { list-style: none; padding: 0; margin: 0; }
         .flash-messages .alert { margin-top: 1rem; }
     </style>
@@ -16,7 +19,7 @@
 <body>
     
     {% block header %}
-    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top border-bottom shadow-sm">
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top border-bottom shadow-sm" style="background: rgba(15, 23, 42, 0.92); border-color: rgba(148, 163, 184, 0.2) !important;">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('index') }}"><strong>数据分析平台</strong></a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">

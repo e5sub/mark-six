@@ -13,9 +13,9 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #111827 100%);
             min-height: 100vh;
-            color: #333;
+            color: #e5e7eb;
             display: flex;
         }
 
@@ -41,9 +41,9 @@
         
         .sidebar {
             width: 260px;
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.72);
             backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            border-right: 1px solid rgba(148, 163, 184, 0.16);
             position: fixed;
             height: 100vh;
             left: 0;
@@ -54,7 +54,7 @@
         
         .sidebar-header {
             padding: 2rem 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
         }
         
         .sidebar-brand {
@@ -71,7 +71,7 @@
         .sidebar-nav a {
             display: flex;
             align-items: center;
-            color: rgba(255, 255, 255, 0.8);
+            color: #cbd5e1;
             text-decoration: none;
             padding: 1rem 1.5rem;
             transition: all 0.3s ease;
@@ -80,13 +80,13 @@
         }
         
         .sidebar-nav a:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(30, 41, 59, 0.82);
             color: white;
             border-left-color: white;
         }
         
         .sidebar-nav a.active {
-            background: rgba(255, 255, 255, 0.15);
+            background: rgba(30, 41, 59, 0.96);
             color: white;
             border-left-color: white;
             font-weight: 500;
@@ -126,36 +126,38 @@
         }
         
         .top-bar {
-            background: white;
+            background: rgba(15, 23, 42, 0.88);
             padding: 1.5rem 2rem;
             border-radius: 20px;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(2, 6, 23, 0.35);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .page-title {
             font-size: 1.8rem;
             font-weight: 600;
-            color: #333;
+            color: #f8fafc;
         }
         
         .user-info {
             display: flex;
             align-items: center;
             gap: 1rem;
-            color: #666;
+            color: #cbd5e1;
             font-size: 0.95rem;
         }
         
         .card {
-            background: white;
+            background: rgba(15, 23, 42, 0.82);
             border-radius: 20px;
             padding: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(2, 6, 23, 0.32);
             margin-bottom: 2rem;
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .card-header {
@@ -164,13 +166,13 @@
             align-items: center;
             margin-bottom: 2rem;
             padding-bottom: 1rem;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .card-title {
             font-size: 1.4rem;
             font-weight: 600;
-            color: #333;
+            color: #f8fafc;
         }
         
         .btn {
@@ -225,23 +227,23 @@
         .table td {
             padding: 1rem;
             text-align: left;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .table th {
-            background: #f8f9fa;
+            background: rgba(30, 41, 59, 0.92);
             font-weight: 600;
-            color: #555;
+            color: #e2e8f0;
             font-size: 0.9rem;
         }
         
         .table td {
-            color: #666;
+            color: #cbd5e1;
             font-size: 0.95rem;
         }
         
         .table tr:hover {
-            background: #f8f9fa;
+            background: rgba(30, 41, 59, 0.45);
         }
         
         .form-group {
@@ -252,18 +254,19 @@
             display: block;
             margin-bottom: 0.5rem;
             font-weight: 500;
-            color: #333;
+            color: #e5e7eb;
             font-size: 0.95rem;
         }
         
         .form-control {
             width: 100%;
             padding: 0.75rem 1rem;
-            border: 2px solid #e9ecef;
+            border: 2px solid rgba(148, 163, 184, 0.16);
             border-radius: 12px;
             font-size: 0.95rem;
             transition: all 0.3s ease;
-            background: white;
+            background: rgba(15, 23, 42, 0.72);
+            color: #e5e7eb;
         }
         
         .form-control:focus {
@@ -280,14 +283,14 @@
         }
         
         .alert-success {
-            background: rgba(40, 167, 69, 0.1);
-            color: #155724;
+            background: rgba(34, 197, 94, 0.12);
+            color: #86efac;
             border: 1px solid rgba(40, 167, 69, 0.2);
         }
         
         .alert-danger {
-            background: rgba(220, 53, 69, 0.1);
-            color: #721c24;
+            background: rgba(248, 113, 113, 0.12);
+            color: #fca5a5;
             border: 1px solid rgba(220, 53, 69, 0.2);
         }
         
@@ -300,11 +303,12 @@
         }
         
         .stat-card {
-            background: white;
+            background: rgba(15, 23, 42, 0.72);
             padding: 10px;
             border-radius: 10px;
             text-align: center;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 12px 24px rgba(2, 6, 23, 0.22);
+            border: 1px solid rgba(148, 163, 184, 0.1);
         }
         
         .stat-number {
@@ -315,7 +319,7 @@
         }
         
         .stat-label {
-            color: #666;
+            color: #94a3b8;
             font-size: 0.85rem;
             font-weight: 500;
         }
@@ -349,7 +353,7 @@
         
         .badge-secondary {
             background: rgba(108, 117, 125, 0.1);
-            color: #495057;
+            color: #cbd5e1;
         }
         
         .invite-code {
@@ -392,7 +396,7 @@
             padding: 0.5rem 1rem;
             border-radius: 8px;
             text-decoration: none;
-            color: #666;
+            color: #cbd5e1;
             transition: all 0.3s ease;
         }
         

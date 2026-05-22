@@ -13,10 +13,10 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #111827 100%);
             background-attachment: fixed;
             min-height: 100vh;
-            color: #111827;
+            color: #e5e7eb;
             display: flex;
             overflow-x: hidden;
         }
@@ -36,17 +36,17 @@
             inset: -35%;
             transform: rotate(-45deg);
             transform-origin: center;
-            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='220' viewBox='0 0 420 220'><text x='18' y='112' font-size='28' font-family='Arial, sans-serif' fill='%231f2937' fill-opacity='1'>github.com/e5sub/mark-six</text></svg>");
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='220' viewBox='0 0 420 220'><text x='18' y='112' font-size='28' font-family='Arial, sans-serif' fill='%23e2e8f0' fill-opacity='1'>github.com/e5sub/mark-six</text></svg>");
             background-repeat: repeat;
             background-size: 420px 220px;
         }
         
         .sidebar {
             width: 240px;
-            background: rgba(255, 255, 255, 0.18);
+            background: rgba(15, 23, 42, 0.72);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            border-right: 1px solid rgba(255, 255, 255, 0.3);
+            border-right: 1px solid rgba(148, 163, 184, 0.16);
             position: fixed;
             height: 100vh;
             left: 0;
@@ -58,13 +58,13 @@
         
         .sidebar-header {
             padding: 1.5rem 1.25rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
         }
         
         .sidebar-brand {
             font-size: 1.2rem;
             font-weight: 700;
-            color: #111827;
+            color: #f8fafc;
             text-decoration: none;
         }
         
@@ -75,7 +75,7 @@
         .sidebar-nav a {
             display: flex;
             align-items: center;
-            color: #111827;
+            color: #e5e7eb;
             text-decoration: none;
             padding: 1rem 1.5rem;
             transition: all 0.3s ease;
@@ -85,14 +85,14 @@
         }
         
         .sidebar-nav a:hover {
-            background: rgba(255, 255, 255, 0.5);
-            color: #111827;
+            background: rgba(30, 41, 59, 0.8);
+            color: #f8fafc;
             border-left-color: #667eea;
         }
         
         .sidebar-nav a.active {
-            background: rgba(255, 255, 255, 0.5);
-            color: #111827;
+            background: rgba(30, 41, 59, 0.92);
+            color: #f8fafc;
             border-left-color: #667eea;
             font-weight: 700;
         }
@@ -155,12 +155,12 @@
             margin-top: 2.5rem;
             padding: 1rem 1.25rem;
             text-align: center;
-            color: #5b6475;
+            color: #94a3b8;
             font-size: 0.9rem;
         }
 
         .app-footer a {
-            color: #3451b2;
+            color: #93c5fd;
             text-decoration: none;
             font-weight: 700;
         }
@@ -170,36 +170,38 @@
         }
         
         .top-bar {
-            background: white;
+            background: rgba(15, 23, 42, 0.88);
             padding: 1.5rem 2rem;
             border-radius: 20px;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(2, 6, 23, 0.35);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .page-title {
             font-size: 1.8rem;
             font-weight: 600;
-            color: #333;
+            color: #f8fafc;
         }
         
         .user-info {
             display: flex;
             align-items: center;
             gap: 1rem;
-            color: #666;
+            color: #cbd5e1;
             font-size: 0.95rem;
         }
         
         .card {
-            background: white;
+            background: rgba(15, 23, 42, 0.82);
             border-radius: 20px;
             padding: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(2, 6, 23, 0.32);
             margin-bottom: 2rem;
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .card-header {
@@ -208,13 +210,13 @@
             align-items: center;
             margin-bottom: 2rem;
             padding-bottom: 1rem;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .card-title {
             font-size: 1.4rem;
             font-weight: 600;
-            color: #333;
+            color: #f8fafc;
         }
         
         .btn {
@@ -268,11 +270,12 @@
         }
         
         .stat-card {
-            background: white;
+            background: rgba(15, 23, 42, 0.72);
             padding: 10px;
             border-radius: 10px;
             text-align: center;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 12px 24px rgba(2, 6, 23, 0.22);
+            border: 1px solid rgba(148, 163, 184, 0.1);
         }
         
         .stat-number {
@@ -285,7 +288,7 @@
         }
         
         .stat-label {
-            color: #666;
+            color: #94a3b8;
             font-size: 0.85rem;
             font-weight: 500;
         }
@@ -296,11 +299,11 @@
         }
         
         .invite-code-item {
-            background: white;
+            background: rgba(15, 23, 42, 0.8);
             border-radius: 16px;
             padding: 1.5rem;
             margin-bottom: 1rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 36px rgba(2, 6, 23, 0.28);
             border-left: 4px solid #667eea;
         }
         
@@ -341,7 +344,7 @@
         
         .status-expired {
             background: rgba(108, 117, 125, 0.1);
-            color: #495057;
+            color: #cbd5e1;
         }
         
         .invite-details {
@@ -358,13 +361,13 @@
         
         .invite-detail-label {
             font-size: 0.8rem;
-            color: #666;
+            color: #94a3b8;
             margin-bottom: 0.25rem;
         }
         
         .invite-detail-value {
             font-weight: 600;
-            color: #333;
+            color: #e5e7eb;
         }
         
         .copy-btn {
@@ -391,24 +394,24 @@
         }
         
         .alert-success {
-            background: rgba(40, 167, 69, 0.1);
-            color: #155724;
+            background: rgba(34, 197, 94, 0.12);
+            color: #86efac;
             border: 1px solid rgba(40, 167, 69, 0.2);
         }
         
         .alert-danger {
-            background: rgba(220, 53, 69, 0.1);
-            color: #721c24;
+            background: rgba(248, 113, 113, 0.12);
+            color: #fca5a5;
             border: 1px solid rgba(220, 53, 69, 0.2);
         }
         
         @media (max-width: 768px) {
             .sidebar {
             width: 240px;
-            background: rgba(255, 255, 255, 0.18);
+            background: rgba(15, 23, 42, 0.72);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
-            border-right: 1px solid rgba(255, 255, 255, 0.3);
+            border-right: 1px solid rgba(148, 163, 184, 0.16);
             position: fixed;
             height: 100vh;
             left: 0;

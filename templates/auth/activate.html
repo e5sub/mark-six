@@ -9,9 +9,9 @@
         :root {
             --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-            --glass-bg: rgba(255, 255, 255, 0.25);
-            --text-primary: #2d3748;
-            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            --glass-bg: rgba(15, 23, 42, 0.78);
+            --text-primary: #e2e8f0;
+            --shadow-light: 0 16px 40px rgba(2, 6, 23, 0.4);
         }
 
         * {
@@ -22,7 +22,7 @@
 
         body {
             font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #111827 100%);
             background-attachment: fixed;
             min-height: 100vh;
             display: flex;
@@ -32,7 +32,7 @@
         }
 
         .activate-container {
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--glass-bg);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border-radius: 20px;
@@ -68,7 +68,7 @@
         }
 
         .activate-header p {
-            color: #6c757d;
+            color: #94a3b8;
             font-size: 1rem;
             line-height: 1.6;
         }
@@ -89,7 +89,7 @@
             padding: 12px 16px;
             border: 1px solid rgba(255, 255, 255, 0.3);
             border-radius: 10px;
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(15, 23, 42, 0.72);
             color: var(--text-primary);
             font-size: 1rem;
             transition: all 0.3s ease;
@@ -100,7 +100,7 @@
             outline: none;
             border-color: #007bff;
             box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(15, 23, 42, 0.92);
         }
 
         .btn {
@@ -132,13 +132,13 @@
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.7);
+            background: rgba(30, 41, 59, 0.9);
             color: var(--text-primary);
             border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
         .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(51, 65, 85, 0.96);
             transform: translateY(-1px);
         }
 
@@ -172,7 +172,7 @@
         }
 
         .text-muted {
-            color: #6c757d;
+            color: #94a3b8;
         }
 
         a {
@@ -186,7 +186,7 @@
         }
 
         .info-box {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.62);
             border-radius: 10px;
             padding: 20px;
             margin-bottom: 20px;
@@ -200,7 +200,7 @@
         }
 
         .info-box p {
-            color: #6c757d;
+            color: #94a3b8;
             line-height: 1.6;
             margin-bottom: 8px;
         }
