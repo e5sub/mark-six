@@ -110,17 +110,26 @@ def _hydrate_user_prediction_text(prediction):
         return text
 
     try:
-        from app import _get_prediction_data, _hydrate_prediction_recommendation_text
+        from app import (
+            _get_prediction_data,
+            _hydrate_prediction_recommendation_text,
+        )
 
         data, _ = _get_prediction_data(
             getattr(prediction, 'region', ''),
             datetime.now().year,
+        )
+        metadata = _deserialize_prediction_metadata(
+            getattr(prediction, 'prediction_metadata', '')
         )
         return _hydrate_prediction_recommendation_text(
             getattr(prediction, 'strategy', ''),
             text,
             data,
             getattr(prediction, 'region', ''),
+            special_number=getattr(prediction, 'special_number', ''),
+            normal_numbers=getattr(prediction, 'normal_numbers', ''),
+            existing_meta=metadata,
         )
     except Exception as e:
         print(f"用户侧补齐机器学习预测文案失败: {e}")
@@ -1051,7 +1060,12 @@ def ml_records():
     deduped_predictions = []
     seen_prediction_keys = set()
     for prediction in all_predictions:
-        unique_key = (prediction.region, prediction.period, prediction.strategy)
+        unique_key = (
+            prediction.user_id,
+            prediction.region,
+            prediction.period,
+            prediction.strategy,
+        )
         if unique_key in seen_prediction_keys:
             continue
         seen_prediction_keys.add(unique_key)

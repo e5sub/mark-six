@@ -372,15 +372,42 @@ def _hydrate_prediction_model_meta(strategy, existing_meta, data, region):
     return meta
 
 
-def _hydrate_prediction_recommendation_text(strategy, existing_text, data, region):
-    if strategy != "ml" or not data:
+def _hydrate_prediction_recommendation_text(
+    strategy,
+    existing_text,
+    data,
+    region,
+    special_number=None,
+    normal_numbers=None,
+    existing_meta=None,
+):
+    if strategy != "ml":
         return existing_text or ""
 
     try:
-        refreshed = _predict_with_ml(data, region) or {}
-        refreshed_text = str(refreshed.get("recommendation_text") or "").strip()
-        if refreshed_text:
-            return refreshed_text
+        hydrated_meta = _hydrate_prediction_model_meta(
+            strategy,
+            existing_meta or {},
+            data,
+            region,
+        )
+        normal_values = []
+        if isinstance(normal_numbers, str):
+            normal_values = [item.strip() for item in normal_numbers.split(",") if item.strip()]
+        elif isinstance(normal_numbers, (list, tuple)):
+            normal_values = [str(item).strip() for item in normal_numbers if str(item).strip()]
+
+        special_value = str(special_number or "").strip()
+        if special_value:
+            rebuilt_text = _build_special_focus_text(
+                special_value,
+                normal_values,
+                strategy_name="机器学习预测",
+                samples=hydrated_meta.get("samples"),
+                confidence=hydrated_meta.get("special_probability"),
+            )
+            if rebuilt_text:
+                return rebuilt_text
     except Exception as e:
         print(f"补齐机器学习预测文案失败: {e}")
     return existing_text or ""
@@ -4770,6 +4797,9 @@ def unified_predict_api():
                 existing.prediction_text,
                 data,
                 region,
+                special_number=existing.special_number,
+                normal_numbers=existing.normal_numbers,
+                existing_meta=existing_meta,
             )
             if refreshed_text:
                 result["recommendation_text"] = refreshed_text
@@ -4962,6 +4992,9 @@ def unified_predict_api():
                         existing.prediction_text,
                         data,
                         region,
+                        special_number=existing.special_number,
+                        normal_numbers=existing.normal_numbers,
+                        existing_meta=existing_meta,
                     )
                     if refreshed_text:
                         result["recommendation_text"] = refreshed_text

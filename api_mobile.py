@@ -70,11 +70,15 @@ def _hydrate_mobile_prediction_text(record):
             getattr(record, "region", ""),
             datetime.now().year,
         )
+        metadata = _safe_json_loads(getattr(record, "prediction_metadata", None))
         return _hydrate_prediction_recommendation_text(
             getattr(record, "strategy", ""),
             text,
             data,
             getattr(record, "region", ""),
+            special_number=getattr(record, "special_number", ""),
+            normal_numbers=getattr(record, "normal_numbers", ""),
+            existing_meta=metadata,
         )
     except Exception as e:
         print(f"移动端补齐机器学习预测文案失败: {e}")
