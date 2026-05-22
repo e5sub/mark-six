@@ -363,20 +363,11 @@ function renderPredictionInsights(data, strategy) {
         const weightReasonRows = Object.entries(weightDiagnostics)
             .sort((a, b) => Number((b[1] || {}).weighted_score || 0) - Number((a[1] || {}).weighted_score || 0))
             .map(([key, item], index) => {
-                const accuracyMap = item.accuracy_by_window || {};
-                const totalsMap = item.totals_by_window || {};
-                const formatWindowMetric = (windowKey) => {
-                    const total = Number(totalsMap[windowKey] || 0);
-                    if (total <= 0) {
-                        return `${windowKey}期样本不足`;
-                    }
-                    return `${windowKey}期${accuracyMap[windowKey] ?? 0}% (${total}条)`;
-                };
-                const windowText = [
-                    formatWindowMetric('20'),
-                    formatWindowMetric('50'),
-                    formatWindowMetric('100'),
-                ].join(' / ');
+                const overallTotal = Number(item.overall_total || 0);
+                const overallAccuracy = Number(item.overall_accuracy || 0);
+                const overallText = overallTotal > 0
+                    ? `${overallAccuracy}% (${overallTotal}条)`
+                    : '样本不足';
                 const accentPalette = [
                     { bg: 'linear-gradient(135deg, rgba(255,248,214,0.96), rgba(255,236,176,0.92))', border: 'rgba(196, 146, 0, 0.28)', badgeBg: '#c69200', badgeColor: '#fffaf0', title: '#7a5600' },
                     { bg: 'linear-gradient(135deg, rgba(240,244,248,0.96), rgba(223,231,239,0.92))', border: 'rgba(96, 125, 139, 0.26)', badgeBg: '#607d8b', badgeColor: '#f8fbff', title: '#38505d' },
@@ -400,7 +391,7 @@ function renderPredictionInsights(data, strategy) {
                             </div>
                             <span style="font-size:0.82rem; font-weight:800; color:${accentPalette.title};">权重${Number(ensembleWeights[key] || 0).toFixed(1).replace(/\.0$/, '')}%</span>
                         </div>
-                        <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">近窗特码命中率：${windowText}</div>
+                        <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">特码命中率：${overallText}</div>
                         <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">排名系数×命中率加成：${item.rank_multiplier ?? '-'} × ${item.accuracy_multiplier ?? '-'}，加权分 ${item.weighted_score ?? '-'}</div>
                     </div>
                 `;

@@ -3611,7 +3611,7 @@ class _PredictScreenState extends State<PredictScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            '近窗特码命中率：$accuracyText',
+            '特码命中率：$accuracyText',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
           ),
           const SizedBox(height: 4),
@@ -3728,22 +3728,13 @@ class _PredictScreenState extends State<PredictScreen> {
               final item = Map<String, dynamic>.from(
                 (weightDiagnostics[key] as Map?) ?? const {},
               );
-              final accuracyMap = Map<String, dynamic>.from(
-                (item['accuracy_by_window'] as Map?) ?? const {},
-              );
-              final totalsMap = Map<String, dynamic>.from(
-                (item['totals_by_window'] as Map?) ?? const {},
-              );
-              String formatWindowMetric(String windowKey) {
-                final total = (totalsMap[windowKey] as num?)?.toInt() ?? 0;
-                if (total <= 0) {
-                  return '${windowKey}期样本不足';
-                }
-                return '${windowKey}期${accuracyMap[windowKey] ?? 0}% ($total条)';
-              }
-
-              final accuracyText =
-                  '${formatWindowMetric('20')} / ${formatWindowMetric('50')} / ${formatWindowMetric('100')}';
+              final overallTotal =
+                  (item['overall_total'] as num?)?.toInt() ?? 0;
+              final overallAccuracy =
+                  (item['overall_accuracy'] as num?)?.toDouble() ?? 0.0;
+              final accuracyText = overallTotal > 0
+                  ? '${overallAccuracy.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '')}% ($overallTotal条)'
+                  : '样本不足';
               final multiplierText =
                   '排名系数×命中率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，加权分 ${item['weighted_score'] ?? '-'}';
               final weightValue =
