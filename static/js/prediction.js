@@ -397,9 +397,9 @@ function renderPredictionInsights(data, strategy) {
                 <div style="padding: 14px; border-radius: 12px; background: rgba(0, 137, 123, 0.08); border: 1px solid rgba(0, 137, 123, 0.18);">
                     <div style="font-size: 0.95rem; font-weight: 700; color: #0f5f56; margin-bottom: 10px;">机器学习诊断</div>
                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; font-size:0.85rem; color:#23403b;">
-                        <div><strong>Top1回测</strong><br>${meta.top1_hit_rate ?? 0}%</div>
-                        <div><strong>Top6回测</strong><br>${meta.top6_hit_rate ?? 0}%</div>
-                        <div><strong>置信度</strong><br>${meta.special_probability ?? 0}%</div>
+                        <div><strong>单号参考</strong><br>${meta.top1_hit_rate ?? 0}%</div>
+                        <div><strong>六码参考</strong><br>${meta.top6_hit_rate ?? 0}%</div>
+                        <div><strong>本期把握度</strong><br>${meta.special_probability ?? 0}%</div>
                         <div><strong>评估样本</strong><br>${meta.evaluation_draws ?? meta.draw_samples ?? 0}期</div>
                         <div><strong>参数档位</strong><br>${getMlRuntimeProfileLabel(meta.runtime_profile)}</div>
                         <div><strong>综合评分</strong><br>${meta.runtime_score ?? 0}</div>
@@ -411,6 +411,7 @@ function renderPredictionInsights(data, strategy) {
                     ${displayCopy.preferred_runtimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.preferred_runtimes}</div>` : ''}
                     ${displayCopy.color_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.color_preference}</div>` : ''}
                     ${displayCopy.parity_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.parity_preference}</div>` : ''}
+                    ${displayCopy.six_reference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.six_reference}</div>` : ''}
                     ${displayCopy.selected_strategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.selected_strategies}</div>` : ''}
                     ${displayCopy.weight_summary ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.weight_summary}</div>` : ''}
                     ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>权重依据：</strong><div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
@@ -420,8 +421,8 @@ function renderPredictionInsights(data, strategy) {
                     <div style="font-size: 0.92rem; font-weight: 700; color: #155d9a; margin-bottom: 8px;">运行时参数搜索</div>
                     <div style="display:grid; grid-template-columns: 1.1fr 0.8fr 0.8fr 0.8fr; gap:8px; font-size:0.78rem; color:#4b5563; font-weight:700; padding-bottom:6px;">
                         <div>档位</div>
-                        <div>Top1</div>
-                        <div>Top6</div>
+                        <div>单号</div>
+                        <div>六码</div>
                         <div>窗长</div>
                     </div>
                     ${searchRows}
@@ -446,8 +447,10 @@ function displayFinalResult(data, strategy) {
         </div>
     `;
 
-    // 显示平码
-    if (shouldShowNormalNumbers() && data.normal && data.normal.length > 0) {
+    const showReferenceNumbers = shouldShowNormalNumbers();
+
+    // 显示平码/六码参考
+    if (showReferenceNumbers && data.normal && data.normal.length > 0) {
         html += '<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">';
 
         // 获取生肖数据
@@ -636,8 +639,10 @@ function displayPrediction(data, strategy) {
         </span>
     </div>`;
     
-    // 显示平码
-    if (shouldShowNormalNumbers() && data.normal && data.normal.length > 0) {
+    const showReferenceNumbers = shouldShowNormalNumbers();
+
+    // 显示平码/六码参考
+    if (showReferenceNumbers && data.normal && data.normal.length > 0) {
         html += '<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">';
         
         // 获取生肖数据

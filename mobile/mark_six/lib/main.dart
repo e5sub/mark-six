@@ -3340,15 +3340,18 @@ class _PredictScreenState extends State<PredictScreen> {
       return const Text('暂无预测结果');
     }
 
+    final showReferenceNumbers = _showNormalNumbers;
     final normalZodiacs = _normalZodiacs.length == cleanNormal.length
         ? _normalZodiacs
         : List.filled(cleanNormal.length, '');
 
     return Wrap(
+      alignment: WrapAlignment.center,
+      runAlignment: WrapAlignment.center,
       spacing: 8,
       runSpacing: 8,
       children: [
-        if (_showNormalNumbers)
+        if (showReferenceNumbers)
           ...cleanNormal.asMap().entries.map(
                 (entry) => _NumberZodiacTile(
                   number: entry.value,
@@ -3709,9 +3712,9 @@ class _PredictScreenState extends State<PredictScreen> {
             spacing: 10,
             runSpacing: 10,
             children: [
-              _buildInsightMetric('Top1回测', fmt(metaMap['top1_hit_rate'], suffix: '%')),
-              _buildInsightMetric('Top6回测', fmt(metaMap['top6_hit_rate'], suffix: '%')),
-              _buildInsightMetric('置信度', fmt(metaMap['special_probability'], suffix: '%')),
+              _buildInsightMetric('单号参考', fmt(metaMap['top1_hit_rate'], suffix: '%')),
+              _buildInsightMetric('六码参考', fmt(metaMap['top6_hit_rate'], suffix: '%')),
+              _buildInsightMetric('本期把握度', fmt(metaMap['special_probability'], suffix: '%')),
               _buildInsightMetric('评估样本', '${fmt(metaMap['evaluation_draws'] ?? metaMap['draw_samples'])}期'),
               _buildInsightMetric('参数档位', runtimeProfile),
               _buildInsightMetric('特征档位', featureProfile),
@@ -3767,6 +3770,17 @@ class _PredictScreenState extends State<PredictScreen> {
             const SizedBox(height: 8),
             Text(
               displayCopy['parity_preference'].toString(),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
+                height: 1.5,
+              ),
+            ),
+          ],
+          if ((displayCopy['six_reference']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 8),
+            Text(
+              displayCopy['six_reference'].toString(),
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey.shade800,
@@ -4042,6 +4056,7 @@ class _PredictScreenState extends State<PredictScreen> {
     bool inlineSpecialOnly = false,
     double? forcedWidth,
   }) {
+    final showReferenceNumbers = _showNormalNumbers;
     final normalZodiacs = _recordNormalZodiacs[item.id] ??
         List.filled(item.normalNumbers.length, '');
     final specialZodiac = _recordSpecialZodiacs[item.id] ?? item.specialZodiac;
@@ -4135,8 +4150,8 @@ class _PredictScreenState extends State<PredictScreen> {
               ],
             ],
           ),
-          SizedBox(height: inlineSpecialOnly ? 8 : (_showNormalNumbers ? 12 : 10)),
-          if (_showNormalNumbers) ...[
+          SizedBox(height: inlineSpecialOnly ? 8 : (showReferenceNumbers ? 12 : 10)),
+          if (showReferenceNumbers) ...[
             Text(
               '平码参考',
               style: TextStyle(

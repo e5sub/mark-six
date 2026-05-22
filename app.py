@@ -1262,6 +1262,11 @@ def _ml_promotion_strength_label(value):
 def _build_ml_display_copy(model_meta):
     meta = dict(model_meta or {})
     display = {}
+    normal_numbers = [
+        str(item).strip()
+        for item in (meta.get("normal_numbers") or [])
+        if str(item).strip()
+    ]
 
     primary_runtime = _ml_runtime_profile_label(meta.get("primary_runtime_profile"))
     primary_feature = _ml_feature_profile_label(meta.get("primary_feature_profile"))
@@ -1307,6 +1312,9 @@ def _build_ml_display_copy(model_meta):
             if parity_conf is not None else "（历史特码参考）"
         )
         display["parity_preference"] = f"本期单双偏向：{parity_preference}{suffix}"
+
+    if normal_numbers:
+        display["six_reference"] = f"六码参考号：{'、'.join(normal_numbers[:6])}"
 
     selected_strategies = [
         _get_strategy_label(item)
@@ -3393,6 +3401,7 @@ def _predict_with_ml(data, region, variation_key=None):
         "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
         "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
         "selected_blend": round(blend_weight * 100, 2),
+        "normal_numbers": list(normal),
         "preferred_feature_profiles": runtime_config.get("preferred_feature_profiles", []),
         "preferred_runtime_profiles": runtime_config.get("preferred_runtime_profiles", []),
         "profile_learning_confidence": round(
