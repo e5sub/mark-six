@@ -123,8 +123,8 @@ function handleStreamingResponse(response, strategy) {
                 <i class="fas fa-robot"></i> AI智能预测
             </span>
         </div>
-        <div id="streamingContent" style="background: rgba(248, 249, 250, 0.7); padding: 15px; border-radius: 10px; border: 1px solid rgba(0, 0, 0, 0.1); min-height: 100px;">
-            <p id="streamingText" style="line-height: 1.6; white-space: pre-wrap;"></p>
+        <div id="streamingContent" style="background: rgba(15, 23, 42, 0.88); color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14); min-height: 100px;">
+            <p id="streamingText" style="line-height: 1.6; white-space: pre-wrap; color: #f8fafc;"></p>
         </div>
     `;
 
@@ -347,7 +347,7 @@ function renderPredictionInsights(data, strategy) {
                     <div>${item.history_window}/${item.feature_window}${item.feature_profile && item.feature_profile !== 'full' ? ` · ${getMlFeatureProfileLabel(item.feature_profile)}` : ''}</div>
                 </div>
             `).join('')
-            : '<div style="font-size:0.82rem; color:#667085;">样本较少，当前使用基础档参数。</div>';
+            : '<div style="font-size:0.82rem; color:#dbe4f0;">样本较少，当前使用基础档参数。</div>';
 
         const specialVotes = meta.ensemble_special_votes || {};
         const voteEntries = Object.entries(specialVotes)
@@ -394,9 +394,9 @@ function renderPredictionInsights(data, strategy) {
 
         sections.push(`
             <div style="margin-top: 18px; display:grid; gap:12px;">
-                <div style="padding: 14px; border-radius: 12px; background: rgba(0, 137, 123, 0.08); border: 1px solid rgba(0, 137, 123, 0.18);">
-                    <div style="font-size: 0.95rem; font-weight: 700; color: #0f5f56; margin-bottom: 10px;">机器学习诊断</div>
-                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; font-size:0.85rem; color:#23403b;">
+                <div style="padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(45, 212, 191, 0.18);">
+                    <div style="font-size: 0.95rem; font-weight: 700; color: #f8fafc; margin-bottom: 10px;">机器学习诊断</div>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; font-size:0.85rem; color:#dbe4f0;">
                         <div><strong>单号参考</strong><br>${meta.top1_hit_rate ?? 0}%</div>
                         <div><strong>六码参考</strong><br>${meta.top6_hit_rate ?? 0}%</div>
                         <div><strong>本期把握度</strong><br>${meta.special_probability ?? 0}%</div>
@@ -406,20 +406,20 @@ function renderPredictionInsights(data, strategy) {
                         <div><strong>特征档位</strong><br>${getMlFeatureProfileLabel(meta.feature_profile)}</div>
                         <div><strong>固化状态</strong><br>${getMlPromotionStrengthLabel(meta.promotion_strength)}</div>
                     </div>
-                    ${displayCopy.primary_config ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.primary_config}</div>` : ''}
-                    ${displayCopy.preferred_features ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.preferred_features}</div>` : ''}
-                    ${displayCopy.preferred_runtimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.preferred_runtimes}</div>` : ''}
-                    ${displayCopy.color_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.color_preference}</div>` : ''}
-                    ${displayCopy.parity_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.parity_preference}</div>` : ''}
-                    ${displayCopy.six_reference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.six_reference}</div>` : ''}
-                    ${displayCopy.selected_strategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.selected_strategies}</div>` : ''}
-                    ${displayCopy.weight_summary ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.weight_summary}</div>` : ''}
-                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>权重依据：</strong><div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
-                    ${displayCopy.special_votes ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;">${displayCopy.special_votes}</div>` : ''}
+                    ${displayCopy.primary_config ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.primary_config}</div>` : ''}
+                    ${displayCopy.preferred_features ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.preferred_features}</div>` : ''}
+                    ${displayCopy.preferred_runtimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.preferred_runtimes}</div>` : ''}
+                    ${displayCopy.color_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.color_preference}</div>` : ''}
+                    ${displayCopy.parity_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.parity_preference}</div>` : ''}
+                    ${displayCopy.six_reference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.six_reference}</div>` : ''}
+                    ${displayCopy.selected_strategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.selected_strategies}</div>` : ''}
+                    ${displayCopy.weight_summary ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.weight_summary}</div>` : ''}
+                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>权重依据：</strong><div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
+                    ${displayCopy.special_votes ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.special_votes}</div>` : ''}
                 </div>
-                <div style="padding: 14px; border-radius: 12px; background: rgba(33, 150, 243, 0.06); border: 1px solid rgba(33, 150, 243, 0.16);">
-                    <div style="font-size: 0.92rem; font-weight: 700; color: #155d9a; margin-bottom: 8px;">运行时参数搜索</div>
-                    <div style="display:grid; grid-template-columns: 1.1fr 0.8fr 0.8fr 0.8fr; gap:8px; font-size:0.78rem; color:#4b5563; font-weight:700; padding-bottom:6px;">
+                <div style="padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(96, 165, 250, 0.18);">
+                    <div style="font-size: 0.92rem; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">运行时参数搜索</div>
+                    <div style="display:grid; grid-template-columns: 1.1fr 0.8fr 0.8fr 0.8fr; gap:8px; font-size:0.78rem; color:#dbe4f0; font-weight:700; padding-bottom:6px;">
                         <div>档位</div>
                         <div>单号</div>
                         <div>六码</div>
@@ -463,7 +463,7 @@ function displayFinalResult(data, strategy) {
             html += `
                 <div style="display: flex; flex-direction: column; align-items: center;">
                     <div class="lottery-ball ${colorClass}" style="margin-bottom: 5px;">${num}</div>
-                    <div style="font-size: 0.9rem; font-weight: 600; color: #495057;">${zodiac}</div>
+                    <div style="font-size: 0.9rem; font-weight: 600; color: #f8fafc;">${zodiac}</div>
                 </div>
             `;
         });
@@ -479,11 +479,11 @@ function displayFinalResult(data, strategy) {
 
         html += `
             <div style="display: flex; align-items: center; justify-content: center; margin-top: 20px; position: relative;">
-                <div style="font-size: 1.2rem; font-weight: 700; color: #333; margin-right: 15px;">特码:</div>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #f8fafc; margin-right: 15px;">特码:</div>
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
                     <div style="position: absolute; width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle, rgba(255,215,0,0.4) 0%, rgba(255,215,0,0) 70%); z-index: 0; top: 20px; left: 50%; transform: translate(-50%, -50%);"></div>
                     <div class="lottery-ball ${colorClass} special" style="width: 50px; height: 50px; font-size: 1.4rem; border: 3px solid #ffd700; margin-bottom: 5px; position: relative; z-index: 1; box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);">${specialNum}</div>
-                    <div style="font-size: 1rem; font-weight: 600; color: #333;">${zodiac}</div>
+                    <div style="font-size: 1rem; font-weight: 600; color: #f8fafc;">${zodiac}</div>
                 </div>
             </div>
         `;
@@ -510,9 +510,9 @@ function displayFinalResult(data, strategy) {
             const parsedContent = window.marked ? window.marked.parse(data.recommendation_text) : data.recommendation_text;
 
             html += `
-                <div style="margin-top: 20px; text-align: left; background: rgba(248, 249, 250, 0.7); padding: 15px; border-radius: 10px; border: 1px solid rgba(0, 0, 0, 0.1);">
-                    <h4 style="margin-bottom: 10px; color: #495057;">AI分析:</h4>
-                    <div style="line-height: 1.6;" class="markdown-content">${parsedContent}</div>
+                <div style="margin-top: 20px; text-align: left; background: rgba(15, 23, 42, 0.88); color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14);">
+                    <h4 style="margin-bottom: 10px; color: #f8fafc;">AI分析:</h4>
+                    <div style="line-height: 1.6; color: #dbe4f0;" class="markdown-content">${parsedContent}</div>
                 </div>
             `;
 
@@ -526,7 +526,7 @@ function displayFinalResult(data, strategy) {
                     margin-top: 1em;
                     margin-bottom: 0.5em;
                     font-weight: 600;
-                    color: #333;
+                    color: #f8fafc;
                 }
                 .markdown-content h1 { font-size: 1.8em; }
                 .markdown-content h2 { font-size: 1.6em; }
@@ -534,7 +534,7 @@ function displayFinalResult(data, strategy) {
                 .markdown-content h4 { font-size: 1.2em; }
                 .markdown-content h5 { font-size: 1.1em; }
                 .markdown-content h6 { font-size: 1em; }
-                .markdown-content p { margin-bottom: 1em; }
+                .markdown-content p { margin-bottom: 1em; color: #dbe4f0; }
                 .markdown-content strong { font-weight: 700; }
                 .markdown-content em { font-style: italic; }
                 .markdown-content ul, .markdown-content ol {
@@ -543,13 +543,13 @@ function displayFinalResult(data, strategy) {
                 }
                 .markdown-content li { margin-bottom: 0.5em; }
                 .markdown-content code {
-                    background-color: rgba(0,0,0,0.05);
+                    background-color: rgba(30,41,59,0.9);
                     padding: 0.2em 0.4em;
                     border-radius: 3px;
                     font-family: monospace;
                 }
                 .markdown-content pre {
-                    background-color: rgba(0,0,0,0.05);
+                    background-color: rgba(15,23,42,0.9);
                     padding: 1em;
                     border-radius: 5px;
                     overflow-x: auto;
@@ -560,10 +560,10 @@ function displayFinalResult(data, strategy) {
                     padding: 0;
                 }
                 .markdown-content blockquote {
-                    border-left: 4px solid #ddd;
+                    border-left: 4px solid rgba(148,163,184,0.3);
                     padding-left: 1em;
                     margin-left: 0;
-                    color: #666;
+                    color: #dbe4f0;
                 }
                 .markdown-content table {
                     border-collapse: collapse;
@@ -571,12 +571,12 @@ function displayFinalResult(data, strategy) {
                     margin-bottom: 1em;
                 }
                 .markdown-content table th, .markdown-content table td {
-                    border: 1px solid #ddd;
+                    border: 1px solid rgba(148,163,184,0.18);
                     padding: 8px;
                     text-align: left;
                 }
                 .markdown-content table th {
-                    background-color: rgba(0,0,0,0.05);
+                    background-color: rgba(30,41,59,0.9);
                 }
             `;
             document.head.appendChild(style);
@@ -655,7 +655,7 @@ function displayPrediction(data, strategy) {
             html += `
                 <div style="display: flex; flex-direction: column; align-items: center;">
                     <div class="lottery-ball ${colorClass}" style="margin-bottom: 5px;">${num}</div>
-                    <div style="font-size: 0.9rem; font-weight: 600; color: #495057;">${zodiac}</div>
+                    <div style="font-size: 0.9rem; font-weight: 600; color: #f8fafc;">${zodiac}</div>
                 </div>
             `;
         });
@@ -671,11 +671,11 @@ function displayPrediction(data, strategy) {
         
         html += `
             <div style="display: flex; align-items: center; justify-content: center; margin-top: 20px; position: relative;">
-                <div style="font-size: 1.2rem; font-weight: 700; color: #333; margin-right: 15px;">特码:</div>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #f8fafc; margin-right: 15px;">特码:</div>
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
                     <div style="position: absolute; width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle, rgba(255,215,0,0.4) 0%, rgba(255,215,0,0) 70%); z-index: 0; top: 20px; left: 50%; transform: translate(-50%, -50%);"></div>
                     <div class="lottery-ball ${colorClass} special" style="width: 50px; height: 50px; font-size: 1.4rem; border: 3px solid #ffd700; margin-bottom: 5px; position: relative; z-index: 1; box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);">${specialNum}</div>
-                    <div style="font-size: 1rem; font-weight: 600; color: #333;">${zodiac}</div>
+                    <div style="font-size: 1rem; font-weight: 600; color: #f8fafc;">${zodiac}</div>
                 </div>
             </div>
         `;
@@ -707,9 +707,9 @@ function displayPrediction(data, strategy) {
             const parsedContent = window.marked ? window.marked.parse(data.recommendation_text) : data.recommendation_text;
             
             html += `
-                <div style="margin-top: 20px; text-align: left; background: rgba(248, 249, 250, 0.7); padding: 15px; border-radius: 10px; border: 1px solid rgba(0, 0, 0, 0.1);">
-                    <h4 style="margin-bottom: 10px; color: #495057;">AI分析:</h4>
-                    <div style="line-height: 1.6;" class="markdown-content">${parsedContent}</div>
+                <div style="margin-top: 20px; text-align: left; background: rgba(15, 23, 42, 0.88); color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14);">
+                    <h4 style="margin-bottom: 10px; color: #f8fafc;">AI分析:</h4>
+                    <div style="line-height: 1.6; color: #dbe4f0;" class="markdown-content">${parsedContent}</div>
                 </div>
             `;
             
@@ -723,7 +723,7 @@ function displayPrediction(data, strategy) {
                     margin-top: 1em;
                     margin-bottom: 0.5em;
                     font-weight: 600;
-                    color: #333;
+                    color: #f8fafc;
                 }
                 .markdown-content h1 { font-size: 1.8em; }
                 .markdown-content h2 { font-size: 1.6em; }
@@ -731,7 +731,7 @@ function displayPrediction(data, strategy) {
                 .markdown-content h4 { font-size: 1.2em; }
                 .markdown-content h5 { font-size: 1.1em; }
                 .markdown-content h6 { font-size: 1em; }
-                .markdown-content p { margin-bottom: 1em; }
+                .markdown-content p { margin-bottom: 1em; color: #dbe4f0; }
                 .markdown-content strong { font-weight: 700; }
                 .markdown-content em { font-style: italic; }
                 .markdown-content ul, .markdown-content ol { 
@@ -740,13 +740,13 @@ function displayPrediction(data, strategy) {
                 }
                 .markdown-content li { margin-bottom: 0.5em; }
                 .markdown-content code {
-                    background-color: rgba(0,0,0,0.05);
+                    background-color: rgba(30,41,59,0.9);
                     padding: 0.2em 0.4em;
                     border-radius: 3px;
                     font-family: monospace;
                 }
                 .markdown-content pre {
-                    background-color: rgba(0,0,0,0.05);
+                    background-color: rgba(15,23,42,0.9);
                     padding: 1em;
                     border-radius: 5px;
                     overflow-x: auto;
@@ -757,10 +757,10 @@ function displayPrediction(data, strategy) {
                     padding: 0;
                 }
                 .markdown-content blockquote {
-                    border-left: 4px solid #ddd;
+                    border-left: 4px solid rgba(148,163,184,0.3);
                     padding-left: 1em;
                     margin-left: 0;
-                    color: #666;
+                    color: #dbe4f0;
                 }
                 .markdown-content table {
                     border-collapse: collapse;
@@ -768,12 +768,12 @@ function displayPrediction(data, strategy) {
                     margin-bottom: 1em;
                 }
                 .markdown-content table th, .markdown-content table td {
-                    border: 1px solid #ddd;
+                    border: 1px solid rgba(148,163,184,0.18);
                     padding: 8px;
                     text-align: left;
                 }
                 .markdown-content table th {
-                    background-color: rgba(0,0,0,0.05);
+                    background-color: rgba(30,41,59,0.9);
                 }
             `;
             document.head.appendChild(style);
