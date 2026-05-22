@@ -3,10 +3,67 @@
     <!-- 年份选择器已移除 -->
 </div>
 
+<style>
+    .search-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .search-toolbar .control-group {
+        margin-right: 10px;
+        flex-shrink: 0;
+    }
+
+    .search-inline-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1 1 420px;
+        min-width: 320px;
+        max-width: 560px;
+    }
+
+    .search-inline-group .control-label {
+        flex-shrink: 0;
+        margin-bottom: 0;
+        white-space: nowrap;
+    }
+
+    .search-inline-group .modern-select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .search-toolbar .modern-btn {
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 768px) {
+        .search-toolbar {
+            align-items: stretch;
+        }
+
+        .search-toolbar .control-group,
+        .search-inline-group,
+        .search-toolbar .modern-btn {
+            width: 100%;
+            max-width: none;
+        }
+
+        .search-inline-group {
+            min-width: 0;
+        }
+    }
+</style>
+
 <!-- 搜索面板 -->
 <div class="glass-card" style="margin-top: 15px; padding: 15px;">
-    <div style="display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; align-items: center;">
-        <div class="control-group" style="margin-right: 10px;">
+    <div class="search-toolbar">
+        <div class="control-group">
             <span class="control-label">地区:</span>
             <div class="region-selector" id="regionSelector">
                 <button class="region-btn active" data-region="macau" onclick="changeRegion('macau', this)">澳门</button>
@@ -14,9 +71,9 @@
             </div>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 10px; flex-grow: 1; max-width: 500px;">
+        <div class="search-inline-group">
             <span class="control-label">搜索:</span>
-            <input type="text" id="unifiedSearch" class="modern-select" placeholder="输入期数、特码号码或生肖..." style="width: 100%; min-width: 250px;">
+            <input type="text" id="unifiedSearch" class="modern-select" placeholder="输入期数、特码号码或生肖...">
         </div>
 
         <button class="modern-btn btn-primary" onclick="searchDraws()" style="padding: 10px 20px;">
