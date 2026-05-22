@@ -3173,6 +3173,7 @@ class _PredictScreenState extends State<PredictScreen> {
   Future<void> _updateZodiacs(List<String> numbers) async {
     if (numbers.isEmpty) return;
     try {
+      // 生肖映射必须按当年规则计算，不能复用预测接口的全量历史 year=all。
       final res = await ApiClient.instance.getZodiacs(
         numbers: numbers,
         region: _region,
@@ -3209,7 +3210,7 @@ class _PredictScreenState extends State<PredictScreen> {
     if (_strategy == 'ai') {
       _aiSubscription?.cancel();
       _aiSubscription = ApiClient.instance
-          .predictAiStream(region: _region, year: _currentYear)
+          .predictAiStream(region: _region, year: _predictionYear)
           .listen((event) async {
         if (!mounted) return;
         if (event['type'] == 'content') {
@@ -3273,7 +3274,7 @@ class _PredictScreenState extends State<PredictScreen> {
         final res = await ApiClient.instance.predict(
           region: _region,
           strategy: strategy,
-          year: _currentYear,
+          year: _predictionYear,
         );
         if (res['success'] == false || res.containsKey('error')) {
           final message = res['message']?.toString() ??
@@ -3383,6 +3384,180 @@ class _PredictScreenState extends State<PredictScreen> {
     return _result?['recommendation_text']?.toString().trim() ?? '';
   }
 
+  String get _resultStrategy {
+    return _result?['requested_strategy']?.toString() ??
+        _result?['strategy']?.toString() ??
+        _strategy;
+  }
+
+  String _analysisTitle() {
+    switch (_resultStrategy) {
+      case 'ml':
+        return '机器学习分析';
+      case 'ai':
+        return 'AI分析';
+      default:
+        return '分析说明';
+    }
+  }
+
+  String _mlRuntimeProfileLabel(String value) {
+    switch (value) {
+      case 'base':
+        return '标准模式';
+      case 'compact':
+        return '轻量模式';
+      case 'deep':
+        return '深度模式';
+      case 'adaptive':
+        return '自动调整';
+      case 'recent_bias':
+        return '侧重近期走势';
+      case 'context_bias':
+        return '侧重号码属性';
+      case 'recency_trim':
+        return '近期简化模式';
+      default:
+        return value.isEmpty ? '标准模式' : value;
+    }
+  }
+
+  String _mlFeatureProfileLabel(String value) {
+    switch (value) {
+      case 'full':
+        return '综合参考全部因素';
+      case 'compact_structure':
+        return '侧重整体结构';
+      case 'compact_attributes':
+        return '侧重波色生肖单双';
+      case 'compact_recency':
+        return '侧重近期走势';
+      default:
+        return value.isEmpty ? '综合参考全部因素' : value;
+    }
+  }
+
+  String _mlPromotionStrengthLabel(String value) {
+    switch (value) {
+      case 'hold':
+        return '观察中';
+      case 'watch':
+        return '重点观察';
+      case 'promoted':
+        return '已提升';
+      default:
+        return value.isEmpty ? '观察中' : value;
+    }
+  }
+
+  Widget _buildInsightMetric(String label, String value) {
+    return Container(
+      width: 140,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMlInsightCard() {
+    if (_resultStrategy != 'ml') {
+      return const SizedBox.shrink();
+    }
+    final meta = _result?['model_meta'];
+    if (meta is! Map) {
+      return const SizedBox.shrink();
+    }
+    final metaMap = Map<String, dynamic>.from(meta as Map);
+
+    String fmt(dynamic value, {String suffix = ''}) {
+      if (value == null) return '-';
+      final text = value.toString();
+      if (text.isEmpty) return '-';
+      return '$text$suffix';
+    }
+
+    final runtimeProfile =
+        _mlRuntimeProfileLabel(metaMap['runtime_profile']?.toString() ?? '');
+    final featureProfile =
+        _mlFeatureProfileLabel(metaMap['feature_profile']?.toString() ?? '');
+    final promotionStrength = _mlPromotionStrengthLabel(
+      metaMap['promotion_strength']?.toString() ?? '',
+    );
+    final primaryRuntime = _mlRuntimeProfileLabel(
+      metaMap['primary_runtime_profile']?.toString() ?? '',
+    );
+    final primaryFeature = _mlFeatureProfileLabel(
+      metaMap['primary_feature_profile']?.toString() ?? '',
+    );
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0x1400897B),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0x3300897B)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '机器学习诊断',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _buildInsightMetric('Top1回测', fmt(metaMap['top1_hit_rate'], suffix: '%')),
+              _buildInsightMetric('Top6回测', fmt(metaMap['top6_hit_rate'], suffix: '%')),
+              _buildInsightMetric('置信度', fmt(metaMap['special_probability'], suffix: '%')),
+              _buildInsightMetric('评估样本', '${fmt(metaMap['evaluation_draws'] ?? metaMap['draw_samples'])}期'),
+              _buildInsightMetric('参数档位', runtimeProfile),
+              _buildInsightMetric('特征档位', featureProfile),
+              _buildInsightMetric('固化状态', promotionStrength),
+              _buildInsightMetric('综合评分', fmt(metaMap['runtime_score'])),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '当前主配置：$primaryRuntime · $primaryFeature',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade800,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAiMarkdownCard() {
     final markdownText = _aiMarkdownText;
     if (markdownText.isEmpty) {
@@ -3401,7 +3576,16 @@ class _PredictScreenState extends State<PredictScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildPredictionNumbers(),
+            _buildMlInsightCard(),
             const Divider(),
+            Text(
+              _analysisTitle(),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
             MarkdownBody(
               data: markdownText,
               selectable: true,
@@ -4091,6 +4275,8 @@ class _PredictScreenState extends State<PredictScreen> {
   }
 
   String get _currentYear => DateTime.now().year.toString();
+  // 预测与生肖都按当年规则取值，避免不同端因年份范围不一致而出现差异。
+  String get _predictionYear => _currentYear;
 
   List<String> _uniqueNumbers(List<String> values) {
     final seen = <String>{};

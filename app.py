@@ -4407,6 +4407,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
 
 @app.route('/api/predict')
 def unified_predict_api():
+    # 预测与生肖都按请求年份处理，前端默认传当前年份以保持各端口径一致。
     region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
     stream_response = request.args.get('stream') == '1'
 

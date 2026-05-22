@@ -6,8 +6,8 @@ function getPrediction(strategy) {
     // 获取当前选择的地区
     const region = document.querySelector('.region-btn.active').dataset.region;
 
-    // 由于年份选择器已被删除，默认使用'all'
-    const year = 'all';
+    // 预测与生肖都按当前年份取值，确保各端结果口径一致。
+    const year = new Date().getFullYear();
 
     console.log(`正在获取${strategy}预测结果: 地区=${region}, 年份=${year}`);
 
@@ -49,7 +49,8 @@ function getPrediction(strategy) {
                         // 确保使用与开奖记录相同的生肖计算逻辑
                         // 获取当前选择的地区和年份
                         const selectedRegion = document.querySelector('.region-btn.active').dataset.region;
-                        const selectedYear = new Date().getFullYear(); // 使用当前年份
+                        // 生肖映射按当前年份规则取值。
+                        const selectedYear = new Date().getFullYear();
 
                         return fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${selectedRegion}&year=${selectedYear}`)
                             .then(response => {
@@ -168,6 +169,7 @@ function handleStreamingResponse(response, strategy) {
                     }
 
                     const selectedRegion = document.querySelector('.region-btn.active').dataset.region;
+                    // 生肖映射按当前年份规则取值。
                     const selectedYear = new Date().getFullYear();
 
                     return fetch(`/api/get_zodiacs?numbers=${numbers.join(',')}&region=${selectedRegion}&year=${selectedYear}`)
