@@ -981,6 +981,179 @@ def predictions():
                           normal_hit_rate=round(normal_hit_rate, 2),
                           prediction_summary_cards=prediction_summary_cards)
 
+
+@user_bp.route('/ml-records')
+@login_required
+@active_required
+def ml_records():
+    user = User.query.get(session['user_id'])
+    page = request.args.get('page', 1, type=int)
+    region = request.args.get('region', '')
+    period = request.args.get('period', '')
+    result = request.args.get('result', '')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+
+    query = PredictionRecord.query.filter_by(
+        user_id=session['user_id'],
+        strategy='ml',
+    )
+
+    if region:
+        query = query.filter_by(region=region)
+    if period:
+        query = query.filter(PredictionRecord.period.contains(period))
+
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+            query = query.filter(PredictionRecord.created_at >= start_date_obj)
+        except ValueError:
+            flash('开始日期格式不正确', 'error')
+
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+            end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59)
+            query = query.filter(PredictionRecord.created_at <= end_date_obj)
+        except ValueError:
+            flash('结束日期格式不正确', 'error')
+
+    if result:
+        if result == 'special_hit':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number == PredictionRecord.actual_special_number
+            )
+        elif result == 'normal_hit':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                _secondary_hit_expr()
+            )
+        elif result == 'wrong':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                ~_secondary_hit_expr()
+            )
+        elif result == 'pending':
+            query = query.filter(PredictionRecord.is_result_updated == False)
+
+    all_predictions = query.order_by(
+        PredictionRecord.created_at.desc(),
+        PredictionRecord.id.desc()
+    ).all()
+
+    deduped_predictions = []
+    seen_prediction_keys = set()
+    for prediction in all_predictions:
+        unique_key = (prediction.region, prediction.period, prediction.strategy)
+        if unique_key in seen_prediction_keys:
+            continue
+        seen_prediction_keys.add(unique_key)
+        prediction.display_actual_special_zodiac = (
+            prediction.actual_special_zodiac or ''
+        ).strip()
+        prediction.is_zodiac_hit = bool(
+            prediction.is_result_updated
+            and prediction.actual_special_number
+            and prediction.special_number != prediction.actual_special_number
+            and prediction.special_zodiac
+            and prediction.display_actual_special_zodiac
+            and prediction.special_zodiac == prediction.display_actual_special_zodiac
+        )
+        prediction.is_normal_number_hit = bool(
+            prediction.is_result_updated
+            and prediction.actual_special_number
+            and prediction.special_number != prediction.actual_special_number
+            and prediction.normal_numbers
+            and (
+                prediction.normal_numbers.startswith(prediction.actual_special_number + ',')
+                or prediction.normal_numbers.endswith(',' + prediction.actual_special_number)
+                or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers
+            )
+        )
+        prediction.display_prediction_text = _hydrate_user_prediction_text(prediction)
+        deduped_predictions.append(prediction)
+
+    records_per_page = 12
+    total_records = len(deduped_predictions)
+    total_pages = max(1, (total_records + records_per_page - 1) // records_per_page)
+    current_page = min(max(page, 1), total_pages)
+    start_index = (current_page - 1) * records_per_page
+    end_index = start_index + records_per_page
+    paged_predictions = deduped_predictions[start_index:end_index]
+    predictions = SimpleNamespace(
+        items=paged_predictions,
+        page=current_page,
+        per_page=records_per_page,
+        total=total_records,
+        pages=total_pages,
+        has_prev=current_page > 1,
+        has_next=current_page < total_pages,
+        prev_num=current_page - 1 if current_page > 1 else None,
+        next_num=current_page + 1 if current_page < total_pages else None,
+    )
+
+    try:
+        from models import ZodiacSetting
+        zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+        zodiac_map = ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+    except Exception as e:
+        print(f"加载机器学习记录生肖映射失败: {e}")
+        zodiac_map = {}
+
+    def get_number_zodiac_cached(number):
+        try:
+            return zodiac_map.get(int(number), "")
+        except (TypeError, ValueError):
+            return ""
+
+    actual_special = PredictionRecord.actual_special_number
+    special_number = PredictionRecord.special_number
+    stats_row = db.session.query(
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
+    ).filter(
+        PredictionRecord.user_id == session['user_id'],
+        PredictionRecord.strategy == 'ml',
+    ).one()
+
+    total_ml_predictions = stats_row[0] or 0
+    updated_predictions = stats_row[1] or 0
+    special_hit_predictions = stats_row[2] or 0
+    normal_hit_predictions = stats_row[3] or 0
+    wrong_predictions = stats_row[4] or 0
+    pending_predictions = max(total_ml_predictions - updated_predictions, 0)
+    special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+
+    return render_template(
+        'user/ml_records.html',
+        user=user,
+        predictions=predictions,
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+        get_number_color=get_number_color,
+        get_number_zodiac=get_number_zodiac_cached,
+        total_ml_predictions=total_ml_predictions,
+        updated_predictions=updated_predictions,
+        special_hit_count=special_hit_predictions,
+        normal_hit_count=normal_hit_predictions,
+        wrong_predictions=wrong_predictions,
+        pending_predictions=pending_predictions,
+        special_hit_rate=round(special_hit_rate, 2),
+    )
+
 @user_bp.route('/save-prediction', methods=['POST'])
 @login_required
 def save_prediction():
