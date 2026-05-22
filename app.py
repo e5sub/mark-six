@@ -1532,12 +1532,12 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
         total_samples = int(overall_total or 0)
         accuracy_percent = round(float(overall_accuracy or 0.0) * 100, 2)
         confidence = _clamp(total_samples / max(min_samples, 1), 0.25, 1.0)
-        base_score = max(8.0, accuracy_percent * confidence)
+        base_score = max(0.01, accuracy_percent * confidence)
         bias_value = float(learned_bias.get(strategy, 0.0) or 0.0)
         bias_multiplier = 1.0 + (
             (bias_value - (1.0 / max(len(candidates), 1))) * 0.12 * learning_confidence
         )
-        score = round(max(8.0, base_score * bias_multiplier), 2)
+        score = round(max(0.01, base_score * bias_multiplier), 2)
         scored.append({
             "strategy": strategy,
             "label": _get_strategy_label(strategy),
@@ -3018,7 +3018,15 @@ def _build_ml_prediction_cache_key(region, data, config):
         str(item.get("id") or "").strip()
         for item in list(data or [])[:16]
     ]
+    accuracy_signature = {}
+    for strategy in ("hybrid", "balanced", "trend", "hot", "cold"):
+        accuracy, total = _calculate_strategy_accuracy(normalized_region, strategy, limit=None)
+        accuracy_signature[strategy] = {
+            "accuracy": round(float(accuracy or 0.0), 6),
+            "total": int(total or 0),
+        }
     payload = {
+        "cache_version": 2,
         "region": normalized_region,
         "periods": head_periods,
         "draw_count": len(data or []),
@@ -3041,6 +3049,7 @@ def _build_ml_prediction_cache_key(region, data, config):
         "ensemble_core_strategies": list(config.get("ensemble_core_strategies") or []),
         "ensemble_replace_margin": float(config.get("ensemble_replace_margin") or 0.0),
         "ensemble_replace_min_samples": int(config.get("ensemble_replace_min_samples") or 0),
+        "accuracy_signature": accuracy_signature,
     }
     fingerprint = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     return hashlib.md5(fingerprint.encode("utf-8")).hexdigest()
