@@ -4771,19 +4771,19 @@ def update_data_api():
 @app.route('/api/number_frequency')
 def number_frequency_api():
     region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
-    data = get_yearly_data(region, year)
+    data, _ = _get_prediction_data(region, year)
     return jsonify(analyze_special_number_frequency(data))
 
 @app.route('/api/special_zodiac_frequency')
 def special_zodiac_frequency_api():
     region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
-    data = get_yearly_data(region, year)
-    return jsonify(analyze_special_zodiac_frequency(data, region, year))
+    data, prediction_zodiac_year = _get_prediction_data(region, year)
+    return jsonify(analyze_special_zodiac_frequency(data, region, prediction_zodiac_year))
 
 @app.route('/api/special_color_frequency')
 def special_color_frequency_api():
     region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
-    data = get_yearly_data(region, year)
+    data, _ = _get_prediction_data(region, year)
     return jsonify(analyze_special_color_frequency(data, region))
 
 @app.route('/api/get_zodiacs')
