@@ -66,29 +66,29 @@
 
 <div id="loadingIndicator" style="display: none; text-align: center; padding: 20px;">
     <div class="loading-spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
-    <p style="margin-top: 15px; color: #6c757d;">正在生成预测结果，请稍候...</p>
+    <p style="margin-top: 15px; color: #dbe4f0;">正在生成预测结果，请稍候...</p>
 </div>
 
-<div id="updateStatusIndicator" style="display: none; position: fixed; top: 20px; right: 20px; max-width: 300px; background: linear-gradient(135deg, rgba(232, 234, 246, 0.95) 0%, rgba(243, 229, 245, 0.95) 50%, rgba(225, 245, 254, 0.95) 100%); border-radius: 12px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); z-index: 1000; overflow: hidden; animation: slideIn 0.3s ease-out;">
+<div id="updateStatusIndicator" style="display: none; position: fixed; top: 20px; right: 20px; max-width: 300px; background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.96) 100%); border-radius: 12px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); z-index: 1000; overflow: hidden; animation: slideIn 0.3s ease-out;">
     <div style="display: flex; align-items: center; padding: 15px;">
         <div style="margin-right: 15px; width: 24px; height: 24px; flex-shrink: 0;">
             <i id="updateStatusIcon" class="fas fa-spinner fa-spin" style="font-size: 24px; color: #3498db;"></i>
         </div>
         <div>
-            <p id="updateStatusText" style="margin: 0; font-size: 14px; font-weight: 500;">正在从官方数据源获取最新开奖数据...</p>
+            <p id="updateStatusText" style="margin: 0; font-size: 14px; font-weight: 600; color: #f8fafc;">正在从官方数据源获取最新开奖数据...</p>
         </div>
         <div style="margin-left: auto; cursor: pointer;" onclick="document.getElementById('updateStatusIndicator').style.display = 'none';">
-            <i class="fas fa-times" style="color: #aaa;"></i>
+            <i class="fas fa-times" style="color: #cbd5e1;"></i>
         </div>
     </div>
 </div>
 {% else %}
-<div style="background: rgba(0, 123, 255, 0.1); color: #004085; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(0, 123, 255, 0.3);">
+<div style="background: rgba(30, 64, 175, 0.18); color: #dbeafe; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(96, 165, 250, 0.3);">
     <i class="fas fa-info-circle"></i> 登录并激活账号后可使用预测功能和 AI 智能聊天室。
 </div>
 {% endif %}
 
-<div id="yearLimitNotice" style="display: none; background: rgba(255, 193, 7, 0.1); color: #856404; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(255, 193, 7, 0.3);">
+<div id="yearLimitNotice" style="display: none; background: rgba(120, 53, 15, 0.26); color: #fde68a; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(251, 191, 36, 0.3);">
     <i class="fas fa-exclamation-triangle"></i> 预测功能仅在选择“全部年份”时可用，请将年份设置为“全部”。地区选择不受影响。
 </div>
 

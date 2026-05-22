@@ -960,6 +960,86 @@
             cursor: not-allowed !important;
             filter: grayscale(50%);
         }
+
+        /* Stronger global text contrast for the homepage and dynamic prediction content. */
+        .main-container,
+        .main-container p,
+        .main-container li,
+        .main-container label,
+        .main-container td,
+        .main-container th,
+        .main-container input,
+        .main-container select,
+        .main-container textarea {
+            color: #f8fafc;
+        }
+
+        .main-container .subtitle,
+        .main-container .control-label,
+        .main-container .recommendation-card p,
+        .main-container .recommendation-card pre,
+        .main-container .legend-item,
+        .main-container .zodiac-label,
+        .main-container [style*="color: #666"],
+        .main-container [style*="color:#666"],
+        .main-container [style*="color: #667"],
+        .main-container [style*="color:#667"],
+        .main-container [style*="color: #6c757d"],
+        .main-container [style*="color:#6c757d"],
+        .main-container [style*="color: #7b8798"],
+        .main-container [style*="color:#7b8798"],
+        .main-container [style*="color: #8a94a6"],
+        .main-container [style*="color:#8a94a6"],
+        .main-container [style*="color: #94a3b8"],
+        .main-container [style*="color:#94a3b8"] {
+            color: #dbe4f0 !important;
+        }
+
+        .main-container h1,
+        .main-container h2,
+        .main-container h3,
+        .main-container h4,
+        .main-container .main-title,
+        .main-container .section-title,
+        .main-container .chart-title,
+        .main-container [style*="color: #333"],
+        .main-container [style*="color:#333"],
+        .main-container [style*="color: #24324a"],
+        .main-container [style*="color:#24324a"],
+        .main-container [style*="color: #2c3e50"],
+        .main-container [style*="color:#2c3e50"],
+        .main-container [style*="color: #1f3a56"],
+        .main-container [style*="color:#1f3a56"] {
+            color: #f8fafc !important;
+        }
+
+        .main-container .stat-number,
+        .main-container [style*="color: #0f5f56"],
+        .main-container [style*="color:#0f5f56"],
+        .main-container [style*="color: #114d46"],
+        .main-container [style*="color:#114d46"] {
+            color: #f8fafc !important;
+        }
+
+        .main-container .glass-card,
+        .main-container .recommendation-card,
+        .main-container .chart-card,
+        .main-container .modal-content,
+        .main-container [style*="background: white"],
+        .main-container [style*="background:white"],
+        .main-container [style*="linear-gradient(135deg, #fff"],
+        .main-container [style*="linear-gradient(180deg, #fff"],
+        .main-container [style*="rgba(255,255,255"],
+        .main-container [style*="rgba(255, 255, 255"],
+        .main-container [style*="background: #fff"],
+        .main-container [style*="background:#fff"],
+        .main-container [style*="#f8f9ff"],
+        .main-container [style*="#fbfcfe"],
+        .main-container [style*="#ffffff"] {
+            background: rgba(15, 23, 42, 0.9) !important;
+            color: #f8fafc !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+        }
     </style>
 </head>
 <body class="{% if session.get('user_id') %}has-sidebar{% endif %}">

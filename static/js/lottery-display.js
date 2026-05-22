@@ -180,7 +180,7 @@ function showDrawDetails(draw) {
     
     // 创建统计表格 - 先显示统计表格
     const statsContainer = document.createElement('div');
-    statsContainer.style.cssText = 'background: rgba(255,255,255,0.8); padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); margin-bottom: 20px;';
+    statsContainer.style.cssText = 'background: rgba(15,23,42,0.88); color: #f8fafc; padding: 20px; border-radius: 15px; box-shadow: 0 12px 28px rgba(2,6,23,0.28); border: 1px solid rgba(148,163,184,0.14); margin-bottom: 20px;';
     
     const statsTable = document.createElement('table');
     statsTable.className = 'table';
@@ -206,25 +206,25 @@ function showDrawDetails(draw) {
     
     // 创建子表头行
     const headerRow2 = document.createElement('tr');
-    headerRow2.style.cssText = 'background: #f8f9fa;';
+    headerRow2.style.cssText = 'background: rgba(30,41,59,0.92);';
     
     const headers = ['总数', '单双', '大小', '七色波', '单双', '大小', '合单双', '合大小', '尾大小'];
     headers.forEach(header => {
         const th = document.createElement('th');
         th.textContent = header;
-        th.style.cssText = 'text-align: center; padding: 10px; color: #495057; font-weight: 600; border-bottom: 1px solid #e9ecef;';
+        th.style.cssText = 'text-align: center; padding: 10px; color: #f8fafc; font-weight: 600; border-bottom: 1px solid rgba(148,163,184,0.14);';
         headerRow2.appendChild(th);
     });
     statsTable.appendChild(headerRow2);
     
     // 创建数据行
     const dataRow = document.createElement('tr');
-    dataRow.style.cssText = 'background: white;';
+    dataRow.style.cssText = 'background: rgba(15,23,42,0.82);';
     
     // 总数
     const sumCell = document.createElement('td');
     sumCell.textContent = sum;
-    sumCell.style.cssText = 'text-align: center; padding: 12px; font-size: 1.1rem; font-weight: 600;';
+    sumCell.style.cssText = 'text-align: center; padding: 12px; font-size: 1.1rem; font-weight: 600; color: #f8fafc;';
     dataRow.appendChild(sumCell);
     
     // 单双
@@ -283,7 +283,7 @@ function showDrawDetails(draw) {
     // 创建号码容器 - 一排显示所有号码
     const numbersContainer = document.createElement('div');
     numbersContainer.id = 'numbersContainer';
-    numbersContainer.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 10px; background: rgba(255,255,255,0.8); padding: 15px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05);';
+    numbersContainer.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 10px; background: rgba(15,23,42,0.88); color: #f8fafc; padding: 15px; border-radius: 15px; box-shadow: 0 12px 28px rgba(2,6,23,0.28); border: 1px solid rgba(148,163,184,0.14);';
     
     // 添加平码和特码在同一行
     if (Array.isArray(draw.no)) {
@@ -319,7 +319,7 @@ function showDrawDetails(draw) {
             // 添加生肖标签
             const zodiacLabel = document.createElement('div');
             zodiacLabel.textContent = zodiac;
-            zodiacLabel.style.cssText = 'font-size: 0.9rem; color: #495057; font-weight: 600;';
+            zodiacLabel.style.cssText = 'font-size: 0.9rem; color: #e2e8f0; font-weight: 600;';
             
             ballWrapper.appendChild(ballElement);
             ballWrapper.appendChild(zodiacLabel);
@@ -335,7 +335,7 @@ function showDrawDetails(draw) {
         // 添加开奖特码标签
         const specialLabel = document.createElement('div');
         specialLabel.textContent = '开奖特码:';
-        specialLabel.style.cssText = 'font-size: 1.2rem; font-weight: 700; color: #333;';
+        specialLabel.style.cssText = 'font-size: 1.2rem; font-weight: 700; color: #f8fafc;';
         specialSection.appendChild(specialLabel);
         
         // 添加特码
@@ -366,7 +366,7 @@ function showDrawDetails(draw) {
             // 添加生肖标签
             const specialZodiacLabel = document.createElement('div');
             specialZodiacLabel.textContent = draw.sno_zodiac || '';
-            specialZodiacLabel.style.cssText = 'font-size: 1rem; color: #333; font-weight: 600;';
+            specialZodiacLabel.style.cssText = 'font-size: 1rem; color: #f8fafc; font-weight: 600;';
             
             specialWrapper.appendChild(specialBall);
             specialWrapper.appendChild(specialZodiacLabel);
