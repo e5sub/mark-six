@@ -4275,7 +4275,7 @@ class _PredictScreenState extends State<PredictScreen> {
   }
 
   String get _currentYear => DateTime.now().year.toString();
-  // 预测与生肖都按当年规则取值，避免不同端因年份范围不一致而出现差异。
+  // 预测请求继续传公历年份，后端会按当前农历生肖年切换预测取数。
   String get _predictionYear => _currentYear;
 
   List<String> _uniqueNumbers(List<String> values) {

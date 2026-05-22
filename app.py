@@ -3781,6 +3781,85 @@ def get_yearly_data(region, year):
     print(f"未知地区: {region}")
     return []
 
+def _filter_draws_by_zodiac_year(draws, zodiac_year):
+    try:
+        from models import ZodiacSetting
+    except Exception:
+        return list(draws or [])
+
+    filtered = []
+    for draw in draws or []:
+        if hasattr(draw, "to_dict"):
+            normalized = draw.to_dict()
+        elif isinstance(draw, dict):
+            normalized = dict(draw)
+        else:
+            continue
+
+        draw_date = normalized.get("date", "")
+        if ZodiacSetting.get_zodiac_year_for_date(draw_date) == zodiac_year:
+            filtered.append(normalized)
+
+    filtered.sort(
+        key=lambda item: (str(item.get("date") or ""), _period_sort_key(item.get("id"))),
+        reverse=True,
+    )
+    return filtered
+
+
+def _resolve_prediction_zodiac_year(year):
+    from models import ZodiacSetting
+
+    current_zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    current_gregorian_year = datetime.now().year
+    raw_year = str(year or "").strip().lower()
+
+    if not raw_year or raw_year == "all":
+        return current_zodiac_year
+
+    try:
+        parsed_year = int(raw_year)
+    except (TypeError, ValueError):
+        return current_zodiac_year
+
+    # 前端当前传的是公历年份；当它等于当前公历年时，预测应切换到当前农历生肖年。
+    if parsed_year == current_gregorian_year:
+        return current_zodiac_year
+    return parsed_year
+
+
+def _get_prediction_data(region, year):
+    target_zodiac_year = _resolve_prediction_zodiac_year(year)
+    candidate_years = [str(target_zodiac_year), str(target_zodiac_year + 1)]
+
+    draw_groups = []
+    for candidate_year in candidate_years:
+        year_records = []
+        try:
+            year_records = (
+                LotteryDraw.query.filter_by(region=region)
+                .filter(LotteryDraw.draw_date.like(f"{candidate_year}%"))
+                .all()
+            )
+        except Exception as e:
+            print(f"从数据库获取 {region} 地区 {candidate_year} 年数据失败: {e}")
+
+        if year_records:
+            draw_groups.append(year_records)
+            continue
+
+        try:
+            remote_records = sync_draws_from_api(region, candidate_year, force=True)
+            if remote_records:
+                draw_groups.append(remote_records)
+        except Exception as e:
+            print(f"同步 {region} 地区 {candidate_year} 年数据失败: {e}")
+
+    merged = _merge_draw_history_desc(*draw_groups)
+    filtered = _filter_draws_by_zodiac_year(merged, target_zodiac_year)
+    return filtered, target_zodiac_year
+
+
 def save_draws_to_database(draws, region):
     """保存开奖记录到数据库"""
     try:
@@ -4407,14 +4486,14 @@ def generate_prediction_for_user(user, region, period, strategy, data):
 
 @app.route('/api/predict')
 def unified_predict_api():
-    # 预测与生肖都按请求年份处理，前端默认传当前年份以保持各端口径一致。
+    # 预测按当前农历生肖年取数；生肖映射仍由 /api/get_zodiacs 单独处理。
     region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
     stream_response = request.args.get('stream') == '1'
 
     def _sse_event(payload):
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-    data = get_yearly_data(region, year)
+    data, prediction_zodiac_year = _get_prediction_data(region, year)
     if not data: return jsonify({"error": f"无法加载{year}年的数据"}), 404
     resolved_strategy = strategy
     
@@ -4463,6 +4542,7 @@ def unified_predict_api():
                 result["model_meta"] = existing_meta
             result["strategy"] = resolved_strategy
             result["requested_strategy"] = strategy
+            result["prediction_zodiac_year"] = prediction_zodiac_year
             if stream_response and resolved_strategy == 'ai':
                 payload = {
                     "type": "done",
@@ -4524,7 +4604,8 @@ def unified_predict_api():
                     "region": region,
                     "strategy": resolved_strategy,
                     "requested_strategy": strategy,
-                    "period": current_period
+                    "period": current_period,
+                    "prediction_zodiac_year": prediction_zodiac_year,
                 })
 
                 if user_id and is_active:
@@ -4644,6 +4725,7 @@ def unified_predict_api():
     
     result["strategy"] = resolved_strategy
     result["requested_strategy"] = strategy
+    result["prediction_zodiac_year"] = prediction_zodiac_year
     return jsonify(result)
 
 # 手动更新数据API
@@ -4660,18 +4742,20 @@ def update_data_api():
             save_draws_to_database(hk_filtered, 'hk')
             print(f"手动更新：成功更新香港数据{len(hk_filtered)}条")
             update_hk_next_draw_time_cache(force=True)
-            if hk_filtered:
-                generate_auto_predictions(hk_filtered, 'hk')
-                refresh_auto_backtest_snapshot('hk', draws=hk_filtered, force=True)
+            prediction_hk_data, _ = _get_prediction_data('hk', current_year)
+            if prediction_hk_data:
+                generate_auto_predictions(prediction_hk_data, 'hk')
+                refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
         
         if region == 'all' or region == 'macau':
             # 更新澳门数据
             macau_data = get_macau_data(current_year, force_api=True)
             save_draws_to_database(macau_data, 'macau')
             print(f"手动更新：成功更新澳门数据{len(macau_data)}条")
-            if macau_data:
-                generate_auto_predictions(macau_data, 'macau')
-                refresh_auto_backtest_snapshot('macau', draws=macau_data, force=True)
+            prediction_macau_data, _ = _get_prediction_data('macau', current_year)
+            if prediction_macau_data:
+                generate_auto_predictions(prediction_macau_data, 'macau')
+                refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
         
         return jsonify({
             "success": True, 
@@ -5260,12 +5344,14 @@ def update_lottery_data():
 
             # 触发自动预测功能（排除 AI 策略）
             print("正在生成自动预测...")
-            if hk_data:
-                generate_auto_predictions(hk_data, 'hk')
-                refresh_auto_backtest_snapshot('hk', draws=hk_data, force=True)
-            if macau_data:
-                generate_auto_predictions(macau_data, 'macau')
-                refresh_auto_backtest_snapshot('macau', draws=macau_data, force=True)
+            prediction_hk_data, _ = _get_prediction_data('hk', current_year)
+            if prediction_hk_data:
+                generate_auto_predictions(prediction_hk_data, 'hk')
+                refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
+            prediction_macau_data, _ = _get_prediction_data('macau', current_year)
+            if prediction_macau_data:
+                generate_auto_predictions(prediction_macau_data, 'macau')
+                refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
             
             print(f"定时任务执行完成：成功更新香港数据{len(hk_data)}条，澳门数据{len(macau_data)}条")
             

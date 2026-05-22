@@ -6,7 +6,7 @@ function getPrediction(strategy) {
     // 获取当前选择的地区
     const region = document.querySelector('.region-btn.active').dataset.region;
 
-    // 预测与生肖都按当前年份取值，确保各端结果口径一致。
+    // 预测接口当前仍传公历年份，后端会按当前农历生肖年切换预测取数。
     const year = new Date().getFullYear();
 
     console.log(`正在获取${strategy}预测结果: 地区=${region}, 年份=${year}`);
