@@ -3611,7 +3611,7 @@ class _PredictScreenState extends State<PredictScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            '近窗准确率：$accuracyText',
+            '近窗特码命中率：$accuracyText',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
           ),
           const SizedBox(height: 4),
@@ -3745,7 +3745,7 @@ class _PredictScreenState extends State<PredictScreen> {
               final accuracyText =
                   '${formatWindowMetric('20')} / ${formatWindowMetric('50')} / ${formatWindowMetric('100')}';
               final multiplierText =
-                  '排名系数×准确率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，加权分 ${item['weighted_score'] ?? '-'}';
+                  '排名系数×命中率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，加权分 ${item['weighted_score'] ?? '-'}';
               final weightValue =
                   ((ensembleWeights[key] as num?)?.toDouble() ?? 0.0)
                       .toStringAsFixed(1)

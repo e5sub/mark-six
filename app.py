@@ -1234,6 +1234,7 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
     total = len(predictions)
     return (correct / total) if total else 0.0, total
 
+
 def _calculate_strategy_window_stats(region, strategy, limit=50):
     accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=limit)
     return {

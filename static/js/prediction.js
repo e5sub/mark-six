@@ -400,8 +400,8 @@ function renderPredictionInsights(data, strategy) {
                             </div>
                             <span style="font-size:0.82rem; font-weight:800; color:${accentPalette.title};">权重${Number(ensembleWeights[key] || 0).toFixed(1).replace(/\.0$/, '')}%</span>
                         </div>
-                        <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">近窗准确率：${windowText}</div>
-                        <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">排名系数×准确率加成：${item.rank_multiplier ?? '-'} × ${item.accuracy_multiplier ?? '-'}，加权分 ${item.weighted_score ?? '-'}</div>
+                        <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">近窗特码命中率：${windowText}</div>
+                        <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">排名系数×命中率加成：${item.rank_multiplier ?? '-'} × ${item.accuracy_multiplier ?? '-'}，加权分 ${item.weighted_score ?? '-'}</div>
                     </div>
                 `;
             })
