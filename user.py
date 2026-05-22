@@ -79,6 +79,31 @@ def _deserialize_prediction_metadata(value):
         return {}
 
 
+def _hydrate_user_prediction_model_meta(prediction):
+    metadata = _deserialize_prediction_metadata(
+        getattr(prediction, 'prediction_metadata', '')
+    )
+    if getattr(prediction, 'strategy', '') != 'ml':
+        return metadata
+
+    try:
+        from app import _get_prediction_data, _hydrate_prediction_model_meta
+
+        data, _ = _get_prediction_data(
+            getattr(prediction, 'region', ''),
+            datetime.now().year,
+        )
+        return _hydrate_prediction_model_meta(
+            getattr(prediction, 'strategy', ''),
+            metadata,
+            data,
+            getattr(prediction, 'region', ''),
+        )
+    except Exception as e:
+        print(f"用户侧补齐机器学习预测诊断信息失败: {e}")
+        return metadata
+
+
 def _translate_ml_runtime_profile(value):
     mapping = {
         "base": "标准模式",
@@ -1032,9 +1057,7 @@ def check_prediction_exists():
                 'normal_numbers': existing.normal_numbers.split(','),
                 'special_number': existing.special_number,
                 'special_zodiac': existing.special_zodiac,
-                'model_meta': _deserialize_prediction_metadata(
-                    getattr(existing, 'prediction_metadata', '')
-                ),
+                'model_meta': _hydrate_user_prediction_model_meta(existing),
                 'prediction_text': existing.prediction_text,
                 'created_at': existing.created_at.strftime('%Y-%m-%d %H:%M:%S')
             }

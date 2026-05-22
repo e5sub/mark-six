@@ -355,6 +355,20 @@ def _deserialize_prediction_metadata(value):
     except Exception:
         return {}
 
+
+def _hydrate_prediction_model_meta(strategy, existing_meta, data, region):
+    meta = dict(existing_meta or {})
+    if strategy != "ml" or not data:
+        return meta
+
+    try:
+        refreshed = (_predict_with_ml(data, region) or {}).get("model_meta") or {}
+        if refreshed:
+            meta = {**meta, **refreshed}
+    except Exception as e:
+        print(f"补齐机器学习预测诊断信息失败: {e}")
+    return meta
+
 def _dedupe_keep_order(values):
     seen = set()
     result = []
@@ -4556,8 +4570,12 @@ def unified_predict_api():
             existing_meta = _deserialize_prediction_metadata(
                 getattr(existing, "prediction_metadata", "")
             )
-            if existing_meta:
-                result["model_meta"] = existing_meta
+            result["model_meta"] = _hydrate_prediction_model_meta(
+                resolved_strategy,
+                existing_meta,
+                data,
+                region,
+            )
             result["strategy"] = resolved_strategy
             result["requested_strategy"] = strategy
             result["prediction_zodiac_year"] = prediction_zodiac_year
@@ -4727,8 +4745,12 @@ def unified_predict_api():
                     existing_meta = _deserialize_prediction_metadata(
                         getattr(existing, "prediction_metadata", "")
                     )
-                    if existing_meta:
-                        result["model_meta"] = existing_meta
+                    result["model_meta"] = _hydrate_prediction_model_meta(
+                        resolved_strategy,
+                        existing_meta,
+                        data,
+                        region,
+                    )
                     if existing.prediction_text:
                         result["recommendation_text"] = existing.prediction_text
                     print(f"检测到接口重复预测记录，已返回现有记录：user={user_id}, region={region}, period={current_period}, strategy={resolved_strategy}")
