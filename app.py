@@ -1236,14 +1236,15 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
         return 0.0, 0
 
     correct = 0
+    valid_total = 0
     for pred in predictions:
         actual = _normalize_draw_number(pred.actual_special_number)
         if not actual:
             continue
+        valid_total += 1
         if _normalize_draw_number(pred.special_number) == actual:
             correct += 1
-    total = len(predictions)
-    return (correct / total) if total else 0.0, total
+    return (correct / valid_total) if valid_total else 0.0, valid_total
 
 
 def _calculate_strategy_window_stats(region, strategy, limit=50):
