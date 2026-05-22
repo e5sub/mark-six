@@ -1133,6 +1133,35 @@ def ml_records():
     wrong_predictions = stats_row[4] or 0
     pending_predictions = max(total_ml_predictions - updated_predictions, 0)
     special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+
+    region_ml_stats = []
+    for region_key, region_label in (('hk', '香港'), ('macau', '澳门')):
+        region_row = db.session.query(
+            db.func.count(PredictionRecord.id),
+            db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+            db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+            db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0))
+        ).filter(
+            PredictionRecord.user_id == session['user_id'],
+            PredictionRecord.strategy == 'ml',
+            PredictionRecord.region == region_key,
+        ).one()
+
+        region_total = region_row[0] or 0
+        region_updated = region_row[1] or 0
+        region_special_hits = region_row[2] or 0
+        region_normal_hits = region_row[3] or 0
+        region_ml_stats.append({
+            'region': region_key,
+            'label': region_label,
+            'total': region_total,
+            'updated': region_updated,
+            'special_hits': region_special_hits,
+            'normal_hits': region_normal_hits,
+            'special_hit_rate': round((region_special_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+            'normal_hit_rate': round((region_normal_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+        })
 
     return render_template(
         'user/ml_records.html',
@@ -1152,6 +1181,8 @@ def ml_records():
         wrong_predictions=wrong_predictions,
         pending_predictions=pending_predictions,
         special_hit_rate=round(special_hit_rate, 2),
+        normal_hit_rate=round(normal_hit_rate, 2),
+        region_ml_stats=region_ml_stats,
     )
 
 @user_bp.route('/save-prediction', methods=['POST'])
