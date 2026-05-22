@@ -3033,7 +3033,7 @@ class PredictScreen extends StatefulWidget {
 
 class _PredictScreenState extends State<PredictScreen> {
   String _region = 'hk';
-  String _strategy = 'hybrid';
+  String _strategy = 'ml';
   bool _loading = false;
   String _aiText = '';
   Map<String, dynamic>? _result;
@@ -3051,9 +3051,9 @@ class _PredictScreenState extends State<PredictScreen> {
       widget.appState.user?.showNormalNumbers ?? false;
 
   final Map<String, String> _strategyLabels = const {
+    'ml': '机器学习',
     'hybrid': '综合',
     'balanced': '均衡',
-    'ml': '机器学习',
     'hot': '热门',
     'cold': '冷门',
     'trend': '走势',
