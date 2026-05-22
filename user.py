@@ -475,6 +475,60 @@ def _latest_backtest_summary(limit=6):
     return items
 
 
+def _latest_unique_backtest_summary(limit=6):
+    items = []
+    region_order = [("hk", "香港"), ("macau", "澳门")]
+
+    for region_key, region_label in region_order:
+        record = (
+            BacktestRun.query.filter_by(region=region_key)
+            .order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+            .first()
+        )
+        if not record:
+            _kickoff_backtest_snapshot_refresh(region_key)
+            items.append({
+                "id": None,
+                "name": f"auto-{region_key}",
+                "display_name": f"{region_label}离线回测",
+                "region": region_key,
+                "region_label": region_label,
+                "created_at": None,
+                "periods_evaluated": 0,
+                "top_items": [],
+                "has_data": False,
+                "status_text": "暂无回测快照",
+            })
+            continue
+
+        try:
+            payload = json.loads(record.payload or "{}")
+        except Exception:
+            payload = {}
+
+        ranking = payload.get("ranking") or []
+        top_items = ranking[:3]
+        periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
+
+        if periods_evaluated <= 0 or not top_items:
+            _kickoff_backtest_snapshot_refresh(region_key)
+
+        items.append({
+            "id": record.id,
+            "name": record.name,
+            "display_name": f"{region_label}离线回测",
+            "region": record.region or payload.get("region") or region_key,
+            "region_label": region_label,
+            "created_at": record.created_at,
+            "periods_evaluated": periods_evaluated,
+            "top_items": top_items,
+            "has_data": periods_evaluated > 0 and bool(top_items),
+            "status_text": f"{periods_evaluated} 期回放" if periods_evaluated > 0 else "样本不足，暂未形成有效回测",
+        })
+
+    return items[:limit]
+
+
 def _kickoff_backtest_snapshot_refresh(region):
     region_key = str(region or "").strip().lower()
     if region_key not in ("hk", "macau"):
@@ -559,7 +613,7 @@ def dashboard():
     strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
     learning_snapshot = _learning_snapshot()
     learning_comparison = _build_learning_comparison()
-    latest_backtests = _latest_backtest_summary()
+    latest_backtests = _latest_unique_backtest_summary()
     
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
     updated_predictions = PredictionRecord.query.filter_by(
@@ -1587,7 +1641,7 @@ def analytics():
     strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
     learning_snapshot = _learning_snapshot()
     learning_comparison = _build_learning_comparison()
-    latest_backtests = _latest_backtest_summary()
+    latest_backtests = _latest_unique_backtest_summary()
     
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
     updated_predictions = PredictionRecord.query.filter_by(
