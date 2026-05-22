@@ -58,6 +58,29 @@ def _hydrate_mobile_prediction_metadata(record):
         return metadata
 
 
+def _hydrate_mobile_prediction_text(record):
+    text = getattr(record, "prediction_text", "") or ""
+    if getattr(record, "strategy", "") != "ml":
+        return text
+
+    try:
+        from app import _get_prediction_data, _hydrate_prediction_recommendation_text
+
+        data, _ = _get_prediction_data(
+            getattr(record, "region", ""),
+            datetime.now().year,
+        )
+        return _hydrate_prediction_recommendation_text(
+            getattr(record, "strategy", ""),
+            text,
+            data,
+            getattr(record, "region", ""),
+        )
+    except Exception as e:
+        print(f"移动端补齐机器学习预测文案失败: {e}")
+        return text
+
+
 def _get_color_zh(number):
     try:
         num = int(number)
@@ -1450,7 +1473,7 @@ def api_predictions():
                 "normal_zodiacs": normal_zodiacs,
                 "special_number": record.special_number,
                 "special_zodiac": mapped_special,
-                "prediction_text": record.prediction_text,
+                "prediction_text": _hydrate_mobile_prediction_text(record),
                 "prediction_metadata": _hydrate_mobile_prediction_metadata(record),
                 "actual_special_number": record.actual_special_number,
                 "actual_special_zodiac": actual_special_zodiac,

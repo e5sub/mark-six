@@ -104,6 +104,29 @@ def _hydrate_user_prediction_model_meta(prediction):
         return metadata
 
 
+def _hydrate_user_prediction_text(prediction):
+    text = getattr(prediction, 'prediction_text', '') or ''
+    if getattr(prediction, 'strategy', '') != 'ml':
+        return text
+
+    try:
+        from app import _get_prediction_data, _hydrate_prediction_recommendation_text
+
+        data, _ = _get_prediction_data(
+            getattr(prediction, 'region', ''),
+            datetime.now().year,
+        )
+        return _hydrate_prediction_recommendation_text(
+            getattr(prediction, 'strategy', ''),
+            text,
+            data,
+            getattr(prediction, 'region', ''),
+        )
+    except Exception as e:
+        print(f"用户侧补齐机器学习预测文案失败: {e}")
+        return text
+
+
 def _translate_ml_runtime_profile(value):
     mapping = {
         "base": "标准模式",
@@ -1058,7 +1081,7 @@ def check_prediction_exists():
                 'special_number': existing.special_number,
                 'special_zodiac': existing.special_zodiac,
                 'model_meta': _hydrate_user_prediction_model_meta(existing),
-                'prediction_text': existing.prediction_text,
+                'prediction_text': _hydrate_user_prediction_text(existing),
                 'created_at': existing.created_at.strftime('%Y-%m-%d %H:%M:%S')
             }
         })
