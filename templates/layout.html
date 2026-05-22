@@ -19,6 +19,11 @@
             color: #cbd5e1;
             font-size: 0.9rem;
             line-height: 1.7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
         .site-footer a {
             color: #93c5fd;
@@ -96,10 +101,9 @@
         {% block content %}{% endblock %}
     </main>
     <footer class="site-footer">
-        GitHub：
+        <span>GitHub：</span>
         <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
-        <br>
-        本项目源码仅限非商业用途使用。
+        <span>本项目源码仅限非商业用途使用。</span>
         <a href="/LICENSE">许可协议</a>
     </footer>
     {% endblock %}

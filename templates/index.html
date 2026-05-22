@@ -102,6 +102,11 @@
             text-align: center;
             color: #94a3b8;
             font-size: 0.9rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
         }
 
         .app-footer a {
@@ -1149,8 +1154,10 @@
     </div>
 
     <footer class="app-footer">
-        GitHub：
+        <span>GitHub：</span>
         <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
+        <span>本项目源码仅限非商业用途使用。</span>
+        <a href="/LICENSE">许可协议</a>
     </footer>
 
     {% if session.get('user_id') %}
