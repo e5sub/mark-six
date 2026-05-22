@@ -170,7 +170,7 @@ def _build_special_focus_text(special, normal=None, strategy_name=None, accuracy
     if samples is not None:
         lines.append(f"学习样本：{samples}期")
     if confidence is not None:
-        lines.append(f"参考置信度：{confidence}%")
+        lines.append(f"本期把握度：{confidence}%")
     if extra_reason:
         lines.append(f"简要说明：{extra_reason}")
     return "\n".join(lines)
@@ -370,6 +370,20 @@ def _hydrate_prediction_model_meta(strategy, existing_meta, data, region):
     except Exception as e:
         print(f"补齐机器学习预测诊断信息失败: {e}")
     return meta
+
+
+def _hydrate_prediction_recommendation_text(strategy, existing_text, data, region):
+    if strategy != "ml" or not data:
+        return existing_text or ""
+
+    try:
+        refreshed = _predict_with_ml(data, region) or {}
+        refreshed_text = str(refreshed.get("recommendation_text") or "").strip()
+        if refreshed_text:
+            return refreshed_text
+    except Exception as e:
+        print(f"补齐机器学习预测文案失败: {e}")
+    return existing_text or ""
 
 def _dedupe_keep_order(values):
     seen = set()
@@ -1282,7 +1296,7 @@ def _build_ml_display_copy(model_meta):
     if preferred_features:
         line = f"地区偏好特征：{'、'.join(preferred_features)}"
         if meta.get("profile_learning_confidence") is not None:
-            line += f" · 学习置信{meta.get('profile_learning_confidence')}%"
+            line += f" · 学习把握度{meta.get('profile_learning_confidence')}%"
         display["preferred_features"] = line
 
     preferred_runtimes = [
@@ -1336,7 +1350,7 @@ def _build_ml_display_copy(model_meta):
         )
         line = f"集成权重：{weight_text}（按近20/50/100期表现自动分配）"
         if meta.get("ensemble_weight_confidence") is not None:
-            line += f" · 置信{meta.get('ensemble_weight_confidence')}%"
+            line += f" · 集成把握度{meta.get('ensemble_weight_confidence')}%"
         display["weight_summary"] = line
 
     special_votes = meta.get("ensemble_special_votes") or {}
@@ -4751,8 +4765,14 @@ def unified_predict_api():
                     "sno_zodiac": sno_zodiac
                 }
             }
-            if existing.prediction_text:
-                result["recommendation_text"] = existing.prediction_text
+            refreshed_text = _hydrate_prediction_recommendation_text(
+                resolved_strategy,
+                existing.prediction_text,
+                data,
+                region,
+            )
+            if refreshed_text:
+                result["recommendation_text"] = refreshed_text
             existing_meta = _deserialize_prediction_metadata(
                 getattr(existing, "prediction_metadata", "")
             )
@@ -4937,8 +4957,14 @@ def unified_predict_api():
                         data,
                         region,
                     )
-                    if existing.prediction_text:
-                        result["recommendation_text"] = existing.prediction_text
+                    refreshed_text = _hydrate_prediction_recommendation_text(
+                        resolved_strategy,
+                        existing.prediction_text,
+                        data,
+                        region,
+                    )
+                    if refreshed_text:
+                        result["recommendation_text"] = refreshed_text
                     print(f"检测到接口重复预测记录，已返回现有记录：user={user_id}, region={region}, period={current_period}, strategy={resolved_strategy}")
                     return jsonify(result)
             db.session.rollback()

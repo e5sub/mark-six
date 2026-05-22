@@ -111,7 +111,7 @@
                         {% if strategy_key == 'ml' %}
                         历史窗={{ current[strategy_key].history_window or '-' }}，特征窗={{ current[strategy_key].feature_window or '-' }}，评估窗={{ current[strategy_key].evaluation_window or '-' }}，学习样本={{ current[strategy_key].last_total or 0 }}
                         <br>
-                        主配置={{ current[strategy_key].primary_runtime_profile_label or '基础档' }} · {{ current[strategy_key].primary_feature_profile_label or '完整特征' }}，固化状态={{ current[strategy_key].promotion_strength_label or '观察中' }}，学习置信={{ current[strategy_key].profile_learning_confidence or 0 }}%
+                        主配置={{ current[strategy_key].primary_runtime_profile_label or '基础档' }} · {{ current[strategy_key].primary_feature_profile_label or '完整特征' }}，固化状态={{ current[strategy_key].promotion_strength_label or '观察中' }}，学习把握度={{ current[strategy_key].profile_learning_confidence or 0 }}%
                         <div style="margin-top:0.45rem; color:#556273;">
                             最近调整={{ current[strategy_key].latest_promotion_time[:16].replace('T', ' ') if current[strategy_key].latest_promotion_time else '等待生成' }}
                         </div>
@@ -210,7 +210,7 @@
                 {% for rank in item.top_items %}
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.65rem; border-radius:10px; background:white; border:1px dashed #dce5f1;">
                     <span style="font-weight:600;">{{ loop.index }}. {{ strategy_label_map.get(rank.strategy, rank.strategy) }}</span>
-                    <span style="color:#46658b;">Top1 {{ rank.top1_hit_rate }}% / Top6 {{ rank.top6_hit_rate }}%</span>
+                    <span style="color:#46658b;">单号 {{ rank.top1_hit_rate }}% / 六码 {{ rank.top6_hit_rate }}%</span>
                 </div>
                 {% endfor %}
                 {% else %}
