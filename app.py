@@ -2111,7 +2111,7 @@ def _feedback_confidence(sample_count, full_confidence=80):
 
 def _personalized_predictions_enabled():
     raw = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower()
-    return raw == 'true'
+    return raw in {'true', '1', 'yes', 'on'}
 
 def _build_prediction_feedback(region, strategy, limit=240, cutoff_period=None):
     query = PredictionRecord.query.filter_by(

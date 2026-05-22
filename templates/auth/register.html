@@ -226,6 +226,13 @@
             {% endif %}
         {% endwith %}
 
+        {% if require_email_verification %}
+            <div class="alert alert-info">
+                <i class="fas fa-envelope-open-text"></i>
+                当前站点已开启邮箱验证，注册后需先完成邮箱验证才能登录。
+            </div>
+        {% endif %}
+
         <form method="POST" action="{{ url_for('auth.register') }}">
             <div class="form-group">
                 <label for="username">

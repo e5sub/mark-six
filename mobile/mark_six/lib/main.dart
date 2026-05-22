@@ -4990,7 +4990,7 @@ class UpdateService {
   static const String _owner = 'e5sub';
   static const String _repo = 'mark-six';
   static const String _apkName = 'app-release.apk';
-  static const String _proxy = 'https://docker.071717.xyz/';
+  static const String _proxy = 'https://gh-proxy.com/';
 
   static Future<void> checkForUpdate(BuildContext context) async {
     try {

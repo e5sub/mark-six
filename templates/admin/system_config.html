@@ -267,15 +267,21 @@ document.getElementById('configForm').addEventListener('submit', function(e) {
     const formData = new FormData(this);
     const configs = {};
 
+    const checkboxKeys = [
+        'allow_registration',
+        'require_email_verification',
+        'enable_personalized_predictions'
+    ];
+
     for (const [key, value] of formData.entries()) {
-        if (key === 'allow_registration' || key === 'require_email_verification') {
+        if (checkboxKeys.includes(key)) {
             configs[key] = 'true';
         } else {
             configs[key] = value;
         }
     }
 
-    ['allow_registration', 'require_email_verification'].forEach((checkbox) => {
+    checkboxKeys.forEach((checkbox) => {
         if (!formData.has(checkbox)) {
             configs[checkbox] = 'false';
         }

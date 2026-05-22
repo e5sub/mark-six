@@ -10,36 +10,191 @@ import secrets
 
 auth_bp = Blueprint('auth', __name__)
 
+
+def _is_config_enabled(key, default='false'):
+    raw = str(SystemConfig.get_config(key, default)).strip().lower()
+    return raw in {'true', '1', 'yes', 'on'}
+
+
+def _has_smtp_config():
+    smtp_server = SystemConfig.get_config('smtp_server')
+    smtp_username = SystemConfig.get_config('smtp_username')
+    smtp_password = SystemConfig.get_config('smtp_password')
+    return all([smtp_server, smtp_username, smtp_password])
+
+
+def _email_verification_required():
+    return _is_config_enabled('require_email_verification', 'false')
+
+
+def _render_auth_template(template_name, **context):
+    context.setdefault('require_email_verification', _email_verification_required())
+    return render_template(template_name, **context)
+
+
+def _email_verification_status_key(user_id):
+    return f"email_verified_{user_id}"
+
+
+def _email_verification_token_key(user_id):
+    return f"email_verify_token_{user_id}"
+
+
+def _is_email_verified(user):
+    if not user or getattr(user, 'is_admin', False):
+        return True
+    status = str(
+        SystemConfig.get_config(_email_verification_status_key(user.id), 'verified')
+    ).strip().lower()
+    return status in {'verified', 'true', '1', 'yes', 'on'}
+
+
+def _mark_email_verification_pending(user):
+    SystemConfig.set_config(
+        _email_verification_status_key(user.id),
+        'pending',
+        f'Email verification status for user {user.id}'
+    )
+
+
+def _mark_email_verified(user):
+    SystemConfig.set_config(
+        _email_verification_status_key(user.id),
+        'verified',
+        f'Email verification status for user {user.id}'
+    )
+    token_config = SystemConfig.query.filter_by(
+        key=_email_verification_token_key(user.id)
+    ).first()
+    if token_config:
+        db.session.delete(token_config)
+        db.session.commit()
+
+
+def _create_email_verification_token(user, ttl_hours=24):
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=ttl_hours)
+    payload = f"{token}|{expires_at.isoformat()}|{user.email}"
+    SystemConfig.set_config(
+        _email_verification_token_key(user.id),
+        payload,
+        f'Email verification token for user {user.id}'
+    )
+    return token
+
+
+def _resolve_email_verification_user(token):
+    for config in SystemConfig.query.filter(SystemConfig.key.like('email_verify_token_%')).all():
+        try:
+            stored_token, expires_str, email = (config.value or '').split('|', 2)
+            expires_at = datetime.fromisoformat(expires_str)
+            if stored_token != token or datetime.utcnow() >= expires_at:
+                continue
+            user_id = int(config.key.replace('email_verify_token_', ''))
+            user = User.query.get(user_id)
+            if user and str(user.email or '').strip().lower() == str(email or '').strip().lower():
+                return user
+        except Exception:
+            continue
+    return None
+
+
+def _send_html_email(email, subject, html_body):
+    smtp_server = SystemConfig.get_config('smtp_server')
+    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
+    smtp_username = SystemConfig.get_config('smtp_username')
+    smtp_password = SystemConfig.get_config('smtp_password')
+
+    if not all([smtp_server, smtp_username, smtp_password]):
+        raise Exception('邮件服务未配置，请联系管理员')
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = smtp_username
+    msg['To'] = email
+    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+    server = smtplib.SMTP(smtp_server, smtp_port)
+    server.starttls()
+    server.login(smtp_username, smtp_password)
+    server.send_message(msg)
+    server.quit()
+
+
+def send_verification_email(user, token):
+    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    verify_url = url_for('auth.verify_email', token=token, _external=True)
+    subject = f'{site_name} - 邮箱验证'
+    html_body = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #667eea;">验证您的邮箱</h2>
+            <p>亲爱的 {user.username}：</p>
+            <p>请点击下面的按钮完成邮箱验证，验证通过后即可正常登录使用系统。</p>
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{verify_url}"
+                   style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                          color: white;
+                          padding: 12px 30px;
+                          text-decoration: none;
+                          border-radius: 25px;
+                          display: inline-block;">
+                    立即验证邮箱
+                </a>
+            </div>
+            <p>如果按钮无法点击，请复制以下链接到浏览器打开：</p>
+            <p style="word-break: break-all; background: #f5f5f5; padding: 10px; border-radius: 5px;">
+                {verify_url}
+            </p>
+            <p style="color: #666; font-size: 14px;">
+                此链接将在 24 小时后失效。如非本人操作，请忽略此邮件。
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+    _send_html_email(user.email, subject, html_body)
+
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
+    if not _is_config_enabled('allow_registration', 'true'):
+        flash('当前已关闭新用户注册，如需开通请联系管理员', 'error')
+        return redirect(url_for('auth.login'))
+
     if request.method == 'POST':
         username = request.form.get('username')
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
         invite_code = request.form.get('invite_code', '').strip()
+        require_email_verification = _email_verification_required()
         
         # 验证输入
         if not all([username, email, password, confirm_password]):
             flash('所有字段都是必填的', 'error')
-            return render_template('auth/register.html')
+            return _render_auth_template('auth/register.html')
         
         if password != confirm_password:
             flash('两次输入的密码不一致', 'error')
-            return render_template('auth/register.html')
+            return _render_auth_template('auth/register.html')
         
         if len(password) < 6:
             flash('密码长度至少6位', 'error')
-            return render_template('auth/register.html')
+            return _render_auth_template('auth/register.html')
         
         # 检查用户名和邮箱是否已存在
         if User.query.filter_by(username=username).first():
             flash('用户名已存在', 'error')
-            return render_template('auth/register.html')
+            return _render_auth_template('auth/register.html')
         
         if User.query.filter_by(email=email).first():
             flash('邮箱已被注册', 'error')
-            return render_template('auth/register.html')
+            return _render_auth_template('auth/register.html')
+
+        if require_email_verification and not _has_smtp_config():
+            flash('当前已开启邮箱验证，但邮件服务未配置完成，请联系管理员', 'error')
+            return _render_auth_template('auth/register.html')
         
         # 创建用户（默认为普通用户，非管理员）
         user = User(username=username, email=email, is_admin=False)
@@ -61,16 +216,16 @@ def register():
                     else:
                         flash(f'邀请码错误：{message}', 'error')
                         db.session.rollback()
-                        return render_template('auth/register.html')
+                        return _render_auth_template('auth/register.html')
                 else:
                     flash('邀请码无效', 'error')
                     db.session.rollback()
-                    return render_template('auth/register.html')
+                    return _render_auth_template('auth/register.html')
             except Exception as e:
                 print(f"邀请码处理错误: {e}")
                 flash('邀请码处理时出现错误，请稍后重试', 'error')
                 db.session.rollback()
-                return render_template('auth/register.html')
+                return _render_auth_template('auth/register.html')
         
         if not invite_code:
             user.extend_activation(7)
@@ -78,13 +233,21 @@ def register():
             user.auto_prediction_enabled = True
 
         db.session.commit()
-        
-        if not invite_success:
+
+        if require_email_verification:
+            try:
+                _mark_email_verification_pending(user)
+                verification_token = _create_email_verification_token(user)
+                send_verification_email(user, verification_token)
+                flash('注册成功，请先到邮箱完成验证后再登录', 'success')
+            except Exception as e:
+                flash(f'注册成功，但验证邮件发送失败：{str(e)}', 'warning')
+        elif not invite_success:
             flash('注册成功！账号已自动激活 7 天。', 'success')
         
         return redirect(url_for('auth.login'))
     
-    return render_template('auth/register.html')
+    return _render_auth_template('auth/register.html')
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
@@ -94,13 +257,22 @@ def login():
         
         if not username_or_email or not password:
             flash('请输入用户名/邮箱和密码', 'error')
-            return render_template('auth/login.html')
+            return _render_auth_template('auth/login.html')
         
         # 支持用户名或邮箱登录
         user = User.query.filter((User.username == username_or_email) | 
                                 (User.email == username_or_email)).first()
         
         if user and user.check_password(password):
+            if _email_verification_required() and not _is_email_verified(user):
+                try:
+                    verification_token = _create_email_verification_token(user)
+                    send_verification_email(user, verification_token)
+                    flash('您的邮箱还未验证，验证邮件已重新发送，请查收后再登录', 'warning')
+                except Exception as e:
+                    flash(f'您的邮箱还未验证，且补发验证邮件失败：{str(e)}', 'error')
+                return _render_auth_template('auth/login.html')
+
             user.check_and_update_activation_status()
             # 更新登录统计信息
             user.last_login = datetime.utcnow()
@@ -120,12 +292,24 @@ def login():
         else:
             flash('用户名/邮箱或密码错误', 'error')
     
-    return render_template('auth/login.html')
+    return _render_auth_template('auth/login.html')
 
 @auth_bp.route('/logout')
 def logout():
     session.clear()
     flash('已成功退出登录', 'success')
+    return redirect(url_for('auth.login'))
+
+
+@auth_bp.route('/verify_email/<token>')
+def verify_email(token):
+    user = _resolve_email_verification_user(token)
+    if not user:
+        flash('邮箱验证链接无效或已过期，请重新登录后获取新的验证邮件', 'error')
+        return redirect(url_for('auth.login'))
+
+    _mark_email_verified(user)
+    flash('邮箱验证成功，现在可以正常登录了', 'success')
     return redirect(url_for('auth.login'))
 
 @auth_bp.route('/activate', methods=['GET', 'POST'])
@@ -252,15 +436,8 @@ def reset_password(token):
 
 def send_reset_email(email, username, token):
     """发送密码重置邮件"""
-    smtp_server = SystemConfig.get_config('smtp_server')
-    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
-    smtp_username = SystemConfig.get_config('smtp_username')
-    smtp_password = SystemConfig.get_config('smtp_password')
     site_name = SystemConfig.get_config('site_name', 'AI预测系统')
-    
-    if not all([smtp_server, smtp_username, smtp_password]):
-        raise Exception('邮件服务未配置，请联系管理员')
-    
+
     # 构建重置链接
     reset_url = url_for('auth.reset_password', token=token, _external=True)
     
@@ -300,18 +477,4 @@ def send_reset_email(email, username, token):
     </html>
     """
     
-    # 创建邮件
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = smtp_username
-    msg['To'] = email
-    
-    html_part = MIMEText(html_body, 'html', 'utf-8')
-    msg.attach(html_part)
-    
-    # 发送邮件
-    server = smtplib.SMTP(smtp_server, smtp_port)
-    server.starttls()
-    server.login(smtp_username, smtp_password)
-    server.send_message(msg)
-    server.quit()
+    _send_html_email(email, subject, html_body)
