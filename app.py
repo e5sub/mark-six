@@ -1498,10 +1498,12 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
         config = _load_strategy_config(strategy, region)
         score_parts = []
         total_samples = 0
+        accuracy_by_window = {}
 
         for idx, window in enumerate(windows):
             accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
             total_samples = max(total_samples, total)
+            accuracy_by_window[str(window)] = round(float(accuracy or 0.0) * 100, 2)
             if total <= 0:
                 continue
             recency_weight = max(0.45, 1.0 - idx * 0.22)
@@ -1519,6 +1521,8 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
             "score": score,
             "samples": total_samples,
             "bias": round(bias_value * 100, 2),
+            "recent_accuracy": accuracy_by_window.get("20", 0.0),
+            "accuracy_by_window": accuracy_by_window,
         })
 
     scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
@@ -2549,14 +2553,24 @@ def _get_ml_ensemble_weights(region, strategies=None):
     confidence_values = []
     scored = _score_ml_ensemble_candidates(region, strategies=strategies)
 
-    for item in scored:
+    for idx, item in enumerate(scored):
         strategy = item["strategy"]
-        raw_score = max(0.08, float(item.get("score", 0.0)) / 100.0)
+        base_score = max(0.08, float(item.get("score", 0.0)) / 100.0)
+        # 按准确率排名拉开权重，避免归一化后长期显示为近似平均分配。
+        rank_multiplier = max(0.72, 1.18 - idx * 0.16)
+        recent_accuracy = max(0.0, float(item.get("recent_accuracy", 0.0)) / 100.0)
+        accuracy_multiplier = 1.0 + (recent_accuracy * 0.35)
+        raw_score = base_score * rank_multiplier * accuracy_multiplier
         raw_scores[strategy] = raw_score
         diagnostics[strategy] = {
             "score": round(float(item.get("score", 0.0)), 2),
             "samples": int(item.get("samples", 0) or 0),
             "bias": round(float(item.get("bias", 0.0)), 2),
+            "recent_accuracy": round(float(item.get("recent_accuracy", 0.0)), 2),
+            "accuracy_by_window": dict(item.get("accuracy_by_window") or {}),
+            "rank_multiplier": round(rank_multiplier, 4),
+            "accuracy_multiplier": round(accuracy_multiplier, 4),
+            "weighted_score": round(raw_score * 100, 2),
         }
         for idx, window in enumerate(windows):
             _, total = _calculate_strategy_accuracy(region, strategy, limit=window)

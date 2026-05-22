@@ -3482,6 +3482,148 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
+  Widget _buildMlWeightReasonCard(
+    int rank,
+    String strategyLabel,
+    String weightText,
+    String accuracyText,
+    String multiplierText,
+  ) {
+    final palettes = [
+      (
+        background: const LinearGradient(
+          colors: [Color(0xFFFFF8D6), Color(0xFFFFECB0)],
+        ),
+        border: const Color(0x47C49200),
+        badge: const Color(0xFFC69200),
+        title: const Color(0xFF7A5600),
+      ),
+      (
+        background: const LinearGradient(
+          colors: [Color(0xFFF0F4F8), Color(0xFFDFE7EF)],
+        ),
+        border: const Color(0x42607D8B),
+        badge: const Color(0xFF607D8B),
+        title: const Color(0xFF38505D),
+      ),
+      (
+        background: const LinearGradient(
+          colors: [Color(0xFFFFF1E6), Color(0xFFFBDFC6)],
+        ),
+        border: const Color(0x42BF6622),
+        badge: const Color(0xFFBF6622),
+        title: const Color(0xFF8A4516),
+      ),
+    ];
+    final paletteIndex = ((rank - 1).clamp(0, palettes.length - 1)) as int;
+    final palette = palettes[paletteIndex];
+    final isChampion = rank == 1;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        gradient: palette.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: palette.border),
+        boxShadow: [
+          BoxShadow(
+            color: isChampion
+                ? const Color(0x33C69200)
+                : const Color(0x14000000),
+            blurRadius: isChampion ? 18 : 12,
+            offset: Offset(0, isChampion ? 6 : 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (isChampion)
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFC69200), Color(0xFFFFC107)],
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
+                children: [
+                  Text(
+                    '冠军策略',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFFFFFAF0),
+                    ),
+                  ),
+                  Spacer(),
+                  Text(
+                    '当前集成优先级最高',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFFFFAF0),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: palette.badge,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '#$rank',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  strategyLabel,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: palette.title,
+                  ),
+                ),
+              ),
+              Text(
+                '权重$weightText',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: palette.title,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '近窗准确率：$accuracyText',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            multiplierText,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMlInsightCard() {
     if (_resultStrategy != 'ml') {
       return const SizedBox.shrink();
@@ -3512,6 +3654,23 @@ class _PredictScreenState extends State<PredictScreen> {
     final primaryFeature = _mlFeatureProfileLabel(
       metaMap['primary_feature_profile']?.toString() ?? '',
     );
+    final ensembleWeights = Map<String, dynamic>.from(
+      (metaMap['ensemble_strategy_weights'] as Map?) ?? const {},
+    );
+    final weightDiagnostics = Map<String, dynamic>.from(
+      (metaMap['ensemble_weight_diagnostics'] as Map?) ?? const {},
+    );
+    final weightKeys = weightDiagnostics.keys.toList()
+      ..sort((a, b) {
+        final aMap = Map<String, dynamic>.from(
+          (weightDiagnostics[a] as Map?) ?? const {},
+        );
+        final bMap = Map<String, dynamic>.from(
+          (weightDiagnostics[b] as Map?) ?? const {},
+        );
+        return ((bMap['weighted_score'] as num?)?.toDouble() ?? 0.0)
+            .compareTo(((aMap['weighted_score'] as num?)?.toDouble() ?? 0.0));
+      });
 
     return Container(
       width: double.infinity,
@@ -3553,6 +3712,42 @@ class _PredictScreenState extends State<PredictScreen> {
               height: 1.5,
             ),
           ),
+          if (weightKeys.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              '权重依据',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade900,
+              ),
+            ),
+            ...weightKeys.asMap().entries.map((entry) {
+              final rank = entry.key + 1;
+              final key = entry.value;
+              final item = Map<String, dynamic>.from(
+                (weightDiagnostics[key] as Map?) ?? const {},
+              );
+              final accuracyMap = Map<String, dynamic>.from(
+                (item['accuracy_by_window'] as Map?) ?? const {},
+              );
+              final accuracyText =
+                  '20期${accuracyMap['20'] ?? 0}% / 50期${accuracyMap['50'] ?? 0}% / 100期${accuracyMap['100'] ?? 0}%';
+              final multiplierText =
+                  '排名系数×准确率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，加权分 ${item['weighted_score'] ?? '-'}';
+              final weightValue =
+                  ((ensembleWeights[key] as num?)?.toDouble() ?? 0.0)
+                      .toStringAsFixed(1)
+                      .replaceAll(RegExp(r'\.0$'), '');
+              return _buildMlWeightReasonCard(
+                rank,
+                _strategyLabels[key] ?? key,
+                '$weightValue%',
+                accuracyText,
+                multiplierText,
+              );
+            }),
+          ],
         ],
       ),
     );

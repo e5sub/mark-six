@@ -359,6 +359,45 @@ function renderPredictionInsights(data, strategy) {
             .sort((a, b) => Number(b[1]) - Number(a[1]))
             .map(([key, value]) => `${getStrategyLabel(key)}:${Number(value).toFixed(1).replace(/\.0$/, '')}%`)
             .join('、');
+        const weightDiagnostics = meta.ensemble_weight_diagnostics || {};
+        const weightReasonRows = Object.entries(weightDiagnostics)
+            .sort((a, b) => Number((b[1] || {}).weighted_score || 0) - Number((a[1] || {}).weighted_score || 0))
+            .map(([key, item], index) => {
+                const accuracyMap = item.accuracy_by_window || {};
+                const windowText = [
+                    `20期${accuracyMap['20'] ?? 0}%`,
+                    `50期${accuracyMap['50'] ?? 0}%`,
+                    `100期${accuracyMap['100'] ?? 0}%`,
+                ].join(' / ');
+                const accentPalette = [
+                    { bg: 'linear-gradient(135deg, rgba(255,248,214,0.96), rgba(255,236,176,0.92))', border: 'rgba(196, 146, 0, 0.28)', badgeBg: '#c69200', badgeColor: '#fffaf0', title: '#7a5600' },
+                    { bg: 'linear-gradient(135deg, rgba(240,244,248,0.96), rgba(223,231,239,0.92))', border: 'rgba(96, 125, 139, 0.26)', badgeBg: '#607d8b', badgeColor: '#f8fbff', title: '#38505d' },
+                    { bg: 'linear-gradient(135deg, rgba(255,241,230,0.96), rgba(251,223,198,0.92))', border: 'rgba(191, 102, 34, 0.22)', badgeBg: '#bf6622', badgeColor: '#fff7f1', title: '#8a4516' },
+                ][Math.min(index, 2)];
+                const rankLabel = `#${index + 1}`;
+                const championRibbon = index === 0
+                    ? `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:-10px -12px 10px; padding:8px 12px; border-radius:10px 10px 0 0; background: linear-gradient(90deg, rgba(198,146,0,0.96), rgba(255,193,7,0.92)); color:#fffaf0; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.18);"><span style="font-size:0.78rem; font-weight:900; letter-spacing:0.04em;">冠军策略</span><span style="font-size:0.76rem; font-weight:700;">当前集成优先级最高</span></div>`
+                    : '';
+                const cardShadow = index === 0
+                    ? '0 10px 22px rgba(198, 146, 0, 0.16)'
+                    : '0 6px 14px rgba(15, 95, 86, 0.05)';
+                const cardScale = index === 0 ? 'transform: translateY(-1px);' : '';
+                return `
+                    <div style="margin-top:8px; padding:10px 12px; border-radius:10px; background: ${accentPalette.bg}; border:1px solid ${accentPalette.border}; box-shadow: ${cardShadow}; ${cardScale}">
+                        ${championRibbon}
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:22px; padding:0 8px; border-radius:999px; background:${accentPalette.badgeBg}; color:${accentPalette.badgeColor}; font-size:0.78rem; font-weight:800;">${rankLabel}</span>
+                                <span style="font-weight:800; color:${accentPalette.title};">${getStrategyLabel(key)}</span>
+                            </div>
+                            <span style="font-size:0.82rem; font-weight:800; color:${accentPalette.title};">权重${Number(ensembleWeights[key] || 0).toFixed(1).replace(/\.0$/, '')}%</span>
+                        </div>
+                        <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">近窗准确率：${windowText}</div>
+                        <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">排名系数×准确率加成：${item.rank_multiplier ?? '-'} × ${item.accuracy_multiplier ?? '-'}，加权分 ${item.weighted_score ?? '-'}</div>
+                    </div>
+                `;
+            })
+            .join('');
         const selectedStrategies = Array.isArray(meta.ensemble_selected_strategies)
             ? meta.ensemble_selected_strategies.map(getStrategyLabel).join('、')
             : '';
@@ -398,6 +437,7 @@ function renderPredictionInsights(data, strategy) {
                     ${parityPreference ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>本期单双偏向：</strong>${parityPreference}${parityConfidence != null ? `（历史特码参考 ${parityConfidence}%）` : '（历史特码参考）'}</div>` : ''}
                     ${selectedStrategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>当前核心集成：</strong>${selectedStrategies}</div>` : ''}
                     ${weightEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>集成权重：</strong>${weightEntries}（按近20/50/100期表现自动分配）${meta.ensemble_weight_confidence ? ` · 置信${meta.ensemble_weight_confidence}%` : ''}</div>` : ''}
+                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>权重依据：</strong>${weightReasonRows}</div>` : ''}
                     ${voteEntries ? `<div style="margin-top:10px; font-size:0.82rem; color:#355e58;"><strong>特码共识票：</strong>${voteEntries}</div>` : ''}
                 </div>
                 <div style="padding: 14px; border-radius: 12px; background: rgba(33, 150, 243, 0.06); border: 1px solid rgba(33, 150, 243, 0.16);">
