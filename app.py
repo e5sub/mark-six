@@ -4792,6 +4792,9 @@ def unified_predict_api():
                     "sno_zodiac": sno_zodiac
                 }
             }
+            existing_meta = _deserialize_prediction_metadata(
+                getattr(existing, "prediction_metadata", "")
+            )
             refreshed_text = _hydrate_prediction_recommendation_text(
                 resolved_strategy,
                 existing.prediction_text,
@@ -4803,9 +4806,6 @@ def unified_predict_api():
             )
             if refreshed_text:
                 result["recommendation_text"] = refreshed_text
-            existing_meta = _deserialize_prediction_metadata(
-                getattr(existing, "prediction_metadata", "")
-            )
             result["model_meta"] = _hydrate_prediction_model_meta(
                 resolved_strategy,
                 existing_meta,
