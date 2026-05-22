@@ -200,10 +200,10 @@
 <style>
 /* 继承dashboard的基础样式 */
 .card-compact {
-    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(30, 41, 59, 0.88) 100%);
     border-radius: 12px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(102, 126, 234, 0.1);
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.28);
+    border: 1px solid rgba(148, 163, 184, 0.14);
     margin-bottom: 1rem;
     overflow: hidden;
 }
@@ -229,12 +229,12 @@
 }
 
 .stat-card-compact {
-    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
     border-radius: 12px;
     padding: 1rem;
     text-align: center;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(102, 126, 234, 0.1);
+    box-shadow: 0 12px 26px rgba(2, 6, 23, 0.24);
+    border: 1px solid rgba(148, 163, 184, 0.12);
     transition: all 0.3s ease;
     min-height: 120px;
     display: flex;
@@ -255,20 +255,20 @@
 .stat-number {
     font-size: 1.8rem;
     font-weight: 700;
-    color: #333;
+    color: #f8fafc;
     margin-bottom: 0.3rem;
 }
 
 .stat-label {
     font-size: 0.9rem;
-    color: #666;
+    color: #dbe4f0;
     font-weight: 500;
 }
 
 /* 奖励卡片 */
 .reward-card {
-    background: linear-gradient(135deg, #e8f5e8 0%, #f0fff0 100%);
-    border-left: 4px solid #28a745;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(22, 50, 38, 0.88) 100%);
+    border-left: 4px solid #4ade80;
 }
 
 .reward-content {
@@ -282,13 +282,13 @@
     align-items: flex-start;
     gap: 1rem;
     padding: 1rem;
-    background: rgba(255, 255, 255, 0.7);
+    background: rgba(15, 23, 42, 0.76);
     border-radius: 8px;
     transition: all 0.3s ease;
 }
 
 .reward-item:hover {
-    background: rgba(255, 255, 255, 0.9);
+    background: rgba(30, 41, 59, 0.9);
     transform: translateX(5px);
 }
 
@@ -298,7 +298,7 @@
 }
 
 .reward-text strong {
-    color: #28a745;
+    color: #4ade80;
     font-size: 1.1rem;
     display: block;
     margin-bottom: 0.3rem;
@@ -306,7 +306,7 @@
 
 .reward-text p {
     margin: 0;
-    color: #666;
+    color: #dbe4f0;
     font-size: 0.9rem;
     line-height: 1.4;
 }
@@ -331,7 +331,7 @@
     align-items: center;
     gap: 0.5rem;
     font-size: 0.9rem;
-    color: #666;
+    color: #dbe4f0;
 }
 
 .info-icon {
@@ -391,8 +391,8 @@
 }
 
 .invite-code-item {
-    background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
-    border: 2px solid rgba(102, 126, 234, 0.1);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
+    border: 2px solid rgba(148, 163, 184, 0.12);
     border-radius: 12px;
     padding: 1rem;
     transition: all 0.3s ease;
@@ -407,8 +407,8 @@
 }
 
 .invite-code-item.used {
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-    border-color: rgba(108, 117, 125, 0.2);
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(51, 65, 85, 0.88) 100%);
+    border-color: rgba(148, 163, 184, 0.18);
 }
 
 .invite-code-item.used::before {
@@ -457,7 +457,7 @@
 
 .code-date {
     font-size: 0.8rem;
-    color: #666;
+    color: #dbe4f0;
 }
 
 .code-content {
@@ -469,7 +469,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.8rem;
-    background: rgba(102, 126, 234, 0.1);
+    background: rgba(49, 46, 129, 0.3);
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s ease;
@@ -477,7 +477,7 @@
 }
 
 .code-value:hover {
-    background: rgba(102, 126, 234, 0.2);
+    background: rgba(79, 70, 229, 0.36);
     transform: scale(1.02);
 }
 
@@ -505,9 +505,9 @@
     align-items: center;
     gap: 0.5rem;
     font-size: 0.85rem;
-    color: #666;
+    color: #dbe4f0;
     padding: 0.5rem 0.8rem;
-    background: rgba(108, 117, 125, 0.1);
+    background: rgba(51, 65, 85, 0.6);
     border-radius: 6px;
 }
 
@@ -554,7 +554,7 @@
 .empty-state {
     text-align: center;
     padding: 3rem 1rem;
-    color: #666;
+    color: #dbe4f0;
 }
 
 .empty-icon {
@@ -566,7 +566,7 @@
 .empty-title {
     margin: 0 0 0.5rem 0;
     font-size: 1.3rem;
-    color: #333;
+    color: #f8fafc;
 }
 
 .empty-text {
@@ -584,7 +584,7 @@
 }
 
 .help-section {
-    background: rgba(102, 126, 234, 0.05);
+    background: rgba(30, 41, 59, 0.72);
     padding: 1rem;
     border-radius: 8px;
     border-left: 3px solid #667eea;
@@ -600,7 +600,7 @@
 .help-list {
     margin: 0;
     padding-left: 1.2rem;
-    color: #666;
+    color: #dbe4f0;
     font-size: 0.9rem;
     line-height: 1.5;
 }
