@@ -3731,8 +3731,19 @@ class _PredictScreenState extends State<PredictScreen> {
               final accuracyMap = Map<String, dynamic>.from(
                 (item['accuracy_by_window'] as Map?) ?? const {},
               );
+              final totalsMap = Map<String, dynamic>.from(
+                (item['totals_by_window'] as Map?) ?? const {},
+              );
+              String formatWindowMetric(String windowKey) {
+                final total = (totalsMap[windowKey] as num?)?.toInt() ?? 0;
+                if (total <= 0) {
+                  return '${windowKey}期样本不足';
+                }
+                return '${windowKey}期${accuracyMap[windowKey] ?? 0}% ($total条)';
+              }
+
               final accuracyText =
-                  '20期${accuracyMap['20'] ?? 0}% / 50期${accuracyMap['50'] ?? 0}% / 100期${accuracyMap['100'] ?? 0}%';
+                  '${formatWindowMetric('20')} / ${formatWindowMetric('50')} / ${formatWindowMetric('100')}';
               final multiplierText =
                   '排名系数×准确率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，加权分 ${item['weighted_score'] ?? '-'}';
               final weightValue =

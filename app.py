@@ -1499,11 +1499,13 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
         score_parts = []
         total_samples = 0
         accuracy_by_window = {}
+        totals_by_window = {}
 
         for idx, window in enumerate(windows):
             accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
             total_samples = max(total_samples, total)
             accuracy_by_window[str(window)] = round(float(accuracy or 0.0) * 100, 2)
+            totals_by_window[str(window)] = int(total or 0)
             if total <= 0:
                 continue
             recency_weight = max(0.45, 1.0 - idx * 0.22)
@@ -1523,6 +1525,7 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
             "bias": round(bias_value * 100, 2),
             "recent_accuracy": accuracy_by_window.get("20", 0.0),
             "accuracy_by_window": accuracy_by_window,
+            "totals_by_window": totals_by_window,
         })
 
     scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
@@ -2568,6 +2571,7 @@ def _get_ml_ensemble_weights(region, strategies=None):
             "bias": round(float(item.get("bias", 0.0)), 2),
             "recent_accuracy": round(float(item.get("recent_accuracy", 0.0)), 2),
             "accuracy_by_window": dict(item.get("accuracy_by_window") or {}),
+            "totals_by_window": dict(item.get("totals_by_window") or {}),
             "rank_multiplier": round(rank_multiplier, 4),
             "accuracy_multiplier": round(accuracy_multiplier, 4),
             "weighted_score": round(raw_score * 100, 2),

@@ -364,10 +364,18 @@ function renderPredictionInsights(data, strategy) {
             .sort((a, b) => Number((b[1] || {}).weighted_score || 0) - Number((a[1] || {}).weighted_score || 0))
             .map(([key, item], index) => {
                 const accuracyMap = item.accuracy_by_window || {};
+                const totalsMap = item.totals_by_window || {};
+                const formatWindowMetric = (windowKey) => {
+                    const total = Number(totalsMap[windowKey] || 0);
+                    if (total <= 0) {
+                        return `${windowKey}期样本不足`;
+                    }
+                    return `${windowKey}期${accuracyMap[windowKey] ?? 0}% (${total}条)`;
+                };
                 const windowText = [
-                    `20期${accuracyMap['20'] ?? 0}%`,
-                    `50期${accuracyMap['50'] ?? 0}%`,
-                    `100期${accuracyMap['100'] ?? 0}%`,
+                    formatWindowMetric('20'),
+                    formatWindowMetric('50'),
+                    formatWindowMetric('100'),
                 ].join(' / ');
                 const accentPalette = [
                     { bg: 'linear-gradient(135deg, rgba(255,248,214,0.96), rgba(255,236,176,0.92))', border: 'rgba(196, 146, 0, 0.28)', badgeBg: '#c69200', badgeColor: '#fffaf0', title: '#7a5600' },
