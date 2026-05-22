@@ -3497,6 +3497,11 @@ class _PredictScreenState extends State<PredictScreen> {
         border: const Color(0x47C49200),
         badge: const Color(0xFFC69200),
         title: const Color(0xFF7A5600),
+        ribbon: const LinearGradient(
+          colors: [Color(0xFFC69200), Color(0xFFFFC107)],
+        ),
+        ribbonTitle: '冠军策略',
+        ribbonNote: '当前集成优先级最高',
       ),
       (
         background: const LinearGradient(
@@ -3505,6 +3510,11 @@ class _PredictScreenState extends State<PredictScreen> {
         border: const Color(0x42607D8B),
         badge: const Color(0xFF607D8B),
         title: const Color(0xFF38505D),
+        ribbon: const LinearGradient(
+          colors: [Color(0xFF607D8B), Color(0xFFB0BEC5)],
+        ),
+        ribbonTitle: '亚军策略',
+        ribbonNote: '当前集成优先级第二',
       ),
       (
         background: const LinearGradient(
@@ -3513,11 +3523,15 @@ class _PredictScreenState extends State<PredictScreen> {
         border: const Color(0x42BF6622),
         badge: const Color(0xFFBF6622),
         title: const Color(0xFF8A4516),
+        ribbon: const LinearGradient(
+          colors: [Color(0xFFBF6622), Color(0xFFCD7F32)],
+        ),
+        ribbonTitle: '季军策略',
+        ribbonNote: '当前集成优先级第三',
       ),
     ];
     final paletteIndex = ((rank - 1).clamp(0, palettes.length - 1)) as int;
     final palette = palettes[paletteIndex];
-    final isChampion = rank == 1;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(top: 8),
@@ -3528,49 +3542,48 @@ class _PredictScreenState extends State<PredictScreen> {
         border: Border.all(color: palette.border),
         boxShadow: [
           BoxShadow(
-            color: isChampion
+            color: rank == 1
                 ? const Color(0x33C69200)
-                : const Color(0x14000000),
-            blurRadius: isChampion ? 18 : 12,
-            offset: Offset(0, isChampion ? 6 : 4),
+                : rank == 2
+                    ? const Color(0x23607D8B)
+                    : const Color(0x23BF6622),
+            blurRadius: rank == 1 ? 18 : 14,
+            offset: Offset(0, rank == 1 ? 6 : 4),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (isChampion)
-            Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFC69200), Color(0xFFFFC107)],
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                children: [
-                  Text(
-                    '冠军策略',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFFFFFAF0),
-                    ),
-                  ),
-                  Spacer(),
-                  Text(
-                    '当前集成优先级最高',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFFFFAF0),
-                    ),
-                  ),
-                ],
-              ),
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: palette.ribbon,
+              borderRadius: BorderRadius.circular(10),
             ),
+            child: Row(
+              children: [
+                Text(
+                  palette.ribbonTitle,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFFFFFAF0),
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  palette.ribbonNote,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFFFFAF0),
+                  ),
+                ),
+              ],
+            ),
+          ),
           Row(
             children: [
               Container(

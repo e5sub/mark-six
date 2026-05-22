@@ -369,21 +369,21 @@ function renderPredictionInsights(data, strategy) {
                     ? `${overallAccuracy}% (${overallTotal}条)`
                     : '样本不足';
                 const accentPalette = [
-                    { bg: 'linear-gradient(135deg, rgba(255,248,214,0.96), rgba(255,236,176,0.92))', border: 'rgba(196, 146, 0, 0.28)', badgeBg: '#c69200', badgeColor: '#fffaf0', title: '#7a5600' },
-                    { bg: 'linear-gradient(135deg, rgba(240,244,248,0.96), rgba(223,231,239,0.92))', border: 'rgba(96, 125, 139, 0.26)', badgeBg: '#607d8b', badgeColor: '#f8fbff', title: '#38505d' },
-                    { bg: 'linear-gradient(135deg, rgba(255,241,230,0.96), rgba(251,223,198,0.92))', border: 'rgba(191, 102, 34, 0.22)', badgeBg: '#bf6622', badgeColor: '#fff7f1', title: '#8a4516' },
+                    { bg: 'linear-gradient(135deg, rgba(255,248,214,0.96), rgba(255,236,176,0.92))', border: 'rgba(196, 146, 0, 0.28)', badgeBg: '#c69200', badgeColor: '#fffaf0', title: '#7a5600', ribbonBg: 'linear-gradient(90deg, rgba(198,146,0,0.96), rgba(255,193,7,0.92))', ribbonTitle: '冠军策略', ribbonNote: '当前集成优先级最高' },
+                    { bg: 'linear-gradient(135deg, rgba(240,244,248,0.96), rgba(223,231,239,0.92))', border: 'rgba(96, 125, 139, 0.26)', badgeBg: '#607d8b', badgeColor: '#f8fbff', title: '#38505d', ribbonBg: 'linear-gradient(90deg, rgba(96,125,139,0.96), rgba(176,190,197,0.92))', ribbonTitle: '亚军策略', ribbonNote: '当前集成优先级第二' },
+                    { bg: 'linear-gradient(135deg, rgba(255,241,230,0.96), rgba(251,223,198,0.92))', border: 'rgba(191, 102, 34, 0.22)', badgeBg: '#bf6622', badgeColor: '#fff7f1', title: '#8a4516', ribbonBg: 'linear-gradient(90deg, rgba(191,102,34,0.96), rgba(205,127,50,0.92))', ribbonTitle: '季军策略', ribbonNote: '当前集成优先级第三' },
                 ][Math.min(index, 2)];
                 const rankLabel = `#${index + 1}`;
-                const championRibbon = index === 0
-                    ? `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:-10px -12px 10px; padding:8px 12px; border-radius:10px 10px 0 0; background: linear-gradient(90deg, rgba(198,146,0,0.96), rgba(255,193,7,0.92)); color:#fffaf0; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.18);"><span style="font-size:0.78rem; font-weight:900; letter-spacing:0.04em;">冠军策略</span><span style="font-size:0.76rem; font-weight:700;">当前集成优先级最高</span></div>`
-                    : '';
+                const rankRibbon = `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:-10px -12px 10px; padding:8px 12px; border-radius:10px 10px 0 0; background: ${accentPalette.ribbonBg}; color:#fffaf0; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.18);"><span style="font-size:0.78rem; font-weight:900; letter-spacing:0.04em;">${accentPalette.ribbonTitle}</span><span style="font-size:0.76rem; font-weight:700;">${accentPalette.ribbonNote}</span></div>`;
                 const cardShadow = index === 0
                     ? '0 10px 22px rgba(198, 146, 0, 0.16)'
-                    : '0 6px 14px rgba(15, 95, 86, 0.05)';
+                    : index === 1
+                        ? '0 8px 18px rgba(96, 125, 139, 0.12)'
+                        : '0 8px 18px rgba(191, 102, 34, 0.10)';
                 const cardScale = index === 0 ? 'transform: translateY(-1px);' : '';
                 return `
                     <div style="min-width:0; padding:10px 12px; border-radius:10px; background: ${accentPalette.bg}; border:1px solid ${accentPalette.border}; box-shadow: ${cardShadow}; ${cardScale}">
-                        ${championRibbon}
+                        ${rankRibbon}
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
                             <div style="display:flex; align-items:center; gap:8px;">
                                 <span style="display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:22px; padding:0 8px; border-radius:999px; background:${accentPalette.badgeBg}; color:${accentPalette.badgeColor}; font-size:0.78rem; font-weight:800;">${rankLabel}</span>
