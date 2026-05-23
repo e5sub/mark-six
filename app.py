@@ -1540,8 +1540,10 @@ def _default_strategy_config(strategy):
                 "attr_bonus": 1.0,
                 "diversity_bonus": 1.0,
                 "repeat_penalty": 1.0,
+                "overheat_penalty": 1.0,
                 "confidence_bonus": 1.0,
                 "shape_score": 1.0,
+                "structure_bonus": 1.0,
                 "gate_adjustment": 1.0,
                 "appearance_vote": 0.24,
             },
@@ -1818,6 +1820,44 @@ def _calculate_strategy_hit_rates(region, strategy, limit=200):
         "top6": round(top6 / valid_total, 4),
         "zodiac": round(zodiac / valid_total, 4),
         "total": valid_total,
+    }
+
+
+def _calculate_strategy_hit_rate_windows(region, strategy, windows=(12, 36, 72)):
+    window_items = []
+    weighted = {"top1": 0.0, "top6": 0.0, "zodiac": 0.0}
+    total_weight = 0.0
+    for idx, window in enumerate(windows or ()):
+        stats = _calculate_strategy_hit_rates(region, strategy, limit=window)
+        samples = int(stats.get("total", 0) or 0)
+        base_weight = max(0.35, 1.0 - idx * 0.18)
+        confidence = _clamp(samples / max(min(int(window), 24), 1), 0.18, 1.0)
+        effective_weight = base_weight * confidence
+        window_item = {
+            "window": int(window),
+            "top1": round(_safe_float(stats.get("top1"), 0.0), 4),
+            "top6": round(_safe_float(stats.get("top6"), 0.0), 4),
+            "zodiac": round(_safe_float(stats.get("zodiac"), 0.0), 4),
+            "total": samples,
+            "weight": round(effective_weight, 4),
+        }
+        window_items.append(window_item)
+        total_weight += effective_weight
+        for key in weighted.keys():
+            weighted[key] += _safe_float(window_item.get(key), 0.0) * effective_weight
+
+    if total_weight <= 0:
+        aggregate = {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0}
+    else:
+        aggregate = {
+            "top1": round(weighted["top1"] / total_weight, 4),
+            "top6": round(weighted["top6"] / total_weight, 4),
+            "zodiac": round(weighted["zodiac"] / total_weight, 4),
+            "total": max((item["total"] for item in window_items), default=0),
+        }
+    return {
+        "windows": window_items,
+        "aggregate": aggregate,
     }
 
 
@@ -2160,6 +2200,389 @@ def _build_ai_gate_profile(region, windows=(20, 50), min_samples=6):
     }
 
 
+def _learn_ai_region_profile(region, limit=180):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy="ai",
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+
+    structure_scores = Counter()
+    failure_scores = Counter()
+    target_scores = Counter()
+    total_quality = 0.0
+
+    for idx, prediction in enumerate(predictions):
+        recency_weight = max(0.22, 1.0 - (idx / max(limit, 1)) * 0.72)
+        quality = max(0.04, _score_prediction_outcome(prediction)) * recency_weight
+        total_quality += quality
+        raw_outcome = _score_prediction_outcome(prediction)
+
+        try:
+            special = int(str(getattr(prediction, "special_number", "") or "").strip())
+        except (TypeError, ValueError):
+            special = 0
+        normal = [
+            int(item)
+            for item in _parse_csv_list(getattr(prediction, "normal_numbers", "") or "")
+            if str(item).isdigit()
+        ][:6]
+        if special and normal:
+            zone_spread = len(set(1 if n <= 16 else 2 if n <= 33 else 3 for n in normal))
+            structure_scores[f"zone_spread:{zone_spread}"] += quality
+
+            tail_spread = len(set(n % 10 for n in normal))
+            if tail_spread >= 5:
+                structure_scores["tail_spread:wide"] += quality
+            elif tail_spread >= 4:
+                structure_scores["tail_spread:balanced"] += quality
+            else:
+                structure_scores["tail_spread:tight"] += quality
+
+            all_numbers = normal + [special]
+            color_spread = len(set(_get_color_zh(n) for n in all_numbers if _get_color_zh(n)))
+            structure_scores[f"color_spread:{color_spread}"] += quality
+
+            odd_count = sum(1 for n in all_numbers if n % 2 == 1)
+            even_count = len(all_numbers) - odd_count
+            parity_gap = abs(odd_count - even_count)
+            structure_scores["parity:balanced" if parity_gap <= 1 else "parity:skewed"] += quality
+
+            special_zone = "small" if special <= 16 else "mid" if special <= 33 else "large"
+            structure_scores[f"special_zone:{special_zone}"] += quality
+            structure_scores[f"special_color:{_get_color_zh(special) or 'unknown'}"] += quality
+            if raw_outcome < 0.3:
+                failure_scores[f"zone_spread:{zone_spread}"] += recency_weight
+                if tail_spread >= 5:
+                    failure_scores["tail_spread:wide"] += recency_weight
+                elif tail_spread >= 4:
+                    failure_scores["tail_spread:balanced"] += recency_weight
+                else:
+                    failure_scores["tail_spread:tight"] += recency_weight
+                failure_scores[f"color_spread:{color_spread}"] += recency_weight
+                failure_scores["parity:balanced" if parity_gap <= 1 else "parity:skewed"] += recency_weight
+                failure_scores[f"special_zone:{special_zone}"] += recency_weight
+                failure_scores[f"special_color:{_get_color_zh(special) or 'unknown'}"] += recency_weight
+
+        actual_special = _normalize_draw_number(getattr(prediction, "actual_special_number", ""))
+        predicted_special = _normalize_draw_number(getattr(prediction, "special_number", ""))
+        if actual_special and predicted_special == actual_special:
+            target_scores["top1"] += quality
+        elif actual_special and actual_special in {str(n) for n in normal}:
+            target_scores["top6"] += quality
+
+    confidence = _clamp(len(predictions) / 30.0, 0.2, 1.0) * _clamp(total_quality / 12.0, 0.3, 1.0)
+    return {
+        "samples": len(predictions),
+        "confidence": round(confidence, 4),
+        "structure_scores": dict(structure_scores),
+        "failure_scores": dict(failure_scores),
+        "target_scores": dict(target_scores),
+        "preferred_structures": _rank_weighted_preferences(structure_scores, limit=8),
+    }
+
+
+def _learn_ai_offline_rerank_profile(region, limit=180):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy="ai",
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+    if not predictions:
+        return {
+            "samples": 0,
+            "confidence": 0.0,
+            "weight_adjustments": {},
+            "mode_scores": {},
+        }
+
+    adjustment_scores = Counter()
+    mode_scores = Counter()
+    mode_adjustments = {}
+    mode_window_adjustments = {}
+    ranking_signal_scores = Counter()
+    total_quality = 0.0
+
+    for idx, prediction in enumerate(predictions):
+        metadata = _deserialize_prediction_metadata(
+            getattr(prediction, "prediction_metadata", "")
+        )
+        recency_weight = max(0.22, 1.0 - (idx / max(limit, 1)) * 0.72)
+        outcome = _score_prediction_outcome(prediction)
+        total_quality += outcome * recency_weight
+
+        actual_special = _normalize_draw_number(getattr(prediction, "actual_special_number", ""))
+        predicted_special = _normalize_draw_number(getattr(prediction, "special_number", ""))
+        normal_numbers = {
+            _normalize_draw_number(item)
+            for item in str(getattr(prediction, "normal_numbers", "") or "").split(",")
+            if _normalize_draw_number(item)
+        }
+        predicted_zodiac = str(getattr(prediction, "special_zodiac", "") or "").strip()
+        actual_zodiac = str(getattr(prediction, "actual_special_zodiac", "") or "").strip()
+        top1_hit = bool(actual_special and predicted_special == actual_special)
+        top6_hit = bool(actual_special and actual_special in normal_numbers)
+        zodiac_hit = bool(predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac)
+        target_mode = str(metadata.get("ai_target_mode") or "top1_safe")
+        mode_scores[target_mode] += max(0.04, outcome) * recency_weight
+        mode_bucket = mode_adjustments.setdefault(target_mode, Counter())
+        window_bucket_key = "recent" if idx < 24 else "mid" if idx < 72 else "long"
+        window_bucket = mode_window_adjustments.setdefault(target_mode, {}).setdefault(window_bucket_key, Counter())
+
+        if top1_hit:
+            adjustment_scores["base_special"] += 0.18 * recency_weight
+            adjustment_scores["special_vote"] += 0.14 * recency_weight
+            adjustment_scores["shortlist_bonus"] += 0.08 * recency_weight
+            adjustment_scores["confidence_bonus"] += 0.07 * recency_weight
+            adjustment_scores["appearance_vote"] += 0.05 * recency_weight
+            mode_bucket["base_special"] += 0.16 * recency_weight
+            mode_bucket["special_vote"] += 0.12 * recency_weight
+            window_bucket["base_special"] += 0.14 * recency_weight
+            window_bucket["special_vote"] += 0.1 * recency_weight
+            if target_mode == "top1_strict":
+                adjustment_scores["base_special"] += 0.06 * recency_weight
+                mode_bucket["base_special"] += 0.06 * recency_weight
+                window_bucket["base_special"] += 0.05 * recency_weight
+        elif top6_hit:
+            adjustment_scores["avg_normal"] += 0.16 * recency_weight
+            adjustment_scores["diversity_bonus"] += 0.1 * recency_weight
+            adjustment_scores["shape_score"] += 0.08 * recency_weight
+            adjustment_scores["structure_bonus"] += 0.08 * recency_weight
+            mode_bucket["avg_normal"] += 0.14 * recency_weight
+            mode_bucket["structure_bonus"] += 0.08 * recency_weight
+            window_bucket["avg_normal"] += 0.12 * recency_weight
+            window_bucket["structure_bonus"] += 0.08 * recency_weight
+            if target_mode == "top6_cover":
+                adjustment_scores["avg_normal"] += 0.05 * recency_weight
+                mode_bucket["avg_normal"] += 0.05 * recency_weight
+                window_bucket["avg_normal"] += 0.05 * recency_weight
+
+        if zodiac_hit and not top1_hit:
+            adjustment_scores["attr_bonus"] += 0.08 * recency_weight
+            adjustment_scores["special_vote"] += 0.04 * recency_weight
+            mode_bucket["attr_bonus"] += 0.06 * recency_weight
+            window_bucket["attr_bonus"] += 0.05 * recency_weight
+
+        if outcome < 0.3:
+            adjustment_scores["overheat_penalty"] += 0.08 * recency_weight
+            adjustment_scores["repeat_penalty"] += 0.07 * recency_weight
+            adjustment_scores["confidence_bonus"] -= 0.06 * recency_weight
+            adjustment_scores["appearance_vote"] -= 0.04 * recency_weight
+            mode_bucket["overheat_penalty"] += 0.06 * recency_weight
+            mode_bucket["repeat_penalty"] += 0.05 * recency_weight
+            mode_bucket["confidence_bonus"] -= 0.05 * recency_weight
+            window_bucket["overheat_penalty"] += 0.05 * recency_weight
+            window_bucket["repeat_penalty"] += 0.04 * recency_weight
+            window_bucket["confidence_bonus"] -= 0.04 * recency_weight
+            if not top6_hit:
+                adjustment_scores["avg_normal"] -= 0.06 * recency_weight
+                adjustment_scores["diversity_bonus"] -= 0.03 * recency_weight
+                adjustment_scores["shape_score"] -= 0.03 * recency_weight
+                mode_bucket["avg_normal"] -= 0.05 * recency_weight
+                window_bucket["avg_normal"] -= 0.04 * recency_weight
+            if not top1_hit:
+                adjustment_scores["base_special"] -= 0.07 * recency_weight
+                adjustment_scores["special_vote"] -= 0.05 * recency_weight
+                mode_bucket["base_special"] -= 0.05 * recency_weight
+                window_bucket["base_special"] -= 0.04 * recency_weight
+            if target_mode == "top1_strict":
+                adjustment_scores["base_special"] -= 0.04 * recency_weight
+                mode_bucket["base_special"] -= 0.03 * recency_weight
+                window_bucket["base_special"] -= 0.03 * recency_weight
+            elif target_mode == "top6_cover":
+                adjustment_scores["structure_bonus"] -= 0.03 * recency_weight
+                mode_bucket["structure_bonus"] -= 0.03 * recency_weight
+                window_bucket["structure_bonus"] -= 0.03 * recency_weight
+
+        ranking = list(metadata.get("ai_candidate_ranking") or [])
+        if actual_special and ranking:
+            matched_candidate = None
+            for candidate in ranking:
+                candidate_special = _normalize_draw_number(candidate.get("special"))
+                candidate_normals = {
+                    _normalize_draw_number(item)
+                    for item in (candidate.get("normal") or [])
+                    if _normalize_draw_number(item)
+                }
+                if candidate_special == actual_special or actual_special in candidate_normals:
+                    matched_candidate = candidate
+                    break
+            if matched_candidate:
+                diagnostics = dict(matched_candidate.get("score_diagnostics") or {})
+                ranking_weight = recency_weight * (0.8 if matched_candidate.get("special") == actual_special else 0.52)
+                if _safe_float(diagnostics.get("base_special"), 0.0) > 0:
+                    ranking_signal_scores["base_special"] += ranking_weight * 0.08
+                if _safe_float(diagnostics.get("avg_normal"), 0.0) > 0:
+                    ranking_signal_scores["avg_normal"] += ranking_weight * 0.08
+                if _safe_float(diagnostics.get("attr_bonus"), 0.0) > 0:
+                    ranking_signal_scores["attr_bonus"] += ranking_weight * 0.05
+                if _safe_float(diagnostics.get("shape_score"), 0.0) > 0:
+                    ranking_signal_scores["shape_score"] += ranking_weight * 0.05
+                if _safe_float(diagnostics.get("structure_bonus"), 0.0) > 0:
+                    ranking_signal_scores["structure_bonus"] += ranking_weight * 0.06
+                if _safe_float(diagnostics.get("overheat_penalty"), 0.0) < 0:
+                    ranking_signal_scores["overheat_penalty"] -= ranking_weight * 0.04
+            elif outcome < 0.3 and ranking:
+                top_diag = dict((ranking[0] or {}).get("score_diagnostics") or {})
+                if _safe_float(top_diag.get("base_special"), 0.0) > 0:
+                    ranking_signal_scores["base_special"] -= recency_weight * 0.04
+                if _safe_float(top_diag.get("avg_normal"), 0.0) > 0:
+                    ranking_signal_scores["avg_normal"] -= recency_weight * 0.04
+                if _safe_float(top_diag.get("structure_bonus"), 0.0) > 0:
+                    ranking_signal_scores["structure_bonus"] -= recency_weight * 0.03
+
+    confidence = _clamp(len(predictions) / 28.0, 0.2, 1.0) * _clamp(total_quality / 10.0, 0.25, 1.0)
+    normalized = {
+        key: round(_clamp(value * max(0.35, confidence), -0.22, 0.22), 4)
+        for key, value in adjustment_scores.items()
+    }
+    for key, value in ranking_signal_scores.items():
+        normalized[key] = round(
+            _clamp(_safe_float(normalized.get(key), 0.0) + (value * max(0.25, confidence)), -0.24, 0.24),
+            4,
+        )
+    normalized_mode_adjustments = {
+        mode: {
+            key: round(_clamp(value * max(0.3, confidence), -0.2, 0.2), 4)
+            for key, value in counter.items()
+        }
+        for mode, counter in mode_adjustments.items()
+        if counter
+    }
+    normalized_mode_window_adjustments = {}
+    for mode, windows in mode_window_adjustments.items():
+        normalized_mode_window_adjustments[mode] = {}
+        for window_key, counter in windows.items():
+            normalized_mode_window_adjustments[mode][window_key] = {
+                key: round(_clamp(value * max(0.28, confidence), -0.18, 0.18), 4)
+                for key, value in counter.items()
+            }
+    return {
+        "samples": len(predictions),
+        "confidence": round(confidence, 4),
+        "weight_adjustments": normalized,
+        "mode_scores": dict(mode_scores),
+        "mode_adjustments": normalized_mode_adjustments,
+        "mode_window_adjustments": normalized_mode_window_adjustments,
+        "ranking_signal_scores": {
+            key: round(value, 4) for key, value in ranking_signal_scores.items()
+        },
+    }
+
+
+def _resolve_ai_feedback_mix_weights(region, windows=(20, 50, 100)):
+    ai_windows = _calculate_strategy_hit_rate_windows(region, "ai", windows=windows)
+    ml_windows = _calculate_strategy_hit_rate_windows(region, "ml", windows=windows)
+    ai_stats = dict(ai_windows.get("aggregate") or {})
+    ml_stats = dict(ml_windows.get("aggregate") or {})
+
+    ai_top1 = _safe_float(ai_stats.get("top1"), 0.0)
+    ai_top6 = _safe_float(ai_stats.get("top6"), 0.0)
+    ml_top1 = _safe_float(ml_stats.get("top1"), 0.0)
+    ml_top6 = _safe_float(ml_stats.get("top6"), 0.0)
+    ai_total = int(ai_stats.get("total", 0) or 0)
+    ml_total = int(ml_stats.get("total", 0) or 0)
+
+    ai_score = (ai_top1 * 0.62) + (ai_top6 * 0.28) + (_safe_float(ai_stats.get("zodiac"), 0.0) * 0.1)
+    ml_score = (ml_top1 * 0.48) + (ml_top6 * 0.42) + (_safe_float(ml_stats.get("zodiac"), 0.0) * 0.1)
+
+    ai_confidence = _clamp(ai_total / 18.0, 0.25, 1.0)
+    ml_confidence = _clamp(ml_total / 18.0, 0.25, 1.0)
+    ai_weight = max(0.25, ai_score * ai_confidence)
+    ml_weight = max(0.25, ml_score * ml_confidence)
+    total_weight = ai_weight + ml_weight
+
+    return {
+        "ai": round(ai_weight / total_weight, 4),
+        "ml": round(ml_weight / total_weight, 4),
+        "ai_stats": ai_windows,
+        "ml_stats": ml_windows,
+    }
+
+
+def _resolve_ai_quality_threshold(context):
+    gate_profile = dict(context.get("gate_profile") or {})
+    status = str(gate_profile.get("status") or "active")
+    target_mode = str(context.get("target_mode") or "top1_safe")
+    structure_profile = dict(context.get("structure_profile") or {})
+    confidence = _clamp(_safe_float(structure_profile.get("confidence"), 0.0), 0.0, 1.0)
+
+    threshold = -0.12
+    if status == "guarded":
+        threshold += 0.03
+    elif status == "fallback":
+        threshold += 0.06
+
+    if target_mode == "top1_strict":
+        threshold += 0.03
+    elif target_mode == "top6_cover":
+        threshold -= 0.02
+
+    if confidence >= 0.7:
+        threshold -= 0.015
+    elif confidence <= 0.35:
+        threshold += 0.02
+
+    return round(_clamp(threshold, -0.22, -0.04), 4)
+
+
+def _format_ai_structure_guidance(profile):
+    preferred = list((profile or {}).get("preferred_structures") or [])
+    failed = list(_rank_weighted_preferences((profile or {}).get("failure_scores") or {}, limit=5))
+    lines = []
+    if preferred:
+        lines.append("优先结构：" + "、".join(preferred[:5]))
+    if failed:
+        lines.append("避免结构：" + "、".join(failed[:4]))
+    return "\n".join(lines)
+
+
+def _build_ai_layered_shortlists(
+    special_ranked,
+    normal_ranked,
+    feedback_special_rank,
+    feedback_normal_rank,
+    special_votes,
+    normal_votes,
+    special_limit,
+    normal_limit,
+):
+    special_recent = _dedupe_keep_order(
+        list(feedback_special_rank[:max(3, special_limit // 2)]) +
+        [int(number) for number, _ in special_votes.most_common(max(3, special_limit // 2))]
+    )[:max(3, special_limit // 2)]
+    special_stable = _dedupe_keep_order(list(special_ranked[:special_limit]))[:special_limit]
+    special_explore = _dedupe_keep_order(
+        list(special_ranked[special_limit:special_limit * 2]) +
+        list(feedback_special_rank[max(3, special_limit // 2):special_limit])
+    )[:max(2, special_limit // 3)]
+
+    normal_recent = _dedupe_keep_order(
+        list(feedback_normal_rank[:max(6, normal_limit // 3)]) +
+        [int(number) for number, _ in normal_votes.most_common(max(6, normal_limit // 3))]
+    )[:max(6, normal_limit // 3)]
+    normal_stable = _dedupe_keep_order(list(normal_ranked[:normal_limit]))[:normal_limit]
+    normal_explore = _dedupe_keep_order(
+        list(normal_ranked[normal_limit:normal_limit * 2]) +
+        list(feedback_normal_rank[max(6, normal_limit // 3):normal_limit])
+    )[:max(4, normal_limit // 4)]
+
+    return {
+        "special": {
+            "recent": special_recent,
+            "stable": special_stable,
+            "explore": special_explore,
+        },
+        "normal": {
+            "recent": normal_recent,
+            "stable": normal_stable,
+            "explore": normal_explore,
+        },
+    }
+
+
 def _select_ml_ensemble_strategies(region, slots=3, persist=True):
     eligible = [strategy for strategy in LOCAL_STRATEGY_KEYS if strategy != "ml"]
     if not eligible:
@@ -2308,33 +2731,73 @@ def _tune_strategy_config(strategy, region):
         target_mode, target_stats = _resolve_ai_target_mode(region, limit=140)
         config["target_mode"] = target_mode
         config["target_mode_stats"] = target_stats
+        layered_stats = _calculate_strategy_hit_rate_windows(region, "ai", windows=(12, 36, 72))
+        config["layered_hit_rates"] = layered_stats
         gate_profile = _build_ai_gate_profile(region)
         score_gap = max(0.0, float(gate_profile.get("score_gap") or 0.0))
         score_pressure = _clamp(score_gap / 8.0, 0.0, 1.0)
         feedback = _build_prediction_feedback(region, "ai", limit=160)
         feedback_confidence = _safe_float(feedback.get("confidence"), 0.0)
+        ai_profile = _learn_ai_region_profile(region)
+        offline_profile = _learn_ai_offline_rerank_profile(region)
+        mix_weights = _resolve_ai_feedback_mix_weights(region)
+        structure_confidence = _safe_float(ai_profile.get("confidence"), 0.0)
         rerank_weights = _default_ai_rerank_weights()
-        rerank_weights["base_special"] = round(_clamp(0.72 + accuracy * 0.42 + feedback_confidence * 0.12, 0.65, 1.25), 4)
-        rerank_weights["avg_normal"] = round(_clamp(0.42 + accuracy * 0.28 + learning_strength * 0.08, 0.35, 0.95), 4)
+        rerank_weights["base_special"] = round(_clamp(0.72 + accuracy * 0.42 + feedback_confidence * 0.12 + structure_confidence * 0.08, 0.65, 1.3), 4)
+        rerank_weights["avg_normal"] = round(_clamp(0.42 + accuracy * 0.28 + learning_strength * 0.08 + structure_confidence * 0.06, 0.35, 1.0), 4)
         rerank_weights["special_vote"] = round(_clamp(0.1 + learning_strength * 0.12 + score_pressure * 0.08, 0.08, 0.42), 4)
         rerank_weights["normal_vote_avg"] = round(_clamp(0.06 + learning_strength * 0.08 + score_pressure * 0.06, 0.04, 0.28), 4)
-        rerank_weights["shortlist_bonus"] = round(_clamp(0.82 + learning_strength * 0.22 + score_pressure * 0.28, 0.75, 1.45), 4)
+        rerank_weights["shortlist_bonus"] = round(_clamp(0.82 + learning_strength * 0.22 + score_pressure * 0.28 + structure_confidence * 0.08, 0.75, 1.5), 4)
         rerank_weights["attr_bonus"] = round(_clamp(0.72 + accuracy * 0.44 + feedback_confidence * 0.1, 0.65, 1.35), 4)
-        rerank_weights["diversity_bonus"] = round(_clamp(0.74 + (1 - accuracy) * 0.32 + score_pressure * 0.18, 0.7, 1.35), 4)
+        rerank_weights["diversity_bonus"] = round(_clamp(0.74 + (1 - accuracy) * 0.32 + score_pressure * 0.18 + structure_confidence * 0.14, 0.7, 1.45), 4)
         rerank_weights["repeat_penalty"] = round(_clamp(1.0 + (1 - accuracy) * 0.55 + score_pressure * 0.35, 0.9, 1.95), 4)
+        rerank_weights["overheat_penalty"] = round(_clamp(0.88 + (1 - accuracy) * 0.44 + score_pressure * 0.24, 0.78, 1.65), 4)
         rerank_weights["confidence_bonus"] = round(_clamp(0.5 + accuracy * 0.55 - score_pressure * 0.12, 0.38, 1.2), 4)
-        rerank_weights["shape_score"] = round(_clamp(0.82 + accuracy * 0.36 + score_pressure * 0.14, 0.78, 1.35), 4)
+        rerank_weights["shape_score"] = round(_clamp(0.82 + accuracy * 0.36 + score_pressure * 0.14 + structure_confidence * 0.18, 0.78, 1.45), 4)
+        rerank_weights["structure_bonus"] = round(_clamp(0.7 + structure_confidence * 0.55 + learning_strength * 0.12, 0.6, 1.4), 4)
         rerank_weights["gate_adjustment"] = round(_clamp(1.0 + score_pressure * 0.4, 1.0, 1.6), 4)
         rerank_weights["appearance_vote"] = round(_clamp(0.18 + accuracy * 0.1 + learning_strength * 0.04, 0.16, 0.38), 4)
-        if target_mode == "top6":
+        if target_mode == "top6_cover":
             rerank_weights["avg_normal"] = round(_clamp(rerank_weights["avg_normal"] + 0.18, 0.35, 1.1), 4)
             rerank_weights["diversity_bonus"] = round(_clamp(rerank_weights["diversity_bonus"] + 0.16, 0.7, 1.5), 4)
             rerank_weights["shortlist_bonus"] = round(_clamp(rerank_weights["shortlist_bonus"] + 0.08, 0.75, 1.55), 4)
             rerank_weights["base_special"] = round(_clamp(rerank_weights["base_special"] - 0.12, 0.55, 1.25), 4)
+            rerank_weights["structure_bonus"] = round(_clamp(rerank_weights["structure_bonus"] + 0.12, 0.6, 1.5), 4)
         else:
             rerank_weights["base_special"] = round(_clamp(rerank_weights["base_special"] + 0.12, 0.65, 1.35), 4)
             rerank_weights["special_vote"] = round(_clamp(rerank_weights["special_vote"] + 0.05, 0.08, 0.48), 4)
             rerank_weights["appearance_vote"] = round(_clamp(rerank_weights["appearance_vote"] - 0.03, 0.14, 0.38), 4)
+        offline_adjustments = dict(offline_profile.get("weight_adjustments") or {})
+        mode_adjustments = dict((offline_profile.get("mode_adjustments") or {}).get(target_mode) or {})
+        mode_window_adjustments = dict((offline_profile.get("mode_window_adjustments") or {}).get(target_mode) or {})
+        offline_confidence = _safe_float(offline_profile.get("confidence"), 0.0)
+        for key, delta in offline_adjustments.items():
+            if key not in rerank_weights:
+                continue
+            rerank_weights[key] = round(
+                _clamp(rerank_weights[key] + (_safe_float(delta, 0.0) * max(0.35, offline_confidence)), 0.04, 1.8),
+                4,
+            )
+        for key, delta in mode_adjustments.items():
+            if key not in rerank_weights:
+                continue
+            rerank_weights[key] = round(
+                _clamp(rerank_weights[key] + (_safe_float(delta, 0.0) * max(0.25, offline_confidence) * 0.9), 0.04, 1.8),
+                4,
+            )
+        window_blend = {"recent": 1.0, "mid": 0.62, "long": 0.35}
+        for window_key, blend_weight in window_blend.items():
+            for key, delta in dict(mode_window_adjustments.get(window_key) or {}).items():
+                if key not in rerank_weights:
+                    continue
+                rerank_weights[key] = round(
+                    _clamp(
+                        rerank_weights[key] + (_safe_float(delta, 0.0) * max(0.22, offline_confidence) * blend_weight * 0.8),
+                        0.04,
+                        1.8,
+                    ),
+                    4,
+                )
         config["rerank_weights"] = _normalize_ai_rerank_weights(rerank_weights)
         config["rerank_learning_confidence"] = round(
             _clamp((learning_strength * 0.55) + (feedback_confidence * 0.45), 0.2, 1.0),
@@ -2344,6 +2807,29 @@ def _tune_strategy_config(strategy, region):
             "status": gate_profile.get("status"),
             "score_gap": round(score_gap, 2),
             "anchor_strategy": gate_profile.get("anchor_strategy", ""),
+        }
+        config["feedback_mix_weights"] = {
+            "ai": _safe_float(mix_weights.get("ai"), 0.5),
+            "ml": _safe_float(mix_weights.get("ml"), 0.5),
+        }
+        config["feedback_mix_stats"] = {
+            "ai": mix_weights.get("ai_stats", {}),
+            "ml": mix_weights.get("ml_stats", {}),
+        }
+        config["structure_profile"] = {
+            "confidence": round(structure_confidence, 4),
+            "samples": int(ai_profile.get("samples", 0) or 0),
+            "preferred_structures": list(ai_profile.get("preferred_structures") or []),
+            "target_scores": dict(ai_profile.get("target_scores") or {}),
+        }
+        config["offline_rerank_profile"] = {
+            "confidence": round(offline_confidence, 4),
+            "samples": int(offline_profile.get("samples", 0) or 0),
+            "weight_adjustments": offline_adjustments,
+            "mode_scores": dict(offline_profile.get("mode_scores") or {}),
+            "mode_adjustments": dict(offline_profile.get("mode_adjustments") or {}),
+            "mode_window_adjustments": dict(offline_profile.get("mode_window_adjustments") or {}),
+            "ranking_signal_scores": dict(offline_profile.get("ranking_signal_scores") or {}),
         }
     elif strategy == "ml":
         config["history_window"] = _clamp(int(90 + accuracy * 120), 80, 220)
@@ -2620,16 +3106,20 @@ def _normalize_ai_rerank_weights(weights):
 
 
 def _resolve_ai_target_mode(region, limit=120):
-    stats = _calculate_strategy_hit_rates(region, "ai", limit=limit)
+    layered = _calculate_strategy_hit_rate_windows(region, "ai", windows=(12, 36, 72))
+    stats = dict(layered.get("aggregate") or {})
+    stats["windows"] = layered.get("windows") or []
     total = int(stats.get("total", 0) or 0)
     if total < 12:
-        return "top1", stats
+        return "top1_safe", stats
 
     top1 = _safe_float(stats.get("top1"), 0.0)
     top6 = _safe_float(stats.get("top6"), 0.0)
     if top6 >= max(top1 * 2.2, top1 + 0.16):
-        return "top6", stats
-    return "top1", stats
+        return "top6_cover", stats
+    if top1 >= max(0.14, top6 * 0.72):
+        return "top1_strict", stats
+    return "top1_safe", stats
 
 
 def _blend_prediction_feedback_items(*weighted_feedbacks):
@@ -4493,10 +4983,12 @@ def _build_ai_shortlist_context(data, region, config=None):
 
     ai_feedback = _build_prediction_feedback(region, "ai")
     ml_feedback = _build_prediction_feedback(region, "ml")
+    mix_weights = dict(config.get("feedback_mix_weights") or _resolve_ai_feedback_mix_weights(region))
     feedback = _blend_prediction_feedback_items(
-        (ai_feedback, 1.15),
-        (ml_feedback, 0.85),
+        (ai_feedback, _safe_float(mix_weights.get("ai"), 0.58)),
+        (ml_feedback, _safe_float(mix_weights.get("ml"), 0.42)),
     )
+    ai_profile = _learn_ai_region_profile(region)
     _, zodiac_pref, _ = _build_attribute_preferences(data[:min(len(data), 24)], region, feedback, year)
     preferred_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
     preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
@@ -4528,16 +5020,26 @@ def _build_ai_shortlist_context(data, region, config=None):
 
     heat_profile = _build_ai_recent_heat_profile(data, window=8)
     recent_specials = list(heat_profile.get("recent_specials") or [])
-
+    phase_profile = _classify_ai_market_phase(data, window=max(8, int(config.get("history_window") or 12)))
+    layered_shortlists = _build_ai_layered_shortlists(
+        special_ranked,
+        normal_ranked,
+        feedback_special_rank,
+        feedback_normal_rank,
+        special_votes,
+        normal_votes,
+        special_limit,
+        normal_limit,
+    )
     special_shortlist = _dedupe_keep_order(
-        special_ranked[:special_limit] +
-        feedback_special_rank[:max(4, special_limit // 2)] +
-        [int(number) for number, _ in special_votes.most_common(special_limit)]
+        layered_shortlists["special"]["recent"] +
+        layered_shortlists["special"]["stable"] +
+        layered_shortlists["special"]["explore"]
     )[:special_limit]
     normal_shortlist = _dedupe_keep_order(
-        normal_ranked[:normal_limit] +
-        feedback_normal_rank[:max(6, normal_limit // 3)] +
-        [int(number) for number, _ in normal_votes.most_common(normal_limit)]
+        layered_shortlists["normal"]["recent"] +
+        layered_shortlists["normal"]["stable"] +
+        layered_shortlists["normal"]["explore"]
     )[:normal_limit]
 
     special_rows = []
@@ -4577,6 +5079,8 @@ def _build_ai_shortlist_context(data, region, config=None):
         "region": region,
         "special_shortlist": special_rows,
         "normal_shortlist": normal_rows,
+        "special_layers": layered_shortlists["special"],
+        "normal_layers": layered_shortlists["normal"],
         "preferred": {
             "color": preferred_color,
             "parity": preferred_parity,
@@ -4588,14 +5092,24 @@ def _build_ai_shortlist_context(data, region, config=None):
             "ai_samples": int(ai_feedback.get("samples", 0) or 0),
             "ml_samples": int(ml_feedback.get("samples", 0) or 0),
             "blended_confidence": round(float(feedback.get("confidence", 0.0)) * 100, 2),
+            "ai_mix_weight": round(_safe_float(mix_weights.get("ai"), 0.0) * 100, 2),
+            "ml_mix_weight": round(_safe_float(mix_weights.get("ml"), 0.0) * 100, 2),
+        },
+        "phase_profile": {
+            "label": str(phase_profile.get("label") or "neutral"),
+            "confidence": round(_safe_float(phase_profile.get("confidence"), 0.0) * 100, 2),
+            "guidance": str(phase_profile.get("guidance") or ""),
         },
     }
+    structure_guidance = _format_ai_structure_guidance(ai_profile)
 
     shortlist_prompt = (
         "候选约束(JSON)：\n"
         f"{json.dumps(structured_payload, ensure_ascii=False, separators=(',', ':'))}\n"
         "你必须优先从 special_shortlist 中选择 1 个特码，并从 normal_shortlist 中选择 6 个不重复平码；"
-        "若偏离 shortlist，必须在理由中明确说明。"
+        "若偏离 shortlist，必须在理由中明确说明。\n"
+        f"{structure_guidance}\n"
+        "special_layers/normal_layers 分别代表近期强势池、稳定池、补充池，优先从 recent 与 stable 中选号。"
     )
 
     return {
@@ -4615,11 +5129,31 @@ def _build_ai_shortlist_context(data, region, config=None):
         "recent_special_counter": dict(heat_profile.get("special_counter") or {}),
         "recent_tail_counter": dict(heat_profile.get("tail_counter") or {}),
         "recent_color_counter": dict(heat_profile.get("color_counter") or {}),
-        "target_mode": str(config.get("target_mode") or "top1"),
+        "layered_shortlists": layered_shortlists,
+        "target_mode": str(config.get("target_mode") or "top1_safe"),
         "target_mode_stats": dict(config.get("target_mode_stats") or {}),
         "rerank_weights": _normalize_ai_rerank_weights(config.get("rerank_weights")),
         "rerank_learning_confidence": round(_safe_float(config.get("rerank_learning_confidence"), 0.0) * 100, 2),
+        "quality_threshold": _resolve_ai_quality_threshold({
+            "gate_profile": _build_ai_gate_profile(region),
+            "target_mode": str(config.get("target_mode") or "top1_safe"),
+            "structure_profile": {
+                "confidence": round(_safe_float(ai_profile.get("confidence"), 0.0), 4),
+            },
+        }),
+        "phase_profile": phase_profile,
+        "feedback_mix_weights": mix_weights,
+        "feedback_mix_stats": dict(config.get("feedback_mix_stats") or {}),
+        "structure_profile": {
+            "confidence": round(_safe_float(ai_profile.get("confidence"), 0.0), 4),
+            "samples": int(ai_profile.get("samples", 0) or 0),
+            "preferred_structures": list(ai_profile.get("preferred_structures") or []),
+            "target_scores": dict(ai_profile.get("target_scores") or {}),
+            "structure_scores": dict(ai_profile.get("structure_scores") or {}),
+            "failure_scores": dict(ai_profile.get("failure_scores") or {}),
+        },
         "shortlist_prompt": shortlist_prompt,
+        "structure_guidance": structure_guidance,
         "structured_payload": structured_payload,
         "gate_profile": _build_ai_gate_profile(region),
     }
@@ -4628,9 +5162,21 @@ def _build_ai_shortlist_context(data, region, config=None):
 def _build_ai_prompt_v4(data, region, shortlist_context, history_window=10, candidate_count=3):
     base_prompt = _build_ai_prompt_v3(data, region, history_window=history_window)
     candidate_count = _clamp(int(candidate_count or 3), 2, 5)
+    target_mode = str(shortlist_context.get("target_mode") or "top1_safe")
+    target_hint = {
+        "top1_strict": "本期更强调特码直接命中，普通号码只做必要配合。",
+        "top1_safe": "本期优先选择更稳的特码，同时保证平码结构不要太激进。",
+        "top6_cover": "本期更重视六码覆盖的整体稳定性，特码仍需和结构一致。",
+    }.get(target_mode, "本期优先保持特码与平码结构的整体一致性。")
+    structure_guidance = str(shortlist_context.get("structure_guidance") or "").strip()
+    phase_profile = dict(shortlist_context.get("phase_profile") or {})
+    phase_text = f"当前开奖阶段：{phase_profile.get('label', 'neutral')}，{phase_profile.get('guidance', '保持中性判断。')}"
     return (
         f"{base_prompt}\n\n"
         f"{shortlist_context.get('shortlist_prompt', '')}\n\n"
+        f"当前目标模式：{target_mode}。{target_hint}\n"
+        f"{phase_text}\n"
+        f"{structure_guidance}\n\n"
         "请先输出一段严格 JSON，格式如下：\n"
         "{\"candidates\":[{\"special\":12,\"normal\":[1,2,3,4,5,6],\"confidence\":0.72,\"why\":\"...\"}]}\n"
         f"其中 candidates 数量必须为 {candidate_count} 组，按优先级从高到低排序。\n"
@@ -4737,6 +5283,99 @@ def _build_ai_recent_heat_profile(data, window=8):
         "special_counter": special_counter,
         "tail_counter": tail_counter,
         "color_counter": color_counter,
+    }
+
+
+def _classify_ai_market_phase(data, window=12):
+    recent = list(data or [])[:max(4, int(window or 12))]
+    specials = []
+    for record in recent:
+        try:
+            number = int(str(record.get("sno") or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= 49:
+            specials.append(number)
+
+    if not specials:
+        return {
+            "label": "neutral",
+            "confidence": 0.0,
+            "metrics": {},
+            "adjustments": {},
+            "guidance": "当前阶段信号不足，保持中性判断。",
+        }
+
+    special_counter = Counter(specials)
+    tail_counter = Counter(number % 10 for number in specials)
+    color_counter = Counter(_get_color_zh(number) for number in specials if _get_color_zh(number))
+    zones = [1 if number <= 16 else 2 if number <= 33 else 3 for number in specials]
+    zone_counter = Counter(zones)
+
+    repeat_ratio = max(special_counter.values()) / max(len(specials), 1)
+    tail_focus = max(tail_counter.values()) / max(len(specials), 1)
+    color_focus = max(color_counter.values()) / max(len(specials), 1) if color_counter else 0.0
+    zone_focus = max(zone_counter.values()) / max(len(zones), 1)
+    unique_ratio = len(set(specials)) / max(len(specials), 1)
+
+    label = "neutral"
+    confidence = 0.4
+    adjustments = {}
+    guidance = "当前阶段较中性，保持特码与结构平衡。"
+
+    if repeat_ratio >= 0.28 or tail_focus >= 0.34 or color_focus >= 0.56:
+        label = "hot"
+        confidence = max(repeat_ratio, tail_focus, color_focus)
+        adjustments = {
+            "overheat_penalty": 0.12,
+            "repeat_penalty": 0.08,
+            "base_special": -0.04,
+            "diversity_bonus": 0.05,
+        }
+        guidance = "当前更像热号阶段，谨慎追逐近期重复信号，优先规避过热特码与尾数。"
+    elif unique_ratio >= 0.92 and repeat_ratio <= 0.12 and tail_focus <= 0.22:
+        label = "cold"
+        confidence = unique_ratio
+        adjustments = {
+            "overheat_penalty": -0.05,
+            "base_special": 0.04,
+            "special_vote": -0.03,
+            "structure_bonus": 0.04,
+        }
+        guidance = "当前更像冷号阶段，允许更分散的特码尝试，不必过度依赖近期热度。"
+    elif zone_focus >= 0.62 or color_focus >= 0.62:
+        label = "concentrated"
+        confidence = max(zone_focus, color_focus)
+        adjustments = {
+            "shape_score": 0.08,
+            "structure_bonus": 0.07,
+            "diversity_bonus": 0.06,
+            "avg_normal": 0.04,
+        }
+        guidance = "当前更像结构集中阶段，优先修正区间、波色和单双失衡。"
+    elif len(set(zones)) == 3 and unique_ratio >= 0.8 and color_focus <= 0.45:
+        label = "dispersed"
+        confidence = max(0.45, unique_ratio)
+        adjustments = {
+            "base_special": 0.05,
+            "special_vote": 0.04,
+            "overheat_penalty": -0.03,
+            "shape_score": -0.03,
+        }
+        guidance = "当前更像结构分散阶段，可适度提高特码主导性，少做过强约束。"
+
+    return {
+        "label": label,
+        "confidence": round(_clamp(confidence, 0.2, 1.0), 4),
+        "metrics": {
+            "repeat_ratio": round(repeat_ratio, 4),
+            "tail_focus": round(tail_focus, 4),
+            "color_focus": round(color_focus, 4),
+            "zone_focus": round(zone_focus, 4),
+            "unique_ratio": round(unique_ratio, 4),
+        },
+        "adjustments": adjustments,
+        "guidance": guidance,
     }
 
 
@@ -4926,7 +5565,9 @@ def _assess_ai_candidate_quality(candidate, context):
     }
 
 
-def _filter_ai_candidate_entries(candidates, context, minimum_quality=-0.12):
+def _filter_ai_candidate_entries(candidates, context, minimum_quality=None):
+    if minimum_quality is None:
+        minimum_quality = _safe_float((context or {}).get("quality_threshold"), -0.12)
     filtered = []
     for candidate in candidates or []:
         quality_score, diagnostics = _assess_ai_candidate_quality(candidate, context)
@@ -5007,6 +5648,16 @@ def _attach_ai_prediction_metadata(result, tuned, region, elapsed_seconds=None, 
     model_meta["ai_tuned_accuracy"] = round(float((tuned or {}).get("last_accuracy") or 0.0) * 100, 2)
     model_meta["ai_feedback_samples"] = int(feedback.get("samples", 0) or 0)
     model_meta["ai_feedback_confidence"] = round(float(feedback.get("confidence") or 0.0) * 100, 2)
+    offline_profile = dict((tuned or {}).get("offline_rerank_profile") or {})
+    if offline_profile:
+        model_meta["ai_offline_rerank_profile"] = {
+            "confidence": round(_safe_float(offline_profile.get("confidence"), 0.0), 4),
+            "samples": int(offline_profile.get("samples", 0) or 0),
+            "weight_adjustments": dict(offline_profile.get("weight_adjustments") or {}),
+            "mode_adjustments": dict(offline_profile.get("mode_adjustments") or {}),
+            "mode_window_adjustments": dict(offline_profile.get("mode_window_adjustments") or {}),
+            "ranking_signal_scores": dict(offline_profile.get("ranking_signal_scores") or {}),
+        }
 
     if elapsed_seconds is not None:
         model_meta["ai_elapsed_ms"] = int(max(0.0, float(elapsed_seconds)) * 1000)
@@ -5265,6 +5916,53 @@ def _score_ai_combination_shape(normal, special, context):
     }
 
 
+def _score_ai_structure_alignment(normal, special, context):
+    profile = dict(context.get("structure_profile") or {})
+    structure_scores = dict(profile.get("structure_scores") or {})
+    confidence = _clamp(_safe_float(profile.get("confidence"), 0.0), 0.0, 1.0)
+    if confidence <= 0.0:
+        return 0.0, {"structure_bonus": 0.0, "structure_confidence": 0.0}
+
+    numbers = [int(number) for number in (normal or []) if str(number).isdigit()]
+    if not numbers:
+        return 0.0, {"structure_bonus": 0.0, "structure_confidence": round(confidence, 4)}
+
+    zone_spread = len(set(1 if n <= 16 else 2 if n <= 33 else 3 for n in numbers))
+    tail_spread = len(set(n % 10 for n in numbers))
+    all_numbers = numbers + ([int(special)] if special is not None else [])
+    color_spread = len(set(_get_color_zh(n) for n in all_numbers if _get_color_zh(n)))
+    odd_count = sum(1 for n in all_numbers if n % 2 == 1)
+    even_count = len(all_numbers) - odd_count
+    parity_key = "parity:balanced" if abs(odd_count - even_count) <= 1 else "parity:skewed"
+    special_zone = "small" if int(special) <= 16 else "mid" if int(special) <= 33 else "large"
+    special_color = _get_color_zh(int(special)) or "unknown"
+
+    total = 0.0
+    total += _safe_float(structure_scores.get(f"zone_spread:{zone_spread}"), 0.0) * 0.18
+    total += _safe_float(structure_scores.get(f"color_spread:{color_spread}"), 0.0) * 0.14
+    total += _safe_float(structure_scores.get(parity_key), 0.0) * 0.12
+    total += _safe_float(structure_scores.get(f"special_zone:{special_zone}"), 0.0) * 0.18
+    total += _safe_float(structure_scores.get(f"special_color:{special_color}"), 0.0) * 0.12
+    if tail_spread >= 5:
+        total += _safe_float(structure_scores.get("tail_spread:wide"), 0.0) * 0.16
+    elif tail_spread >= 4:
+        total += _safe_float(structure_scores.get("tail_spread:balanced"), 0.0) * 0.16
+    else:
+        total += _safe_float(structure_scores.get("tail_spread:tight"), 0.0) * 0.16
+
+    structure_bonus = round((total - 0.45) * max(0.35, confidence), 6)
+    return structure_bonus, {
+        "structure_bonus": structure_bonus,
+        "structure_confidence": round(confidence, 4),
+        "zone_spread": zone_spread,
+        "tail_spread": tail_spread,
+        "color_spread": color_spread,
+        "parity_key": parity_key,
+        "special_zone": special_zone,
+        "special_color": special_color,
+    }
+
+
 def _score_ai_candidate(candidate, context):
     special = int(candidate.get("special"))
     normal = [int(number) for number in candidate.get("normal") or []]
@@ -5282,7 +5980,7 @@ def _score_ai_candidate(candidate, context):
     recent_special_counter = Counter(context.get("recent_special_counter") or {})
     recent_tail_counter = Counter(context.get("recent_tail_counter") or {})
     recent_color_counter = Counter(context.get("recent_color_counter") or {})
-    target_mode = str(context.get("target_mode") or "top1")
+    target_mode = str(context.get("target_mode") or "top1_safe")
 
     base_special = special_score_map.get(special, 0.0)
     avg_normal = sum(normal_score_map.get(number, 0.0) for number in normal) / max(len(normal), 1)
@@ -5336,12 +6034,24 @@ def _score_ai_candidate(candidate, context):
 
     confidence_bonus = _clamp(candidate.get("confidence", 0.0), 0.0, 1.0) * 0.08
     shape_score, shape_diagnostics = _score_ai_combination_shape(normal, special, context)
+    structure_bonus, structure_diagnostics = _score_ai_structure_alignment(normal, special, context)
+    phase_profile = dict(context.get("phase_profile") or {})
+    phase_adjustments = dict(phase_profile.get("adjustments") or {})
     gate_profile = dict(context.get("gate_profile") or {})
     gate_adjustment = 0.0
     if gate_profile.get("status") == "guarded":
         gate_adjustment -= 0.08
     elif gate_profile.get("status") == "fallback":
         gate_adjustment -= 0.2
+    phase_confidence = _clamp(_safe_float(phase_profile.get("confidence"), 0.0), 0.0, 1.0)
+    base_special += _safe_float(phase_adjustments.get("base_special"), 0.0) * phase_confidence
+    avg_normal += _safe_float(phase_adjustments.get("avg_normal"), 0.0) * phase_confidence
+    special_vote += _safe_float(phase_adjustments.get("special_vote"), 0.0) * phase_confidence
+    diversity_bonus += _safe_float(phase_adjustments.get("diversity_bonus"), 0.0) * phase_confidence
+    repeat_penalty -= _safe_float(phase_adjustments.get("repeat_penalty"), 0.0) * phase_confidence
+    overheat_penalty -= _safe_float(phase_adjustments.get("overheat_penalty"), 0.0) * phase_confidence
+    shape_score += _safe_float(phase_adjustments.get("shape_score"), 0.0) * phase_confidence
+    structure_bonus += _safe_float(phase_adjustments.get("structure_bonus"), 0.0) * phase_confidence
     total = (
         base_special * rerank_weights.get("base_special", 0.9) +
         avg_normal * rerank_weights.get("avg_normal", 0.55) +
@@ -5351,12 +6061,15 @@ def _score_ai_candidate(candidate, context):
         attr_bonus * rerank_weights.get("attr_bonus", 1.0) +
         diversity_bonus * rerank_weights.get("diversity_bonus", 1.0) +
         repeat_penalty * rerank_weights.get("repeat_penalty", 1.0) +
-        overheat_penalty * rerank_weights.get("repeat_penalty", 1.0) +
+        overheat_penalty * rerank_weights.get("overheat_penalty", 1.0) +
         confidence_bonus * rerank_weights.get("confidence_bonus", 1.0) +
         shape_score * rerank_weights.get("shape_score", 1.0) +
+        structure_bonus * rerank_weights.get("structure_bonus", 1.0) +
         gate_adjustment * rerank_weights.get("gate_adjustment", 1.0)
     )
-    if target_mode == "top6":
+    structure_profile = dict(context.get("structure_profile") or {})
+    failure_scores = dict(structure_profile.get("failure_scores") or {})
+    if target_mode == "top6_cover":
         cover_bonus = 0.0
         if len(set(1 if number <= 16 else 2 if number <= 33 else 3 for number in normal)) == 3:
             cover_bonus += 0.05
@@ -5369,7 +6082,32 @@ def _score_ai_candidate(candidate, context):
             special_focus_bonus += 0.05
         if special_vote > 0:
             special_focus_bonus += min(0.05, special_vote * 0.04)
+        if target_mode == "top1_strict":
+            special_focus_bonus += 0.04
+        elif target_mode == "top1_safe":
+            special_focus_bonus += 0.015
         total += special_focus_bonus
+
+    failure_penalty = 0.0
+    zone_spread = len(set(1 if number <= 16 else 2 if number <= 33 else 3 for number in normal))
+    tail_spread = len(set(number % 10 for number in normal))
+    all_numbers = normal + [special]
+    color_spread = len(set(_get_color_zh(number) for number in all_numbers if _get_color_zh(number)))
+    odd_count = sum(1 for number in all_numbers if number % 2 == 1)
+    even_count = len(all_numbers) - odd_count
+    parity_key = "parity:balanced" if abs(odd_count - even_count) <= 1 else "parity:skewed"
+    special_zone = "small" if special <= 16 else "mid" if special <= 33 else "large"
+    failure_penalty -= _safe_float(failure_scores.get(f"zone_spread:{zone_spread}"), 0.0) * 0.045
+    failure_penalty -= _safe_float(failure_scores.get(f"color_spread:{color_spread}"), 0.0) * 0.035
+    failure_penalty -= _safe_float(failure_scores.get(parity_key), 0.0) * 0.03
+    failure_penalty -= _safe_float(failure_scores.get(f"special_zone:{special_zone}"), 0.0) * 0.04
+    if tail_spread >= 5:
+        failure_penalty -= _safe_float(failure_scores.get("tail_spread:wide"), 0.0) * 0.04
+    elif tail_spread >= 4:
+        failure_penalty -= _safe_float(failure_scores.get("tail_spread:balanced"), 0.0) * 0.04
+    else:
+        failure_penalty -= _safe_float(failure_scores.get("tail_spread:tight"), 0.0) * 0.04
+    total += failure_penalty
     diagnostics = {
         "rerank_weights": rerank_weights,
         "target_mode": target_mode,
@@ -5384,10 +6122,15 @@ def _score_ai_candidate(candidate, context):
         "overheat_penalty": round(overheat_penalty, 4),
         "confidence_bonus": round(confidence_bonus, 4),
         "shape_score": round(shape_score, 4),
+        "structure_bonus": round(structure_bonus, 4),
+        "failure_penalty": round(failure_penalty, 4),
+        "phase_label": str(phase_profile.get("label") or "neutral"),
+        "phase_confidence": round(phase_confidence, 4),
         "gate_adjustment": round(gate_adjustment, 4),
         "total": round(total, 6),
     }
     diagnostics.update(shape_diagnostics)
+    diagnostics.update(structure_diagnostics)
     return round(total, 6), diagnostics
 
 
@@ -5473,10 +6216,17 @@ def _finalize_ai_multi_sample_result(ai_responses, region, context):
             "ai_unique_candidates": len(ranked),
             "ai_selected_score": round(best.get("aggregate_score", 0.0), 6),
             "ai_gate_profile": dict(context.get("gate_profile") or {}),
-            "ai_target_mode": str(context.get("target_mode") or "top1"),
+        "ai_target_mode": str(context.get("target_mode") or "top1_safe"),
             "ai_target_mode_stats": dict(context.get("target_mode_stats") or {}),
             "ai_rerank_weights": rerank_weights,
             "ai_rerank_learning_confidence": round(_safe_float(context.get("rerank_learning_confidence"), 0.0), 2),
+            "ai_feedback_mix_weights": dict(context.get("feedback_mix_weights") or {}),
+            "ai_phase_profile": dict(context.get("phase_profile") or {}),
+            "ai_structure_profile": {
+                "confidence": round(_safe_float(((context.get("structure_profile") or {}).get("confidence")), 0.0), 4),
+                "samples": int(((context.get("structure_profile") or {}).get("samples")) or 0),
+                "preferred_structures": list(((context.get("structure_profile") or {}).get("preferred_structures")) or []),
+            },
             "ai_candidate_ranking": [
                 {
                     "special": item["special"],
@@ -5486,6 +6236,7 @@ def _finalize_ai_multi_sample_result(ai_responses, region, context):
                     "diversity_penalty": round(item.get("diversity_penalty", 0.0), 6),
                     "quality_score": round(item.get("quality_score", 0.0), 6),
                     "votes": round(item["appearance_votes"], 4),
+                    "score_diagnostics": dict(item.get("score_diagnostics") or {}),
                 }
                 for item in ranked[:5]
             ],
@@ -5558,7 +6309,7 @@ def _blend_ai_with_anchor_strategy(ai_result, data, region, shortlist_context=No
     ranking = list(ai_meta.get("ai_candidate_ranking") or [])
     ai_top_quality = _safe_float((ranking[0] or {}).get("quality_score"), -0.5) if ranking else -0.5
     anchor_bonus = 0.1 if anchor_special in [ _safe_int(item.get("special"), 0) for item in ranking[:3] ] else 0.0
-    target_mode = str(ai_meta.get("ai_target_mode") or shortlist_context.get("target_mode") or "top1")
+    target_mode = str(ai_meta.get("ai_target_mode") or shortlist_context.get("target_mode") or "top1_safe")
 
     ai_decision_score = (
         ai_confidence * 0.48 +
@@ -5572,7 +6323,7 @@ def _blend_ai_with_anchor_strategy(ai_result, data, region, shortlist_context=No
         anchor_bonus +
         (0.16 if gate_status == "guarded" else 0.0)
     )
-    if target_mode == "top6":
+    if target_mode == "top6_cover":
         anchor_normal = [int(number) for number in (anchor_result.get("normal") or []) if str(number).isdigit()][:6]
         ai_normal = [int(number) for number in (ai_result.get("normal") or []) if str(number).isdigit()][:6]
         ai_zone_spread = len(set(1 if number <= 16 else 2 if number <= 33 else 3 for number in ai_normal))
@@ -5899,7 +6650,7 @@ def save_draws_to_database(draws, region):
 AUTO_BACKTEST_STRATEGIES = ("ai", "ml", "hybrid", "balanced", "trend", "hot", "cold")
 AUTO_BACKTEST_MIN_HISTORY = 60
 AUTO_BACKTEST_LIMIT = 240
-AI_BACKTEST_MAX_PERIODS = 12
+AI_BACKTEST_MAX_PERIODS = 24
 
 
 def _ai_backtest_enabled():
