@@ -977,6 +977,7 @@ def predictions():
                     'record_count': int(getattr(group_meta, 'record_count', 0) or 0),
                     'user_count': int(getattr(group_meta, 'user_count', 0) or 0),
                     'items': [],
+                    '_items_by_signature': {},
                     '_seen_strategies': set(),
                     '_seen_prediction_signatures': set(),
                     '_users': set(),
@@ -990,6 +991,12 @@ def predictions():
                 ','.join(pred.normal_numbers_list),
             )
             if prediction_signature in group['_seen_prediction_signatures']:
+                existing_item = group['_items_by_signature'].get(prediction_signature)
+                if existing_item:
+                    existing_item.merged_record_ids.append(pred.id)
+                    if pred.username and pred.username not in existing_item.merged_usernames:
+                        existing_item.merged_usernames.append(pred.username)
+                    existing_item.merged_user_count = len(existing_item.merged_usernames)
                 continue
             group['_seen_prediction_signatures'].add(prediction_signature)
             
@@ -1006,7 +1013,11 @@ def predictions():
                 group['created_at'] = pred.created_at
             if pred.username:
                 group['_users'].add(pred.username)
+            pred.merged_record_ids = [pred.id]
+            pred.merged_usernames = [pred.username] if pred.username else []
+            pred.merged_user_count = len(pred.merged_usernames)
             group['items'].append(pred)
+            group['_items_by_signature'][prediction_signature] = pred
 
         for group in prediction_groups_map.values():
             group['items'].sort(
@@ -1034,6 +1045,7 @@ def predictions():
                 group['group_result_class'] = 'pending'
                 group['group_result_label'] = '待开奖'
             del group['_users']
+            del group['_items_by_signature']
             del group['_seen_prediction_signatures']
 
         prediction_groups = [
@@ -1243,7 +1255,17 @@ def delete_bet(bet_id):
 def delete_prediction(prediction_id):
     try:
         prediction = PredictionRecord.query.get_or_404(prediction_id)
-        db.session.delete(prediction)
+        duplicate_predictions = PredictionRecord.query.filter(
+            PredictionRecord.region == prediction.region,
+            PredictionRecord.period == prediction.period,
+            PredictionRecord.strategy == prediction.strategy,
+            PredictionRecord.special_number == prediction.special_number,
+            PredictionRecord.normal_numbers == prediction.normal_numbers,
+        ).all()
+        deleted_count = 0
+        for item in duplicate_predictions:
+            db.session.delete(item)
+            deleted_count += 1
         db.session.commit()
         flash('预测记录删除成功', 'success')
     except Exception as e:
@@ -1261,10 +1283,28 @@ def delete_predictions_batch():
             flash('请选择要删除的预测记录', 'error')
             return redirect(url_for('admin.predictions'))
         
-        deleted_count = 0
+        signature_filters = set()
         for pred_id in prediction_ids:
             prediction = PredictionRecord.query.get(int(pred_id))
             if prediction:
+                signature_filters.add((
+                    prediction.region,
+                    prediction.period,
+                    prediction.strategy,
+                    prediction.special_number,
+                    prediction.normal_numbers,
+                ))
+
+        deleted_count = 0
+        for region, period, strategy, special_number, normal_numbers in signature_filters:
+            matched_predictions = PredictionRecord.query.filter(
+                PredictionRecord.region == region,
+                PredictionRecord.period == period,
+                PredictionRecord.strategy == strategy,
+                PredictionRecord.special_number == special_number,
+                PredictionRecord.normal_numbers == normal_numbers,
+            ).all()
+            for prediction in matched_predictions:
                 db.session.delete(prediction)
                 deleted_count += 1
         

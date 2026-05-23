@@ -597,6 +597,9 @@
                                             {% if prediction.username %}
                                             <span class="inline-chip emphasis">{{ prediction.username }}</span>
                                             {% endif %}
+                                            {% if prediction.merged_user_count and prediction.merged_user_count > 1 %}
+                                            <span class="inline-chip">合并 {{ prediction.merged_user_count }} 个用户</span>
+                                            {% endif %}
                                         </div>
 
                                         <div class="prediction-sub">
@@ -634,6 +637,9 @@
                                     <td>
                                         <div class="status-stack">
                                             <span class="result-badge {{ prediction.result_class }}">{{ prediction.result_label }}</span>
+                                            {% if prediction.merged_record_ids and prediction.merged_record_ids|length > 1 %}
+                                            <span class="muted-text">已合并 {{ prediction.merged_record_ids|length }} 条相同记录</span>
+                                            {% endif %}
                                             <span class="muted-text">记录 ID {{ prediction.id }}</span>
                                         </div>
                                     </td>
