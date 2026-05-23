@@ -58,7 +58,7 @@ CREATE TABLE user (
     last_login DATETIME,
     login_count INTEGER DEFAULT 0,
     auto_prediction_enabled BOOLEAN DEFAULT 1,
-    auto_prediction_strategies TEXT DEFAULT 'smart,hot,cold,trend,hybrid,balanced,ml',
+    auto_prediction_strategies TEXT DEFAULT 'hot,cold,trend,hybrid,balanced,ml',
     auto_prediction_regions TEXT DEFAULT 'hk,macau',
     show_normal_numbers BOOLEAN DEFAULT 0
 )

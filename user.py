@@ -45,6 +45,8 @@ def _sanitize_auto_prediction_strategies(user):
         return False
     allowed = {meta["key"] for meta in AUTO_STRATEGY_META}
     cleaned = [item for item in raw.split(",") if item in allowed]
+    if not cleaned:
+        cleaned = list(LOCAL_STRATEGIES)
     cleaned_csv = ",".join(cleaned)
     if cleaned_csv == raw:
         return False

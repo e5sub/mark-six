@@ -525,6 +525,25 @@ def ensure_runtime_database_schema():
 ensure_runtime_database_schema()
 
 # 初始化Flask-Login
+def cleanup_legacy_smart_strategy():
+    """Clean up legacy smart auto-prediction strategies stored in the database."""
+    with app.app_context():
+        try:
+            users = User.query.filter(User.auto_prediction_strategies.like('%smart%')).all()
+            if not users:
+                return
+            default_strategies = ",".join(LOCAL_STRATEGY_KEYS)
+            for user in users:
+                raw = str(user.auto_prediction_strategies or "").strip()
+                parts = [part.strip() for part in raw.split(",") if part.strip() in LOCAL_STRATEGY_KEYS]
+                user.auto_prediction_strategies = ",".join(parts) if parts else default_strategies
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Failed to clean legacy smart strategies: {e}")
+
+cleanup_legacy_smart_strategy()
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'auth.login'
@@ -7860,6 +7879,9 @@ def generate_auto_predictions(data, region):
 
         for user in auto_predict_users:
             strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+            strategies = [strategy for strategy in strategies if strategy in LOCAL_STRATEGY_KEYS]
+            if not strategies:
+                strategies = list(LOCAL_STRATEGY_KEYS)
             regions = user.auto_prediction_regions.split(',') if hasattr(user, 'auto_prediction_regions') and user.auto_prediction_regions else ['hk', 'macau']
 
             if region not in regions:

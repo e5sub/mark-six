@@ -36,7 +36,7 @@ except ModuleNotFoundError as exc:
     raise SystemExit(1)
 
 
-DEFAULT_STRATEGIES = ["ml", "hybrid", "balanced", "trend", "hot", "cold", "smart"]
+DEFAULT_STRATEGIES = ["ml", "hybrid", "balanced", "trend", "hot", "cold"]
 
 
 def _normalize_draw(record):
@@ -126,9 +126,7 @@ def _summarize_strategy(entries):
 
 
 def _resolve_strategy(strategy, history_desc, region):
-    if strategy != "smart":
-        return strategy
-    return _get_recommended_strategy(region).get("strategy", "hybrid")
+    return strategy
 
 
 def run_backtest(region, strategies, min_history=60, limit=None):
