@@ -5081,6 +5081,101 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return '${value.toStringAsFixed(0)}元';
   }
 
+  Widget _buildStakeBadge(double amount) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0x1622C55E),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0x334ADE80)),
+      ),
+      child: Text(
+        _formatYuan(amount),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF15803D),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfitBadge(double? amount) {
+    final value = amount ?? 0;
+    final isPending = amount == null;
+    final isWin = value > 0;
+    final isLose = value < 0;
+    final background = isPending
+        ? const Color(0x1494A3B8)
+        : isWin
+            ? const Color(0x1622C55E)
+            : isLose
+                ? const Color(0x16EF4444)
+                : const Color(0x1494A3B8);
+    final foreground = isPending
+        ? const Color(0xFF64748B)
+        : isWin
+            ? const Color(0xFF15803D)
+            : isLose
+                ? const Color(0xFFDC2626)
+                : const Color(0xFF64748B);
+    final text = isPending
+        ? '-'
+        : isWin
+            ? '+${_formatYuan(value)}'
+            : _formatYuan(value);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: foreground.withOpacity(0.18)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          color: foreground,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBetSummaryWrap({
+    required double stake,
+    required double? profit,
+  }) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 8,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '总下注：',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            _buildStakeBadge(stake),
+          ],
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '总盈亏：',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 6),
+            _buildProfitBadge(profit),
+          ],
+        ),
+      ],
+    );
+  }
+
   Future<void> _showChangePasswordDialog() async {
     final currentController = TextEditingController();
     final newController = TextEditingController();
