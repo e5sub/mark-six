@@ -244,7 +244,40 @@ def _build_ai_reason_fallback(special_number, normal_numbers, region=None):
 
 
 def _compose_ai_recommendation_text(ai_response, special_number, normal_numbers, region=None):
-    raw_text = str(ai_response or "").strip()
+    def _strip_leading_json_payload(text):
+        content = str(text or "")
+        if not content:
+            return content
+        trimmed = content.lstrip()
+        if not trimmed or trimmed[0] not in ('{', '['):
+            return content.strip()
+
+        depth = 0
+        in_string = False
+        escape = False
+        for idx, char in enumerate(trimmed):
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+                continue
+            if char in ('{', '['):
+                depth += 1
+            elif char in ('}', ']'):
+                depth -= 1
+                if depth == 0:
+                    remainder = trimmed[idx + 1:]
+                    return remainder.strip("\r\n \t,;")
+
+        return content.strip()
+
+    raw_text = _strip_leading_json_payload(str(ai_response or "").strip())
     fallback_text = _build_ai_reason_fallback(special_number, normal_numbers, region=region)
     if not _has_meaningful_ai_reasoning(raw_text):
         return fallback_text
@@ -4625,11 +4658,49 @@ def _normalize_ai_candidate_entry(entry, region=None, source_text=""):
     if len(normal) < 6 or not (1 <= special_value <= 49):
         return None
 
+    def _strip_leading_json_payload(text):
+        content = str(text or "")
+        if not content:
+            return content
+        trimmed = content.lstrip()
+        if not trimmed or trimmed[0] not in ('{', '['):
+            return content.strip()
+
+        depth = 0
+        in_string = False
+        escape = False
+        for idx, char in enumerate(trimmed):
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+                continue
+            if char in ('{', '['):
+                depth += 1
+            elif char in ('}', ']'):
+                depth -= 1
+                if depth == 0:
+                    remainder = trimmed[idx + 1:]
+                    return remainder.strip("\r\n \t,;")
+
+        return content.strip()
+
+    raw_why = str(entry.get("why") or entry.get("reason") or "").strip()
+    why = _strip_leading_json_payload(raw_why)
+    if not why:
+        why = _strip_leading_json_payload(str(source_text or "").strip())
+
     return {
         "special": special_value,
         "normal": normal,
         "confidence": _safe_float(entry.get("confidence"), 0.0),
-        "why": str(entry.get("why") or entry.get("reason") or "").strip(),
+        "why": why,
         "source_text": str(source_text or "").strip(),
     }
 
