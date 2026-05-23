@@ -1484,7 +1484,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     const SizedBox(
-                      width: 42,
+                      width: 56,
                       child: Text(
                         '下注：',
                         style: TextStyle(fontWeight: FontWeight.w600),
@@ -1499,7 +1499,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     const SizedBox(
-                      width: 42,
+                      width: 56,
                       child: Text(
                         '盈亏：',
                         style: TextStyle(fontWeight: FontWeight.w600),
