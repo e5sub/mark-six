@@ -337,6 +337,35 @@ def _build_ai_reason_fallback(special_number, normal_numbers, region=None):
     )
 
 
+def _compose_ai_recommendation_text(ai_response, special_number, normal_numbers, region=None):
+    raw_text = str(ai_response or "").strip()
+    fallback_text = _build_ai_reason_fallback(special_number, normal_numbers, region=region)
+    if not _has_meaningful_ai_reasoning(raw_text):
+        return fallback_text
+
+    final_special = _normalize_draw_number(special_number)
+    _, extracted_special = _extract_ai_numbers_v2(raw_text, region=region)
+    cleaned_lines = []
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            cleaned_lines.append("")
+            continue
+        if any(token in stripped for token in ("本期主推特码", "参考平码", "特码重点")):
+            continue
+        conflicting_specials = re.findall(r"(?:特码|主推特码|本期主推特码)\D{0,4}(\d{1,2})", stripped)
+        if conflicting_specials and any(_normalize_draw_number(item) != final_special for item in conflicting_specials):
+            continue
+        cleaned_lines.append(line)
+
+    cleaned_text = "\n".join(cleaned_lines).strip()
+    if extracted_special and _normalize_draw_number(extracted_special) != final_special:
+        cleaned_text = ""
+    if not _has_meaningful_ai_reasoning(cleaned_text):
+        return fallback_text
+    return f"{cleaned_text}\n\n{fallback_text}"
+
+
 def _normalize_special_candidate_numbers(candidates):
     normalized = []
     seen = set()
@@ -1861,6 +1890,306 @@ def _calculate_strategy_hit_rate_windows(region, strategy, windows=(12, 36, 72))
     }
 
 
+def _load_region_draw_history(region, limit=None):
+    query = LotteryDraw.query.filter_by(region=region).order_by(
+        LotteryDraw.draw_date.desc(),
+        LotteryDraw.draw_id.desc(),
+    )
+    if limit:
+        query = query.limit(limit)
+    return [record.to_dict() for record in query.all()]
+
+
+def _get_phase_history_before_period(draws_desc, target_period, window=12):
+    if not draws_desc or not target_period:
+        return []
+    normalized_target = _normalize_period_value(target_period)
+    history = []
+    for draw in draws_desc:
+        draw_period = _normalize_period_value(draw.get("id"))
+        if not draw_period:
+            continue
+        if _is_period_before(draw_period, normalized_target):
+            history.append(draw)
+        if len(history) >= max(4, int(window or 12)):
+            break
+    return history
+
+
+def _calculate_strategy_phase_hit_rates(region, strategy, phases=("hot", "cold", "concentrated", "dispersed"), phase_window=12, limit=180):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy=strategy,
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    query = query.order_by(PredictionRecord.created_at.desc())
+    if limit:
+        query = query.limit(limit)
+    predictions = query.all()
+    if not predictions:
+        return {
+            "aggregate": {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0, "score": 0.0},
+            "phases": {},
+        }
+
+    draws_desc = _load_region_draw_history(region)
+    phase_counters = {
+        phase: {"top1": 0, "top6": 0, "zodiac": 0, "total": 0}
+        for phase in phases
+    }
+    aggregate = {"top1": 0, "top6": 0, "zodiac": 0, "total": 0}
+
+    for pred in predictions:
+        actual = _normalize_draw_number(pred.actual_special_number)
+        if not actual:
+            continue
+        history = _get_phase_history_before_period(draws_desc, getattr(pred, "period", ""), window=phase_window)
+        phase_profile = _classify_ai_market_phase(history, window=max(4, min(len(history), phase_window))) if history else {"label": "neutral"}
+        phase_label = str(phase_profile.get("label") or "neutral")
+        if phase_label not in phase_counters:
+            continue
+
+        predicted_special = _normalize_draw_number(pred.special_number)
+        normal_numbers = {
+            _normalize_draw_number(item)
+            for item in str(getattr(pred, "normal_numbers", "") or "").split(",")
+            if _normalize_draw_number(item)
+        }
+        predicted_zodiac = str(getattr(pred, "special_zodiac", "") or "").strip()
+        actual_zodiac = str(getattr(pred, "actual_special_zodiac", "") or "").strip()
+
+        aggregate["total"] += 1
+        phase_counters[phase_label]["total"] += 1
+        if predicted_special == actual:
+            aggregate["top1"] += 1
+            phase_counters[phase_label]["top1"] += 1
+        if actual in normal_numbers:
+            aggregate["top6"] += 1
+            phase_counters[phase_label]["top6"] += 1
+        if predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac:
+            aggregate["zodiac"] += 1
+            phase_counters[phase_label]["zodiac"] += 1
+
+    def _normalize_phase_counter(counter):
+        total = int(counter.get("total", 0) or 0)
+        if total <= 0:
+            return {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0, "score": 0.0}
+        top1 = round(counter["top1"] / total, 4)
+        top6 = round(counter["top6"] / total, 4)
+        zodiac = round(counter["zodiac"] / total, 4)
+        score = round(top1 + (top6 * 0.55) + (zodiac * 0.15), 4)
+        return {
+            "top1": top1,
+            "top6": top6,
+            "zodiac": zodiac,
+            "total": total,
+            "score": score,
+        }
+
+    return {
+        "aggregate": _normalize_phase_counter(aggregate),
+        "phases": {
+            phase: _normalize_phase_counter(counter)
+            for phase, counter in phase_counters.items()
+        },
+    }
+
+
+def _build_local_phase_learning_map(strategy, base_weights, phase_hit_rates):
+    base = dict(base_weights or {})
+    aggregate = dict((phase_hit_rates or {}).get("aggregate") or {})
+    overall_score = _safe_float(aggregate.get("score"), 0.0)
+    phase_stats = dict((phase_hit_rates or {}).get("phases") or {})
+    learning_map = {}
+    phase_biases = {
+        "hot": {
+            "hot": {"hot": 0.22, "trend": 0.08, "feedback": 0.08},
+            "cold": {"hot": -0.14, "cold": 0.06, "overdue": 0.05},
+            "concentrated": {"trend": 0.08, "color": 0.05, "parity": 0.04},
+            "dispersed": {"normal": 0.06, "cold": 0.04, "feedback": 0.04},
+        },
+        "cold": {
+            "hot": {"overdue": 0.04, "cold": -0.08, "feedback": -0.04},
+            "cold": {"cold": 0.2, "overdue": 0.12, "feedback": 0.04},
+            "concentrated": {"color": 0.04, "parity": 0.04, "cold": 0.06},
+            "dispersed": {"cold": 0.1, "normal": 0.05, "overdue": 0.06},
+        },
+        "trend": {
+            "hot": {"trend": 0.16, "hot": 0.06, "feedback": 0.05},
+            "cold": {"trend": -0.06, "cold": 0.05, "overdue": 0.04},
+            "concentrated": {"trend": 0.14, "color": 0.05, "zodiac": 0.05},
+            "dispersed": {"trend": 0.05, "normal": 0.05, "feedback": 0.04},
+        },
+        "balanced": {
+            "hot": {"hot": 0.04, "trend": 0.05, "parity": 0.05},
+            "cold": {"cold": 0.05, "overdue": 0.04, "parity": 0.05},
+            "concentrated": {"color": 0.08, "zodiac": 0.08, "parity": 0.06},
+            "dispersed": {"normal": 0.08, "cold": 0.04, "trend": 0.04},
+        },
+        "hybrid": {
+            "hot": {"hot": 0.12, "trend": 0.07, "feedback": 0.07},
+            "cold": {"cold": 0.1, "overdue": 0.06, "feedback": 0.05},
+            "concentrated": {"trend": 0.08, "color": 0.06, "zodiac": 0.06},
+            "dispersed": {"normal": 0.06, "cold": 0.05, "trend": 0.05},
+        },
+    }
+    profile_biases = {
+        "hot": {"special_focus_multiplier": 0.08, "feedback_multiplier": 0.07},
+        "cold": {"cold_multiplier": 0.08, "overheat_multiplier": -0.06},
+        "concentrated": {"attribute_multiplier": 0.08, "trend_multiplier": 0.05},
+        "dispersed": {"feedback_multiplier": 0.05, "special_focus_multiplier": 0.04},
+    }
+
+    for phase, stats in phase_stats.items():
+        samples = int(stats.get("total", 0) or 0)
+        if samples < 6:
+            tier = "low"
+            gate_multiplier = 0.35
+        elif samples < 12:
+            tier = "medium"
+            gate_multiplier = 0.65
+        else:
+            tier = "high"
+            gate_multiplier = 1.0
+        confidence = _clamp(samples / 8.0, 0.0, 1.0)
+        phase_score = _safe_float(stats.get("score"), 0.0)
+        score_delta = phase_score - overall_score
+        drift = _clamp(score_delta * 1.8, -0.22, 0.28)
+        strength = confidence * gate_multiplier * (0.65 + max(-0.25, drift))
+        learned_weights = dict(base)
+        for key, bias in (phase_biases.get(strategy, {}).get(phase) or {}).items():
+            base_value = _safe_float(base.get(key), 0.0)
+            if base_value <= 0:
+                continue
+            learned_weights[key] = round(_clamp(base_value + (bias * strength), 0.0, max(base_value + 0.5, 1.6)), 4)
+        learning_map[phase] = {
+            "weights": learned_weights,
+            "samples": samples,
+            "confidence": round(confidence, 4),
+            "sample_tier": tier,
+            "gate_multiplier": round(gate_multiplier, 4),
+            "score": round(phase_score, 4),
+            "score_delta": round(score_delta, 4),
+            "profile_adjustments": {
+                key: round(value * strength, 4)
+                for key, value in profile_biases.get(phase, {}).items()
+            },
+        }
+    return learning_map
+
+
+def _build_local_phase_runtime_templates(strategy, config, phase_hit_rates):
+    base_window = int(config.get("window") or 0)
+    base_pool = int(config.get("pool") or 16)
+    base_special_pool = int(config.get("special_pool") or max(8, base_pool // 2))
+    base_trend_window = int(config.get("trend_window") or min(base_window or 15, 15))
+    base_bucket_counts = list(config.get("bucket_counts") or [2, 2, 2])[:3]
+    base_mix = dict(config.get("mix") or {"hot": 2, "cold": 2, "trend": 2})
+    templates = {}
+    phase_stats = dict((phase_hit_rates or {}).get("phases") or {})
+
+    for phase, stats in phase_stats.items():
+        samples = int(stats.get("total", 0) or 0)
+        if samples < 6:
+            gate_multiplier = 0.35
+        elif samples < 12:
+            gate_multiplier = 0.65
+        else:
+            gate_multiplier = 1.0
+        phase_score = _safe_float(stats.get("score"), 0.0)
+        score_lift = _clamp((phase_score - 0.3) * gate_multiplier, -0.12, 0.18)
+        window = base_window
+        pool = base_pool
+        special_pool = base_special_pool
+        trend_window = base_trend_window
+        bucket_counts = list(base_bucket_counts)
+        mix = dict(base_mix)
+
+        if strategy == "hot":
+            if phase == "hot":
+                window = _clamp(int(base_window - 8 + score_lift * 20), 16, 72)
+                pool = _clamp(int(base_pool - 2 + score_lift * 6), 8, 22)
+                special_pool = _clamp(int(base_special_pool - 2 + score_lift * 4), 6, 12)
+            elif phase == "cold":
+                window = _clamp(int(base_window + 6), 18, 84)
+                pool = _clamp(int(base_pool + 1), 9, 24)
+            elif phase == "dispersed":
+                pool = _clamp(int(base_pool + 2), 10, 24)
+        elif strategy == "cold":
+            if phase == "cold":
+                window = _clamp(int(base_window + 10 + score_lift * 16), 20, 92)
+                pool = _clamp(int(base_pool + 2 + score_lift * 4), 10, 24)
+                special_pool = _clamp(int(base_special_pool + 1), 6, 14)
+            elif phase == "hot":
+                special_pool = _clamp(int(base_special_pool - 1), 6, 12)
+            elif phase == "dispersed":
+                pool = _clamp(int(base_pool + 3), 10, 24)
+        elif strategy == "trend":
+            if phase == "concentrated":
+                trend_window = _clamp(int(base_trend_window - 4 + score_lift * 10), 6, 22)
+                pool = _clamp(int(base_pool - 1 + score_lift * 4), 8, 20)
+            elif phase == "hot":
+                trend_window = _clamp(int(base_trend_window - 2), 6, 24)
+            elif phase == "dispersed":
+                trend_window = _clamp(int(base_trend_window + 2), 8, 28)
+                pool = _clamp(int(base_pool + 1), 8, 22)
+        elif strategy == "balanced":
+            if phase == "concentrated":
+                bucket_counts = [1, 3, 2]
+            elif phase == "dispersed":
+                bucket_counts = [2, 2, 2]
+                pool = _clamp(int(base_pool + 2), 10, 24)
+            elif phase == "hot":
+                bucket_counts = [2, 3, 1]
+            elif phase == "cold":
+                bucket_counts = [2, 2, 2]
+                special_pool = _clamp(int(base_special_pool + 1), 6, 14)
+        elif strategy == "hybrid":
+            if phase == "hot":
+                mix = {"hot": 3, "cold": 1, "trend": 2}
+            elif phase == "cold":
+                mix = {"hot": 1, "cold": 3, "trend": 2}
+            elif phase == "concentrated":
+                mix = {"hot": 1, "cold": 2, "trend": 3}
+                trend_window = _clamp(int(base_trend_window - 3), 6, 22)
+            elif phase == "dispersed":
+                mix = {"hot": 2, "cold": 3, "trend": 1}
+                pool = _clamp(int(base_pool + 2), 10, 24)
+
+        templates[phase] = {
+            "window": int(window),
+            "pool": int(pool),
+            "special_pool": int(special_pool),
+            "trend_window": int(trend_window),
+            "bucket_counts": bucket_counts,
+            "mix": mix,
+            "samples": samples,
+            "gate_multiplier": round(gate_multiplier, 4),
+            "score": round(phase_score, 4),
+        }
+    return templates
+
+
+def _score_local_strategy_phase_strength(config, phase_label):
+    if not config or not phase_label:
+        return 0.0, 0
+    phase_stats = dict((config.get("phase_hit_rates") or {}).get("phases") or {}).get(phase_label) or {}
+    aggregate = dict((config.get("phase_hit_rates") or {}).get("aggregate") or {})
+    samples = int(phase_stats.get("total", 0) or 0)
+    if samples <= 0:
+        return round(_safe_float(aggregate.get("score"), 0.0) * 0.55, 4), 0
+    if samples < 6:
+        gate_multiplier = 0.35
+    elif samples < 12:
+        gate_multiplier = 0.65
+    else:
+        gate_multiplier = 1.0
+    phase_score = _safe_float(phase_stats.get("score"), 0.0)
+    overall_score = _safe_float(aggregate.get("score"), 0.0)
+    blended = (phase_score * gate_multiplier) + (overall_score * (1.0 - gate_multiplier) * 0.75)
+    return round(blended, 4), samples
+
+
 def _calculate_strategy_window_stats(region, strategy, limit=50):
     accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=limit)
     return {
@@ -2099,8 +2428,14 @@ def _promote_ml_region_profile(region, persist=True):
     return config
 
 
-def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5):
+def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phase_label=None):
     candidates = list(LOCAL_STRATEGY_KEYS)
+    current_phase_label = str(phase_label or "").strip()
+    if not current_phase_label:
+        try:
+            current_phase_label = str(_classify_ai_market_phase(_load_region_draw_history(region, limit=12)).get("label") or "neutral")
+        except Exception:
+            current_phase_label = "neutral"
     scored = []
     for strategy in candidates:
         window_scores = []
@@ -2117,12 +2452,16 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5):
             continue
         tuned = _load_strategy_config(strategy, region)
         config_bonus = float(tuned.get("last_accuracy") or 0.0) * 100 * 0.15
-        score = round(sum(window_scores) / len(window_scores) + config_bonus, 2)
+        phase_score, phase_samples = _score_local_strategy_phase_strength(tuned, current_phase_label)
+        phase_bonus = (phase_score * 100 * 0.18) if current_phase_label in ("hot", "cold", "concentrated", "dispersed") else 0.0
+        score = round(sum(window_scores) / len(window_scores) + config_bonus + phase_bonus, 2)
         scored.append({
             "strategy": strategy,
             "label": _get_strategy_label(strategy),
             "score": score,
             "samples": total_samples,
+            "phase_score": round(phase_score, 4),
+            "phase_samples": int(phase_samples or 0),
         })
 
     if not scored:
@@ -2683,18 +3022,29 @@ def _tune_strategy_config(strategy, region):
 
     learning_strength = _clamp(total / 80.0, 0.25, 1.0)
     weights = dict(config.get("weights") or {})
+    if strategy in LOCAL_STRATEGY_KEYS:
+        layered_stats = _calculate_strategy_hit_rate_windows(region, strategy, windows=(12, 36, 72))
+        config["layered_hit_rates"] = layered_stats
+        phase_hit_rates = _calculate_strategy_phase_hit_rates(region, strategy, limit=180)
+        config["phase_hit_rates"] = phase_hit_rates
+        local_top1 = _safe_float((layered_stats.get("aggregate") or {}).get("top1"), accuracy)
+        local_top6 = _safe_float((layered_stats.get("aggregate") or {}).get("top6"), 0.0)
+    else:
+        phase_hit_rates = {}
+        local_top1 = accuracy
+        local_top6 = 0.0
 
     if strategy in ("hot", "cold"):
-        config["window"] = _clamp(int(30 + accuracy * 40), 20, 80)
-        config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
-        config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
+        config["window"] = _clamp(int(26 + local_top1 * 42 + local_top6 * 18), 18, 82)
+        config["pool"] = _clamp(int(11 + local_top1 * 9 + local_top6 * 5), 10, 24)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
     elif strategy == "trend":
-        config["window"] = _clamp(int(8 + accuracy * 20), 8, 30)
-        config["pool"] = _clamp(int(10 + accuracy * 8), 8, 20)
-        config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
+        config["window"] = _clamp(int(8 + local_top1 * 18 + local_top6 * 8), 8, 32)
+        config["pool"] = _clamp(int(10 + local_top1 * 7 + local_top6 * 5), 8, 21)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
     elif strategy == "balanced":
-        high_count = _clamp(int(2 + accuracy * 2), 1, 4)
-        low_count = _clamp(int(2 + (1 - accuracy) * 2), 1, 4)
+        high_count = _clamp(int(2 + local_top1 * 2), 1, 4)
+        low_count = _clamp(int(2 + max(0.0, 1 - local_top1) * 2), 1, 4)
         mid_count = 6 - high_count - low_count
         if mid_count < 1:
             mid_count = 1
@@ -2703,12 +3053,12 @@ def _tune_strategy_config(strategy, region):
             else:
                 low_count = 6 - high_count - mid_count
         config["bucket_counts"] = [low_count, mid_count, high_count]
-        config["window"] = _clamp(int(40 + accuracy * 40), 30, 90)
-        config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
-        config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
+        config["window"] = _clamp(int(36 + local_top6 * 42 + local_top1 * 18), 28, 92)
+        config["pool"] = _clamp(int(12 + local_top6 * 9 + local_top1 * 4), 10, 24)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 6), 6, 14)
     elif strategy == "hybrid":
-        hot_count = _clamp(int(2 + accuracy * 2), 1, 4)
-        cold_count = _clamp(int(2 + (1 - accuracy) * 2), 1, 4)
+        hot_count = _clamp(int(2 + local_top1 * 2), 1, 4)
+        cold_count = _clamp(int(2 + max(0.0, 1 - local_top1) * 2), 1, 4)
         trend_count = 6 - hot_count - cold_count
         if trend_count < 1:
             trend_count = 1
@@ -2717,10 +3067,10 @@ def _tune_strategy_config(strategy, region):
             else:
                 cold_count = 6 - hot_count - trend_count
         config["mix"] = {"hot": hot_count, "cold": cold_count, "trend": trend_count}
-        config["window"] = _clamp(int(40 + accuracy * 40), 30, 90)
-        config["pool"] = _clamp(int(12 + accuracy * 10), 10, 24)
-        config["special_pool"] = _clamp(int(8 + accuracy * 8), 6, 14)
-        config["trend_window"] = _clamp(int(8 + accuracy * 20), 8, 30)
+        config["window"] = _clamp(int(34 + local_top6 * 40 + local_top1 * 16), 28, 90)
+        config["pool"] = _clamp(int(12 + local_top6 * 8 + local_top1 * 5), 10, 24)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 6), 6, 14)
+        config["trend_window"] = _clamp(int(8 + local_top1 * 16 + local_top6 * 6), 8, 30)
     elif strategy == "ai":
         config["temperature"] = round(_clamp(0.42 - accuracy * 0.18, 0.18, 0.45), 2)
         config["history_window"] = _clamp(int(12 + (0.5 - accuracy) * 6), 8, 18)
@@ -2885,6 +3235,17 @@ def _tune_strategy_config(strategy, region):
             weights["feedback"] = round(_clamp(weights["feedback"] + 0.10, 0.5, 1.45), 2)
             weights["parity"] = round(_clamp(weights["parity"] + 0.04, 0.12, 0.32), 2)
         config["weights"] = weights
+        if strategy in ("hot", "cold", "trend", "balanced", "hybrid"):
+            config["phase_weight_learning"] = _build_local_phase_learning_map(strategy, weights, phase_hit_rates)
+            config["phase_runtime_templates"] = _build_local_phase_runtime_templates(strategy, config, phase_hit_rates)
+
+    if strategy in LOCAL_STRATEGY_KEYS:
+        config["local_tuning_profile"] = {
+            "top1_rate": round(local_top1 * 100, 2),
+            "top6_rate": round(local_top6 * 100, 2),
+            "window_bias": int(config.get("window") or 0),
+            "pool_bias": int(config.get("pool") or 0),
+        }
 
     _save_strategy_config(strategy, region, config)
 
@@ -3443,6 +3804,303 @@ def _build_local_recommendation_text(strategy, config, normal, special, feedback
         samples=samples,
         confidence=confidence,
     )
+
+
+def _resolve_local_strategy_phase_profile(data, config=None):
+    profile = _classify_ai_market_phase(
+        data,
+        window=max(8, int((config or {}).get("window") or 12)),
+    )
+    return profile if isinstance(profile, dict) else {"label": "neutral", "confidence": 0.0, "adjustments": {}}
+
+
+def _resolve_local_bucket_counts(base_counts, phase_label, top6_rate=0.0):
+    low_count, mid_count, high_count = list(base_counts or [2, 2, 2])[:3]
+    if phase_label == "concentrated":
+        mid_count = min(3, mid_count + 1)
+        if low_count >= high_count:
+            low_count = max(1, low_count - 1)
+        else:
+            high_count = max(1, high_count - 1)
+    elif phase_label == "dispersed":
+        low_count = min(3, low_count + 1) if low_count <= high_count else low_count
+        high_count = min(3, high_count + 1) if high_count <= low_count else high_count
+        mid_count = max(1, 6 - low_count - high_count)
+    elif phase_label == "hot" and top6_rate >= 0.12:
+        mid_count = min(3, mid_count + 1)
+        high_count = max(1, 6 - low_count - mid_count)
+    total = low_count + mid_count + high_count
+    if total != 6:
+        high_count = max(1, 6 - low_count - mid_count)
+    return [low_count, mid_count, high_count]
+
+
+def _resolve_local_hybrid_mix(config, region, phase_label):
+    base_mix = dict(config.get("mix") or {"hot": 2, "cold": 2, "trend": 2})
+    template_mix = dict(((config.get("phase_runtime_templates") or {}).get(phase_label) or {}).get("mix") or {})
+    if template_mix:
+        base_mix.update(template_mix)
+    hot_stats = _calculate_strategy_hit_rates(region, "hot", limit=36)
+    cold_stats = _calculate_strategy_hit_rates(region, "cold", limit=36)
+    trend_stats = _calculate_strategy_hit_rates(region, "trend", limit=36)
+    scores = {
+        "hot": (_safe_float(hot_stats.get("top1"), 0.0) * 1.2) + (_safe_float(hot_stats.get("top6"), 0.0) * 0.4),
+        "cold": (_safe_float(cold_stats.get("top1"), 0.0) * 1.0) + (_safe_float(cold_stats.get("top6"), 0.0) * 0.5),
+        "trend": (_safe_float(trend_stats.get("top1"), 0.0) * 1.1) + (_safe_float(trend_stats.get("top6"), 0.0) * 0.45),
+    }
+    if phase_label == "hot":
+        scores["hot"] += 0.08
+        scores["trend"] += 0.03
+    elif phase_label == "cold":
+        scores["cold"] += 0.08
+    elif phase_label == "concentrated":
+        scores["trend"] += 0.06
+    elif phase_label == "dispersed":
+        scores["cold"] += 0.04
+        scores["hot"] += 0.03
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    mix = {key: 1 for key in base_mix.keys()}
+    remaining = 3
+    mix[ranked[0][0]] += 1
+    mix[ranked[1][0]] += 1
+    remaining -= 2
+    if remaining > 0:
+        mix[ranked[0][0]] += remaining
+    return mix
+
+
+def _resolve_local_phase_runtime(config, strategy, phase_profile):
+    resolved = {
+        "window": _clamp(int((config or {}).get("window") or 0), 8, 96),
+        "pool": _clamp(int((config or {}).get("pool") or 16), 8, 24),
+        "special_pool": _clamp(int((config or {}).get("special_pool") or 8), 6, 14),
+        "trend_window": _clamp(int((config or {}).get("trend_window") or 15), 6, 30),
+        "bucket_counts": list((config or {}).get("bucket_counts") or [2, 2, 2])[:3],
+        "mix": dict((config or {}).get("mix") or {"hot": 2, "cold": 2, "trend": 2}),
+    }
+    phase_label = str((phase_profile or {}).get("label") or "neutral")
+    template = dict((((config or {}).get("phase_runtime_templates") or {}).get(phase_label)) or {})
+    if not template:
+        return resolved
+    samples = int(template.get("samples", 0) or 0)
+    if samples < 6:
+        apply_ratio = 0.35
+    elif samples < 12:
+        apply_ratio = 0.65
+    else:
+        apply_ratio = 1.0
+    for key in ("window", "pool", "special_pool", "trend_window"):
+        template_value = template.get(key)
+        if template_value in (None, ""):
+            continue
+        base_value = int(resolved.get(key) or 0)
+        blended_value = int(round((base_value * (1.0 - apply_ratio)) + (int(template_value) * apply_ratio)))
+        if key == "window":
+            resolved[key] = _clamp(blended_value, 8, 96)
+        elif key == "pool":
+            resolved[key] = _clamp(blended_value, 8, 24)
+        elif key == "special_pool":
+            resolved[key] = _clamp(blended_value, 6, 14)
+        elif key == "trend_window":
+            resolved[key] = _clamp(blended_value, 6, 30)
+    if strategy == "balanced" and template.get("bucket_counts"):
+        resolved["bucket_counts"] = list(template.get("bucket_counts") or resolved["bucket_counts"])[:3]
+    if strategy == "hybrid" and template.get("mix"):
+        resolved["mix"] = dict(template.get("mix") or resolved["mix"])
+    resolved["phase_template_samples"] = samples
+    resolved["phase_template_apply_ratio"] = round(apply_ratio, 4)
+    return resolved
+
+
+def _resolve_local_phase_weights(config, phase_profile):
+    base_weights = dict((config or {}).get("weights") or {})
+    phase_label = str((phase_profile or {}).get("label") or "neutral")
+    learned = dict(((config or {}).get("phase_weight_learning") or {}).get(phase_label) or {})
+    learned_weights = dict(learned.get("weights") or {})
+    if not learned_weights:
+        return base_weights
+    resolved = dict(base_weights)
+    resolved.update(learned_weights)
+    return resolved
+
+
+def _resolve_local_phase_strategy_handoff(strategy, region, phase_profile):
+    phase_label = str((phase_profile or {}).get("label") or "neutral")
+    if phase_label not in ("hot", "cold", "concentrated", "dispersed"):
+        return {
+            "requested_strategy": strategy,
+            "delegate_strategy": strategy,
+            "boost_map": {},
+            "phase_label": phase_label,
+            "active": False,
+        }
+
+    candidate_pool = {
+        "hot": ("hot", "trend", "hybrid"),
+        "cold": ("cold", "balanced", "hybrid"),
+        "trend": ("trend", "hot", "hybrid"),
+        "balanced": ("balanced", "hybrid", "trend"),
+        "hybrid": ("hybrid", "trend", "balanced", "hot", "cold"),
+    }.get(strategy, (strategy,))
+    scored = []
+    for candidate in candidate_pool:
+        candidate_config = _load_strategy_config(candidate, region)
+        phase_score, samples = _score_local_strategy_phase_strength(candidate_config, phase_label)
+        scored.append({
+            "strategy": candidate,
+            "score": phase_score,
+            "samples": samples,
+        })
+    scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
+    requested_entry = next((item for item in scored if item["strategy"] == strategy), {"score": 0.0, "samples": 0})
+    best_entry = scored[0] if scored else requested_entry
+    handoff_active = (
+        best_entry.get("strategy") != strategy and
+        best_entry.get("samples", 0) >= 6 and
+        best_entry.get("score", 0.0) >= requested_entry.get("score", 0.0) + 0.08
+    )
+    boost_map = {}
+    if handoff_active:
+        if best_entry["strategy"] == "hot":
+            boost_map = {"hot": 0.08, "feedback": 0.05}
+        elif best_entry["strategy"] == "cold":
+            boost_map = {"cold": 0.08, "overdue": 0.06}
+        elif best_entry["strategy"] == "trend":
+            boost_map = {"trend": 0.09, "feedback": 0.04}
+        elif best_entry["strategy"] == "balanced":
+            boost_map = {"normal": 0.05, "parity": 0.05, "color": 0.04}
+        elif best_entry["strategy"] == "hybrid":
+            boost_map = {"hot": 0.04, "cold": 0.04, "trend": 0.05, "feedback": 0.04}
+    return {
+        "requested_strategy": strategy,
+        "delegate_strategy": best_entry.get("strategy") or strategy,
+        "delegate_score": round(_safe_float(best_entry.get("score"), 0.0), 4),
+        "requested_score": round(_safe_float(requested_entry.get("score"), 0.0), 4),
+        "boost_map": boost_map,
+        "phase_label": phase_label,
+        "active": handoff_active,
+        "samples": int(best_entry.get("samples", 0) or 0),
+    }
+
+
+def _build_local_strategy_signal_profile(strategy, phase_profile, config=None):
+    label = str((phase_profile or {}).get("label") or "neutral")
+    confidence = _clamp(_safe_float((phase_profile or {}).get("confidence"), 0.0), 0.0, 1.0)
+    profile = {
+        "feedback_multiplier": 1.0,
+        "attribute_multiplier": 1.0,
+        "overheat_multiplier": 1.0,
+        "special_focus_multiplier": 1.0,
+        "trend_multiplier": 1.0,
+        "cold_multiplier": 1.0,
+        "hot_multiplier": 1.0,
+    }
+    if strategy == "hot":
+        profile.update({"hot_multiplier": 1.18, "feedback_multiplier": 1.08, "special_focus_multiplier": 1.08})
+        if label == "hot":
+            profile["hot_multiplier"] += 0.12 * confidence
+            profile["overheat_multiplier"] += 0.22 * confidence
+        elif label == "cold":
+            profile["hot_multiplier"] -= 0.08 * confidence
+    elif strategy == "cold":
+        profile.update({"cold_multiplier": 1.22, "attribute_multiplier": 0.94, "special_focus_multiplier": 0.96})
+        if label == "cold":
+            profile["cold_multiplier"] += 0.12 * confidence
+            profile["overheat_multiplier"] -= 0.18 * confidence
+        elif label == "hot":
+            profile["overheat_multiplier"] += 0.08 * confidence
+    elif strategy == "trend":
+        profile.update({"trend_multiplier": 1.24, "feedback_multiplier": 1.06})
+        if label in ("hot", "concentrated"):
+            profile["trend_multiplier"] += 0.1 * confidence
+    elif strategy == "hybrid":
+        profile.update({"feedback_multiplier": 1.1, "attribute_multiplier": 1.02})
+    elif strategy == "balanced":
+        profile.update({"attribute_multiplier": 1.08, "special_focus_multiplier": 0.94})
+        if label == "concentrated":
+            profile["attribute_multiplier"] += 0.1 * confidence
+    learned_profile = dict((((config or {}).get("phase_weight_learning") or {}).get(label) or {}).get("profile_adjustments") or {})
+    for key, delta in learned_profile.items():
+        if key not in profile:
+            continue
+        profile[key] = round(_clamp(profile[key] + _safe_float(delta, 0.0), 0.75, 1.45), 4)
+    return profile
+
+
+def _compute_local_special_score(
+    strategy,
+    number,
+    feedback,
+    feedback_confidence,
+    weights,
+    hot_norm,
+    trend_norm,
+    overdue_norm,
+    attribute_score_fn,
+    overheat_penalty_fn,
+    preferred_parity,
+    strategy_profile,
+):
+    key = str(number)
+    base_special_feedback = (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence
+    base_normal_feedback = (feedback.get("normal", {}).get(key, 0.5) - 0.5) * feedback_confidence
+    attr = attribute_score_fn(number) * float(strategy_profile.get("attribute_multiplier", 1.0))
+    penalty = overheat_penalty_fn(number) * float(strategy_profile.get("overheat_multiplier", 1.0))
+    parity_bonus = 0.12 if preferred_parity and _get_parity_zh(number) == preferred_parity else -0.05
+
+    if strategy == "hot":
+        base = (
+            hot_norm.get(key, 0.0) * 0.52 * float(strategy_profile.get("hot_multiplier", 1.0)) +
+            trend_norm.get(key, 0.0) * 0.22 * float(strategy_profile.get("trend_multiplier", 1.0)) +
+            overdue_norm.get(key, 0.0) * 0.05
+        )
+        feedback_term = (base_special_feedback * 1.28 + base_normal_feedback * 0.12) * float(strategy_profile.get("feedback_multiplier", 1.0))
+    elif strategy == "cold":
+        base = (
+            (1.0 - hot_norm.get(key, 0.0)) * 0.42 * float(strategy_profile.get("cold_multiplier", 1.0)) +
+            overdue_norm.get(key, 0.0) * 0.42 * float(strategy_profile.get("cold_multiplier", 1.0)) +
+            trend_norm.get(key, 0.0) * 0.08
+        )
+        feedback_term = (base_special_feedback * 0.72 + base_normal_feedback * 0.08) * float(strategy_profile.get("feedback_multiplier", 1.0))
+    elif strategy == "trend":
+        base = (
+            trend_norm.get(key, 0.0) * 0.58 * float(strategy_profile.get("trend_multiplier", 1.0)) +
+            hot_norm.get(key, 0.0) * 0.16 +
+            overdue_norm.get(key, 0.0) * 0.08
+        )
+        feedback_term = (base_special_feedback * 1.08 + base_normal_feedback * 0.18) * float(strategy_profile.get("feedback_multiplier", 1.0))
+    elif strategy == "hybrid":
+        base = (
+            hot_norm.get(key, 0.0) * 0.28 +
+            trend_norm.get(key, 0.0) * 0.24 +
+            overdue_norm.get(key, 0.0) * 0.14 +
+            (1.0 - hot_norm.get(key, 0.0)) * 0.12
+        )
+        feedback_term = (base_special_feedback * 1.12 + base_normal_feedback * 0.2) * float(strategy_profile.get("feedback_multiplier", 1.0))
+    else:
+        base = (
+            hot_norm.get(key, 0.0) * 0.2 +
+            trend_norm.get(key, 0.0) * 0.18 +
+            overdue_norm.get(key, 0.0) * 0.12
+        )
+        feedback_term = (base_special_feedback * 0.96 + base_normal_feedback * 0.2) * float(strategy_profile.get("feedback_multiplier", 1.0))
+
+    total = (
+        base +
+        feedback_term * float(weights.get("feedback", 1.0)) +
+        attr +
+        penalty +
+        parity_bonus
+    ) * float(strategy_profile.get("special_focus_multiplier", 1.0))
+
+    if base_special_feedback > 0.1 and attr > 0.35 and penalty >= -0.05:
+        total *= 1.18 if strategy in ("hot", "trend") else 1.1
+    if strategy == "cold" and overdue_norm.get(key, 0.0) > 0.55 and hot_norm.get(key, 0.0) < 0.35:
+        total *= 1.12
+    if strategy == "balanced" and attr > 0.4 and penalty >= -0.05:
+        total *= 1.08
+    return round(total, 6)
 
 
 def _build_default_baseline_prediction():
@@ -4517,21 +5175,22 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
     else:
         try:
             config = _load_strategy_config(strategy, region)
-            window = int(config.get("window") or 0)
-            pool_size = int(config.get("pool") or 16)
-            pool_size = _clamp(pool_size, 8, 24)
-            special_pool_size = _clamp(int(config.get("special_pool") or max(8, pool_size // 2)), 6, 14)
-
-            ai_config = _load_strategy_config("ai", region)
-            ai_accuracy = float(ai_config.get("last_accuracy") or 0.0)
-            if window > 0:
-                window = _clamp(int(window + (ai_accuracy - 0.5) * 20), 10, 90)
-            pool_size = _clamp(int(pool_size + (0.5 - ai_accuracy) * 6), 8, 24)
-            special_pool_size = _clamp(int(special_pool_size + (0.5 - ai_accuracy) * 4), 6, 14)
-
+            bootstrap_window = int(config.get("window") or 0)
+            recent_data = data[:bootstrap_window] if bootstrap_window > 0 else data
+            phase_profile = _resolve_local_strategy_phase_profile(recent_data, config)
+            runtime_profile = _resolve_local_phase_runtime(config, strategy, phase_profile)
+            window = int(runtime_profile.get("window") or bootstrap_window or len(data))
+            pool_size = _clamp(int(runtime_profile.get("pool") or config.get("pool") or 16), 8, 24)
+            special_pool_size = _clamp(int(runtime_profile.get("special_pool") or config.get("special_pool") or max(8, pool_size // 2)), 6, 14)
             recent_data = data[:window] if window > 0 else data
-            trend_window = int(config.get("trend_window") or min(15, len(data)))
+            trend_window = int(runtime_profile.get("trend_window") or config.get("trend_window") or min(15, len(data)))
             trend_data = data[:trend_window] if trend_window > 0 else recent_data
+            phase_profile = _resolve_local_strategy_phase_profile(recent_data, config)
+            strategy_profile = _build_local_strategy_signal_profile(strategy, phase_profile, config=config)
+            strategy_handoff = _resolve_local_phase_strategy_handoff(strategy, region, phase_profile)
+            layered_stats = dict(config.get("layered_hit_rates") or {})
+            layered_aggregate = dict(layered_stats.get("aggregate") or {})
+            local_top6 = _safe_float(layered_aggregate.get("top6"), 0.0)
 
             special_freq = analyze_special_number_frequency(recent_data)
             trend_freq = analyze_special_number_frequency(trend_data)
@@ -4554,7 +5213,15 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(recent_data, region, feedback, year)
             feedback_confidence = float(feedback.get("confidence") or 0.0)
 
-            weights = config.get("weights") or {}
+            weights = _resolve_local_phase_weights(config, phase_profile)
+            for key, delta in dict(strategy_handoff.get("boost_map") or {}).items():
+                weights[key] = round(_clamp(_safe_float(weights.get(key), 0.0) + _safe_float(delta, 0.0), 0.0, 1.8), 4)
+            feedback_multiplier = float(strategy_profile.get("feedback_multiplier", 1.0))
+            attribute_multiplier = float(strategy_profile.get("attribute_multiplier", 1.0))
+            overheat_multiplier = float(strategy_profile.get("overheat_multiplier", 1.0))
+            hot_multiplier = float(strategy_profile.get("hot_multiplier", 1.0))
+            cold_multiplier = float(strategy_profile.get("cold_multiplier", 1.0))
+            trend_multiplier = float(strategy_profile.get("trend_multiplier", 1.0))
             
             def overheat_penalty(number):
                 count = short_freq.get(str(number), 0)
@@ -4590,13 +5257,13 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 penalty = overheat_penalty(number)
                 
                 score = (
-                    float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
-                    float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
-                    float(weights.get("cold", 0.0)) * cold_norm.get(key, 0.0) +
+                    float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) * hot_multiplier +
+                    float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) * trend_multiplier +
+                    float(weights.get("cold", 0.0)) * cold_norm.get(key, 0.0) * cold_multiplier +
                     float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
                     float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
-                    float(weights.get("feedback", 0.0)) * feedback_score +
-                    attr_score + penalty
+                    float(weights.get("feedback", 0.0)) * feedback_score * feedback_multiplier +
+                    (attr_score * attribute_multiplier) + (penalty * overheat_multiplier)
                 )
                 
                 # 趋势共振：反馈好且属性契合且未过热时，指数级放大其基础权重
@@ -4646,7 +5313,10 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     trend_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
                 ))
             elif strategy == 'hybrid':
-                mix = config.get("mix") or {"hot": 2, "cold": 2, "trend": 2}
+                mix = _resolve_local_hybrid_mix(config, region, str(phase_profile.get("label") or "neutral"))
+                template_mix = dict(runtime_profile.get("mix") or {})
+                if template_mix:
+                    mix.update(template_mix)
                 normal = []
                 normal += _take_personalized_ranked(hot_rank[:pool_size], int(mix.get("hot", 2)), variation_key=variation_key, window_size=max(pool_size, 9))
                 normal += _take_personalized_ranked(cold_rank[:pool_size], int(mix.get("cold", 2)), variation_key=variation_key, exclude=normal, window_size=max(pool_size, 9))
@@ -4661,7 +5331,11 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     )
                 normal = sorted(normal)
             else:
-                bucket_counts = config.get("bucket_counts") or [2, 2, 2]
+                bucket_counts = _resolve_local_bucket_counts(
+                    runtime_profile.get("bucket_counts") or config.get("bucket_counts") or [2, 2, 2],
+                    str(phase_profile.get("label") or "neutral"),
+                    top6_rate=local_top6,
+                )
                 low_count, mid_count, high_count = bucket_counts
                 low_bucket = [n for n in overall_rank if n <= 16]
                 mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
@@ -4692,25 +5366,20 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
 
             def compute_special_score(number):
-                key = str(number)
-                base = (
-                    hot_norm.get(key, 0.0) * 0.35 +
-                    trend_norm.get(key, 0.0) * 0.25 +
-                    overdue_norm.get(key, 0.0) * 0.15
+                return _compute_local_special_score(
+                    strategy,
+                    number,
+                    feedback,
+                    feedback_confidence,
+                    weights,
+                    hot_norm,
+                    trend_norm,
+                    overdue_norm,
+                    attribute_score,
+                    overheat_penalty,
+                    preferred_parity,
+                    strategy_profile,
                 )
-                fb_spec = (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence * 1.20
-                fb_norm = (feedback.get("normal", {}).get(key, 0.5) - 0.5) * feedback_confidence * 0.20
-                attr = attribute_score(number)
-                penalty = overheat_penalty(number)
-                parity_match_bonus = 0.12 if preferred_parity and _get_parity_zh(number) == preferred_parity else -0.05
-
-                total = base + fb_spec + fb_norm + attr + penalty + parity_match_bonus
-                # 对于只选1个的特码，多重利好共振放大 1.3 倍，确保优质号码碾压出线
-                if fb_spec > 0.1 and attr > 0.4 and penalty == 0:
-                    total *= 1.3
-                if preferred_parity and _get_parity_zh(number) == preferred_parity and attr > 0.35:
-                    total *= 1.06
-                return total
 
             special_rank = _rank_numbers(
                 {
@@ -4734,6 +5403,11 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 "recommendation_text": recommendation_text,
                 "model_meta": {
                     "special_candidates": list(special_candidates[:max(special_pool_size, 6)]),
+                    "local_phase_profile": phase_profile,
+                    "local_runtime_profile": runtime_profile,
+                    "local_strategy_profile": strategy_profile,
+                    "local_phase_weight_profile": dict((((config or {}).get("phase_weight_learning") or {}).get(str(phase_profile.get("label") or "neutral")) or {})),
+                    "local_strategy_handoff": strategy_handoff,
                 },
             }
         except Exception as e:
