@@ -119,6 +119,21 @@ CREATE TABLE prediction_record (
 ''')
 
 cursor.execute('''
+CREATE UNIQUE INDEX IF NOT EXISTS uq_prediction_record_user_region_period_strategy
+ON prediction_record (user_id, region, period, strategy)
+''')
+
+cursor.execute('''
+CREATE INDEX IF NOT EXISTS ix_prediction_record_user_strategy_created_at
+ON prediction_record (user_id, strategy, created_at)
+''')
+
+cursor.execute('''
+CREATE INDEX IF NOT EXISTS ix_prediction_record_user_strategy_region_period
+ON prediction_record (user_id, strategy, region, period)
+''')
+
+cursor.execute('''
 CREATE TABLE backtest_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(120) NOT NULL,

@@ -227,6 +227,19 @@ class PredictionRecord(db.Model):
             'strategy',
             name='uq_prediction_record_user_region_period_strategy'
         ),
+        db.Index(
+            'ix_prediction_record_user_strategy_created_at',
+            'user_id',
+            'strategy',
+            'created_at',
+        ),
+        db.Index(
+            'ix_prediction_record_user_strategy_region_period',
+            'user_id',
+            'strategy',
+            'region',
+            'period',
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True)

@@ -244,6 +244,28 @@ def update_database():
             else:
                 print("Unique index for prediction_record already exists")
 
+            created_at_index_name = 'ix_prediction_record_user_strategy_created_at'
+            if not check_index_exists(cursor, created_at_index_name):
+                print("Creating created_at index for prediction_record...")
+                cursor.execute(f'''
+                    CREATE INDEX {created_at_index_name}
+                    ON prediction_record (user_id, strategy, created_at)
+                ''')
+                print("created_at index for prediction_record created")
+            else:
+                print("created_at index for prediction_record already exists")
+
+            region_period_index_name = 'ix_prediction_record_user_strategy_region_period'
+            if not check_index_exists(cursor, region_period_index_name):
+                print("Creating region/period index for prediction_record...")
+                cursor.execute(f'''
+                    CREATE INDEX {region_period_index_name}
+                    ON prediction_record (user_id, strategy, region, period)
+                ''')
+                print("region/period index for prediction_record created")
+            else:
+                print("region/period index for prediction_record already exists")
+
         if not check_table_exists(cursor, 'manual_bet_records'):
             print("创建 manual_bet_records 表...")
             cursor.execute('''

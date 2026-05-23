@@ -188,6 +188,12 @@
         <p>先去首页生成一次机器学习预测，这里就会自动保存。</p>
         <a href="{{ url_for('index') }}" class="btn btn-primary">🎯 开始预测</a>
     </div>
+    <div id="mlRecordsLoading" class="ml-loading-state">
+        <div class="ml-loading-spinner"></div>
+        <div class="ml-loading-text">正在加载机器学习记录...</div>
+    </div>
+    <div id="mlRecordsError" class="empty-state" style="display:none;"></div>
+    <div id="mlRecordsContainer" data-initial-page="{{ initial_page or 1 }}"></div>
     {% endif %}
 </div>
 
@@ -543,6 +549,37 @@
     margin-bottom: 0.5rem;
 }
 
+.ml-loading-state {
+    padding: 2.2rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.9rem;
+    color: #cbd5e1;
+}
+
+.ml-loading-spinner {
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    border: 3px solid rgba(148, 163, 184, 0.25);
+    border-top-color: #2dd4bf;
+    animation: ml-spin 0.8s linear infinite;
+}
+
+.ml-loading-text {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #cbd5e1;
+}
+
+@keyframes ml-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 @media (max-width: 1100px) {
     .ml-stats {
         grid-template-columns: repeat(2, 1fr);
@@ -571,5 +608,89 @@
     }
 }
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.querySelector('.inline-search-form');
+    const container = document.getElementById('mlRecordsContainer');
+    const loading = document.getElementById('mlRecordsLoading');
+    const errorBox = document.getElementById('mlRecordsError');
+    const fallbackEmptyState = document.querySelector('.card > .empty-state');
+    if (!form || !container || !loading || !errorBox) {
+        return;
+    }
+
+    if (fallbackEmptyState) {
+        fallbackEmptyState.style.display = 'none';
+    }
+
+    const setLoading = (visible) => {
+        loading.style.display = visible ? 'flex' : 'none';
+    };
+
+    const buildQuery = (page) => {
+        const params = new URLSearchParams(new FormData(form));
+        params.set('page', String(page));
+        return params.toString();
+    };
+
+    const loadRecords = async (page = 1, pushState = false) => {
+        setLoading(true);
+        errorBox.style.display = 'none';
+
+        try {
+            const response = await fetch(`{{ url_for('user.ml_records_list') }}?${buildQuery(page)}`, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || '加载记录失败');
+            }
+
+            container.innerHTML = data.html || '';
+            if (pushState) {
+                const nextUrl = `{{ url_for('user.ml_records') }}?${buildQuery(page)}`;
+                window.history.pushState({ page }, '', nextUrl);
+            }
+        } catch (error) {
+            container.innerHTML = '';
+            errorBox.innerHTML = `
+                <div class="empty-icon">!</div>
+                <h3>加载失败</h3>
+                <p>${error.message || '请稍后再试'}</p>
+            `;
+            errorBox.style.display = 'block';
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        loadRecords(1, true);
+    });
+
+    container.addEventListener('click', (event) => {
+        const target = event.target.closest('[data-ml-page]');
+        if (!target) {
+            return;
+        }
+        event.preventDefault();
+        const page = parseInt(target.getAttribute('data-ml-page') || '1', 10) || 1;
+        loadRecords(page, true);
+    });
+
+    window.addEventListener('popstate', () => {
+        const params = new URLSearchParams(window.location.search);
+        const page = parseInt(params.get('page') || '1', 10) || 1;
+        loadRecords(page, false);
+    });
+
+    const initialPage = parseInt(container.dataset.initialPage || '1', 10) || 1;
+    loadRecords(initialPage, false);
+});
+</script>
 
 {% endblock %}

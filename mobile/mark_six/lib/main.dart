@@ -1477,30 +1477,37 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
             Text('单双：$parity'),
           if (status == 'settled')
             Text('开奖结果：$special  生肖：$specialZodiac'),
-          Wrap(
-            spacing: 10,
-            runSpacing: 8,
+          Row(
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    '下注：',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  _buildStakeBadge((stake ?? 0).toDouble()),
-                ],
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 42,
+                      child: Text(
+                        '下注：',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    _buildStakeBadge((stake ?? 0).toDouble()),
+                  ],
+                ),
               ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    '盈亏：',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(width: 6),
-                  _buildProfitBadge(profit),
-                ],
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 42,
+                      child: Text(
+                        '盈亏：',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    _buildProfitBadge(profit),
+                  ],
+                ),
               ),
             ],
           ),
@@ -3396,18 +3403,29 @@ class _Ball extends StatelessWidget {
     return Container(
       width: size,
       height: size,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: outlined ? Colors.white : color,
         border: Border.all(color: color, width: 2),
       ),
-      alignment: Alignment.center,
-      child: Text(
-        number,
-        style: TextStyle(
-          color: outlined ? color : Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: fontSize,
+      child: Center(
+        child: Text(
+          number,
+          textAlign: TextAlign.center,
+          strutStyle: StrutStyle(
+            fontSize: fontSize,
+            height: 1,
+            leading: 0,
+            forceStrutHeight: true,
+          ),
+          style: TextStyle(
+            color: outlined ? color : Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: fontSize,
+            height: 1,
+            leadingDistribution: TextLeadingDistribution.even,
+          ),
         ),
       ),
     );
@@ -4580,50 +4598,65 @@ class _PredictScreenState extends State<PredictScreen> {
               color: accentColor.withOpacity(0.06),
               borderRadius: BorderRadius.circular(inlineSpecialOnly ? 14 : 18),
             ),
-            child: Row(
-              children: [
-                if (!inlineSpecialOnly)
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '本期主推特码',
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
+            child: inlineSpecialOnly
+                ? Center(
+                    child: item.specialNumber.isNotEmpty
+                        ? _NumberZodiacTile(
+                            number: item.specialNumber,
+                            zodiac: specialZodiac,
+                            color: ballColor(item.specialNumber),
+                            outlined: true,
+                            highlight: true,
+                            ballSize: 34,
+                            numberFontSize: 13,
+                            zodiacFontSize: 10,
+                            gap: 2,
+                          )
+                        : const SizedBox.shrink(),
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '本期主推特码',
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              specialZodiac.isNotEmpty
+                                  ? '生肖 $specialZodiac'
+                                  : '重点参考号码',
+                              style: TextStyle(
+                                color: accentColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          specialZodiac.isNotEmpty
-                              ? '生肖 $specialZodiac'
-                              : '重点参考号码',
-                          style: TextStyle(
-                            color: accentColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (!inlineSpecialOnly) const SizedBox(width: 10),
-                    if (item.specialNumber.isNotEmpty)
-                      _NumberZodiacTile(
-                        number: item.specialNumber,
-                        zodiac: specialZodiac,
-                        color: ballColor(item.specialNumber),
-                        outlined: true,
-                        highlight: true,
-                        ballSize: inlineSpecialOnly ? 34 : 42,
-                        numberFontSize: inlineSpecialOnly ? 13 : 15,
-                        zodiacFontSize: inlineSpecialOnly ? 10 : 11,
-                        gap: inlineSpecialOnly ? 2 : 3,
                       ),
-              ],
-            ),
+                      const SizedBox(width: 10),
+                      if (item.specialNumber.isNotEmpty)
+                        _NumberZodiacTile(
+                          number: item.specialNumber,
+                          zodiac: specialZodiac,
+                          color: ballColor(item.specialNumber),
+                          outlined: true,
+                          highlight: true,
+                          ballSize: 42,
+                          numberFontSize: 15,
+                          zodiacFontSize: 11,
+                          gap: 3,
+                        ),
+                    ],
+                  ),
           ),
         ],
       ),
