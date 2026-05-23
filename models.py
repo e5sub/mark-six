@@ -146,11 +146,77 @@ class ActivationCode(db.Model):
                 user.extend_activation(days)
                 user.is_active = True
                 user.auto_prediction_enabled = True
+
+        try:
+            related_requests = ActivationCodeRequest.query.filter_by(
+                user_id=user.id,
+                issued_code=self.code
+            ).all()
+            for item in related_requests:
+                item.status = 'used'
+                item.processed_at = datetime.now()
+        except Exception:
+            pass
         
         return True, "激活成功"
 
     def __repr__(self):
         return f'<ActivationCode {self.code}>'
+
+
+class ActivationCodeRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    username = db.Column(db.String(80), nullable=False)
+    email = db.Column(db.String(120), nullable=False)
+    request_note = db.Column(db.String(255))
+    status = db.Column(db.String(20), default='pending')  # pending, issued, rejected, used
+    admin_note = db.Column(db.String(255))
+    issued_code = db.Column(db.String(64))
+    issued_validity_type = db.Column(db.String(20))
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    processed_at = db.Column(db.DateTime)
+
+    @property
+    def status_label(self):
+        status_labels = {
+            'pending': '待处理',
+            'issued': '已发放',
+            'rejected': '已驳回',
+            'used': '已使用',
+        }
+        return status_labels.get(self.status, self.status or '待处理')
+
+    @property
+    def issued_validity_label(self):
+        validity_labels = {
+            'permanent': '永久',
+            'day': '1天',
+            'month': '1个月',
+            'quarter': '3个月',
+            'year': '1年',
+        }
+        return validity_labels.get(self.issued_validity_type, self.issued_validity_type or '')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'username': self.username,
+            'email': self.email,
+            'request_note': self.request_note or '',
+            'status': self.status or 'pending',
+            'status_label': self.status_label,
+            'admin_note': self.admin_note or '',
+            'issued_code': self.issued_code or '',
+            'issued_validity_type': self.issued_validity_type or '',
+            'issued_validity_label': self.issued_validity_label,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else '',
+            'processed_at': self.processed_at.strftime('%Y-%m-%d %H:%M:%S') if self.processed_at else '',
+        }
+
+    def __repr__(self):
+        return f'<ActivationCodeRequest {self.username}-{self.status}>'
 
 class PredictionRecord(db.Model):
     __table_args__ = (

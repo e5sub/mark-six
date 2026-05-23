@@ -78,6 +78,23 @@ CREATE TABLE activation_code (
 )
 ''')
 
+cursor.execute('''
+CREATE TABLE activation_code_request (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    username VARCHAR(80) NOT NULL,
+    email VARCHAR(120) NOT NULL,
+    request_note VARCHAR(255),
+    status VARCHAR(20) DEFAULT 'pending',
+    admin_note VARCHAR(255),
+    issued_code VARCHAR(64),
+    issued_validity_type VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES user (id)
+)
+''')
+
 # 创建预测记录表
 cursor.execute('''
 CREATE TABLE prediction_record (

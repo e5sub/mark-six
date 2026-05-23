@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, ActivationCode, SystemConfig, InviteCode
+from models import db, User, ActivationCode, ActivationCodeRequest, SystemConfig, InviteCode
 from werkzeug.security import generate_password_hash
 import uuid
 import smtplib
@@ -319,6 +319,18 @@ def activate():
         return redirect(url_for('auth.login'))
     
     user = User.query.get(session['user_id'])
+
+    def _render_activate_page():
+        requests = ActivationCodeRequest.query.filter_by(user_id=user.id).order_by(
+            ActivationCodeRequest.created_at.desc()
+        ).limit(10).all()
+        has_pending_request = any(item.status == 'pending' for item in requests)
+        return render_template(
+            'auth/activate.html',
+            activation_requests=requests,
+            has_pending_request=has_pending_request,
+        )
+
     if user.is_active:
         flash('您的账号已经激活', 'info')
         return redirect(url_for('user.dashboard'))
@@ -328,7 +340,7 @@ def activate():
         
         if not activation_code:
             flash('请输入激活码', 'error')
-            return render_template('auth/activate.html')
+            return _render_activate_page()
         
         # 只检查管理员生成的激活码
         code_record = ActivationCode.query.filter_by(code=activation_code).first()
@@ -342,11 +354,48 @@ def activate():
                 return redirect(url_for('user.dashboard'))
             else:
                 flash(message, 'error')
-                return render_template('auth/activate.html')
+                return _render_activate_page()
         
         flash('激活码无效或已被使用', 'error')
-    
-    return render_template('auth/activate.html')
+
+    return _render_activate_page()
+
+
+@auth_bp.route('/request_activation_code', methods=['POST'])
+def request_activation_code():
+    if 'user_id' not in session:
+        flash('请先登录', 'error')
+        return redirect(url_for('auth.login'))
+
+    user = User.query.get(session['user_id'])
+    if not user:
+        flash('用户不存在', 'error')
+        return redirect(url_for('auth.login'))
+
+    if user.is_active:
+        flash('账号已激活，无需申请激活码', 'info')
+        return redirect(url_for('user.dashboard'))
+
+    pending_request = ActivationCodeRequest.query.filter_by(
+        user_id=user.id,
+        status='pending'
+    ).first()
+    if pending_request:
+        flash('您已有待处理的激活码申请，请等待管理员发放', 'info')
+        return redirect(url_for('auth.activate'))
+
+    request_note = (request.form.get('request_note') or '').strip()
+    request_record = ActivationCodeRequest(
+        user_id=user.id,
+        username=user.username,
+        email=user.email,
+        request_note=request_note,
+        status='pending',
+    )
+    db.session.add(request_record)
+    db.session.commit()
+    flash('激活码申请已提交，管理员处理后会显示在本页', 'success')
+    return redirect(url_for('auth.activate'))
 
 @auth_bp.route('/forgot_password', methods=['GET', 'POST'])
 def forgot_password():

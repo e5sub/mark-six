@@ -101,6 +101,18 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  Future<Map<String, dynamic>> activationRequests() async {
+    final response = await get('/api/mobile/activation_requests');
+    return _ensureJsonMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> requestActivationCode({String? note}) async {
+    final response = await post('/api/mobile/activation_requests', data: {
+      'request_note': note ?? '',
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Future<Map<String, dynamic>> me() async {
     final response = await get('/api/mobile/me');
     return _ensureJsonMap(response.data);

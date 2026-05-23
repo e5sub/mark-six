@@ -154,6 +154,28 @@ def update_database():
             print("lottery_draws 表已存在")
             
         # 检查并创建 zodiac_settings 表
+        if not check_table_exists(cursor, 'activation_code_request'):
+            print("Creating activation_code_request table...")
+            cursor.execute('''
+            CREATE TABLE activation_code_request (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                username VARCHAR(80) NOT NULL,
+                email VARCHAR(120) NOT NULL,
+                request_note VARCHAR(255),
+                status VARCHAR(20) DEFAULT 'pending',
+                admin_note VARCHAR(255),
+                issued_code VARCHAR(64),
+                issued_validity_type VARCHAR(20),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES user (id)
+            )
+            ''')
+            print("activation_code_request table created")
+        else:
+            print("activation_code_request table already exists")
+
         if not check_table_exists(cursor, 'zodiac_settings'):
             print("创建 zodiac_settings 表...")
             cursor.execute('''

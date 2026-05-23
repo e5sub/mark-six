@@ -7,6 +7,7 @@ from sqlalchemy import func, case, or_
 
 from models import (
     ActivationCode,
+    ActivationCodeRequest,
     InviteCode,
     LotteryDraw,
     ManualBetRecord,
@@ -461,6 +462,56 @@ def api_activate():
     db.session.commit()
     session["is_active"] = True
     return jsonify({"success": True, "message": message, "is_active": True})
+
+
+@mobile_api_bp.route("/activation_requests", methods=["GET"])
+def api_activation_requests():
+    user, error = _require_user()
+    if error:
+        return error
+
+    rows = ActivationCodeRequest.query.filter_by(user_id=user.id).order_by(
+        ActivationCodeRequest.created_at.desc()
+    ).limit(10).all()
+    return jsonify({
+        "success": True,
+        "requests": [item.to_dict() for item in rows],
+    })
+
+
+@mobile_api_bp.route("/activation_requests", methods=["POST"])
+def api_request_activation_code():
+    user, error = _require_user()
+    if error:
+        return error
+
+    if user.is_active:
+        return _json_error("account already activated")
+
+    pending_request = ActivationCodeRequest.query.filter_by(
+        user_id=user.id,
+        status='pending'
+    ).first()
+    if pending_request:
+        return _json_error("pending activation request already exists")
+
+    payload = request.get_json(silent=True) or {}
+    request_note = (payload.get("request_note") or "").strip()
+
+    request_record = ActivationCodeRequest(
+        user_id=user.id,
+        username=user.username,
+        email=user.email,
+        request_note=request_note,
+        status='pending',
+    )
+    db.session.add(request_record)
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "message": "activation request submitted",
+        "request": request_record.to_dict(),
+    })
 
 
 @mobile_api_bp.route("/manual_bets", methods=["POST"])

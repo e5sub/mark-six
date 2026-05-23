@@ -33,6 +33,60 @@
     </div>
 </div>
 
+<div class="card" style="margin-top: 1.5rem;">
+    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+        <h2 class="card-title">📨 激活码申请</h2>
+        <div style="color:#94a3b8; font-size:0.9rem;">默认只展示“申请中”的记录，历史区仅保留最近 30 天</div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>用户</th>
+                    <th>申请说明</th>
+                    <th>状态</th>
+                    <th>已发放激活码</th>
+                    <th>申请时间</th>
+                    <th>处理时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="activationRequestsList">
+                <tr>
+                    <td colspan="7" class="text-center">加载申请中记录...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div style="padding: 0 1.25rem 1.25rem;">
+        <details id="activationRequestHistory" style="border-top:1px solid rgba(148,163,184,0.14); padding-top:1rem;">
+            <summary style="cursor:pointer; color:#cbd5e1; font-weight:700; outline:none;">查看最近 30 天处理历史</summary>
+            <div class="table-responsive" style="margin-top:1rem;">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>用户</th>
+                            <th>申请说明</th>
+                            <th>状态</th>
+                            <th>已发放激活码</th>
+                            <th>申请时间</th>
+                            <th>处理时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="activationRequestsHistoryList">
+                        <tr>
+                            <td colspan="7" class="text-center">展开后加载历史记录...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </div>
+</div>
+
 <!-- 生成激活码模态框 -->
 <div id="generateModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
     <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 20px; width: 90%; max-width: 500px;">
@@ -68,6 +122,12 @@ const perPage = 10;
 // 页面加载完成后获取激活码列表
 document.addEventListener('DOMContentLoaded', function() {
     loadActivationCodes(currentPage);
+    loadActivationRequests();
+    document.getElementById('activationRequestHistory').addEventListener('toggle', function(event) {
+        if (event.target.open) {
+            loadActivationRequestHistory();
+        }
+    });
 });
 
 // 加载激活码列表
@@ -131,6 +191,172 @@ function renderActivationCodes(codes) {
     });
     
     tbody.innerHTML = html;
+}
+
+function loadActivationRequests() {
+    fetch('/admin/activation_codes/requests?page=1&per_page=20')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const rows = data.data || [];
+                renderActivationRequests(rows.filter(item => item.status === 'pending'));
+            } else {
+                document.getElementById('activationRequestsList').innerHTML =
+                    `<tr><td colspan="7" class="text-center text-danger">加载申请记录失败: ${data.message}</td></tr>`;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('activationRequestsList').innerHTML =
+                '<tr><td colspan="7" class="text-center text-danger">加载申请记录失败，请刷新页面重试</td></tr>';
+        });
+}
+
+function loadActivationRequestHistory() {
+    fetch('/admin/activation_codes/requests?page=1&per_page=100&status=history&days=30')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const rows = data.data || [];
+                renderActivationRequests(rows, 'activationRequestsHistoryList', '最近 30 天暂无处理历史', true);
+            } else {
+                document.getElementById('activationRequestsHistoryList').innerHTML =
+                    `<tr><td colspan="7" class="text-center text-danger">加载历史记录失败: ${data.message}</td></tr>`;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('activationRequestsHistoryList').innerHTML =
+                '<tr><td colspan="7" class="text-center text-danger">加载历史记录失败，请刷新页面重试</td></tr>';
+        });
+}
+
+function renderActivationRequests(rows, targetId = 'activationRequestsList', emptyText = '暂无申请中的记录', groupByDate = false) {
+    const tbody = document.getElementById(targetId);
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center">${emptyText}</td></tr>`;
+        return;
+    }
+
+    let html = '';
+    let currentGroupDate = '';
+    rows.forEach(item => {
+        const statusClass =
+            item.status === 'pending' ? 'status-expired' :
+            item.status === 'issued' ? 'status-used' :
+            item.status === 'used' ? 'status-unused' : 'status-expired';
+        const groupDate = (item.processed_at || item.created_at || '').slice(0, 10) || '更早';
+        const issueActions = item.status === 'pending' || item.status === 'rejected'
+            ? `
+                <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+                    <button class="btn btn-sm" onclick="issueRequest(${item.id}, 'month')">发1个月</button>
+                    <button class="btn btn-sm" onclick="issueRequest(${item.id}, 'permanent')">发永久码</button>
+                    <button class="btn btn-sm" onclick="issueRequest(${item.id}, 'custom')">其他限时</button>
+                    <button class="btn btn-danger btn-sm" onclick="rejectRequest(${item.id})">驳回</button>
+                </div>
+            `
+            : '<span style="color:#94a3b8;">已处理</span>';
+
+        if (groupByDate && groupDate !== currentGroupDate) {
+            currentGroupDate = groupDate;
+            html += `
+            <tr>
+                <td colspan="7" style="background:rgba(59,130,246,0.08); color:#cbd5e1; font-weight:700; border-top:1px solid rgba(148,163,184,0.14);">
+                    ${groupDate}
+                </td>
+            </tr>
+            `;
+        }
+
+        html += `
+        <tr>
+            <td>
+                <div style="font-weight:700;">${item.username}</div>
+                <div style="font-size:0.82rem; color:#94a3b8;">${item.email}</div>
+            </td>
+            <td>
+                <div>${item.request_note || '-'}</div>
+                ${item.admin_note ? `<div style="font-size:0.82rem; color:#94a3b8; margin-top:0.3rem;">备注：${item.admin_note}</div>` : ''}
+            </td>
+            <td><span class="invite-status ${statusClass}">${item.status_label || item.status}</span></td>
+            <td>
+                ${item.issued_code ? `<div class="invite-code">${item.issued_code}</div>` : '-'}
+                ${item.issued_validity_label ? `<div style="font-size:0.82rem; color:#94a3b8; margin-top:0.3rem;">${item.issued_validity_label}</div>` : ''}
+            </td>
+            <td>${item.created_at || '-'}</td>
+            <td>${item.processed_at || '-'}</td>
+            <td>${issueActions}</td>
+        </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+}
+
+function issueRequest(requestId, validityType) {
+    if (validityType === 'custom') {
+        const customType = prompt('请输入限时类型：day / month / quarter / year', 'month');
+        if (!customType) {
+            return;
+        }
+        validityType = customType.trim();
+    }
+    const adminNote = prompt('可选：填写发放备注', '') || '';
+    fetch(`/admin/activation_codes/requests/${requestId}/issue`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            validity_type: validityType,
+            admin_note: adminNote
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadActivationCodes(1);
+            loadActivationRequests();
+            if (document.getElementById('activationRequestHistory').open) {
+                loadActivationRequestHistory();
+            }
+            showToast(`${data.message}：${data.code}`, 'success');
+        } else {
+            showToast('发放失败：' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('发放失败，请稍后重试', 'error');
+    });
+}
+
+function rejectRequest(requestId) {
+    const adminNote = prompt('请输入驳回原因（可选）', '') || '';
+    fetch(`/admin/activation_codes/requests/${requestId}/reject`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            admin_note: adminNote
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadActivationRequests();
+            if (document.getElementById('activationRequestHistory').open) {
+                loadActivationRequestHistory();
+            }
+            showToast(data.message, 'success');
+        } else {
+            showToast('驳回失败：' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('驳回失败，请稍后重试', 'error');
+    });
 }
 
 // 渲染分页

@@ -223,32 +223,210 @@ Future<void> showActivationDialog(
   BuildContext context,
   AppState appState,
 ) async {
+  String statusLabel(String value) {
+    switch (value) {
+      case 'pending':
+        return '待处理';
+      case 'issued':
+        return '已发放';
+      case 'used':
+        return '已使用';
+      case 'rejected':
+        return '已驳回';
+      default:
+        return value;
+    }
+  }
+
   final controller = TextEditingController();
+  final noteController = TextEditingController();
+  List<Map<String, dynamic>> requestItems = [];
+  bool requestSubmitting = false;
+
+  try {
+    final res = await ApiClient.instance.activationRequests();
+    requestItems = ((res['requests'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  } catch (_) {
+    requestItems = [];
+  }
+
+  bool hasPendingRequest() => requestItems.any(
+        (item) => (item['status']?.toString() ?? '') == 'pending',
+      );
+
   String? result;
   try {
     result = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('激活账号'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: '激活码'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) => AlertDialog(
+          title: const Text('激活账号'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(labelText: '激活码'),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '没有激活码？可以直接申请，管理员发放后会显示在下方。',
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: noteController,
+                    minLines: 2,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: '申请说明（可选）',
+                      hintText: '例如：需要永久码或 1 个月试用码',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  FilledButton.tonal(
+                    onPressed: requestSubmitting || hasPendingRequest()
+                        ? null
+                        : () async {
+                            setState(() => requestSubmitting = true);
+                            try {
+                              final res = await ApiClient.instance
+                                  .requestActivationCode(
+                                note: noteController.text.trim(),
+                              );
+                              final rows = ((res['requests'] as List?) ?? const [])
+                                  .whereType<Map>()
+                                  .map((item) => Map<String, dynamic>.from(item))
+                                  .toList();
+                              if (rows.isNotEmpty) {
+                                requestItems = rows;
+                              } else if (res['request'] is Map) {
+                                requestItems = [
+                                  Map<String, dynamic>.from(
+                                    res['request'] as Map,
+                                  ),
+                                  ...requestItems,
+                                ];
+                              }
+                              noteController.clear();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      res['message']?.toString() ?? '申请已提交',
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('申请失败: $e')),
+                                );
+                              }
+                            } finally {
+                              if (dialogContext.mounted) {
+                                setState(() => requestSubmitting = false);
+                              }
+                            }
+                          },
+                    child: Text(requestSubmitting ? '提交中...' : '申请获取激活码'),
+                  ),
+                  if (hasPendingRequest()) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      '当前已有一条申请中的记录，请等待管理员处理。',
+                      style: TextStyle(
+                        color: Color(0xFFB45309),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  if (requestItems.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '最近申请记录',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    ...requestItems.take(5).map(
+                      (item) => Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F6FB),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              statusLabel(item['status']?.toString() ?? ''),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if ((item['issued_code']?.toString() ?? '').isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '激活码：${item['issued_code']}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            if ((item['issued_validity_label']?.toString() ?? '')
+                                .isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  '类型：${item['issued_validity_label']}',
+                                ),
+                              ),
+                            if ((item['admin_note']?.toString() ?? '').isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  '备注：${item['admin_note']}',
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text('激活'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('激活'),
-          ),
-        ],
       ),
     );
   } finally {
     controller.dispose();
+    noteController.dispose();
   }
 
   if (result == null || result.isEmpty) return;

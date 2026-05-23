@@ -205,6 +205,73 @@
             margin-bottom: 8px;
         }
 
+        .request-box {
+            margin-top: 22px;
+            padding: 18px;
+            border-radius: 12px;
+            background: rgba(15, 23, 42, 0.58);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .request-box h3 {
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            font-size: 1.05rem;
+        }
+
+        .request-box p,
+        .request-item small {
+            color: #94a3b8;
+        }
+
+        .request-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .request-item {
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: rgba(30, 41, 59, 0.82);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .request-item strong,
+        .issued-code {
+            color: #e2e8f0;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .status-pending { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
+        .status-issued { background: rgba(34, 197, 94, 0.18); color: #4ade80; }
+        .status-used { background: rgba(59, 130, 246, 0.18); color: #60a5fa; }
+        .status-rejected { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+
+        .request-lock {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(245, 158, 11, 0.12);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.18);
+            font-size: 0.9rem;
+        }
+
+        textarea.form-control {
+            min-height: 92px;
+            resize: vertical;
+        }
+
         @media (max-width: 480px) {
             .activate-container {
                 padding: 30px 20px;
@@ -257,6 +324,50 @@
                 <i class="fas fa-arrow-left"></i> 返回用户中心
             </a>
         </form>
+
+        <div class="request-box">
+            <h3><i class="fas fa-paper-plane"></i> 获取激活码</h3>
+            <p>提交申请后，管理员可在后台为您发放永久或限时激活码，发放结果会显示在下方。</p>
+            {% if has_pending_request %}
+            <div class="request-lock">您当前已有一条“申请中”的记录，管理员处理前不能再次提交。</div>
+            {% else %}
+            <form method="POST" action="{{ url_for('auth.request_activation_code') }}" style="margin-top: 14px;">
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label for="request_note">
+                        <i class="fas fa-comment-dots"></i> 申请说明
+                    </label>
+                    <textarea id="request_note" name="request_note" class="form-control" placeholder="可选：填写用途、时长需求或备注"></textarea>
+                </div>
+                <button type="submit" class="btn btn-secondary">
+                    <i class="fas fa-paper-plane"></i> 申请激活码
+                </button>
+            </form>
+            {% endif %}
+
+            {% if activation_requests %}
+            <div class="request-list">
+                {% for item in activation_requests %}
+                <div class="request-item">
+                    <div class="status-badge status-{{ item.status }}">{{ item.status_label }}</div>
+                    <div><strong>申请时间：</strong>{{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '-' }}</div>
+                    {% if item.request_note %}
+                    <div><strong>申请说明：</strong>{{ item.request_note }}</div>
+                    {% endif %}
+                    {% if item.issued_code %}
+                    <div class="issued-code" style="margin-top:8px;"><strong>已发放激活码：</strong>{{ item.issued_code }}</div>
+                    <div><strong>有效类型：</strong>{{ item.issued_validity_label or '-' }}</div>
+                    {% endif %}
+                    {% if item.admin_note %}
+                    <div><strong>管理员备注：</strong>{{ item.admin_note }}</div>
+                    {% endif %}
+                    {% if item.processed_at %}
+                    <small>处理时间：{{ item.processed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
 
         <div class="text-center">
             <p class="text-muted">
