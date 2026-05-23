@@ -6607,6 +6607,39 @@ def unified_predict_api():
                 data,
                 region,
             )
+            result = _ensure_period_unique_special(
+                result,
+                resolved_strategy,
+                region,
+                current_period,
+                user_id=user_id,
+                prediction_zodiac_year=prediction_zodiac_year,
+            )
+            adjusted_special = str((result.get("special") or {}).get("number") or "").strip()
+            original_special = str(existing.special_number or "").strip()
+            if adjusted_special and adjusted_special != original_special:
+                refreshed_text = _refresh_special_recommendation_text(
+                    resolved_strategy,
+                    result.get("recommendation_text", ""),
+                    adjusted_special,
+                    result.get("normal", []),
+                    region=region,
+                )
+                if refreshed_text:
+                    result["recommendation_text"] = refreshed_text
+                result["model_meta"] = dict(result.get("model_meta") or {})
+                existing.special_number = adjusted_special
+                existing.special_zodiac = (result.get("special") or {}).get("sno_zodiac", "")
+                existing.prediction_metadata = _serialize_prediction_metadata(result.get("model_meta"))
+                existing.prediction_text = _decorate_recommendation_text(
+                    strategy,
+                    resolved_strategy,
+                    result.get("recommendation_text", ""),
+                )
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
             result["strategy"] = resolved_strategy
             result["requested_strategy"] = strategy
             result["prediction_zodiac_year"] = prediction_zodiac_year
