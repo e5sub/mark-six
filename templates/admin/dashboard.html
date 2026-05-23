@@ -3,397 +3,340 @@
 {% block page_title %}管理后台{% endblock %}
 
 {% block content %}
-<!-- 系统统计 -->
-<div class="stats-grid">
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #667eea;">👥</div>
-        <div class="stat-number">{{ stats.total_users or 0 }}</div>
-        <div class="stat-label">总用户数</div>
+<div class="overview-grid">
+    <div class="overview-card">
+        <div class="overview-label">总用户</div>
+        <div class="overview-value">{{ stats.total_users or 0 }}</div>
+        <div class="overview-meta">活跃 {{ stats.active_users or 0 }} / 未激活 {{ stats.inactive_users or 0 }}</div>
     </div>
-    
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #28a745;">✅</div>
-        <div class="stat-number">{{ stats.active_users or 0 }}</div>
-        <div class="stat-label">活跃用户</div>
+    <div class="overview-card">
+        <div class="overview-label">近7天新增用户</div>
+        <div class="overview-value">{{ stats.recent_signups_7d or 0 }}</div>
+        <div class="overview-meta">更适合看增长，而不是只看总量</div>
     </div>
-    
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #ffc107;">📊</div>
-        <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
-        <div class="stat-label">总预测数</div>
+    <div class="overview-card">
+        <div class="overview-label">总预测记录</div>
+        <div class="overview-value">{{ stats.total_predictions or 0 }}</div>
+        <div class="overview-meta">近7天新增 {{ stats.recent_predictions_7d or 0 }}</div>
     </div>
-    
-    <div class="stat-card-compact">
-        <div class="stat-icon" style="color: #17a2b8;">🎫</div>
-        <div class="stat-number">{{ stats.total_invite_codes or 0 }}</div>
-        <div class="stat-label">邀请码数</div>
+    <div class="overview-card">
+        <div class="overview-label">激活码库存</div>
+        <div class="overview-value">{{ stats.unused_codes or 0 }}</div>
+        <div class="overview-meta">已使用 {{ stats.used_codes or 0 }} / 总计 {{ stats.total_codes or 0 }}</div>
     </div>
 </div>
 
-<!-- 快速操作 -->
-<div class="card-compact">
-    <div class="card-header-compact">
-        <h2 class="card-title-compact">🚀 快速操作</h2>
+<div class="panel">
+    <div class="panel-header">
+        <h2>快捷操作</h2>
     </div>
-    
     <div class="quick-actions">
-        <a href="{{ url_for('admin.users') }}" class="action-btn action-primary">
-            <span class="action-icon">👥</span>
-            <span class="action-text">用户管理</span>
-        </a>
-        
-        <a href="{{ url_for('admin.predictions') }}" class="action-btn action-success">
-            <span class="action-icon">📊</span>
-            <span class="action-text">预测记录</span>
-        </a>
-        
-        <a href="{{ url_for('admin.activation_codes') }}" class="action-btn action-warning">
-            <span class="action-icon">🔑</span>
-            <span class="action-text">激活码</span>
-        </a>
-        
-        <a href="{{ url_for('admin.system_config') }}" class="action-btn action-info">
-            <span class="action-icon">⚙️</span>
-            <span class="action-text">系统设置</span>
-        </a>
+        <a href="{{ url_for('admin.users') }}" class="action-btn action-primary">用户管理</a>
+        <a href="{{ url_for('admin.predictions') }}" class="action-btn action-success">预测记录</a>
+        <a href="{{ url_for('admin.activation_codes') }}" class="action-btn action-warning">激活码</a>
+        <a href="{{ url_for('admin.invite_codes') }}" class="action-btn action-info">邀请码</a>
+        <a href="{{ url_for('admin.bets') }}" class="action-btn action-dark">下注记录</a>
+        <a href="{{ url_for('admin.system_config') }}" class="action-btn action-muted">系统设置</a>
     </div>
 </div>
 
-<!-- 最近活动 -->
-<div class="card-compact">
-    <div class="card-header-compact">
-        <h2 class="card-title-compact">📈 最近活动</h2>
-    </div>
-    
-    <div class="recent-activities">
-        {% if recent_users %}
-        <div class="activity-section">
-            <h4 class="activity-title">🆕 新注册用户</h4>
-            <div class="activity-list">
-                {% for user in recent_users[:5] %}
-                <div class="activity-item">
-                    <span class="activity-icon">👤</span>
-                    <div class="activity-content">
-                        <span class="activity-text">{{ user.username }} 注册了账号</span>
-                        <span class="activity-time">{{ user.created_at.strftime('%m-%d %H:%M') if user.created_at else '-' }}</span>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-        
-        {% if recent_predictions %}
-        <div class="activity-section">
-            <h4 class="activity-title">🎯 最新预测</h4>
-            <div class="activity-list">
-                {% for prediction in recent_predictions[:5] %}
-                <div class="activity-item">
-                    <span class="activity-icon">📊</span>
-                    <div class="activity-content">
-                        <span class="activity-text">{{ prediction.user.username if prediction.user else '未知用户' }} 进行了{{ '香港' if prediction.region == 'hk' else '澳门' }}预测</span>
-                        <span class="activity-time">{{ prediction.created_at.strftime('%m-%d %H:%M') if prediction.created_at else '-' }}</span>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-    </div>
+<div class="task-grid">
+    {% for item in stats.actionable_cards or [] %}
+    <a href="{{ item.url }}" class="task-card task-{{ item.tone }}">
+        <div class="task-title">{{ item.title }}</div>
+        <div class="task-value">{{ item.value }}</div>
+        <div class="task-hint">{{ item.hint }}</div>
+    </a>
+    {% endfor %}
 </div>
 
-<!-- 系统状态 -->
-<div class="card-compact">
-    <div class="card-header-compact">
-        <h2 class="card-title-compact">💻 系统状态</h2>
+<div class="content-grid">
+    <div class="panel">
+        <div class="panel-header">
+            <h2>即将到期用户</h2>
+            <a href="{{ url_for('admin.users') }}" class="panel-link">查看全部</a>
+        </div>
+        <div class="list-wrap">
+            {% if stats.expiring_users %}
+                {% for user in stats.expiring_users %}
+                <div class="list-item">
+                    <div>
+                        <div class="list-title">{{ user.username }}</div>
+                        <div class="list-sub">{{ user.email }}</div>
+                    </div>
+                    <div class="list-side">
+                        {{ user.activation_expires_at.strftime('%m-%d %H:%M') if user.activation_expires_at else '永久' }}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">最近 3 天没有即将到期的用户。</div>
+            {% endif %}
+        </div>
     </div>
-    
-    <div class="system-status">
-        <div class="status-item">
-            <span class="status-icon">🟢</span>
-            <div class="status-content">
-                <span class="status-label">数据库连接</span>
-                <span class="status-value">正常</span>
-            </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>最近注册</h2>
+            <a href="{{ url_for('admin.users') }}" class="panel-link">用户列表</a>
         </div>
-        
-        <div class="status-item">
-            <span class="status-icon">🟢</span>
-            <div class="status-content">
-                <span class="status-label">预测服务</span>
-                <span class="status-value">运行中</span>
-            </div>
+        <div class="list-wrap">
+            {% if stats.recent_users %}
+                {% for user in stats.recent_users %}
+                <div class="list-item">
+                    <div>
+                        <div class="list-title">{{ user.username }}</div>
+                        <div class="list-sub">{{ user.email }}</div>
+                    </div>
+                    <div class="list-side">
+                        {{ user.created_at.strftime('%m-%d %H:%M') if user.created_at else '-' }}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">暂无最近注册记录。</div>
+            {% endif %}
         </div>
-        
-        <div class="status-item">
-            <span class="status-icon">🟢</span>
-            <div class="status-content">
-                <span class="status-label">邮件服务</span>
-                <span class="status-value">正常</span>
-            </div>
+    </div>
+
+    <div class="panel span-2">
+        <div class="panel-header">
+            <h2>最近预测动态</h2>
+            <a href="{{ url_for('admin.predictions') }}" class="panel-link">预测管理</a>
         </div>
-        
-        <div class="status-item">
-            <span class="status-icon">🟡</span>
-            <div class="status-content">
-                <span class="status-label">系统负载</span>
-                <span class="status-value">中等</span>
-            </div>
+        <div class="list-wrap">
+            {% if stats.recent_predictions %}
+                {% for prediction in stats.recent_predictions %}
+                <div class="list-item">
+                    <div>
+                        <div class="list-title">
+                            {{ prediction.username or '未知用户' }}
+                            <span class="inline-chip">{{ '香港' if prediction.region == 'hk' else '澳门' if prediction.region == 'macau' else prediction.region }}</span>
+                            <span class="inline-chip">{{ prediction.strategy }}</span>
+                        </div>
+                        <div class="list-sub">第 {{ prediction.period }} 期，特码 {{ prediction.special_number or '-' }}</div>
+                    </div>
+                    <div class="list-side">
+                        {{ prediction.created_at.strftime('%m-%d %H:%M') if prediction.created_at else '-' }}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">暂无预测记录。</div>
+            {% endif %}
         </div>
     </div>
 </div>
 
 <style>
-/* 继承dashboard的基础样式 */
-.card-compact {
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(30, 41, 59, 0.88) 100%);
-    border-radius: 12px;
-    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.28);
+.overview-grid,
+.task-grid,
+.content-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.overview-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    margin-bottom: 1rem;
+}
+
+.overview-card,
+.panel,
+.task-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
     border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 14px;
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
+}
+
+.overview-card {
+    padding: 1.1rem 1.15rem;
+}
+
+.overview-label {
+    font-size: 0.86rem;
+    color: #cbd5e1;
+}
+
+.overview-value {
+    margin-top: 0.45rem;
+    font-size: 2rem;
+    line-height: 1;
+    font-weight: 800;
+    color: #f8fafc;
+}
+
+.overview-meta {
+    margin-top: 0.55rem;
+    font-size: 0.82rem;
+    color: #94a3b8;
+}
+
+.panel {
     margin-bottom: 1rem;
     overflow: hidden;
 }
 
-.card-header-compact {
-    padding: 0.8rem 1.2rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.15rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
-.card-title-compact {
+.panel-header h2 {
     margin: 0;
     font-size: 1rem;
-    font-weight: 600;
-}
-
-.stat-card-compact {
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
-    border-radius: 12px;
-    padding: 1rem;
-    text-align: center;
-    box-shadow: 0 12px 26px rgba(2, 6, 23, 0.24);
-    border: 1px solid rgba(148, 163, 184, 0.12);
-    transition: all 0.3s ease;
-    min-height: 120px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-.stat-card-compact:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-}
-
-.stat-icon {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-}
-
-.stat-number {
-    font-size: 1.8rem;
-    font-weight: 700;
     color: #f8fafc;
-    margin-bottom: 0.3rem;
 }
 
-.stat-label {
-    font-size: 0.9rem;
-    color: #dbe4f0;
-    font-weight: 500;
+.panel-link {
+    color: #93c5fd;
+    text-decoration: none;
+    font-size: 0.84rem;
 }
 
-/* 快速操作 */
 .quick-actions {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0.8rem;
-    padding: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.85rem;
+    padding: 1rem 1.15rem 1.15rem;
 }
 
 .action-btn {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    padding: 1rem 0.5rem;
-    border-radius: 8px;
+    justify-content: center;
+    min-height: 48px;
+    border-radius: 10px;
+    color: #fff;
     text-decoration: none;
-    color: white;
-    font-weight: 600;
-    transition: all 0.3s ease;
-    border: none;
-    cursor: pointer;
-    font-family: inherit;
+    font-weight: 700;
 }
 
-.action-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+.action-primary { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); }
+.action-success { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
+.action-warning { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+.action-info { background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%); }
+.action-dark { background: linear-gradient(135deg, #475569 0%, #334155 100%); }
+.action-muted { background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); }
+
+.task-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    margin-bottom: 1rem;
 }
 
-.action-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.task-card {
+    display: block;
+    padding: 1rem 1.1rem;
+    text-decoration: none;
+    color: inherit;
 }
 
-.action-success {
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+.task-title {
+    font-size: 0.88rem;
+    color: #cbd5e1;
 }
 
-.action-warning {
-    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
-}
-
-.action-info {
-    background: linear-gradient(135deg, #17a2b8 0%, #6f42c1 100%);
-}
-
-.action-icon {
-    font-size: 1.5rem;
-    margin-bottom: 0.3rem;
-}
-
-.action-text {
-    font-size: 0.85rem;
-}
-
-/* 最近活动 */
-.recent-activities {
-    padding: 1.2rem;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1.5rem;
-}
-
-.activity-section {
-    background: rgba(30, 41, 59, 0.72);
-    border-radius: 8px;
-    padding: 1rem;
-    border-left: 4px solid #667eea;
-}
-
-.activity-title {
-    margin: 0 0 1rem 0;
-    color: #667eea;
-    font-size: 1rem;
-    font-weight: 600;
-}
-
-.activity-list {
-    display: grid;
-    gap: 0.8rem;
-}
-
-.activity-item {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    padding: 0.8rem;
-    background: rgba(15, 23, 42, 0.76);
-    border-radius: 6px;
-    transition: all 0.3s ease;
-}
-
-.activity-item:hover {
-    background: rgba(30, 41, 59, 0.9);
-    transform: translateX(5px);
-}
-
-.activity-icon {
-    font-size: 1.2rem;
-    flex-shrink: 0;
-}
-
-.activity-content {
-    flex: 1;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.activity-text {
-    font-size: 0.9rem;
+.task-value {
+    margin-top: 0.45rem;
+    font-size: 1.9rem;
+    font-weight: 800;
     color: #f8fafc;
 }
 
-.activity-time {
-    font-size: 0.8rem;
-    color: #dbe4f0;
+.task-hint {
+    margin-top: 0.5rem;
+    font-size: 0.82rem;
+    color: #94a3b8;
 }
 
-/* 系统状态 */
-.system-status {
-    padding: 1.2rem;
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
+.task-warning { border-left: 4px solid #f59e0b; }
+.task-danger { border-left: 4px solid #ef4444; }
+.task-success { border-left: 4px solid #22c55e; }
+.task-info { border-left: 4px solid #38bdf8; }
+
+.content-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.span-2 {
+    grid-column: span 2;
+}
+
+.list-wrap {
+    padding: 0.35rem 1.15rem 1rem;
+}
+
+.list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     gap: 1rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
-.status-item {
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    padding: 1rem;
-    background: rgba(20, 83, 45, 0.3);
-    border-radius: 8px;
-    border-left: 4px solid #28a745;
-    transition: all 0.3s ease;
+.list-item:last-child {
+    border-bottom: none;
 }
 
-.status-item:hover {
-    background: rgba(20, 83, 45, 0.42);
-    transform: translateY(-2px);
-}
-
-.status-icon {
-    font-size: 1.5rem;
-    flex-shrink: 0;
-}
-
-.status-content {
-    flex: 1;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.status-label {
-    font-size: 0.9rem;
+.list-title {
     color: #f8fafc;
-    font-weight: 500;
+    font-weight: 700;
 }
 
-.status-value {
+.list-sub {
+    margin-top: 0.2rem;
+    color: #94a3b8;
+    font-size: 0.83rem;
+}
+
+.list-side {
+    color: #cbd5e1;
+    font-size: 0.82rem;
+    white-space: nowrap;
+}
+
+.inline-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.45rem;
+    margin-left: 0.4rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    color: #dbeafe;
+    background: rgba(37, 99, 235, 0.18);
+    border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
+.empty-state {
+    padding: 1rem 0;
+    color: #94a3b8;
     font-size: 0.9rem;
-    color: #28a745;
-    font-weight: 600;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    
-    .quick-actions {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    
-    .recent-activities {
+@media (max-width: 900px) {
+    .content-grid {
         grid-template-columns: 1fr;
     }
-    
-    .system-status {
-        grid-template-columns: 1fr;
+
+    .span-2 {
+        grid-column: span 1;
     }
 }
 
-@media (max-width: 480px) {
-    .stats-grid {
-        grid-template-columns: 1fr;
+@media (max-width: 640px) {
+    .list-item {
+        align-items: flex-start;
+        flex-direction: column;
     }
-    
-    .quick-actions {
-        grid-template-columns: 1fr;
+
+    .list-side {
+        white-space: normal;
     }
 }
 </style>

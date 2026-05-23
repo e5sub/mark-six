@@ -255,6 +255,10 @@ def _strategy_learning_panel_data():
 def dashboard():
     try:
         # 获取统计数据
+        now = datetime.now()
+        week_ago = now - timedelta(days=7)
+        expiring_cutoff = now + timedelta(days=3)
+
         total_users = User.query.count()
         active_users = User.query.filter_by(is_active=True).count()
         inactive_users = total_users - active_users
@@ -262,6 +266,22 @@ def dashboard():
         used_codes = ActivationCode.query.filter_by(is_used=True).count()
         unused_codes = total_codes - used_codes
         total_predictions = PredictionRecord.query.count()
+        recent_signups_7d = User.query.filter(User.created_at >= week_ago).count()
+        recent_predictions_7d = PredictionRecord.query.filter(PredictionRecord.created_at >= week_ago).count()
+        pending_predictions = PredictionRecord.query.filter(
+            (PredictionRecord.is_result_updated.is_(False)) | (PredictionRecord.is_result_updated.is_(None))
+        ).count()
+        expiring_users_count = User.query.filter(
+            User.is_active.is_(True),
+            User.activation_expires_at.isnot(None),
+            User.activation_expires_at >= now,
+            User.activation_expires_at <= expiring_cutoff
+        ).count()
+        expired_active_users = User.query.filter(
+            User.is_active.is_(True),
+            User.activation_expires_at.isnot(None),
+            User.activation_expires_at < now
+        ).count()
         
         # 计算不同策略的准确率（只对比特码）
         def calculate_accuracy(strategy):
@@ -300,10 +320,10 @@ def dashboard():
         ai_accuracy = calculate_accuracy('ai')
         
         # 最近注册的用户
-        recent_users = User.query.order_by(User.created_at.desc()).limit(5).all()
+        recent_users = User.query.order_by(User.created_at.desc()).limit(6).all()
         
         # 最近的预测记录
-        recent_predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).limit(5).all()
+        recent_predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).limit(6).all()
         
         # 为预测记录添加用户名
         for pred in recent_predictions:
@@ -314,9 +334,46 @@ def dashboard():
                 pred.username = '未知用户'
         
         # 获取邀请统计数据
+        expiring_users = User.query.filter(
+            User.is_active.is_(True),
+            User.activation_expires_at.isnot(None),
+            User.activation_expires_at >= now,
+            User.activation_expires_at <= expiring_cutoff
+        ).order_by(User.activation_expires_at.asc()).limit(6).all()
+
         total_invite_codes = InviteCode.query.count()
         used_invite_codes = InviteCode.query.filter_by(is_used=True).count()
         unused_invite_codes = total_invite_codes - used_invite_codes
+        actionable_cards = [
+            {
+                'title': '待开奖预测',
+                'value': pending_predictions,
+                'hint': '优先检查开奖同步和结果回填',
+                'url': url_for('admin.predictions'),
+                'tone': 'warning',
+            },
+            {
+                'title': '3天内到期用户',
+                'value': expiring_users_count,
+                'hint': '适合主动提醒续费或重新激活',
+                'url': url_for('admin.users'),
+                'tone': 'danger' if expiring_users_count else 'success',
+            },
+            {
+                'title': '失效但仍激活',
+                'value': expired_active_users,
+                'hint': '大于 0 时建议尽快核查账号状态',
+                'url': url_for('admin.users'),
+                'tone': 'danger' if expired_active_users else 'success',
+            },
+            {
+                'title': '未使用邀请码',
+                'value': unused_invite_codes,
+                'hint': '可直接用于拉新或补充库存',
+                'url': url_for('admin.invite_codes'),
+                'tone': 'info',
+            },
+        ]
         total_invites = User.query.filter(User.invited_by.isnot(None)).count()
         
         invite_stats = {
@@ -337,8 +394,18 @@ def dashboard():
             'avg_accuracy': avg_accuracy,
             'balanced_accuracy': balanced_accuracy,
             'ai_accuracy': ai_accuracy,
+            'recent_signups_7d': recent_signups_7d,
+            'recent_predictions_7d': recent_predictions_7d,
+            'pending_predictions': pending_predictions,
+            'expiring_users_count': expiring_users_count,
+            'expired_active_users': expired_active_users,
+            'total_invite_codes': total_invite_codes,
+            'used_invite_codes': used_invite_codes,
+            'unused_invite_codes': unused_invite_codes,
             'recent_users': recent_users,
             'recent_predictions': recent_predictions,
+            'expiring_users': expiring_users,
+            'actionable_cards': actionable_cards,
             'invite_stats': invite_stats
         }
         
@@ -356,8 +423,18 @@ def dashboard():
             'avg_accuracy': 0.0,
             'balanced_accuracy': 0.0,
             'ai_accuracy': 0.0,
+            'recent_signups_7d': 0,
+            'recent_predictions_7d': 0,
+            'pending_predictions': 0,
+            'expiring_users_count': 0,
+            'expired_active_users': 0,
+            'total_invite_codes': 0,
+            'used_invite_codes': 0,
+            'unused_invite_codes': 0,
             'recent_users': [],
             'recent_predictions': [],
+            'expiring_users': [],
+            'actionable_cards': [],
             'invite_stats': {
                 'total_invite_codes': 0,
                 'used_invite_codes': 0,

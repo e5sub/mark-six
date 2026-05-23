@@ -156,7 +156,7 @@
     <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
         <div>
             <h2 class="card-title">🧠 学习参数面板</h2>
-            <div style="color:#666; font-size:0.92rem; margin-top:0.35rem;">查看香港和澳门各策略当前学习权重、窗口与最近回测状态。</div>
+            <div style="color:#aebbd3; font-size:0.92rem; margin-top:0.35rem;">查看香港和澳门各策略当前学习权重、窗口与最近回测状态。</div>
         </div>
         <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
             <button type="button" class="btn" onclick="retrainLearning('hk')">重算香港</button>
@@ -169,8 +169,8 @@
         {% for region in learning_panel %}
         <div style="background:rgba(255,255,255,0.45); border:1px solid rgba(102,126,234,0.12); border-radius:16px; padding:1.25rem;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:0.75rem; flex-wrap:wrap;">
-                <h3 style="margin:0; color:#384a6b;">{{ region.region_label }}学习参数</h3>
-                <div style="color:#7a8599; font-size:0.88rem;">共 {{ region['items']|length }} 个策略</div>
+                <h3 style="margin:0; color:#dbe7ff;">{{ region.region_label }}学习参数</h3>
+                <div style="color:#b4c0d7; font-size:0.88rem;">共 {{ region['items']|length }} 个策略</div>
             </div>
 
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem;">
@@ -178,16 +178,16 @@
                 <div style="background:#fff; border-radius:14px; padding:1rem; box-shadow:0 6px 18px rgba(31,38,135,0.08);">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; margin-bottom:0.75rem;">
                         <div>
-                            <div style="font-size:1rem; font-weight:700; color:#2d3a56;">{{ item.label }}</div>
-                            <div style="font-size:0.82rem; color:#7a8599; margin-top:0.2rem;">{{ item.display_key }}</div>
+                            <div style="font-size:1rem; font-weight:700; color:#223250;">{{ item.label }}</div>
+                            <div style="font-size:0.82rem; color:#66789a; margin-top:0.2rem;">{{ item.display_key }}</div>
                         </div>
                         <div style="text-align:right;">
                             <div style="font-size:0.95rem; font-weight:700; color:#4a4fd8;">{{ item.last_accuracy }}%</div>
-                            <div style="font-size:0.8rem; color:#7a8599;">样本 {{ item.last_total }}</div>
+                            <div style="font-size:0.8rem; color:#66789a;">样本 {{ item.last_total }}</div>
                         </div>
                     </div>
 
-                    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.5rem; margin-bottom:0.85rem; font-size:0.86rem;">
+                    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.5rem; margin-bottom:0.85rem; font-size:0.86rem; color:#465775;">
                         <div>变化：<strong style="color:{% if item.accuracy_delta >= 0 %}#28a745{% else %}#dc3545{% endif %};">{{ item.accuracy_delta }}%</strong></div>
                         <div>池：<strong>{{ item.pool or '-' }}</strong></div>
                         <div>特码池：<strong>{{ item.special_pool or '-' }}</strong></div>
@@ -199,11 +199,11 @@
                     </div>
 
                     {% if item.bucket_counts %}
-                    <div style="font-size:0.84rem; color:#5a6785; margin-bottom:0.65rem;">分桶：{{ item.bucket_counts|join(' / ') }}</div>
+                    <div style="font-size:0.84rem; color:#516482; margin-bottom:0.65rem;">分桶：{{ item.bucket_counts|join(' / ') }}</div>
                     {% endif %}
 
                     {% if item.mix_items %}
-                    <div style="font-size:0.84rem; color:#5a6785; margin-bottom:0.65rem;">
+                    <div style="font-size:0.84rem; color:#516482; margin-bottom:0.65rem;">
                         混合：
                         {% for mix_item in item.mix_items %}
                         {{ mix_item.label }}={{ mix_item.value }}{% if not loop.last %}，{% endif %}
@@ -211,25 +211,25 @@
                     </div>
                     {% endif %}
 
-                    <div style="font-size:0.8rem; color:#8a94a6; margin-bottom:0.65rem;">更新时间：{{ item.updated_at or '-' }}</div>
+                    <div style="font-size:0.8rem; color:#5f7090; margin-bottom:0.65rem;">更新时间：{{ item.updated_at or '-' }}</div>
 
                     {% if item.weights %}
                     <div style="display:flex; flex-wrap:wrap; gap:0.45rem;">
                         {% for weight in item.weights %}
-                        <span style="background:rgba(102,126,234,0.08); color:#45506f; padding:0.35rem 0.55rem; border-radius:999px; font-size:0.8rem;">
+                        <span style="background:rgba(102,126,234,0.08); color:#556789; padding:0.35rem 0.55rem; border-radius:999px; font-size:0.8rem; border:1px solid rgba(102,126,234,0.08);">
                             {{ weight.label }} {{ weight.value }}
                         </span>
                         {% endfor %}
                     </div>
                     {% else %}
-                    <div style="font-size:0.84rem; color:#8a94a6;">当前策略没有可视化权重。</div>
+                    <div style="font-size:0.84rem; color:#6a7b98;">当前策略没有可视化权重。</div>
                     {% endif %}
                 </div>
                 {% endfor %}
             </div>
         </div>
         {% else %}
-        <div style="padding:1rem; color:#666;">暂无学习参数数据。</div>
+        <div style="padding:1rem; color:#aebbd3;">暂无学习参数数据。</div>
         {% endfor %}
     </div>
 </div>
