@@ -1452,6 +1452,20 @@ def _default_strategy_config(strategy):
             "candidate_count": 3,
             "special_shortlist": 8,
             "normal_shortlist": 18,
+            "rerank_weights": {
+                "base_special": 0.9,
+                "avg_normal": 0.55,
+                "special_vote": 0.18,
+                "normal_vote_avg": 0.1,
+                "shortlist_bonus": 1.0,
+                "attr_bonus": 1.0,
+                "diversity_bonus": 1.0,
+                "repeat_penalty": 1.0,
+                "confidence_bonus": 1.0,
+                "shape_score": 1.0,
+                "gate_adjustment": 1.0,
+                "appearance_vote": 0.24,
+            },
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -2165,6 +2179,34 @@ def _tune_strategy_config(strategy, region):
         config["candidate_count"] = _clamp(int(4 - accuracy), 2, 4)
         config["special_shortlist"] = _clamp(int(10 - accuracy * 4), 6, 10)
         config["normal_shortlist"] = _clamp(int(20 - accuracy * 6), 14, 22)
+        gate_profile = _build_ai_gate_profile(region)
+        score_gap = max(0.0, float(gate_profile.get("score_gap") or 0.0))
+        score_pressure = _clamp(score_gap / 8.0, 0.0, 1.0)
+        feedback = _build_prediction_feedback(region, "ai", limit=160)
+        feedback_confidence = _safe_float(feedback.get("confidence"), 0.0)
+        rerank_weights = _default_ai_rerank_weights()
+        rerank_weights["base_special"] = round(_clamp(0.72 + accuracy * 0.42 + feedback_confidence * 0.12, 0.65, 1.25), 4)
+        rerank_weights["avg_normal"] = round(_clamp(0.42 + accuracy * 0.28 + learning_strength * 0.08, 0.35, 0.95), 4)
+        rerank_weights["special_vote"] = round(_clamp(0.1 + learning_strength * 0.12 + score_pressure * 0.08, 0.08, 0.42), 4)
+        rerank_weights["normal_vote_avg"] = round(_clamp(0.06 + learning_strength * 0.08 + score_pressure * 0.06, 0.04, 0.28), 4)
+        rerank_weights["shortlist_bonus"] = round(_clamp(0.82 + learning_strength * 0.22 + score_pressure * 0.28, 0.75, 1.45), 4)
+        rerank_weights["attr_bonus"] = round(_clamp(0.72 + accuracy * 0.44 + feedback_confidence * 0.1, 0.65, 1.35), 4)
+        rerank_weights["diversity_bonus"] = round(_clamp(0.74 + (1 - accuracy) * 0.32 + score_pressure * 0.18, 0.7, 1.35), 4)
+        rerank_weights["repeat_penalty"] = round(_clamp(1.0 + (1 - accuracy) * 0.55 + score_pressure * 0.35, 0.9, 1.95), 4)
+        rerank_weights["confidence_bonus"] = round(_clamp(0.5 + accuracy * 0.55 - score_pressure * 0.12, 0.38, 1.2), 4)
+        rerank_weights["shape_score"] = round(_clamp(0.82 + accuracy * 0.36 + score_pressure * 0.14, 0.78, 1.35), 4)
+        rerank_weights["gate_adjustment"] = round(_clamp(1.0 + score_pressure * 0.4, 1.0, 1.6), 4)
+        rerank_weights["appearance_vote"] = round(_clamp(0.18 + accuracy * 0.1 + learning_strength * 0.04, 0.16, 0.38), 4)
+        config["rerank_weights"] = _normalize_ai_rerank_weights(rerank_weights)
+        config["rerank_learning_confidence"] = round(
+            _clamp((learning_strength * 0.55) + (feedback_confidence * 0.45), 0.2, 1.0),
+            4,
+        )
+        config["rerank_gate_profile"] = {
+            "status": gate_profile.get("status"),
+            "score_gap": round(score_gap, 2),
+            "anchor_strategy": gate_profile.get("anchor_strategy", ""),
+        }
     elif strategy == "ml":
         config["history_window"] = _clamp(int(90 + accuracy * 120), 80, 220)
         config["feature_window"] = _clamp(int(40 + accuracy * 40), 30, 80)
@@ -2421,6 +2463,79 @@ def _feedback_confidence(sample_count, full_confidence=80):
     if sample_count <= 0:
         return 0.0
     return round(_clamp(sample_count / float(full_confidence), 0.15, 1.0), 4)
+
+
+def _default_ai_rerank_weights():
+    return dict(_default_strategy_config("ai").get("rerank_weights") or {})
+
+
+def _normalize_ai_rerank_weights(weights):
+    defaults = _default_ai_rerank_weights()
+    incoming = dict(weights or {})
+    normalized = {}
+    for key, default_value in defaults.items():
+        normalized[key] = round(
+            _clamp(_safe_float(incoming.get(key), default_value), -2.5, 2.5),
+            4,
+        )
+    return normalized
+
+
+def _blend_prediction_feedback_items(*weighted_feedbacks):
+    sections = ("special", "normal", "color", "zodiac", "parity")
+    weighted_items = []
+
+    for item in weighted_feedbacks:
+        if not item:
+            continue
+        if isinstance(item, tuple):
+            feedback, explicit_weight = item
+        else:
+            feedback, explicit_weight = item, None
+        if not feedback:
+            continue
+
+        confidence = _safe_float(feedback.get("confidence", 0.0))
+        samples = max(0, int(feedback.get("samples", 0) or 0))
+        sample_weight = _clamp(samples / 60.0, 0.2, 1.0) if samples > 0 else 0.2
+        base_weight = _safe_float(explicit_weight, 1.0) if explicit_weight is not None else 1.0
+        effective_weight = max(0.05, base_weight * max(0.15, confidence) * sample_weight)
+        weighted_items.append((feedback, effective_weight, confidence, samples))
+
+    if not weighted_items:
+        return {
+            "special": {},
+            "normal": {},
+            "color": {},
+            "zodiac": {},
+            "parity": {},
+            "samples": 0,
+            "confidence": 0.0,
+        }
+
+    total_weight = sum(item[1] for item in weighted_items) or 1.0
+    merged = {}
+    for section in sections:
+        keys = set()
+        for feedback, _, _, _ in weighted_items:
+            keys.update((feedback.get(section) or {}).keys())
+        merged[section] = {
+            key: round(
+                sum(
+                    _safe_float((feedback.get(section) or {}).get(key, 0.5)) * weight
+                    for feedback, weight, _, _ in weighted_items
+                ) / total_weight,
+                4,
+            )
+            for key in keys
+        }
+
+    merged["samples"] = sum(item[3] for item in weighted_items)
+    merged["confidence"] = round(
+        sum(confidence * weight for _, weight, confidence, _ in weighted_items) / total_weight,
+        4,
+    )
+    return merged
 
 def _personalized_predictions_enabled():
     raw = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower()
@@ -4225,11 +4340,25 @@ def _build_ai_shortlist_context(data, region, config=None):
     parity_pref = dict(artifacts.get("parity_pref") or {})
     color_pref = dict(artifacts.get("color_pref") or {})
 
-    feedback = _build_prediction_feedback(region, "ml")
+    ai_feedback = _build_prediction_feedback(region, "ai")
+    ml_feedback = _build_prediction_feedback(region, "ml")
+    feedback = _blend_prediction_feedback_items(
+        (ai_feedback, 1.15),
+        (ml_feedback, 0.85),
+    )
     _, zodiac_pref, _ = _build_attribute_preferences(data[:min(len(data), 24)], region, feedback, year)
     preferred_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
     preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
     preferred_zodiac = max(zodiac_pref.items(), key=lambda item: item[1])[0] if zodiac_pref else ""
+
+    feedback_special_rank = _rank_numbers({
+        number: (_safe_float((feedback.get("special") or {}).get(str(number), 0.5)) - 0.5) * 2
+        for number in range(1, 50)
+    })
+    feedback_normal_rank = _rank_numbers({
+        number: (_safe_float((feedback.get("normal") or {}).get(str(number), 0.5)) - 0.5) * 2
+        for number in range(1, 50)
+    })
 
     strategy_results = dict(ensemble_signals.get("strategy_results") or {})
     try:
@@ -4246,19 +4375,17 @@ def _build_ai_shortlist_context(data, region, config=None):
     except Exception:
         pass
 
-    recent_specials = []
-    for record in list(data or [])[:5]:
-        try:
-            recent_specials.append(int(str(record.get("sno") or "").strip()))
-        except (TypeError, ValueError):
-            continue
+    heat_profile = _build_ai_recent_heat_profile(data, window=8)
+    recent_specials = list(heat_profile.get("recent_specials") or [])
 
     special_shortlist = _dedupe_keep_order(
         special_ranked[:special_limit] +
+        feedback_special_rank[:max(4, special_limit // 2)] +
         [int(number) for number, _ in special_votes.most_common(special_limit)]
     )[:special_limit]
     normal_shortlist = _dedupe_keep_order(
         normal_ranked[:normal_limit] +
+        feedback_normal_rank[:max(6, normal_limit // 3)] +
         [int(number) for number, _ in normal_votes.most_common(normal_limit)]
     )[:normal_limit]
 
@@ -4306,6 +4433,11 @@ def _build_ai_shortlist_context(data, region, config=None):
         },
         "recent_specials": recent_specials,
         "strategy_summary": strategy_summary,
+        "feedback_sources": {
+            "ai_samples": int(ai_feedback.get("samples", 0) or 0),
+            "ml_samples": int(ml_feedback.get("samples", 0) or 0),
+            "blended_confidence": round(float(feedback.get("confidence", 0.0)) * 100, 2),
+        },
     }
 
     shortlist_prompt = (
@@ -4329,6 +4461,11 @@ def _build_ai_shortlist_context(data, region, config=None):
         "preferred_parity": preferred_parity,
         "preferred_zodiac": preferred_zodiac,
         "recent_specials": recent_specials,
+        "recent_special_counter": dict(heat_profile.get("special_counter") or {}),
+        "recent_tail_counter": dict(heat_profile.get("tail_counter") or {}),
+        "recent_color_counter": dict(heat_profile.get("color_counter") or {}),
+        "rerank_weights": _normalize_ai_rerank_weights(config.get("rerank_weights")),
+        "rerank_learning_confidence": round(_safe_float(config.get("rerank_learning_confidence"), 0.0) * 100, 2),
         "shortlist_prompt": shortlist_prompt,
         "structured_payload": structured_payload,
         "gate_profile": _build_ai_gate_profile(region),
@@ -4420,6 +4557,129 @@ def _normalize_ai_candidate_entry(entry, region=None, source_text=""):
         "why": str(entry.get("why") or entry.get("reason") or "").strip(),
         "source_text": str(source_text or "").strip(),
     }
+
+
+def _build_ai_recent_heat_profile(data, window=8):
+    recent_specials = []
+    special_counter = Counter()
+    tail_counter = Counter()
+    color_counter = Counter()
+
+    for record in list(data or [])[:max(1, int(window or 8))]:
+        try:
+            number = int(str(record.get("sno") or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= number <= 49):
+            continue
+        recent_specials.append(number)
+        special_counter[number] += 1
+        tail_counter[number % 10] += 1
+        color = _get_color_zh(number)
+        if color:
+            color_counter[color] += 1
+
+    return {
+        "recent_specials": recent_specials,
+        "special_counter": special_counter,
+        "tail_counter": tail_counter,
+        "color_counter": color_counter,
+    }
+
+
+def _candidate_signature(candidate):
+    if not candidate:
+        return ""
+    special = int(candidate.get("special") or 0)
+    normal = [int(number) for number in (candidate.get("normal") or []) if str(number).isdigit()]
+    return f"{special}|{','.join(map(str, normal))}"
+
+
+def _count_ai_unique_candidates(ai_responses, region=None):
+    signatures = set()
+    for response_text in ai_responses or []:
+        for candidate in _extract_ai_candidate_entries(response_text, region=region):
+            signature = _candidate_signature(candidate)
+            if signature:
+                signatures.add(signature)
+    return len(signatures)
+
+
+def _extend_ai_responses_for_coverage(ai_config, prompt, responses, region, target_candidates, base_temperature=0.35, max_extra_calls=2):
+    responses = list(responses or [])
+    target = max(2, int(target_candidates or 2))
+    for extra_index in range(max(0, int(max_extra_calls or 0))):
+        if _count_ai_unique_candidates(responses, region=region) >= target:
+            break
+        extra_temp = round(_clamp(float(base_temperature or 0.35) + 0.12 + extra_index * 0.05, 0.18, 0.58), 2)
+        try:
+            responses.append(_call_ai_completion(ai_config, prompt, temperature=extra_temp))
+        except Exception:
+            continue
+    return responses
+
+
+def _candidate_similarity_penalty(candidate, selected_candidates):
+    if not selected_candidates:
+        return 0.0
+
+    normal = {int(number) for number in (candidate.get("normal") or []) if str(number).isdigit()}
+    if not normal:
+        return 0.0
+
+    candidate_special = int(candidate.get("special") or 0)
+    candidate_tail = candidate_special % 10 if candidate_special else None
+    candidate_color = _get_color_zh(candidate_special) if candidate_special else ""
+    max_penalty = 0.0
+
+    for selected in selected_candidates:
+        selected_normal = {int(number) for number in (selected.get("normal") or []) if str(number).isdigit()}
+        overlap = len(normal & selected_normal)
+        penalty = 0.0
+        if overlap >= 5:
+            penalty += 0.18
+        elif overlap >= 4:
+            penalty += 0.1
+        elif overlap >= 3:
+            penalty += 0.05
+
+        selected_special = int(selected.get("special") or 0)
+        if candidate_special and selected_special:
+            if candidate_special == selected_special:
+                penalty += 0.28
+            elif candidate_tail is not None and candidate_tail == (selected_special % 10):
+                penalty += 0.05
+            if candidate_color and candidate_color == _get_color_zh(selected_special):
+                penalty += 0.03
+
+        max_penalty = max(max_penalty, penalty)
+
+    return round(max_penalty, 6)
+
+
+def _diversify_ai_ranked_candidates(ranked):
+    pool = [dict(item) for item in (ranked or [])]
+    diversified = []
+    while pool:
+        best_index = 0
+        best_score = None
+        for idx, item in enumerate(pool):
+            penalty = _candidate_similarity_penalty(item, diversified)
+            adjusted = round(float(item.get("aggregate_score", 0.0)) - penalty, 6)
+            if best_score is None or adjusted > best_score:
+                best_score = adjusted
+                best_index = idx
+        chosen = pool.pop(best_index)
+        chosen["diversity_penalty"] = round(
+            _candidate_similarity_penalty(chosen, diversified),
+            6,
+        )
+        chosen["diversified_score"] = round(
+            float(chosen.get("aggregate_score", 0.0)) - float(chosen.get("diversity_penalty", 0.0)),
+            6,
+        )
+        diversified.append(chosen)
+    return diversified
 
 
 def _extract_ai_candidate_entries(ai_response, region=None):
@@ -4525,6 +4785,9 @@ def _score_ai_candidate(candidate, context):
     special_shortlist = set(context.get("special_shortlist") or [])
     normal_shortlist = set(context.get("normal_shortlist") or [])
     recent_specials = list(context.get("recent_specials") or [])
+    recent_special_counter = Counter(context.get("recent_special_counter") or {})
+    recent_tail_counter = Counter(context.get("recent_tail_counter") or {})
+    recent_color_counter = Counter(context.get("recent_color_counter") or {})
 
     base_special = special_score_map.get(special, 0.0)
     avg_normal = sum(normal_score_map.get(number, 0.0) for number in normal) / max(len(normal), 1)
@@ -4532,6 +4795,7 @@ def _score_ai_candidate(candidate, context):
     normal_vote_avg = sum(_safe_float(normal_votes.get(number, 0.0)) for number in normal) / max(len(normal), 1)
     shortlist_bonus = (0.16 if special in special_shortlist else -0.18)
     shortlist_bonus += sum(0.028 if number in normal_shortlist else -0.04 for number in normal)
+    rerank_weights = _normalize_ai_rerank_weights(context.get("rerank_weights"))
 
     special_color = _get_color_zh(special)
     special_parity = _get_parity_zh(special)
@@ -4555,6 +4819,26 @@ def _score_ai_candidate(candidate, context):
     elif special in recent_specials:
         repeat_penalty -= 0.08
 
+    overheat_penalty = 0.0
+    special_heat = int(recent_special_counter.get(special, 0) or 0)
+    if special_heat >= 2:
+        overheat_penalty -= 0.18
+    elif special_heat == 1:
+        overheat_penalty -= 0.05
+
+    special_tail = special % 10
+    tail_heat = int(recent_tail_counter.get(special_tail, 0) or 0)
+    if tail_heat >= 3:
+        overheat_penalty -= 0.1
+    elif tail_heat == 2:
+        overheat_penalty -= 0.04
+
+    special_color_heat = int(recent_color_counter.get(special_color, 0) or 0) if special_color else 0
+    if special_color_heat >= 4:
+        overheat_penalty -= 0.08
+    elif special_color_heat == 3:
+        overheat_penalty -= 0.03
+
     confidence_bonus = _clamp(candidate.get("confidence", 0.0), 0.0, 1.0) * 0.08
     shape_score, shape_diagnostics = _score_ai_combination_shape(normal, special, context)
     gate_profile = dict(context.get("gate_profile") or {})
@@ -4564,19 +4848,21 @@ def _score_ai_candidate(candidate, context):
     elif gate_profile.get("status") == "fallback":
         gate_adjustment -= 0.2
     total = (
-        base_special * 0.9 +
-        avg_normal * 0.55 +
-        special_vote * 0.18 +
-        normal_vote_avg * 0.1 +
-        shortlist_bonus +
-        attr_bonus +
-        diversity_bonus +
-        repeat_penalty +
-        confidence_bonus +
-        shape_score +
-        gate_adjustment
+        base_special * rerank_weights.get("base_special", 0.9) +
+        avg_normal * rerank_weights.get("avg_normal", 0.55) +
+        special_vote * rerank_weights.get("special_vote", 0.18) +
+        normal_vote_avg * rerank_weights.get("normal_vote_avg", 0.1) +
+        shortlist_bonus * rerank_weights.get("shortlist_bonus", 1.0) +
+        attr_bonus * rerank_weights.get("attr_bonus", 1.0) +
+        diversity_bonus * rerank_weights.get("diversity_bonus", 1.0) +
+        repeat_penalty * rerank_weights.get("repeat_penalty", 1.0) +
+        overheat_penalty * rerank_weights.get("repeat_penalty", 1.0) +
+        confidence_bonus * rerank_weights.get("confidence_bonus", 1.0) +
+        shape_score * rerank_weights.get("shape_score", 1.0) +
+        gate_adjustment * rerank_weights.get("gate_adjustment", 1.0)
     )
     diagnostics = {
+        "rerank_weights": rerank_weights,
         "base_special": round(base_special, 6),
         "avg_normal": round(avg_normal, 6),
         "special_vote": round(special_vote, 4),
@@ -4585,6 +4871,7 @@ def _score_ai_candidate(candidate, context):
         "attr_bonus": round(attr_bonus, 4),
         "diversity_bonus": round(diversity_bonus, 4),
         "repeat_penalty": round(repeat_penalty, 4),
+        "overheat_penalty": round(overheat_penalty, 4),
         "confidence_bonus": round(confidence_bonus, 4),
         "shape_score": round(shape_score, 4),
         "gate_adjustment": round(gate_adjustment, 4),
@@ -4621,6 +4908,8 @@ def _build_ai_selection_recommendation(best_candidate, context, ranked_candidate
 
 
 def _finalize_ai_multi_sample_result(ai_responses, region, context):
+    rerank_weights = _normalize_ai_rerank_weights(context.get("rerank_weights"))
+    appearance_vote_weight = rerank_weights.get("appearance_vote", 0.24)
     signature_votes = Counter()
     best_by_signature = {}
 
@@ -4649,13 +4938,14 @@ def _finalize_ai_multi_sample_result(ai_responses, region, context):
             {
                 **candidate,
                 "appearance_votes": round(signature_votes[candidate["signature"]], 4),
-                "aggregate_score": round(candidate["rerank_score"] + signature_votes[candidate["signature"]] * 0.24, 6),
+                "aggregate_score": round(candidate["rerank_score"] + signature_votes[candidate["signature"]] * appearance_vote_weight, 6),
             }
             for candidate in best_by_signature.values()
         ],
         key=lambda item: (item["aggregate_score"], item["rerank_score"], item["appearance_votes"]),
         reverse=True,
     )
+    ranked = _diversify_ai_ranked_candidates(ranked)
     best = ranked[0]
 
     result = {
@@ -4670,11 +4960,15 @@ def _finalize_ai_multi_sample_result(ai_responses, region, context):
             "ai_unique_candidates": len(ranked),
             "ai_selected_score": round(best.get("aggregate_score", 0.0), 6),
             "ai_gate_profile": dict(context.get("gate_profile") or {}),
+            "ai_rerank_weights": rerank_weights,
+            "ai_rerank_learning_confidence": round(_safe_float(context.get("rerank_learning_confidence"), 0.0), 2),
             "ai_candidate_ranking": [
                 {
                     "special": item["special"],
                     "normal": item["normal"],
                     "score": round(item["aggregate_score"], 6),
+                    "diversified_score": round(item.get("diversified_score", item.get("aggregate_score", 0.0)), 6),
+                    "diversity_penalty": round(item.get("diversity_penalty", 0.0), 6),
                     "votes": round(item["appearance_votes"], 4),
                 }
                 for item in ranked[:5]
@@ -4687,11 +4981,13 @@ def _finalize_ai_multi_sample_result(ai_responses, region, context):
     return result, None
 
 
-def predict_with_ai(data, region):
+def predict_with_ai(data, region, config_override=None):
     ai_config = get_ai_config()
     if not ai_config['api_key'] or "你的" in ai_config['api_key']:
         return {"error": "AI API Key 未配置"}
     tuned = _load_strategy_config("ai", region)
+    if config_override:
+        tuned = {**tuned, **dict(config_override)}
     history_window = int(tuned.get("history_window") or 12)
     temperature = float(tuned.get("temperature") or 0.35)
     sample_count = _clamp(int(tuned.get("sample_count") or 3), 1, 5)
@@ -4718,20 +5014,24 @@ def predict_with_ai(data, region):
         responses = []
         for temp in _build_ai_sampling_temperatures(temperature, sample_count):
             responses.append(_call_ai_completion(ai_config, prompt, temperature=temp))
+        responses = _extend_ai_responses_for_coverage(
+            ai_config,
+            prompt,
+            responses,
+            region,
+            candidate_count,
+            base_temperature=temperature,
+            max_extra_calls=2,
+        )
         result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
         if error:
             return {"error": error}
-        return result
-        tuned_accuracy = round(float(tuned.get("last_accuracy") or 0.0) * 100, 1)
         feedback = _build_prediction_feedback(region, "ai")
-        result["recommendation_text"] = _build_special_focus_text(
-            result.get("special", {}).get("number", ""),
-            result.get("normal", []),
-            strategy_name="AI智能预测",
-            accuracy=tuned_accuracy,
-            samples=feedback.get("samples", 0),
-            extra_reason="已结合最近历史开奖与自动学习反馈。",
-        )
+        model_meta = dict(result.get("model_meta") or {})
+        model_meta["ai_tuned_accuracy"] = round(float(tuned.get("last_accuracy") or 0.0) * 100, 2)
+        model_meta["ai_feedback_samples"] = int(feedback.get("samples", 0) or 0)
+        model_meta["ai_feedback_confidence"] = round(float(feedback.get("confidence") or 0.0) * 100, 2)
+        result["model_meta"] = model_meta
         return result
     except Exception as e:
         return {"error": f"调用AI API时出错: {e}"}
@@ -4928,9 +5228,16 @@ def save_draws_to_database(draws, region):
         print(f"保存开奖记录到数据库失败: {e}")
         db.session.rollback()
 
-AUTO_BACKTEST_STRATEGIES = ("ml", "hybrid", "balanced", "trend", "hot", "cold")
+AUTO_BACKTEST_STRATEGIES = ("ai", "ml", "hybrid", "balanced", "trend", "hot", "cold")
 AUTO_BACKTEST_MIN_HISTORY = 60
 AUTO_BACKTEST_LIMIT = 240
+AI_BACKTEST_MAX_PERIODS = 12
+
+
+def _ai_backtest_enabled():
+    ai_config = get_ai_config()
+    api_key = str(ai_config.get("api_key") or "").strip()
+    return bool(api_key and "你的" not in api_key)
 
 
 def _backtest_draw_sort_key(draw):
@@ -5059,10 +5366,13 @@ def _summarize_backtest_entries(entries):
 
 def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history=AUTO_BACKTEST_MIN_HISTORY):
     strategies = list(strategies or AUTO_BACKTEST_STRATEGIES)
+    if "ai" in strategies and not _ai_backtest_enabled():
+        strategies = [strategy for strategy in strategies if strategy != "ai"]
     chronological = _normalize_backtest_draws(draws, limit=AUTO_BACKTEST_LIMIT)
     strategy_logs = {strategy: [] for strategy in strategies}
     detail_rows = []
     effective_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
+    ai_start_idx = max(effective_min_history, len(chronological) - AI_BACKTEST_MAX_PERIODS)
     if len(chronological) <= 1:
         return {
             "region": region,
@@ -5078,9 +5388,26 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
         target_draw = chronological[idx]
         history_desc = list(reversed(chronological[:idx]))
         for strategy in strategies:
+            if strategy == "ai" and idx < ai_start_idx:
+                continue
             resolved_strategy = strategy
             try:
-                result = get_local_recommendations(resolved_strategy, history_desc, region)
+                if strategy == "ai":
+                    result = predict_with_ai(
+                        history_desc,
+                        region,
+                        config_override={
+                            "sample_count": 1,
+                            "candidate_count": 2,
+                            "history_window": 10,
+                            "special_shortlist": 6,
+                            "normal_shortlist": 14,
+                        },
+                    )
+                else:
+                    result = get_local_recommendations(resolved_strategy, history_desc, region)
+                if result.get("error"):
+                    raise ValueError(result.get("error"))
             except Exception as e:
                 strategy_logs[strategy].append({
                     "period": target_draw.get("id"),
@@ -5710,6 +6037,15 @@ def unified_predict_api():
                             responses.append(_call_ai_completion(ai_config, prompt, temperature=temp))
                         except Exception:
                             continue
+                    responses = _extend_ai_responses_for_coverage(
+                        ai_config,
+                        prompt,
+                        responses,
+                        region,
+                        candidate_count,
+                        base_temperature=temperature,
+                        max_extra_calls=2,
+                    )
                     result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
                     if error:
                         yield _sse_event({"type": "error", "error": error})
