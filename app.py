@@ -259,6 +259,84 @@ def _decorate_recommendation_text(requested_strategy, resolved_strategy, recomme
     return recommendation_text or ''
 
 
+def _build_ai_normal_summary(normal_numbers, zodiac_map):
+    numbers = []
+    for value in normal_numbers or []:
+        try:
+            numbers.append(int(str(value).strip()))
+        except (TypeError, ValueError):
+            continue
+
+    if not numbers:
+        return "参考平码：暂无可用号码。"
+
+    labels = []
+    for num in numbers:
+        zodiac = zodiac_map.get(str(num), "") or ""
+        color = _get_color_zh(num) or ""
+        parts = [f"{num:02d}"]
+        if zodiac:
+            parts.append(zodiac)
+        if color:
+            parts.append(color)
+        labels.append("/".join(parts))
+
+    zone_names = []
+    if any(num <= 16 for num in numbers):
+        zone_names.append("小号区")
+    if any(17 <= num <= 33 for num in numbers):
+        zone_names.append("中段区")
+    if any(num >= 34 for num in numbers):
+        zone_names.append("大号区")
+    zone_text = "、".join(zone_names) if zone_names else "多区间"
+
+    color_counter = Counter(_get_color_zh(num) or "待定" for num in numbers)
+    color_text = "、".join(
+        f"{name}{count}枚"
+        for name, count in color_counter.items()
+        if name and name != "待定"
+    ) or "属性均衡"
+
+    return (
+        f"参考平码：[{', '.join(f'{num:02d}' for num in numbers)}]\n"
+        f"简述：{'、'.join(labels)}。整体以{zone_text}分散覆盖为主，当前波色分布为{color_text}，主要用于配合特码，不逐个展开。"
+    )
+
+
+def _build_ai_reason_fallback(special_number, normal_numbers, region=None):
+    year = datetime.now().year
+    try:
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+    except Exception:
+        number_to_zodiac = {}
+
+    try:
+        special_num = int(str(special_number).strip())
+    except (TypeError, ValueError):
+        special_num = None
+
+    special_color = _get_color_zh(special_num) if special_num is not None else ""
+    special_zodiac = number_to_zodiac.get(str(special_num), "") if special_num is not None else ""
+    special_parity = ""
+    if special_num is not None:
+        special_parity = "双" if special_num % 2 == 0 else "单"
+
+    normal_text = _build_ai_normal_summary(normal_numbers, number_to_zodiac)
+    region_label = "香港" if str(region or "").lower() == "hk" else "澳门" if str(region or "").lower() == "macau" else "当前"
+
+    return (
+        f"**平码预测**\n\n{normal_text}\n\n"
+        f"**特码重点**\n\n"
+        f"号码：`{special_number}`\n"
+        f"理由：作为本期主推特码，优先参考{region_label}最近样本里的结构平衡；当前属性为{special_color or '待定'}波、生肖{special_zodiac or '待定'}、{special_parity or '待定'}数，用来和平码候选拉开主次。\n"
+        f"风险：特码本身波动更大，即使属性匹配，也可能被临场冷号打断。\n\n"
+        f"**排除逻辑**\n\n"
+        f"1. 不优先追与主推号完全同属性、且最近已经连续出现的过热号码。\n"
+        f"2. 不把六码全部压在同一区间，尽量避免小号、中段、大号失衡。\n"
+        f"3. 如果 AI 原始回复只给了号码，这一段是系统自动补的结构化说明。"
+    )
+
+
 def _normalize_special_candidate_numbers(candidates):
     normalized = []
     seen = set()
@@ -4736,6 +4814,28 @@ def _call_ai_completion_with_retries(ai_config, prompt, temperature=0.35, max_at
     return ""
 
 
+def _resolve_ai_latency_budget_seconds(tuned=None, stream_mode=False):
+    config = dict(tuned or {})
+    default_budget = 14.0 if stream_mode else 18.0
+    raw_budget = config.get("latency_budget_seconds")
+    if raw_budget in (None, ""):
+        raw_budget = config.get("time_budget_seconds")
+    try:
+        budget = float(raw_budget)
+    except (TypeError, ValueError):
+        budget = default_budget
+    return float(_clamp(budget, 6.0, 45.0))
+
+
+def _ai_budget_remaining(started_at, budget_seconds):
+    elapsed = max(0.0, time.perf_counter() - float(started_at or 0.0))
+    return max(0.0, float(budget_seconds or 0.0) - elapsed)
+
+
+def _ai_budget_exhausted(started_at, budget_seconds):
+    return _ai_budget_remaining(started_at, budget_seconds) <= 0.0
+
+
 def _build_ai_local_fallback_candidates(context, desired_count=3):
     desired = max(1, int(desired_count or 1))
     special_shortlist = [int(number) for number in (context.get("special_shortlist") or []) if str(number).isdigit()]
@@ -4896,6 +4996,121 @@ def _extend_ai_responses_for_coverage(ai_config, prompt, responses, region, targ
         except Exception:
             continue
     return responses
+
+
+def _attach_ai_prediction_metadata(result, tuned, region, elapsed_seconds=None, budget_seconds=None, budget_exhausted=False):
+    if not isinstance(result, dict):
+        return result
+
+    feedback = _build_prediction_feedback(region, "ai")
+    model_meta = dict(result.get("model_meta") or {})
+    model_meta["ai_tuned_accuracy"] = round(float((tuned or {}).get("last_accuracy") or 0.0) * 100, 2)
+    model_meta["ai_feedback_samples"] = int(feedback.get("samples", 0) or 0)
+    model_meta["ai_feedback_confidence"] = round(float(feedback.get("confidence") or 0.0) * 100, 2)
+
+    if elapsed_seconds is not None:
+        model_meta["ai_elapsed_ms"] = int(max(0.0, float(elapsed_seconds)) * 1000)
+    if budget_seconds is not None:
+        model_meta["ai_latency_budget_ms"] = int(max(0.0, float(budget_seconds)) * 1000)
+        model_meta["ai_budget_exhausted"] = bool(budget_exhausted)
+
+    result["model_meta"] = model_meta
+    return result
+
+
+def _run_ai_prediction_pipeline(
+    data,
+    region,
+    tuned,
+    ai_config,
+    shortlist_context,
+    prompt,
+    temperature=0.35,
+    sample_count=3,
+    candidate_count=3,
+    initial_response_text="",
+    stream_mode=False,
+):
+    started_at = time.perf_counter()
+    budget_seconds = _resolve_ai_latency_budget_seconds(tuned, stream_mode=stream_mode)
+    responses = []
+
+    initial_text = str(initial_response_text or "").strip()
+    if initial_text:
+        repaired = _repair_ai_response_text(initial_text, region=region)
+        if repaired:
+            responses.append(repaired)
+
+    temperatures = list(_build_ai_sampling_temperatures(temperature, sample_count))
+    if stream_mode and responses:
+        temperatures = []
+    elif responses and temperatures:
+        temperatures = temperatures[1:]
+
+    for temp in temperatures:
+        if _ai_budget_exhausted(started_at, budget_seconds):
+            break
+        try:
+            responses.append(
+                _call_ai_completion_with_retries(
+                    ai_config,
+                    prompt,
+                    temperature=temp,
+                    max_attempts=2,
+                    region=region,
+                )
+            )
+        except Exception:
+            continue
+
+    budget_exhausted = _ai_budget_exhausted(started_at, budget_seconds)
+    if not budget_exhausted:
+        remaining_seconds = _ai_budget_remaining(started_at, budget_seconds)
+        extra_calls = 0
+        if stream_mode and responses:
+            extra_calls = 0
+        elif remaining_seconds >= 8:
+            extra_calls = 2
+        elif remaining_seconds >= 4:
+            extra_calls = 1
+        if extra_calls > 0:
+            responses = _extend_ai_responses_for_coverage(
+                ai_config,
+                prompt,
+                responses,
+                region,
+                candidate_count,
+                base_temperature=temperature,
+                max_extra_calls=extra_calls,
+            )
+        budget_exhausted = _ai_budget_exhausted(started_at, budget_seconds)
+
+    responses = _ensure_ai_candidate_coverage(
+        responses,
+        region,
+        shortlist_context,
+        desired_count=candidate_count,
+    )
+    result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
+    elapsed_seconds = time.perf_counter() - started_at
+    if error:
+        return {"error": error}
+
+    result = _blend_ai_with_anchor_strategy(
+        result,
+        data,
+        region,
+        shortlist_context=shortlist_context,
+    )
+    result = _attach_ai_prediction_metadata(
+        result,
+        tuned,
+        region,
+        elapsed_seconds=elapsed_seconds,
+        budget_seconds=budget_seconds,
+        budget_exhausted=budget_exhausted,
+    )
+    return result
 
 
 def _candidate_similarity_penalty(candidate, selected_candidates):
@@ -5425,50 +5640,32 @@ def _finalize_ai_prediction_result(
     sample_count=3,
     candidate_count=3,
     shortlist_context=None,
+    tuned=None,
+    stream_mode=True,
 ):
-    shortlist_context = shortlist_context or {}
-    if not full_text:
-        return predict_with_ai(data, region)
-
-    responses = [_repair_ai_response_text(full_text, region=region)]
-    extra_temperatures = _build_ai_sampling_temperatures(temperature, sample_count)[1:]
-    for temp in extra_temperatures:
-        try:
-            responses.append(
-                _call_ai_completion_with_retries(
-                    ai_config,
-                    prompt,
-                    temperature=temp,
-                    max_attempts=2,
-                    region=region,
-                )
-            )
-        except Exception:
-            continue
-
-    responses = _extend_ai_responses_for_coverage(
-        ai_config,
-        prompt,
-        responses,
-        region,
-        candidate_count,
-        base_temperature=temperature,
-        max_extra_calls=2,
-    )
-    responses = _ensure_ai_candidate_coverage(
-        responses,
-        region,
-        shortlist_context,
-        desired_count=candidate_count,
-    )
-    result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
-    if error:
-        return {"error": error}
-    return _blend_ai_with_anchor_strategy(
-        result,
+    tuned = dict(tuned or _load_strategy_config("ai", region))
+    shortlist_context = shortlist_context or _build_ai_shortlist_context(data, region, config=tuned)
+    ai_config = ai_config or get_ai_config()
+    if not prompt:
+        prompt = _build_ai_prompt_v4(
+            data,
+            region,
+            shortlist_context,
+            history_window=int(tuned.get("history_window") or 12),
+            candidate_count=candidate_count,
+        )
+    return _run_ai_prediction_pipeline(
         data,
         region,
-        shortlist_context=shortlist_context,
+        tuned,
+        ai_config,
+        shortlist_context,
+        prompt,
+        temperature=temperature,
+        sample_count=sample_count,
+        candidate_count=candidate_count,
+        initial_response_text=full_text,
+        stream_mode=stream_mode,
     )
 
 
@@ -5485,7 +5682,6 @@ def predict_with_ai(data, region, config_override=None):
     candidate_count = _clamp(int(tuned.get("candidate_count") or 3), 2, 5)
     try:
         shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
-        gate_profile = dict(shortlist_context.get("gate_profile") or {})
         prompt = _build_ai_prompt_v4(
             data,
             region,
@@ -5493,48 +5689,18 @@ def predict_with_ai(data, region, config_override=None):
             history_window=history_window,
             candidate_count=candidate_count,
         )
-        responses = []
-        for temp in _build_ai_sampling_temperatures(temperature, sample_count):
-            responses.append(
-                _call_ai_completion_with_retries(
-                    ai_config,
-                    prompt,
-                    temperature=temp,
-                    max_attempts=2,
-                    region=region,
-                )
-            )
-        responses = _extend_ai_responses_for_coverage(
-            ai_config,
-            prompt,
-            responses,
-            region,
-            candidate_count,
-            base_temperature=temperature,
-            max_extra_calls=2,
-        )
-        responses = _ensure_ai_candidate_coverage(
-            responses,
-            region,
-            shortlist_context,
-            desired_count=candidate_count,
-        )
-        result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
-        if error:
-            return {"error": error}
-        result = _blend_ai_with_anchor_strategy(
-            result,
+        return _run_ai_prediction_pipeline(
             data,
             region,
-            shortlist_context=shortlist_context,
+            tuned,
+            ai_config,
+            shortlist_context,
+            prompt,
+            temperature=temperature,
+            sample_count=sample_count,
+            candidate_count=candidate_count,
+            stream_mode=False,
         )
-        feedback = _build_prediction_feedback(region, "ai")
-        model_meta = dict(result.get("model_meta") or {})
-        model_meta["ai_tuned_accuracy"] = round(float(tuned.get("last_accuracy") or 0.0) * 100, 2)
-        model_meta["ai_feedback_samples"] = int(feedback.get("samples", 0) or 0)
-        model_meta["ai_feedback_confidence"] = round(float(feedback.get("confidence") or 0.0) * 100, 2)
-        result["model_meta"] = model_meta
-        return result
     except Exception as e:
         return {"error": f"调用AI API时出错: {e}"}
 
@@ -6498,6 +6664,12 @@ def unified_predict_api():
                     yield _sse_event({"type": "error", "error": f"调用AI API时出错: {e}"})
                     return
 
+                yield _sse_event({
+                    "type": "status",
+                    "stage": "postprocess",
+                    "message": "模型输出完成，正在整理最终候选..."
+                })
+
                 try:
                     result = _finalize_ai_prediction_result(
                         data,
@@ -6509,6 +6681,8 @@ def unified_predict_api():
                         sample_count=sample_count,
                         candidate_count=candidate_count,
                         shortlist_context=shortlist_context,
+                        tuned=tuned,
+                        stream_mode=True,
                     )
                 except Exception as e:
                     yield _sse_event({"type": "error", "error": f"AI预测处理失败: {e}"})
@@ -6516,6 +6690,12 @@ def unified_predict_api():
                 if result.get("error"):
                     yield _sse_event({"type": "error", "error": result.get("error")})
                     return
+
+                yield _sse_event({
+                    "type": "status",
+                    "stage": "finalize",
+                    "message": "候选已整理完成，正在生成最终结果..."
+                })
 
                 try:
                     if user_id and is_active:
@@ -6539,6 +6719,11 @@ def unified_predict_api():
 
                     if user_id and is_active:
                         try:
+                            yield _sse_event({
+                                "type": "status",
+                                "stage": "save",
+                                "message": "正在保存预测记录..."
+                            })
                             prediction = PredictionRecord(
                                 user_id=user_id,
                                 region=region,

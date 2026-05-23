@@ -197,6 +197,17 @@ function handleStreamingResponse(response, strategy) {
                 return null;
             }
 
+            if (data.type === 'status') {
+                if (streamingStatus) {
+                    const message = data.message || '正在整理 AI 结果...';
+                    streamingStatus.innerHTML = `
+                        <div style="margin-bottom:8px;">${message}</div>
+                        <div style="font-size:0.82rem; color:#93c5fd;">已接收 ${chunkCount} 段内容，连接仍在进行中。</div>
+                    `;
+                }
+                return null;
+            }
+
             if (data.type === 'done') {
                 finalResult = data;
 
@@ -286,6 +297,23 @@ function handleStreamingResponse(response, strategy) {
             }
 
             return read();
+        }).catch(error => {
+            document.getElementById('predictionIndicator').style.display = 'none';
+            console.error('流式预测连接中断:', error);
+
+            if (finalResult) {
+                displayFinalResult(finalResult, strategy);
+                return;
+            }
+
+            if (streamingText) {
+                streamingText.innerHTML = `
+                    <div style="background: rgba(220, 53, 69, 0.1); padding: 15px; border-radius: 10px; text-align: center; color: #dc3545;">
+                        <i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 10px;"></i>
+                        <p>AI 预测连接中断，请重试一次。</p>
+                    </div>
+                `;
+            }
         });
     }
 
