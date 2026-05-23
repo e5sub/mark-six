@@ -1108,23 +1108,31 @@ def ml_records():
         elif result == 'pending':
             query = query.filter(PredictionRecord.is_result_updated == False)
 
-    all_predictions = query.order_by(
+    deduped_prediction_ids = query.with_entities(
+        func.max(PredictionRecord.id).label('id')
+    ).group_by(
+        PredictionRecord.region,
+        PredictionRecord.period,
+        PredictionRecord.strategy,
+    ).subquery()
+
+    records_per_page = 12
+    total_records = db.session.query(func.count()).select_from(
+        deduped_prediction_ids
+    ).scalar() or 0
+    total_pages = max(1, (total_records + records_per_page - 1) // records_per_page)
+    current_page = min(max(page, 1), total_pages)
+    start_index = (current_page - 1) * records_per_page
+
+    paged_predictions = PredictionRecord.query.join(
+        deduped_prediction_ids,
+        PredictionRecord.id == deduped_prediction_ids.c.id
+    ).order_by(
         PredictionRecord.created_at.desc(),
         PredictionRecord.id.desc()
-    ).all()
+    ).offset(start_index).limit(records_per_page).all()
 
-    deduped_predictions = []
-    seen_prediction_keys = set()
-    for prediction in all_predictions:
-        unique_key = (
-            prediction.user_id,
-            prediction.region,
-            prediction.period,
-            prediction.strategy,
-        )
-        if unique_key in seen_prediction_keys:
-            continue
-        seen_prediction_keys.add(unique_key)
+    for prediction in paged_predictions:
         prediction.display_actual_special_zodiac = (
             prediction.actual_special_zodiac or ''
         ).strip()
@@ -1148,15 +1156,6 @@ def ml_records():
             )
         )
         prediction.display_prediction_text = _hydrate_user_prediction_text(prediction)
-        deduped_predictions.append(prediction)
-
-    records_per_page = 12
-    total_records = len(deduped_predictions)
-    total_pages = max(1, (total_records + records_per_page - 1) // records_per_page)
-    current_page = min(max(page, 1), total_pages)
-    start_index = (current_page - 1) * records_per_page
-    end_index = start_index + records_per_page
-    paged_predictions = deduped_predictions[start_index:end_index]
     predictions = SimpleNamespace(
         items=paged_predictions,
         page=current_page,
@@ -1205,8 +1204,48 @@ def ml_records():
     special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
 
+    region_label_map = {'hk': '香港', 'macau': '澳门'}
+    region_rows = db.session.query(
+        PredictionRecord.region,
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0))
+    ).filter(
+        PredictionRecord.user_id == session['user_id'],
+        PredictionRecord.strategy == 'ml',
+        PredictionRecord.region.in_(tuple(region_label_map.keys())),
+    ).group_by(PredictionRecord.region).all()
+
+    fast_region_ml_stats = []
+    region_stats_map = {
+        row[0]: {
+            'total': row[1] or 0,
+            'updated': row[2] or 0,
+            'special_hits': row[3] or 0,
+            'normal_hits': row[4] or 0,
+        }
+        for row in region_rows
+    }
+    for region_key, region_label in region_label_map.items():
+        region_data = region_stats_map.get(region_key, {})
+        region_total = region_data.get('total', 0)
+        region_updated = region_data.get('updated', 0)
+        region_special_hits = region_data.get('special_hits', 0)
+        region_normal_hits = region_data.get('normal_hits', 0)
+        fast_region_ml_stats.append({
+            'region': region_key,
+            'label': region_label,
+            'total': region_total,
+            'updated': region_updated,
+            'special_hits': region_special_hits,
+            'normal_hits': region_normal_hits,
+            'special_hit_rate': round((region_special_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+            'normal_hit_rate': round((region_normal_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+        })
+
     region_ml_stats = []
-    for region_key, region_label in (('hk', '香港'), ('macau', '澳门')):
+    for region_key, region_label in ():
         region_row = db.session.query(
             db.func.count(PredictionRecord.id),
             db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
@@ -1252,7 +1291,7 @@ def ml_records():
         pending_predictions=pending_predictions,
         special_hit_rate=round(special_hit_rate, 2),
         normal_hit_rate=round(normal_hit_rate, 2),
-        region_ml_stats=region_ml_stats,
+        region_ml_stats=fast_region_ml_stats,
     )
 
 @user_bp.route('/save-prediction', methods=['POST'])
