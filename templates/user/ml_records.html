@@ -105,7 +105,14 @@
         </form>
     </div>
 
-    {% if predictions.items %}
+    <div id="mlRecordsLoading" class="ml-loading-state">
+        <div class="ml-loading-spinner"></div>
+        <div class="ml-loading-text">正在加载机器学习记录...</div>
+    </div>
+    <div id="mlRecordsError" class="empty-state" style="display:none;"></div>
+    <div id="mlRecordsContainer" data-initial-page="{{ initial_page or 1 }}"></div>
+    {# legacy server-rendered block kept below temporarily disabled #}
+    {% if false %}
     <div class="ml-record-list">
         {% for prediction in predictions.items %}
         <div class="ml-record-card">
