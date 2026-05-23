@@ -1,8 +1,154 @@
 ﻿{% extends "admin/base.html" %}
 
+{% macro render_number_stakes(raw) -%}
+    {% set red_numbers = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
+    {% set blue_numbers = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
+    {% for part in raw.split(',') if part.strip() %}
+        {% set pair = part.strip().split(':') %}
+        {% if pair|length >= 2 %}
+            {% set num = pair[0].strip() %}
+            {% set amount = pair[1].strip()|float|int %}
+            {% set num_int = num|int %}
+            <span class="bet-pair">
+                <span class="bet-ball {% if num_int in red_numbers %}ball-red{% elif num_int in blue_numbers %}ball-blue{% else %}ball-green{% endif %}">{{ '%02d'|format(num_int) }}</span>
+                <span class="bet-amount">{{ amount }}元</span>
+            </span>
+        {% endif %}
+    {% endfor %}
+{%- endmacro %}
+
+{% macro render_stake_chips(raw, tone='default') -%}
+    {% for part in raw.split(',') if part.strip() %}
+        {% set pair = part.strip().split(':') %}
+        {% if pair|length >= 2 %}
+            {% set label = pair[0].strip() %}
+            {% set amount = pair[1].strip()|float|int %}
+            <span class="bet-chip {{ tone }}">{{ label }}</span>
+            <span class="bet-amount">{{ amount }}元</span>
+        {% else %}
+            <span class="bet-chip {{ tone }}">{{ part.strip() }}</span>
+        {% endif %}
+    {% endfor %}
+{%- endmacro %}
+
 {% block page_title %}下注记录{% endblock %}
 
 {% block content %}
+<style>
+    .bet-content {
+        display: grid;
+        gap: 0.55rem;
+    }
+
+    .bet-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+        line-height: 1.7;
+    }
+
+    .bet-label {
+        color: #cbd5e1;
+        min-width: 56px;
+        font-weight: 700;
+    }
+
+    .bet-pair,
+    .bet-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+        margin-right: 0.25rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .bet-ball {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 800;
+        box-shadow: 0 4px 10px rgba(2, 6, 23, 0.2);
+    }
+
+    .ball-red { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+    .ball-blue { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); }
+    .ball-green { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
+
+    .bet-chip {
+        padding: 0.28rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(59, 130, 246, 0.12);
+        color: #dbeafe;
+        border: 1px solid rgba(96, 165, 250, 0.18);
+        font-size: 0.84rem;
+        font-weight: 700;
+    }
+
+    .bet-chip.wave {
+        background: rgba(14, 165, 233, 0.14);
+        color: #bae6fd;
+        border-color: rgba(56, 189, 248, 0.18);
+    }
+
+    .bet-chip.zodiac {
+        background: rgba(168, 85, 247, 0.14);
+        color: #e9d5ff;
+        border-color: rgba(192, 132, 252, 0.18);
+    }
+
+    .bet-chip.parity {
+        background: rgba(245, 158, 11, 0.14);
+        color: #fde68a;
+        border-color: rgba(251, 191, 36, 0.18);
+    }
+
+    .bet-amount {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.24rem 0.58rem;
+        border-radius: 999px;
+        background: rgba(34, 197, 94, 0.14);
+        color: #86efac;
+        border: 1px solid rgba(74, 222, 128, 0.18);
+        font-size: 0.82rem;
+        font-weight: 800;
+    }
+
+    .profit-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 72px;
+        padding: 0.35rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.84rem;
+        font-weight: 800;
+    }
+
+    .profit-win {
+        background: rgba(34, 197, 94, 0.14);
+        color: #86efac;
+        border: 1px solid rgba(74, 222, 128, 0.18);
+    }
+
+    .profit-lose {
+        background: rgba(239, 68, 68, 0.14);
+        color: #fca5a5;
+        border: 1px solid rgba(248, 113, 113, 0.18);
+    }
+
+    .profit-draw {
+        background: rgba(148, 163, 184, 0.14);
+        color: #cbd5e1;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+    }
+</style>
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">筛选条件</h2>
@@ -66,7 +212,9 @@
             <div class="stat-label">总下注</div>
         </div>
         <div class="stat-card">
-            <div class="stat-number">{{ summary.total_profit|int }}元</div>
+            <div class="stat-number" style="color:{% if summary.total_profit > 0 %}#22c55e{% elif summary.total_profit < 0 %}#ef4444{% else %}#f8fafc{% endif %};">
+                {{ summary.total_profit|int }}元
+            </div>
             <div class="stat-label">总盈亏</div>
         </div>
         <div class="stat-card">
@@ -117,88 +265,66 @@
                         <td>{{ '香港' if record.region == 'hk' else '澳门' }}</td>
                         <td>{{ record.period }}</td>
                         <td>
-                            {% if record.bettor_name %}下注人：{{ record.bettor_name }}<br>{% endif %}
-                            {% if record.selected_numbers %}
-                                {% if ':' in record.selected_numbers %}
-                                    {% set parts = record.selected_numbers.split(',') %}
-                                    {% set formatted = [] %}
-                                    {% for part in parts %}
-                                        {% set piece = part.strip() %}
-                                        {% if ':' in piece %}
-                                            {% set pair = piece.split(':') %}
-                                            {% if pair|length >= 2 %}
-                                                {% set amount = pair[1].strip()|float|int %}
-                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ amount ~ '元)') %}
-                                            {% endif %}
-                                        {% endif %}
-                                    {% endfor %}
-                                    号码：{{ formatted|join(', ') }}<br>
-                                {% else %}
-                                    号码：{{ record.selected_numbers }}<br>
+                            <div class="bet-content">
+                                {% if record.bettor_name %}
+                                <div class="bet-row"><span class="bet-label">下注人</span><span>{{ record.bettor_name }}</span></div>
                                 {% endif %}
-                            {% endif %}
-                            {% if record.selected_zodiacs %}
-                                {% if ':' in record.selected_zodiacs %}
-                                    {% set parts = record.selected_zodiacs.split(',') %}
-                                    {% set formatted = [] %}
-                                    {% for part in parts %}
-                                        {% set piece = part.strip() %}
-                                        {% if ':' in piece %}
-                                            {% set pair = piece.split(':') %}
-                                            {% if pair|length >= 2 %}
-                                                {% set amount = pair[1].strip()|float|int %}
-                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ amount ~ '元)') %}
-                                            {% endif %}
-                                        {% endif %}
-                                    {% endfor %}
-                                    生肖：{{ formatted|join(', ') }}<br>
-                                {% else %}
-                                    生肖：{{ record.selected_zodiacs }}<br>
+                                {% if record.selected_numbers %}
+                                <div class="bet-row">
+                                    <span class="bet-label">号码</span>
+                                    {% if ':' in record.selected_numbers %}
+                                        {{ render_number_stakes(record.selected_numbers) }}
+                                    {% else %}
+                                        <span>{{ record.selected_numbers }}</span>
+                                    {% endif %}
+                                </div>
                                 {% endif %}
-                            {% endif %}
-                            {% if record.selected_colors %}
-                                {% if ':' in record.selected_colors %}
-                                    {% set parts = record.selected_colors.split(',') %}
-                                    {% set formatted = [] %}
-                                    {% for part in parts %}
-                                        {% set piece = part.strip() %}
-                                        {% if ':' in piece %}
-                                            {% set pair = piece.split(':') %}
-                                            {% if pair|length >= 2 %}
-                                                {% set amount = pair[1].strip()|float|int %}
-                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ amount ~ '元)') %}
-                                            {% endif %}
-                                        {% endif %}
-                                    {% endfor %}
-                                    波色：{{ formatted|join(', ') }}<br>
-                                {% else %}
-                                    波色：{{ record.selected_colors }}<br>
+                                {% if record.selected_zodiacs %}
+                                <div class="bet-row">
+                                    <span class="bet-label">生肖</span>
+                                    {% if ':' in record.selected_zodiacs %}
+                                        {{ render_stake_chips(record.selected_zodiacs, 'zodiac') }}
+                                    {% else %}
+                                        <span class="bet-chip zodiac">{{ record.selected_zodiacs }}</span>
+                                    {% endif %}
+                                </div>
                                 {% endif %}
-                            {% endif %}
-                            {% if record.selected_parity %}
-                                {% if ':' in record.selected_parity %}
-                                    {% set parts = record.selected_parity.split(',') %}
-                                    {% set formatted = [] %}
-                                    {% for part in parts %}
-                                        {% set piece = part.strip() %}
-                                        {% if ':' in piece %}
-                                            {% set pair = piece.split(':') %}
-                                            {% if pair|length >= 2 %}
-                                                {% set amount = pair[1].strip()|float|int %}
-                                                {% set _ = formatted.append(pair[0].strip() ~ '(' ~ amount ~ '元)') %}
-                                            {% endif %}
-                                        {% endif %}
-                                    {% endfor %}
-                                    单双：{{ formatted|join(', ') }}
-                                {% else %}
-                                    单双：{{ record.selected_parity }}
+                                {% if record.selected_colors %}
+                                <div class="bet-row">
+                                    <span class="bet-label">波色</span>
+                                    {% if ':' in record.selected_colors %}
+                                        {{ render_stake_chips(record.selected_colors, 'wave') }}
+                                    {% else %}
+                                        <span class="bet-chip wave">{{ record.selected_colors }}</span>
+                                    {% endif %}
+                                </div>
                                 {% endif %}
-                            {% endif %}
+                                {% if record.selected_parity %}
+                                <div class="bet-row">
+                                    <span class="bet-label">单双</span>
+                                    {% if ':' in record.selected_parity %}
+                                        {{ render_stake_chips(record.selected_parity, 'parity') }}
+                                    {% else %}
+                                        <span class="bet-chip parity">{{ record.selected_parity }}</span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
                         </td>
                         <td>
                             总额：{{ (record.total_stake or 0)|int }}元
                         </td>
-                        <td>{% if record.total_profit is not none %}{{ record.total_profit|int }}元{% else %}-{% endif %}</td>
+                        <td>
+                            {% if record.total_profit is none %}
+                                <span class="profit-badge profit-draw">-</span>
+                            {% elif record.total_profit > 0 %}
+                                <span class="profit-badge profit-win">+{{ record.total_profit|int }}元</span>
+                            {% elif record.total_profit < 0 %}
+                                <span class="profit-badge profit-lose">{{ record.total_profit|int }}元</span>
+                            {% else %}
+                                <span class="profit-badge profit-draw">0元</span>
+                            {% endif %}
+                        </td>
                         <td>
                             {% if record.total_profit is none %}
                                 待结算

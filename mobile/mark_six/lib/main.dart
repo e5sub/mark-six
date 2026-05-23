@@ -1151,6 +1151,23 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     return entries;
   }
 
+  List<Map<String, dynamic>> _parseCommonStakeEntries(String raw) {
+    if (!raw.contains(':')) return [];
+    final parts = raw.split(',');
+    final entries = <Map<String, dynamic>>[];
+    for (final part in parts) {
+      final trimmed = part.trim();
+      if (trimmed.isEmpty || !trimmed.contains(':')) continue;
+      final items = trimmed.split(':');
+      if (items.length < 2) continue;
+      final label = items[0].trim();
+      final amount = double.tryParse(items[1].trim()) ?? 0;
+      if (label.isEmpty) continue;
+      entries.add({'label': label, 'amount': amount});
+    }
+    return entries;
+  }
+
   String _formatCommonStakesText(String raw) {
     if (!raw.contains(':')) return raw;
     final parts = raw.split(',');
@@ -1166,6 +1183,154 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     return formatted.join(', ');
   }
 
+  Widget _buildStakeBadge(double amount) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0x1622C55E),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0x334ADE80)),
+      ),
+      child: Text(
+        _formatYuan(amount),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF15803D),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBetLabelChip(String text, Color background, Color foreground) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: foreground.withOpacity(0.18)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: foreground,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfitBadge(double? amount) {
+    final value = amount ?? 0;
+    final isPending = amount == null;
+    final isWin = value > 0;
+    final isLose = value < 0;
+    final background = isPending
+        ? const Color(0x1494A3B8)
+        : isWin
+            ? const Color(0x1622C55E)
+            : isLose
+                ? const Color(0x16EF4444)
+                : const Color(0x1494A3B8);
+    final foreground = isPending
+        ? const Color(0xFF64748B)
+        : isWin
+            ? const Color(0xFF15803D)
+            : isLose
+                ? const Color(0xFFDC2626)
+                : const Color(0xFF64748B);
+    final text = isPending
+        ? '-'
+        : isWin
+            ? '+${_formatYuan(value)}'
+            : _formatYuan(value);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: foreground.withOpacity(0.18)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          color: foreground,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCommonStakeWrap(
+    String title,
+    List<Map<String, dynamic>> entries, {
+    required Color chipBackground,
+    required Color chipForeground,
+  }) {
+    if (entries.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('$title：'),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: entries.map((entry) {
+            final label = entry['label']?.toString() ?? '';
+            final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildBetLabelChip(label, chipBackground, chipForeground),
+                const SizedBox(width: 6),
+                _buildStakeBadge(amount),
+              ],
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBetSummaryWrap({
+    required double stake,
+    required double? profit,
+  }) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 8,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '总下注：',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            _buildStakeBadge(stake),
+          ],
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '总盈亏：',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 6),
+            _buildProfitBadge(profit),
+          ],
+        ),
+      ],
+    );
+  }
+
   String _formatYuan(num? value) {
     if (value == null) return '-';
     return '${value.toStringAsFixed(0)}元';
@@ -1179,6 +1344,12 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     final numbersRaw = item['selected_numbers']?.toString() ?? '';
     final numbers = _formatNumberStakesText(numbersRaw);
     final numberEntries = _parseNumberStakeEntries(numbersRaw);
+    final zodiacEntries =
+        _parseCommonStakeEntries(item['selected_zodiacs']?.toString() ?? '');
+    final colorEntries =
+        _parseCommonStakeEntries(item['selected_colors']?.toString() ?? '');
+    final parityEntries =
+        _parseCommonStakeEntries(item['selected_parity']?.toString() ?? '');
     final zodiacs =
         _formatCommonStakesText(item['selected_zodiacs']?.toString() ?? '');
     final colors =
@@ -1267,13 +1438,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                           fontSize: 11,
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          _formatYuan(amount),
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
+                        _buildStakeBadge((amount as num).toDouble()),
                       ],
                     );
                   }).toList(),
@@ -1283,13 +1448,61 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
           else if (numbers.isNotEmpty)
             Text('号码：$numbers'),
           if (bettor.isNotEmpty) Text('下注人：$bettor'),
-          if (zodiacs.isNotEmpty) Text('生肖：$zodiacs'),
-          if (colors.isNotEmpty) Text('波色：$colors'),
-          if (parity.isNotEmpty) Text('单双：$parity'),
+          if (zodiacEntries.isNotEmpty)
+            _buildCommonStakeWrap(
+              '生肖',
+              zodiacEntries,
+              chipBackground: const Color(0x14A855F7),
+              chipForeground: const Color(0xFF7E22CE),
+            )
+          else if (zodiacs.isNotEmpty)
+            Text('生肖：$zodiacs'),
+          if (colorEntries.isNotEmpty)
+            _buildCommonStakeWrap(
+              '波色',
+              colorEntries,
+              chipBackground: const Color(0x140EA5E9),
+              chipForeground: const Color(0xFF0369A1),
+            )
+          else if (colors.isNotEmpty)
+            Text('波色：$colors'),
+          if (parityEntries.isNotEmpty)
+            _buildCommonStakeWrap(
+              '单双',
+              parityEntries,
+              chipBackground: const Color(0x14F59E0B),
+              chipForeground: const Color(0xFFB45309),
+            )
+          else if (parity.isNotEmpty)
+            Text('单双：$parity'),
           if (status == 'settled')
             Text('开奖结果：$special  生肖：$specialZodiac'),
-          Text(
-            '下注：${_formatYuan(stake)}  盈亏：${_formatYuan(profit)}',
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '下注：',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  _buildStakeBadge((stake ?? 0).toDouble()),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '盈亏：',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildProfitBadge(profit),
+                ],
+              ),
+            ],
           ),
         ],
       ),
@@ -2509,9 +2722,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      '总下注：${_formatYuan(_totalStake)}  盈亏：${_formatYuan(_totalProfit)}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    _buildBetSummaryWrap(
+                      stake: _totalStake,
+                      profit: _totalProfit,
                     ),
                   ],
                   const SizedBox(height: 24),
@@ -5138,11 +5351,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         if (_betSummary != null) ...[
                           Text('已结算：${_betSummary!['settled_count'] ?? 0}'),
                           Text('待结算：${_betSummary!['pending_count'] ?? 0}'),
-                          Text(
-                            '总下注：${_formatYuan((_betSummary!['total_stake'] as num?) ?? 0)}',
-                          ),
-                          Text(
-                            '总盈亏：${_formatYuan((_betSummary!['total_profit'] as num?) ?? 0)}',
+                          _buildBetSummaryWrap(
+                            stake: ((_betSummary!['total_stake'] as num?) ?? 0)
+                                .toDouble(),
+                            profit: ((_betSummary!['total_profit'] as num?) ?? 0)
+                                .toDouble(),
                           ),
                           Text(
                             '赢/输/平：${_betSummary!['win_count'] ?? 0}/'
