@@ -102,6 +102,19 @@ function getPrediction(strategy) {
         });
 }
 
+function sanitizeAiRecommendationText(text) {
+    let sanitized = String(text || '');
+    sanitized = sanitized.replace(/```json[\s\S]*?```/gi, '');
+    sanitized = sanitized.replace(/```\s*[\s\S]*?```/g, match => {
+        return /推荐号码|特码|理由|本期主推/.test(match) ? match : '';
+    });
+    sanitized = sanitized.replace(/\{\s*"candidates"[\s\S]*?\}\s*/g, '');
+    sanitized = sanitized.replace(/\{\s*"normal"\s*:\s*\[[^\]]*\]\s*,\s*"special"\s*:\s*\d+\s*\}\s*/g, '');
+    sanitized = sanitized.replace(/^\s*json\s*$/gim, '');
+    sanitized = sanitized.replace(/\n{3,}/g, '\n\n').trim();
+    return sanitized;
+}
+
 // 处理流式响应
 function handleStreamingResponse(response, strategy) {
     const reader = response.body.getReader();
@@ -109,6 +122,7 @@ function handleStreamingResponse(response, strategy) {
     let fullText = '';
     let finalResult = null;
     let buffer = '';
+    let chunkCount = 0;
 
     // 显示预测结果容器，准备接收流式内容
     const predictionResult = document.getElementById('predictionResult');
@@ -124,11 +138,35 @@ function handleStreamingResponse(response, strategy) {
             </span>
         </div>
         <div id="streamingContent" style="background: rgba(15, 23, 42, 0.88); color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14); min-height: 100px;">
-            <p id="streamingText" style="line-height: 1.6; white-space: pre-wrap; color: #f8fafc;"></p>
+            <div id="streamingText" style="line-height: 1.7; white-space: pre-wrap; color: #f8fafc;">
+                <div style="display:flex; align-items:center; gap:10px; color:#93c5fd; font-weight:600; margin-bottom:10px;">
+                    <span class="streaming-spinner" style="width:14px; height:14px; border:2px solid rgba(147,197,253,0.28); border-top-color:#60a5fa; border-radius:50%; display:inline-block;"></span>
+                    <span>AI 正在整理候选并生成分析，请稍候...</span>
+                </div>
+                <div id="streamingStatus" style="font-size:0.92rem; color:#dbe4f0;">
+                    正在接收模型输出...
+                </div>
+            </div>
         </div>
     `;
 
     const streamingText = document.getElementById('streamingText');
+    const streamingStatus = document.getElementById('streamingStatus');
+
+    function renderStreamingStatus() {
+        if (!streamingStatus) return;
+        const phases = [
+            '正在接收模型输出...',
+            '正在清洗候选内容...',
+            '正在筛选高质量组合...',
+            '正在生成最终分析...'
+        ];
+        const phaseIndex = Math.min(phases.length - 1, Math.floor(chunkCount / 3));
+        streamingStatus.innerHTML = `
+            <div style="margin-bottom:8px;">${phases[phaseIndex]}</div>
+            <div style="font-size:0.82rem; color:#93c5fd;">已接收 ${chunkCount} 段内容，页面将只展示整理后的结果。</div>
+        `;
+    }
 
     function extractSsePayload(eventText) {
         if (!eventText.includes('data:')) {
@@ -154,8 +192,8 @@ function handleStreamingResponse(response, strategy) {
 
             if (data.type === 'content') {
                 fullText = data.full_text || `${fullText}${data.content || ''}`;
-                streamingText.textContent = fullText;
-                streamingText.scrollTop = streamingText.scrollHeight;
+                chunkCount += 1;
+                renderStreamingStatus();
                 return null;
             }
 
@@ -491,6 +529,7 @@ function displayFinalResult(data, strategy) {
 
     // 显示AI分析文本
     if (data.recommendation_text) {
+        data.recommendation_text = sanitizeAiRecommendationText(data.recommendation_text);
         // 添加marked.js库（如果页面中还没有）
         if (!window.marked) {
             const script = document.createElement('script');

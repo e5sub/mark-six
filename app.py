@@ -5369,18 +5369,12 @@ def _blend_ai_with_anchor_strategy(ai_result, data, region, shortlist_context=No
             ai_decision_score += 0.05
 
     decision_mode = "ai_primary"
-    selected = ai_result
-    if gate_status == "guarded" and (ai_confidence < 0.62 or ai_top_quality < -0.02 or anchor_decision_score >= ai_decision_score + 0.05):
-        decision_mode = "anchor_primary"
-        selected = anchor_result
-    elif ai_confidence < 0.52 or ai_top_quality < -0.08:
-        decision_mode = "anchor_primary"
-        selected = anchor_result
-    elif gate_status == "guarded" or ai_confidence < 0.72 or anchor_bonus > 0:
+    if gate_status == "guarded" or ai_confidence < 0.72 or anchor_bonus > 0:
         decision_mode = "blended"
-        if anchor_decision_score > ai_decision_score + 0.1:
-            selected = anchor_result
+    if ai_confidence < 0.52 or ai_top_quality < -0.08:
+        decision_mode = "ai_low_confidence"
 
+    selected = ai_result
     selected_meta = dict((selected.get("model_meta") or {}))
     selected_meta["ai_soft_fusion"] = {
         "decision_mode": decision_mode,
@@ -5403,14 +5397,79 @@ def _blend_ai_with_anchor_strategy(ai_result, data, region, shortlist_context=No
             "special_score": round(anchor_special_score, 4),
         }
     selected["model_meta"] = selected_meta
+    note_lines = []
+    if decision_mode == "ai_low_confidence":
+        note_lines.append("提示：本期 AI 置信度偏低，当前结果更偏保守，建议作为重点参考而非强结论。")
+    elif decision_mode == "blended":
+        note_lines.append(f"提示：本期 AI 处于联合判断模式，已参考 { _get_strategy_label(anchor_strategy) } 的结构信号来校正风险。")
+    elif gate_status == "guarded":
+        note_lines.append("提示：本期 AI 处于谨慎状态，已优先选择波动更小的候选组合。")
 
-    if decision_mode == "anchor_primary":
-        selected["recommendation_text"] = _decorate_recommendation_text(
-            "ai",
-            anchor_strategy,
-            selected.get("recommendation_text", ""),
-        )
+    ai_confidence_text = f"本期 AI 置信度：{round(ai_confidence * 100, 1)}%"
+    if note_lines:
+        note_lines.append(ai_confidence_text)
+        existing_text = str(selected.get("recommendation_text") or "").strip()
+        selected["recommendation_text"] = "\n".join(note_lines + ([existing_text] if existing_text else []))
+    elif not str(selected.get("recommendation_text") or "").strip():
+        selected["recommendation_text"] = ai_confidence_text
     return selected
+
+
+def _finalize_ai_prediction_result(
+    data,
+    region,
+    full_text="",
+    ai_config=None,
+    prompt="",
+    temperature=0.35,
+    sample_count=3,
+    candidate_count=3,
+    shortlist_context=None,
+):
+    shortlist_context = shortlist_context or {}
+    if not full_text:
+        return predict_with_ai(data, region)
+
+    responses = [_repair_ai_response_text(full_text, region=region)]
+    extra_temperatures = _build_ai_sampling_temperatures(temperature, sample_count)[1:]
+    for temp in extra_temperatures:
+        try:
+            responses.append(
+                _call_ai_completion_with_retries(
+                    ai_config,
+                    prompt,
+                    temperature=temp,
+                    max_attempts=2,
+                    region=region,
+                )
+            )
+        except Exception:
+            continue
+
+    responses = _extend_ai_responses_for_coverage(
+        ai_config,
+        prompt,
+        responses,
+        region,
+        candidate_count,
+        base_temperature=temperature,
+        max_extra_calls=2,
+    )
+    responses = _ensure_ai_candidate_coverage(
+        responses,
+        region,
+        shortlist_context,
+        desired_count=candidate_count,
+    )
+    result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
+    if error:
+        return {"error": error}
+    return _blend_ai_with_anchor_strategy(
+        result,
+        data,
+        region,
+        shortlist_context=shortlist_context,
+    )
 
 
 def predict_with_ai(data, region, config_override=None):
@@ -5427,15 +5486,6 @@ def predict_with_ai(data, region, config_override=None):
     try:
         shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
         gate_profile = dict(shortlist_context.get("gate_profile") or {})
-        if gate_profile.get("status") == "fallback":
-            fallback_strategy = gate_profile.get("anchor_strategy") or "hybrid"
-            fallback_result = get_local_recommendations(fallback_strategy, data, region)
-            fallback_meta = dict(fallback_result.get("model_meta") or {})
-            fallback_meta["ai_gate_profile"] = gate_profile
-            fallback_meta["ai_gated"] = True
-            fallback_meta["ai_gate_reason"] = "fallback_to_local_strategy"
-            fallback_result["model_meta"] = fallback_meta
-            return fallback_result
         prompt = _build_ai_prompt_v4(
             data,
             region,
@@ -6428,33 +6478,6 @@ def unified_predict_api():
                 candidate_count = _clamp(int(tuned.get("candidate_count") or 3), 2, 5)
                 shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
                 gate_profile = dict(shortlist_context.get("gate_profile") or {})
-                if gate_profile.get("status") == "fallback":
-                    fallback_strategy = gate_profile.get("anchor_strategy") or "hybrid"
-                    fallback_result = get_local_recommendations(fallback_strategy, data, region)
-                    fallback_meta = dict(fallback_result.get("model_meta") or {})
-                    fallback_meta["ai_gate_profile"] = gate_profile
-                    fallback_meta["ai_gated"] = True
-                    fallback_meta["ai_gate_reason"] = "fallback_to_local_strategy"
-                    fallback_result["model_meta"] = fallback_meta
-                    if user_id and is_active:
-                        fallback_result = _ensure_period_unique_special(
-                            fallback_result,
-                            resolved_strategy,
-                            region,
-                            current_period,
-                            user_id=user_id,
-                            prediction_zodiac_year=prediction_zodiac_year,
-                        )
-                    fallback_result.update({
-                        "type": "done",
-                        "region": region,
-                        "strategy": resolved_strategy,
-                        "requested_strategy": strategy,
-                        "period": current_period,
-                        "prediction_zodiac_year": prediction_zodiac_year,
-                    })
-                    yield _sse_event(fallback_result)
-                    return
                 prompt = _build_ai_prompt_v4(
                     data,
                     region,
@@ -6475,99 +6498,78 @@ def unified_predict_api():
                     yield _sse_event({"type": "error", "error": f"调用AI API时出错: {e}"})
                     return
 
-                if not full_text:
-                    fallback = predict_with_ai(data, region)
-                    if fallback.get("error"):
-                        yield _sse_event({"type": "error", "error": fallback.get("error")})
-                        return
-                    result = fallback
-                else:
-                    responses = [_repair_ai_response_text(full_text, region=region)]
-                    extra_temperatures = _build_ai_sampling_temperatures(temperature, sample_count)[1:]
-                    for temp in extra_temperatures:
-                        try:
-                            responses.append(
-                                _call_ai_completion_with_retries(
-                                    ai_config,
-                                    prompt,
-                                    temperature=temp,
-                                    max_attempts=2,
-                                    region=region,
-                                )
-                            )
-                        except Exception:
-                            continue
-                    responses = _extend_ai_responses_for_coverage(
-                        ai_config,
-                        prompt,
-                        responses,
-                        region,
-                        candidate_count,
-                        base_temperature=temperature,
-                        max_extra_calls=2,
-                    )
-                    responses = _ensure_ai_candidate_coverage(
-                        responses,
-                        region,
-                        shortlist_context,
-                        desired_count=candidate_count,
-                    )
-                    result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
-                    if error:
-                        yield _sse_event({"type": "error", "error": error})
-                        return
-                    result = _blend_ai_with_anchor_strategy(
-                        result,
+                try:
+                    result = _finalize_ai_prediction_result(
                         data,
                         region,
+                        full_text=full_text,
+                        ai_config=ai_config,
+                        prompt=prompt,
+                        temperature=temperature,
+                        sample_count=sample_count,
+                        candidate_count=candidate_count,
                         shortlist_context=shortlist_context,
                     )
+                except Exception as e:
+                    yield _sse_event({"type": "error", "error": f"AI预测处理失败: {e}"})
+                    return
+                if result.get("error"):
+                    yield _sse_event({"type": "error", "error": result.get("error")})
+                    return
 
-                if user_id and is_active:
-                    result = _ensure_period_unique_special(
-                        result,
-                        resolved_strategy,
-                        region,
-                        current_period,
-                        user_id=user_id,
-                        prediction_zodiac_year=prediction_zodiac_year,
-                    )
-
-                result.update({
-                    "type": "done",
-                    "region": region,
-                    "strategy": resolved_strategy,
-                    "requested_strategy": strategy,
-                    "period": current_period,
-                    "prediction_zodiac_year": prediction_zodiac_year,
-                })
-
-                if user_id and is_active:
-                    try:
-                        prediction = PredictionRecord(
+                try:
+                    if user_id and is_active:
+                        result = _ensure_period_unique_special(
+                            result,
+                            resolved_strategy,
+                            region,
+                            current_period,
                             user_id=user_id,
-                            region=region,
-                            strategy=resolved_strategy,
-                            period=current_period,
-                            normal_numbers=','.join(map(str, result.get('normal', []))),
-                            special_number=str(result.get('special', {}).get('number', '')),
-                            special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
-                            prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
-                            prediction_text=_decorate_recommendation_text(
-                                strategy,
-                                resolved_strategy,
-                                result.get('recommendation_text', '')
-                            )
+                            prediction_zodiac_year=prediction_zodiac_year,
                         )
-                        db.session.add(prediction)
-                        db.session.commit()
-                        result["saved"] = True
-                    except Exception as e:
-                        db.session.rollback()
-                        result["saved"] = False
-                        result["save_error"] = str(e)
 
-                yield _sse_event(result)
+                    result.update({
+                        "type": "done",
+                        "region": region,
+                        "strategy": resolved_strategy,
+                        "requested_strategy": strategy,
+                        "period": current_period,
+                        "prediction_zodiac_year": prediction_zodiac_year,
+                    })
+
+                    if user_id and is_active:
+                        try:
+                            prediction = PredictionRecord(
+                                user_id=user_id,
+                                region=region,
+                                strategy=resolved_strategy,
+                                period=current_period,
+                                normal_numbers=','.join(map(str, result.get('normal', []))),
+                                special_number=str(result.get('special', {}).get('number', '')),
+                                special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+                                prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
+                                prediction_text=_decorate_recommendation_text(
+                                    strategy,
+                                    resolved_strategy,
+                                    result.get('recommendation_text', '')
+                                )
+                            )
+                            db.session.add(prediction)
+                            db.session.commit()
+                            result["saved"] = True
+                        except Exception as e:
+                            db.session.rollback()
+                            result["saved"] = False
+                            result["save_error"] = str(e)
+
+                    yield _sse_event(result)
+                except Exception as e:
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass
+                    yield _sse_event({"type": "error", "error": f"AI结果收尾失败: {e}"})
+                    return
 
             return Response(
                 stream_with_context(generate_stream()),
