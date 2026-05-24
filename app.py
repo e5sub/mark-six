@@ -3663,7 +3663,7 @@ def _build_prediction_feedback(region, strategy, limit=240, cutoff_period=None):
         "confidence": confidence,
     }
 
-def _build_attribute_preferences(data, region, feedback, year):
+def _build_attribute_preferences(data, region, feedback, year, apply_recent_zodiac_cooldown=True):
     color_counter = analyze_special_color_frequency(data, region)
     zodiac_counter = analyze_special_zodiac_frequency(data, region, year)
     parity_counter = analyze_special_parity_frequency(data)
@@ -3694,6 +3694,35 @@ def _build_attribute_preferences(data, region, feedback, year):
         )
         for zodiac in zodiac_keys
     }
+    if apply_recent_zodiac_cooldown:
+        recent_records = list(data or [])[:6]
+        recent_zodiacs = []
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+        for record in recent_records:
+            sno = str(record.get("sno") or "").strip()
+            if not sno:
+                continue
+            zodiac = number_to_zodiac.get(sno, "") if number_to_zodiac else ""
+            if not zodiac:
+                zodiac = str(record.get("sno_zodiac") or "").strip()
+            if zodiac:
+                recent_zodiacs.append(zodiac)
+        recent_zodiac_counter = Counter(recent_zodiacs)
+        if recent_zodiacs:
+            latest_zodiac = recent_zodiacs[0]
+            recent_pair = set(recent_zodiacs[:2])
+            for zodiac in list(merged_zodiac.keys()):
+                cooled = merged_zodiac.get(zodiac, 0.0)
+                if zodiac == latest_zodiac:
+                    cooled *= 0.38
+                elif zodiac in recent_pair:
+                    cooled *= 0.62
+                heat = int(recent_zodiac_counter.get(zodiac, 0) or 0)
+                if heat >= 2:
+                    cooled *= 0.58
+                elif heat == 1:
+                    cooled *= 0.9
+                merged_zodiac[zodiac] = round(max(0.0, cooled), 4)
     parity_keys = set(parity_scores) | set(feedback_parity)
     merged_parity = {
         parity: round(
@@ -4251,7 +4280,7 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
     number_to_zodiac = _get_number_to_zodiac_map(year)
     feedback = feedback or _build_prediction_feedback(region, "ml")
     color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
-        long_data, region, feedback, year
+        long_data, region, feedback, year, apply_recent_zodiac_cooldown=True
     )
     recent_specials = [str(item.get("sno")) for item in short_data[:5] if item.get("sno")]
     recent_numbers = set()
@@ -5001,7 +5030,9 @@ def _build_ml_prediction_artifacts(data, region):
     feature_window = _clamp(int(runtime_config.get("feature_window") or 60), 30, 90)
     year = _infer_draw_year(enriched_data)
     feedback = _build_prediction_feedback(region, "ml")
-    color_pref, _, parity_pref = _build_attribute_preferences(enriched_data[:feature_window], region, feedback, year)
+    color_pref, _, parity_pref = _build_attribute_preferences(
+        enriched_data[:feature_window], region, feedback, year, apply_recent_zodiac_cooldown=True
+    )
     feature_table = _build_ml_feature_table(enriched_data, region, feature_window=feature_window)
     feature_table = _apply_ml_feature_profile(
         feature_table,
@@ -5229,7 +5260,13 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             year = _infer_draw_year(recent_data)
             number_to_zodiac = _get_number_to_zodiac_map(year)
             feedback = _build_prediction_feedback(region, strategy)
-            color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(recent_data, region, feedback, year)
+            color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
+                recent_data,
+                region,
+                feedback,
+                year,
+                apply_recent_zodiac_cooldown=(strategy != "cold"),
+            )
             feedback_confidence = float(feedback.get("confidence") or 0.0)
 
             weights = _resolve_local_phase_weights(config, phase_profile)
@@ -5682,7 +5719,9 @@ def _build_ai_shortlist_context(data, region, config=None):
         (ml_feedback, _safe_float(mix_weights.get("ml"), 0.42)),
     )
     ai_profile = _learn_ai_region_profile(region)
-    _, zodiac_pref, _ = _build_attribute_preferences(data[:min(len(data), 24)], region, feedback, year)
+    _, zodiac_pref, _ = _build_attribute_preferences(
+        data[:min(len(data), 24)], region, feedback, year, apply_recent_zodiac_cooldown=True
+    )
     preferred_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
     preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
     preferred_zodiac = max(zodiac_pref.items(), key=lambda item: item[1])[0] if zodiac_pref else ""
@@ -5822,6 +5861,8 @@ def _build_ai_shortlist_context(data, region, config=None):
         "recent_special_counter": dict(heat_profile.get("special_counter") or {}),
         "recent_tail_counter": dict(heat_profile.get("tail_counter") or {}),
         "recent_color_counter": dict(heat_profile.get("color_counter") or {}),
+        "recent_zodiacs": list(heat_profile.get("recent_zodiacs") or []),
+        "recent_zodiac_counter": dict(heat_profile.get("zodiac_counter") or {}),
         "layered_shortlists": layered_shortlists,
         "target_mode": str(config.get("target_mode") or "top1_safe"),
         "target_mode_stats": dict(config.get("target_mode_stats") or {}),
@@ -5956,6 +5997,10 @@ def _build_ai_recent_heat_profile(data, window=8):
     special_counter = Counter()
     tail_counter = Counter()
     color_counter = Counter()
+    zodiac_counter = Counter()
+    recent_zodiacs = []
+    year = _infer_draw_year(data)
+    number_to_zodiac = _get_number_to_zodiac_map(year)
 
     for record in list(data or [])[:max(1, int(window or 8))]:
         try:
@@ -5970,12 +6015,20 @@ def _build_ai_recent_heat_profile(data, window=8):
         color = _get_color_zh(number)
         if color:
             color_counter[color] += 1
+        zodiac = number_to_zodiac.get(str(number), "") if number_to_zodiac else ""
+        if not zodiac:
+            zodiac = str(record.get("sno_zodiac") or "").strip()
+        if zodiac:
+            recent_zodiacs.append(zodiac)
+            zodiac_counter[zodiac] += 1
 
     return {
         "recent_specials": recent_specials,
         "special_counter": special_counter,
         "tail_counter": tail_counter,
         "color_counter": color_counter,
+        "recent_zodiacs": recent_zodiacs,
+        "zodiac_counter": zodiac_counter,
     }
 
 
@@ -6673,6 +6726,8 @@ def _score_ai_candidate(candidate, context):
     recent_special_counter = Counter(context.get("recent_special_counter") or {})
     recent_tail_counter = Counter(context.get("recent_tail_counter") or {})
     recent_color_counter = Counter(context.get("recent_color_counter") or {})
+    recent_zodiacs = list(context.get("recent_zodiacs") or [])
+    recent_zodiac_counter = Counter(context.get("recent_zodiac_counter") or {})
     target_mode = str(context.get("target_mode") or "top1_safe")
 
     base_special = special_score_map.get(special, 0.0)
@@ -6704,6 +6759,10 @@ def _score_ai_candidate(candidate, context):
         repeat_penalty -= 0.2
     elif special in recent_specials:
         repeat_penalty -= 0.08
+    if recent_zodiacs[:1] and special_zodiac == recent_zodiacs[0]:
+        repeat_penalty -= 0.22
+    elif recent_zodiacs[:2] and special_zodiac in recent_zodiacs[:2]:
+        repeat_penalty -= 0.1
 
     overheat_penalty = 0.0
     special_heat = int(recent_special_counter.get(special, 0) or 0)
@@ -6724,6 +6783,11 @@ def _score_ai_candidate(candidate, context):
         overheat_penalty -= 0.08
     elif special_color_heat == 3:
         overheat_penalty -= 0.03
+    zodiac_heat = int(recent_zodiac_counter.get(special_zodiac, 0) or 0) if special_zodiac else 0
+    if zodiac_heat >= 2:
+        overheat_penalty -= 0.14
+    elif zodiac_heat == 1:
+        overheat_penalty -= 0.05
 
     confidence_bonus = _clamp(candidate.get("confidence", 0.0), 0.0, 1.0) * 0.08
     shape_score, shape_diagnostics = _score_ai_combination_shape(normal, special, context)
