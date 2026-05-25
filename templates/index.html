@@ -1048,26 +1048,22 @@
         }
 
         .info-ribbon {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 14px;
-            margin-bottom: 14px;
-        }
-
-        .info-panel {
             position: relative;
             overflow: hidden;
-            min-height: 112px;
-            padding: 16px 18px;
+            margin-bottom: 14px;
+            padding: 14px 16px;
             border-radius: 18px;
             background:
                 radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 35%),
                 linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.92));
             border: 1px solid rgba(148, 163, 184, 0.16);
             box-shadow: 0 12px 30px rgba(2, 6, 23, 0.22);
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
         }
 
-        .info-panel::after {
+        .info-ribbon::after {
             content: "";
             position: absolute;
             inset: auto -30px -30px auto;
@@ -1076,6 +1072,34 @@
             border-radius: 50%;
             background: radial-gradient(circle, rgba(255,255,255,0.09), transparent 68%);
             pointer-events: none;
+        }
+
+        .info-panel {
+            min-width: 0;
+            min-height: 96px;
+            padding: 6px 6px 4px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(148, 163, 184, 0.08);
+        }
+
+        .info-panel + .info-panel {
+            position: relative;
+        }
+
+        .info-panel + .info-panel::before {
+            content: "";
+            position: absolute;
+            left: -7px;
+            top: 10px;
+            bottom: 10px;
+            width: 1px;
+            background: linear-gradient(
+                180deg,
+                rgba(148, 163, 184, 0),
+                rgba(148, 163, 184, 0.22),
+                rgba(148, 163, 184, 0)
+            );
         }
 
         .info-panel-header {
@@ -1150,11 +1174,16 @@
         @media (max-width: 768px) {
             .info-ribbon {
                 grid-template-columns: 1fr;
+                padding: 12px;
             }
 
             .info-panel {
                 min-height: 0;
-                padding: 15px 16px;
+                padding: 4px;
+            }
+
+            .info-panel + .info-panel::before {
+                display: none;
             }
 
             .info-panel-value {
@@ -1241,7 +1270,6 @@
             <div class="info-panel">
                 <div class="info-panel-header">
                     <span class="info-panel-label"><i class="fas fa-clock"></i> 当前时间</span>
-                    <span class="info-panel-badge" id="currentRegionBadge">澳门</span>
                 </div>
                 <div class="info-panel-value" id="currentTimeValue">--:--:--</div>
                 <div class="info-panel-subtitle" id="currentDateValue">--</div>
@@ -1266,7 +1294,7 @@
 
             <div class="info-panel">
                 <div class="info-panel-header">
-                    <span class="info-panel-label"><i class="fas fa-hourglass-half"></i> 下期开奖</span>
+                    <span class="info-panel-label"><i class="fas fa-hourglass-half"></i> 下期开奖时间</span>
                     <span class="info-panel-badge" id="drawRegionBadge">澳门</span>
                 </div>
                 <div class="info-panel-value" id="nextDrawTimeValue">--</div>
@@ -1320,13 +1348,9 @@
         const REGION_INFO = {
             macau: {
                 label: '澳门',
-                lat: 22.1987,
-                lon: 113.5439,
             },
             hk: {
                 label: '香港',
-                lat: 22.3193,
-                lon: 114.1694,
             },
         };
 
@@ -1396,15 +1420,21 @@
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric',
-                    weekday: 'long',
                 });
-                const lunarText = lunarFormatter.format(now).replace(/\s+/g, ' ');
+                const lunarText = lunarFormatter.format(now).replace(/\s+/g, ' ').trim();
                 const lunarParts = lunarText.split('年');
+                const lunarYear = lunarParts.length > 1 ? `${lunarParts[0]}年` : lunarText;
+                const lunarMonthDay = lunarParts.length > 1 ? lunarParts.slice(1).join('年').trim() : '';
+                const weekdayText = new Intl.DateTimeFormat('zh-CN', {
+                    weekday: 'long',
+                }).format(now);
                 if (lunarDateValue) {
-                    lunarDateValue.textContent = lunarParts.length > 1 ? `${lunarParts[0]}年` : lunarText;
+                    lunarDateValue.textContent = lunarYear;
                 }
                 if (lunarDetailValue) {
-                    lunarDetailValue.textContent = lunarParts.length > 1 ? lunarParts.slice(1).join('年').trim() : lunarText;
+                    lunarDetailValue.textContent = lunarMonthDay
+                        ? `农历${lunarMonthDay} · ${weekdayText}`
+                        : weekdayText;
                 }
             } catch (error) {
                 if (lunarDateValue) {
@@ -1436,21 +1466,25 @@
                     throw new Error(`draw ${response.status}`);
                 }
                 const data = await response.json();
-                const rawValue = String(data.next_draw_time || '').trim();
+                const rawValue = String(data.next_time || data.next_draw_time || '').trim();
                 if (!rawValue) {
                     throw new Error('empty next draw time');
                 }
-                const normalized = rawValue.replace(' ', 'T');
+                const matched = rawValue.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})/);
+                const displayValue = matched
+                    ? `${matched[1]}-${formatTwo(matched[2])}-${formatTwo(matched[3])} ${formatTwo(matched[4])}:${matched[5]}`
+                    : rawValue;
+                const normalized = displayValue.replace(' ', 'T');
                 const parsed = new Date(normalized);
                 nextDrawTarget = Number.isNaN(parsed.getTime()) ? null : parsed;
-                if (nextDrawTimeValue) nextDrawTimeValue.textContent = rawValue;
+                if (nextDrawTimeValue) nextDrawTimeValue.textContent = displayValue;
                 if (nextDrawDateValue) {
-                    nextDrawDateValue.innerHTML = `<i class="fas fa-stopwatch"></i> ${info.label}地区`;
+                    nextDrawDateValue.innerHTML = `<i class="fas fa-stopwatch"></i> 下期时间`;
                 }
                 updateNextDrawCountdown();
             } catch (error) {
                 nextDrawTarget = null;
-                if (nextDrawCountdownValue) nextDrawCountdownValue.textContent = '暂时无法获取下期开奖时间';
+                if (nextDrawCountdownValue) nextDrawCountdownValue.textContent = '暂时无法获取下期时间';
             }
         }
 
@@ -1466,7 +1500,7 @@
 
             const diff = nextDrawTarget.getTime() - now.getTime();
             if (diff <= 0) {
-                nextDrawCountdownValue.textContent = '已接近开奖时间';
+                nextDrawCountdownValue.textContent = '已接近下期时间';
                 return;
             }
 
@@ -1479,9 +1513,7 @@
 
         function updateHomeInfoRegion(region) {
             const info = REGION_INFO[region] || REGION_INFO.macau;
-            const currentRegionBadge = document.getElementById('currentRegionBadge');
             const drawRegionBadge = document.getElementById('drawRegionBadge');
-            if (currentRegionBadge) currentRegionBadge.textContent = info.label;
             if (drawRegionBadge) drawRegionBadge.textContent = info.label;
             fetchNextDrawTime(region);
         }
