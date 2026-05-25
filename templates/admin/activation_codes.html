@@ -114,10 +114,63 @@
     </div>
 </div>
 
+<!-- 发放申请模态框 -->
+<div id="issueRequestModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 20px; width: 90%; max-width: 520px;">
+        <h3 style="margin-bottom: 1.5rem;">发放激活码</h3>
+        <form id="issueRequestForm">
+            <input type="hidden" id="issueRequestId" name="request_id">
+            <div style="margin-bottom: 1rem; padding: 0.9rem 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;">
+                <div style="font-weight: 700; color: #0f172a;">发放对象：<span id="issueRequestUserLabel">-</span></div>
+                <div style="margin-top: 0.35rem; color: #475569; font-size: 0.92rem;">
+                    确认后将为该用户发放激活码。关闭弹窗或点击取消都不会执行发放。
+                </div>
+            </div>
+            <div class="form-group">
+                <label>有效期类型</label>
+                <select id="issueValidityType" name="validity_type" class="form-control" required>
+                    <option value="day">1天</option>
+                    <option value="month">1个月</option>
+                    <option value="quarter">3个月</option>
+                    <option value="year">1年</option>
+                    <option value="permanent">永久</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>发放备注（选填）</label>
+                <textarea id="issueAdminNote" name="admin_note" class="form-control" rows="4" placeholder="可填写发放说明、使用限制等"></textarea>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-danger" onclick="hideIssueRequestModal()">取消</button>
+                <button type="submit" class="btn">确认发放</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 驳回申请模态框 -->
+<div id="rejectRequestModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 20px; width: 90%; max-width: 520px;">
+        <h3 style="margin-bottom: 1.5rem;">驳回申请</h3>
+        <form id="rejectRequestForm">
+            <input type="hidden" id="rejectRequestId" name="request_id">
+            <div class="form-group">
+                <label>驳回原因（选填）</label>
+                <textarea id="rejectAdminNote" name="admin_note" class="form-control" rows="4" placeholder="可填写驳回原因，用户侧会看到处理备注"></textarea>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-danger" onclick="hideRejectRequestModal()">取消</button>
+                <button type="submit" class="btn">确认驳回</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 // 当前页码
 let currentPage = 1;
 const perPage = 10;
+const activationRequestMap = {};
 
 // 页面加载完成后获取激活码列表
 document.addEventListener('DOMContentLoaded', function() {
@@ -241,6 +294,7 @@ function renderActivationRequests(rows, targetId = 'activationRequestsList', emp
     let html = '';
     let currentGroupDate = '';
     rows.forEach(item => {
+        activationRequestMap[item.id] = item;
         const statusClass =
             item.status === 'pending' ? 'status-expired' :
             item.status === 'issued' ? 'status-used' :
@@ -249,10 +303,10 @@ function renderActivationRequests(rows, targetId = 'activationRequestsList', emp
         const issueActions = item.status === 'pending' || item.status === 'rejected'
             ? `
                 <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
-                    <button class="btn btn-sm" onclick="issueRequest(${item.id}, 'month')">发1个月</button>
-                    <button class="btn btn-sm" onclick="issueRequest(${item.id}, 'permanent')">发永久码</button>
-                    <button class="btn btn-sm" onclick="issueRequest(${item.id}, 'custom')">其他限时</button>
-                    <button class="btn btn-danger btn-sm" onclick="rejectRequest(${item.id})">驳回</button>
+                    <button type="button" class="btn btn-sm" onclick="openIssueRequestModal(event, ${item.id}, 'month')">发1个月</button>
+                    <button type="button" class="btn btn-sm" onclick="openIssueRequestModal(event, ${item.id}, 'permanent')">发永久码</button>
+                    <button type="button" class="btn btn-sm" onclick="openIssueRequestModal(event, ${item.id}, 'quarter')">其他限时</button>
+                    <button type="button" class="btn btn-danger btn-sm" onclick="openRejectRequestModal(event, ${item.id})">驳回</button>
                 </div>
             `
             : '<span style="color:#94a3b8;">已处理</span>';
@@ -292,15 +346,42 @@ function renderActivationRequests(rows, targetId = 'activationRequestsList', emp
     tbody.innerHTML = html;
 }
 
-function issueRequest(requestId, validityType) {
-    if (validityType === 'custom') {
-        const customType = prompt('请输入限时类型：day / month / quarter / year', 'month');
-        if (!customType) {
-            return;
-        }
-        validityType = customType.trim();
+function openIssueRequestModal(event, requestId, validityType) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
     }
-    const adminNote = prompt('可选：填写发放备注', '') || '';
+    const item = activationRequestMap[requestId] || {};
+    const username = item.username || '未知用户';
+    const email = item.email ? `（${item.email}）` : '';
+    document.getElementById('issueRequestId').value = requestId;
+    document.getElementById('issueValidityType').value = validityType || 'month';
+    document.getElementById('issueAdminNote').value = '';
+    document.getElementById('issueRequestUserLabel').textContent = `${username}${email}`;
+    document.getElementById('issueRequestModal').style.display = 'block';
+    return false;
+}
+
+function hideIssueRequestModal() {
+    document.getElementById('issueRequestModal').style.display = 'none';
+}
+
+function openRejectRequestModal(event, requestId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    document.getElementById('rejectRequestId').value = requestId;
+    document.getElementById('rejectAdminNote').value = '';
+    document.getElementById('rejectRequestModal').style.display = 'block';
+    return false;
+}
+
+function hideRejectRequestModal() {
+    document.getElementById('rejectRequestModal').style.display = 'none';
+}
+
+function issueRequest(requestId, validityType, adminNote) {
     fetch(`/admin/activation_codes/requests/${requestId}/issue`, {
         method: 'POST',
         headers: {
@@ -314,6 +395,7 @@ function issueRequest(requestId, validityType) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            hideIssueRequestModal();
             loadActivationCodes(1);
             loadActivationRequests();
             if (document.getElementById('activationRequestHistory').open) {
@@ -330,8 +412,7 @@ function issueRequest(requestId, validityType) {
     });
 }
 
-function rejectRequest(requestId) {
-    const adminNote = prompt('请输入驳回原因（可选）', '') || '';
+function rejectRequest(requestId, adminNote) {
     fetch(`/admin/activation_codes/requests/${requestId}/reject`, {
         method: 'POST',
         headers: {
@@ -344,6 +425,7 @@ function rejectRequest(requestId) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            hideRejectRequestModal();
             loadActivationRequests();
             if (document.getElementById('activationRequestHistory').open) {
                 loadActivationRequestHistory();
@@ -358,6 +440,33 @@ function rejectRequest(requestId) {
         showToast('驳回失败，请稍后重试', 'error');
     });
 }
+
+document.getElementById('issueRequestForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const requestId = document.getElementById('issueRequestId').value;
+    const validityType = document.getElementById('issueValidityType').value;
+    const adminNote = document.getElementById('issueAdminNote').value.trim();
+    issueRequest(requestId, validityType, adminNote);
+});
+
+document.getElementById('rejectRequestForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const requestId = document.getElementById('rejectRequestId').value;
+    const adminNote = document.getElementById('rejectAdminNote').value.trim();
+    rejectRequest(requestId, adminNote);
+});
+
+document.getElementById('issueRequestModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideIssueRequestModal();
+    }
+});
+
+document.getElementById('rejectRequestModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideRejectRequestModal();
+    }
+});
 
 // 渲染分页
 function renderPagination(pagination) {
