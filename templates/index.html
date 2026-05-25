@@ -1046,6 +1046,121 @@
             color: #f8fafc !important;
             border-color: rgba(148, 163, 184, 0.14) !important;
         }
+
+        .info-ribbon {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+
+        .info-panel {
+            position: relative;
+            overflow: hidden;
+            min-height: 112px;
+            padding: 16px 18px;
+            border-radius: 18px;
+            background:
+                radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 35%),
+                linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.92));
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            box-shadow: 0 12px 30px rgba(2, 6, 23, 0.22);
+        }
+
+        .info-panel::after {
+            content: "";
+            position: absolute;
+            inset: auto -30px -30px auto;
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,0.09), transparent 68%);
+            pointer-events: none;
+        }
+
+        .info-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .info-panel-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #cbd5e1;
+            font-size: 0.84rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .info-panel-label i {
+            color: #7dd3fc;
+        }
+
+        .info-panel-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.16);
+            color: #bfdbfe;
+            font-size: 0.72rem;
+            font-weight: 700;
+            border: 1px solid rgba(96, 165, 250, 0.18);
+        }
+
+        .info-panel-value {
+            color: #f8fafc;
+            font-size: 1.35rem;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: 0.02em;
+            margin-bottom: 6px;
+        }
+
+        .info-panel-subtitle,
+        .info-panel-meta {
+            color: #94a3b8;
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .info-panel-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 6px;
+        }
+
+        .info-panel-meta span {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        @media (max-width: 1100px) {
+            .info-ribbon {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 768px) {
+            .info-ribbon {
+                grid-template-columns: 1fr;
+            }
+
+            .info-panel {
+                min-height: 0;
+                padding: 15px 16px;
+            }
+
+            .info-panel-value {
+                font-size: 1.2rem;
+            }
+        }
     </style>
 </head>
 <body class="{% if session.get('user_id') %}has-sidebar{% endif %}">
@@ -1122,6 +1237,47 @@
     </style>
 
     <div class="main-container">
+        <section class="info-ribbon" id="homeInfoRibbon">
+            <div class="info-panel">
+                <div class="info-panel-header">
+                    <span class="info-panel-label"><i class="fas fa-clock"></i> 当前时间</span>
+                    <span class="info-panel-badge" id="currentRegionBadge">澳门</span>
+                </div>
+                <div class="info-panel-value" id="currentTimeValue">--:--:--</div>
+                <div class="info-panel-subtitle" id="currentDateValue">--</div>
+                <div class="info-panel-meta">
+                    <span><i class="fas fa-globe-asia"></i> Asia/Shanghai</span>
+                    <span id="calendarWeekValue"><i class="fas fa-calendar-week"></i> --</span>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <div class="info-panel-header">
+                    <span class="info-panel-label"><i class="fas fa-moon"></i> 农历 / 万年历</span>
+                    <span class="info-panel-badge">今日</span>
+                </div>
+                <div class="info-panel-value" id="lunarDateValue">--</div>
+                <div class="info-panel-subtitle" id="lunarDetailValue">--</div>
+                <div class="info-panel-meta">
+                    <span id="gregorianDayValue"><i class="fas fa-sun"></i> --</span>
+                    <span id="gregorianFullValue"><i class="fas fa-calendar-alt"></i> --</span>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <div class="info-panel-header">
+                    <span class="info-panel-label"><i class="fas fa-hourglass-half"></i> 下期开奖</span>
+                    <span class="info-panel-badge" id="drawRegionBadge">澳门</span>
+                </div>
+                <div class="info-panel-value" id="nextDrawTimeValue">--</div>
+                <div class="info-panel-subtitle" id="nextDrawCountdownValue">正在计算倒计时...</div>
+                <div class="info-panel-meta">
+                    <span id="nextDrawSourceValue"><i class="fas fa-broadcast-tower"></i> 地区联动</span>
+                    <span id="nextDrawDateValue"><i class="fas fa-stopwatch"></i> --</span>
+                </div>
+            </div>
+        </section>
+
         <!-- 控制面板 -->
         <div class="glass-card">
             {% include 'control_panel.html' %}
@@ -1146,9 +1302,8 @@
 <script>
         // 页面加载时初始化状态
         document.addEventListener('DOMContentLoaded', function() {
-            // 调用原有的fetchDraws函数
-            if (typeof fetchDraws === 'function') {
-                fetchDraws();
+            if (typeof initHomeInfoRibbon === 'function') {
+                initHomeInfoRibbon();
             }
         });
         </script>
@@ -1160,6 +1315,183 @@
         <span>本项目源码仅限非商业用途使用。</span>
         <a href="https://github.com/e5sub/mark-six/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">许可协议</a>
     </footer>
+
+    <script>
+        const REGION_INFO = {
+            macau: {
+                label: '澳门',
+                lat: 22.1987,
+                lon: 113.5439,
+            },
+            hk: {
+                label: '香港',
+                lat: 22.3193,
+                lon: 114.1694,
+            },
+        };
+
+        let nextDrawTarget = null;
+        function getActiveRegion() {
+            return document.querySelector('.region-btn.active')?.dataset.region || 'macau';
+        }
+
+        function changeRegion(region, buttonEl) {
+            const buttons = document.querySelectorAll('.region-btn');
+            buttons.forEach((btn) => btn.classList.remove('active'));
+            if (buttonEl) {
+                buttonEl.classList.add('active');
+            } else {
+                document.querySelector(`.region-btn[data-region="${region}"]`)?.classList.add('active');
+            }
+            updateHomeInfoRegion(region);
+            if (typeof fetchDraws === 'function') {
+                fetchDraws();
+            }
+        }
+
+        function formatTwo(value) {
+            return String(value).padStart(2, '0');
+        }
+
+        function updateClockPanel() {
+            const now = new Date();
+            const currentTimeValue = document.getElementById('currentTimeValue');
+            const currentDateValue = document.getElementById('currentDateValue');
+            const calendarWeekValue = document.getElementById('calendarWeekValue');
+            const gregorianDayValue = document.getElementById('gregorianDayValue');
+            const gregorianFullValue = document.getElementById('gregorianFullValue');
+            const lunarDateValue = document.getElementById('lunarDateValue');
+            const lunarDetailValue = document.getElementById('lunarDetailValue');
+
+            if (currentTimeValue) {
+                currentTimeValue.textContent = `${formatTwo(now.getHours())}:${formatTwo(now.getMinutes())}:${formatTwo(now.getSeconds())}`;
+            }
+
+            const fullDate = new Intl.DateTimeFormat('zh-CN', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                weekday: 'long',
+            }).format(now);
+            if (currentDateValue) {
+                currentDateValue.textContent = fullDate;
+            }
+
+            const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+            const weekOfYear = Math.ceil((dayOfYear + new Date(now.getFullYear(), 0, 1).getDay()) / 7);
+                if (calendarWeekValue) {
+                calendarWeekValue.innerHTML = `<i class="fas fa-calendar-week"></i> 第 ${weekOfYear} 周 / 第 ${dayOfYear} 天`;
+                }
+
+                if (gregorianDayValue) {
+                gregorianDayValue.innerHTML = `<i class="fas fa-sun"></i> ${fullDate.replace(/\s+/g, ' ')}`;
+                }
+
+            if (gregorianFullValue) {
+                gregorianFullValue.innerHTML = `<i class="fas fa-calendar-alt"></i> ${now.getFullYear()}-${formatTwo(now.getMonth() + 1)}-${formatTwo(now.getDate())}`;
+            }
+
+            try {
+                const lunarFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    weekday: 'long',
+                });
+                const lunarText = lunarFormatter.format(now).replace(/\s+/g, ' ');
+                const lunarParts = lunarText.split('年');
+                if (lunarDateValue) {
+                    lunarDateValue.textContent = lunarParts.length > 1 ? `${lunarParts[0]}年` : lunarText;
+                }
+                if (lunarDetailValue) {
+                    lunarDetailValue.textContent = lunarParts.length > 1 ? lunarParts.slice(1).join('年').trim() : lunarText;
+                }
+            } catch (error) {
+                if (lunarDateValue) {
+                    lunarDateValue.textContent = '农历信息暂不可用';
+                }
+                if (lunarDetailValue) {
+                    lunarDetailValue.textContent = '当前浏览器不支持农历格式化';
+                }
+            }
+
+            updateNextDrawCountdown(now);
+        }
+
+        async function fetchNextDrawTime(region) {
+            const info = REGION_INFO[region] || REGION_INFO.macau;
+            const nextDrawTimeValue = document.getElementById('nextDrawTimeValue');
+            const nextDrawCountdownValue = document.getElementById('nextDrawCountdownValue');
+            const nextDrawSourceValue = document.getElementById('nextDrawSourceValue');
+            const nextDrawDateValue = document.getElementById('nextDrawDateValue');
+
+            if (nextDrawTimeValue) nextDrawTimeValue.textContent = '--';
+            if (nextDrawCountdownValue) nextDrawCountdownValue.textContent = '正在获取最新时间...';
+            if (nextDrawSourceValue) nextDrawSourceValue.innerHTML = '<i class="fas fa-broadcast-tower"></i> 地区联动';
+            if (nextDrawDateValue) nextDrawDateValue.innerHTML = '<i class="fas fa-stopwatch"></i> --';
+
+            try {
+                const response = await fetch(`/api/next_draw_time?region=${region}`);
+                if (!response.ok) {
+                    throw new Error(`draw ${response.status}`);
+                }
+                const data = await response.json();
+                const rawValue = String(data.next_draw_time || '').trim();
+                if (!rawValue) {
+                    throw new Error('empty next draw time');
+                }
+                const normalized = rawValue.replace(' ', 'T');
+                const parsed = new Date(normalized);
+                nextDrawTarget = Number.isNaN(parsed.getTime()) ? null : parsed;
+                if (nextDrawTimeValue) nextDrawTimeValue.textContent = rawValue;
+                if (nextDrawDateValue) {
+                    nextDrawDateValue.innerHTML = `<i class="fas fa-stopwatch"></i> ${info.label}地区`;
+                }
+                updateNextDrawCountdown();
+            } catch (error) {
+                nextDrawTarget = null;
+                if (nextDrawCountdownValue) nextDrawCountdownValue.textContent = '暂时无法获取下期开奖时间';
+            }
+        }
+
+        function updateNextDrawCountdown(now = new Date()) {
+            const nextDrawCountdownValue = document.getElementById('nextDrawCountdownValue');
+            if (!nextDrawCountdownValue) {
+                return;
+            }
+            if (!nextDrawTarget) {
+                nextDrawCountdownValue.textContent = '正在等待时间源返回...';
+                return;
+            }
+
+            const diff = nextDrawTarget.getTime() - now.getTime();
+            if (diff <= 0) {
+                nextDrawCountdownValue.textContent = '已接近开奖时间';
+                return;
+            }
+
+            const totalSeconds = Math.floor(diff / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            nextDrawCountdownValue.textContent = `倒计时 ${formatTwo(hours)}:${formatTwo(minutes)}:${formatTwo(seconds)}`;
+        }
+
+        function updateHomeInfoRegion(region) {
+            const info = REGION_INFO[region] || REGION_INFO.macau;
+            const currentRegionBadge = document.getElementById('currentRegionBadge');
+            const drawRegionBadge = document.getElementById('drawRegionBadge');
+            if (currentRegionBadge) currentRegionBadge.textContent = info.label;
+            if (drawRegionBadge) drawRegionBadge.textContent = info.label;
+            fetchNextDrawTime(region);
+        }
+
+        function initHomeInfoRibbon() {
+            updateClockPanel();
+            updateHomeInfoRegion(getActiveRegion());
+            setInterval(updateClockPanel, 1000);
+        }
+    </script>
 
     {% if session.get('user_id') %}
     <script>

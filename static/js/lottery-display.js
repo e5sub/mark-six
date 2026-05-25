@@ -641,9 +641,13 @@ document.addEventListener('DOMContentLoaded', function() {
     regionButtons.forEach(btn => {
         btn.addEventListener('click', function() {
             console.log(`切换地区: ${this.dataset.region}`);
-            regionButtons.forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
-            fetchDraws();
+            if (typeof changeRegion === 'function') {
+                changeRegion(this.dataset.region, this);
+            } else {
+                regionButtons.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                fetchDraws();
+            }
         });
     });
     
