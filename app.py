@@ -739,7 +739,6 @@ def _sync_runtime_database_schema():
 
 def ensure_runtime_database_schema():
     """在应用启动时尽早补齐数据库结构，避免WSGI模式下缺列报错。"""
-    summary = {}
     with app.app_context():
         try:
             db.create_all()
@@ -9452,6 +9451,7 @@ def _run_lottery_update_job(regions=None, source="scheduler"):
     normalized_regions = tuple(_normalize_update_regions(",".join(regions) if isinstance(regions, (list, tuple, set)) else regions))
     print(f"开始执行开奖更新任务 source={source} regions={normalized_regions} time={datetime.now()}")
     with app.app_context():
+        summary = {}
         current_year = str(datetime.now().year)
         if "hk" in normalized_regions:
             print("正在同步香港数据...")
