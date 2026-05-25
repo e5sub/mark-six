@@ -66,6 +66,11 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 _startup_log_lock_path = None
 _startup_log_lock_acquired = False
+_lottery_update_thread = None
+_lottery_update_lock = threading.Lock()
+_lottery_update_state_lock = threading.Lock()
+_lottery_update_running = False
+_lottery_update_started_at = None
 
 def _pid_is_running(pid):
     if pid <= 0:
@@ -8741,45 +8746,89 @@ def unified_predict_api():
     result["prediction_zodiac_year"] = prediction_zodiac_year
     return jsonify(result)
 
-# 手动更新数据API
-@app.route('/api/update_data', methods=['POST'])
-def update_data_api():
-    try:
-        region = request.json.get('region', 'all')
+def _normalize_update_regions(region):
+    value = str(region or "all").strip().lower()
+    if value in {"", "all"}:
+        return ("hk", "macau")
+    if value == "hk":
+        return ("hk",)
+    if value == "macau":
+        return ("macau",)
+    return ("hk", "macau")
+
+
+def _run_lottery_update_job(regions=None, source="scheduler"):
+    normalized_regions = tuple(_normalize_update_regions(",".join(regions) if isinstance(regions, (list, tuple, set)) else regions))
+    print(f"开始执行开奖更新任务 source={source} regions={normalized_regions} time={datetime.now()}")
+    with app.app_context():
         current_year = str(datetime.now().year)
-        
-        if region == 'all' or region == 'hk':
-            # 更新香港数据
-            hk_data = load_hk_data(force_refresh=True)
-            hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
-            save_draws_to_database(hk_filtered, 'hk')
-            print(f"手动更新：成功更新香港数据{len(hk_filtered)}条")
+        if "hk" in normalized_regions:
+            print("正在同步香港数据...")
+            hk_data = sync_draws_from_api('hk', current_year, force=True)
+            print(f"香港数据更新完成：{len(hk_data)}条")
             update_hk_next_draw_time_cache(force=True)
             prediction_hk_data, _ = _get_prediction_data('hk', current_year)
             if prediction_hk_data:
                 generate_auto_predictions(prediction_hk_data, 'hk')
                 refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
-        
-        if region == 'all' or region == 'macau':
-            # 更新澳门数据
-            macau_data = get_macau_data(current_year, force_api=True)
-            save_draws_to_database(macau_data, 'macau')
-            print(f"手动更新：成功更新澳门数据{len(macau_data)}条")
+        if "macau" in normalized_regions:
+            print("正在同步澳门数据...")
+            macau_data = sync_draws_from_api('macau', current_year, force=True)
+            print(f"澳门数据更新完成：{len(macau_data)}条")
             prediction_macau_data, _ = _get_prediction_data('macau', current_year)
             if prediction_macau_data:
                 generate_auto_predictions(prediction_macau_data, 'macau')
                 refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
-        
+    print(f"开奖更新任务执行完成 source={source} regions={normalized_regions}")
+
+
+def _start_lottery_update_async(regions=None, source="scheduler"):
+    global _lottery_update_thread, _lottery_update_running, _lottery_update_started_at
+    normalized_regions = tuple(_normalize_update_regions(",".join(regions) if isinstance(regions, (list, tuple, set)) else regions))
+    with _lottery_update_lock:
+        if _lottery_update_running:
+            return False, tuple(normalized_regions)
+        _lottery_update_running = True
+        _lottery_update_started_at = datetime.now().isoformat(timespec="seconds")
+
+        def _runner():
+            global _lottery_update_running, _lottery_update_started_at
+            try:
+                _run_lottery_update_job(normalized_regions, source=source)
+            except Exception as e:
+                print(f"开奖更新后台任务失败 source={source}: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                with _lottery_update_state_lock:
+                    _lottery_update_running = False
+                    _lottery_update_started_at = None
+
+        _lottery_update_thread = threading.Thread(
+            target=_runner,
+            name=f"lottery-update-{source}",
+            daemon=True,
+        )
+        _lottery_update_thread.start()
+        return True, tuple(normalized_regions)
+
+
+# 手动更新数据API
+@app.route('/api/update_data', methods=['POST'])
+def update_data_api():
+    payload = request.get_json(silent=True) or {}
+    started, regions = _start_lottery_update_async(payload.get('region', 'all'), source="manual")
+    if started:
         return jsonify({
-            "success": True, 
-            "message": f"数据更新成功，香港和澳门数据已更新至最新"
-        })
-    except Exception as e:
-        print(f"手动更新数据失败: {e}")
-        return jsonify({
-            "success": False,
-            "message": f"更新失败: {str(e)}"
-        }), 500
+            "success": True,
+            "queued": True,
+            "message": f"更新任务已开始，地区：{','.join(regions)}"
+        }), 202
+    return jsonify({
+        "success": True,
+        "queued": False,
+        "message": "已有更新任务正在执行，请稍后刷新页面查看最新结果"
+    }), 202
 
 @app.route('/api/number_frequency')
 def number_frequency_api():
@@ -9336,42 +9385,12 @@ def _release_scheduler_lock():
 
 # 定时任务：每天21:40自动更新数据库中的开奖记录
 def update_lottery_data():
-    """定时任务：更新数据库中的开奖记录"""
-    print(f"开始执行定时任务：更新数据库中的开奖记录，时间：{datetime.now()}")
-    
-    # 在应用上下文中执行数据库操作
-    with app.app_context():
-        try:
-            current_year = str(datetime.now().year)
-            
-            # 更新香港数据
-            print("正在同步香港数据...")
-            hk_data = sync_draws_from_api('hk', current_year, force=True)
-            print(f"香港数据更新完成：{len(hk_data)}条")
-            update_hk_next_draw_time_cache(force=True)
-            
-            # 更新澳门数据
-            print("正在同步澳门数据...")
-            macau_data = sync_draws_from_api('macau', current_year, force=True)
-            print(f"澳门数据更新完成：{len(macau_data)}条")
-
-            # 触发自动预测功能（排除 AI 策略）
-            print("正在生成自动预测...")
-            prediction_hk_data, _ = _get_prediction_data('hk', current_year)
-            if prediction_hk_data:
-                generate_auto_predictions(prediction_hk_data, 'hk')
-                refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
-            prediction_macau_data, _ = _get_prediction_data('macau', current_year)
-            if prediction_macau_data:
-                generate_auto_predictions(prediction_macau_data, 'macau')
-                refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
-            
-            print(f"定时任务执行完成：成功更新香港数据{len(hk_data)}条，澳门数据{len(macau_data)}条")
-            
-        except Exception as e:
-            print(f"定时任务执行失败：{e}")
-            import traceback
-            traceback.print_exc()
+    """定时任务：异步触发开奖记录更新，避免阻塞前台请求。"""
+    started, regions = _start_lottery_update_async(("hk", "macau"), source="scheduler")
+    if started:
+        print(f"定时任务已触发后台更新 regions={regions}")
+    else:
+        print("定时任务跳过：已有开奖更新任务正在执行")
 
 def warmup_auto_backtest_snapshots():
     """Ensure current backtest snapshots exist after app startup."""
