@@ -1050,7 +1050,7 @@
         .info-ribbon {
             position: relative;
             overflow: hidden;
-            margin-bottom: 14px;
+            margin-bottom: 16px;
             padding: 14px 16px;
             border-radius: 18px;
             background:
@@ -1061,6 +1061,10 @@
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 12px;
+        }
+
+        .info-ribbon.embedded {
+            margin-bottom: 18px;
         }
 
         .info-ribbon::after {
@@ -1266,48 +1270,36 @@
     </style>
 
     <div class="main-container">
-        <section class="info-ribbon" id="homeInfoRibbon">
-            <div class="info-panel">
-                <div class="info-panel-header">
-                    <span class="info-panel-label"><i class="fas fa-clock"></i> 当前时间</span>
-                </div>
-                <div class="info-panel-value" id="currentTimeValue">--:--:--</div>
-                <div class="info-panel-subtitle" id="currentDateValue">--</div>
-                <div class="info-panel-meta">
-                    <span><i class="fas fa-globe-asia"></i> Asia/Shanghai</span>
-                    <span id="calendarWeekValue"><i class="fas fa-calendar-week"></i> --</span>
-                </div>
-            </div>
-
-            <div class="info-panel">
-                <div class="info-panel-header">
-                    <span class="info-panel-label"><i class="fas fa-moon"></i> 农历 / 万年历</span>
-                    <span class="info-panel-badge">今日</span>
-                </div>
-                <div class="info-panel-value" id="lunarDateValue">--</div>
-                <div class="info-panel-subtitle" id="lunarDetailValue">--</div>
-                <div class="info-panel-meta">
-                    <span id="gregorianDayValue"><i class="fas fa-sun"></i> --</span>
-                    <span id="gregorianFullValue"><i class="fas fa-calendar-alt"></i> --</span>
-                </div>
-            </div>
-
-            <div class="info-panel">
-                <div class="info-panel-header">
-                    <span class="info-panel-label"><i class="fas fa-hourglass-half"></i> 下期开奖时间</span>
-                    <span class="info-panel-badge" id="drawRegionBadge">澳门</span>
-                </div>
-                <div class="info-panel-value" id="nextDrawTimeValue">--</div>
-                <div class="info-panel-subtitle" id="nextDrawCountdownValue">正在计算倒计时...</div>
-                <div class="info-panel-meta">
-                    <span id="nextDrawSourceValue"><i class="fas fa-broadcast-tower"></i> 地区联动</span>
-                    <span id="nextDrawDateValue"><i class="fas fa-stopwatch"></i> --</span>
-                </div>
-            </div>
-        </section>
-
         <!-- 控制面板 -->
         <div class="glass-card">
+            <section class="info-ribbon embedded" id="homeInfoRibbon">
+                <div class="info-panel">
+                    <div class="info-panel-header">
+                        <span class="info-panel-label"><i class="fas fa-clock"></i> 当前时间</span>
+                    </div>
+                    <div class="info-panel-value" id="currentTimeValue">--:--:--</div>
+                    <div class="info-panel-subtitle" id="currentDateValue">--</div>
+                </div>
+
+                <div class="info-panel">
+                    <div class="info-panel-header">
+                        <span class="info-panel-label"><i class="fas fa-moon"></i> 农历</span>
+                        <span class="info-panel-badge">今日</span>
+                    </div>
+                    <div class="info-panel-value" id="lunarDateValue">--</div>
+                    <div class="info-panel-subtitle" id="lunarDetailValue">--</div>
+                </div>
+
+                <div class="info-panel">
+                    <div class="info-panel-header">
+                        <span class="info-panel-label"><i class="fas fa-hourglass-half"></i> 下期开奖时间</span>
+                        <span class="info-panel-badge" id="drawRegionBadge">澳门</span>
+                    </div>
+                    <div class="info-panel-value" id="nextDrawTimeValue">--</div>
+                    <div class="info-panel-subtitle" id="nextDrawCountdownValue">正在计算倒计时...</div>
+                </div>
+            </section>
+
             {% include 'control_panel.html' %}
         </div>
         
@@ -1377,11 +1369,47 @@
             return String(value).padStart(2, '0');
         }
 
+        function normalizeChineseLunarDayText(text) {
+            if (!text) {
+                return text;
+            }
+            return text
+                .replace(/十一(?=[^\u4e00-\u9fa5]|$)/g, '十一')
+                .replace(/十二(?=[^\u4e00-\u9fa5]|$)/g, '十二')
+                .replace(/十三(?=[^\u4e00-\u9fa5]|$)/g, '十三')
+                .replace(/十四(?=[^\u4e00-\u9fa5]|$)/g, '十四')
+                .replace(/十五(?=[^\u4e00-\u9fa5]|$)/g, '十五')
+                .replace(/十六(?=[^\u4e00-\u9fa5]|$)/g, '十六')
+                .replace(/十七(?=[^\u4e00-\u9fa5]|$)/g, '十七')
+                .replace(/十八(?=[^\u4e00-\u9fa5]|$)/g, '十八')
+                .replace(/十九(?=[^\u4e00-\u9fa5]|$)/g, '十九')
+                .replace(/二十(?=[^\u4e00-\u9fa5]|$)/g, '二十')
+                .replace(/二十一(?=[^\u4e00-\u9fa5]|$)/g, '廿一')
+                .replace(/二十二(?=[^\u4e00-\u9fa5]|$)/g, '廿二')
+                .replace(/二十三(?=[^\u4e00-\u9fa5]|$)/g, '廿三')
+                .replace(/二十四(?=[^\u4e00-\u9fa5]|$)/g, '廿四')
+                .replace(/二十五(?=[^\u4e00-\u9fa5]|$)/g, '廿五')
+                .replace(/二十六(?=[^\u4e00-\u9fa5]|$)/g, '廿六')
+                .replace(/二十七(?=[^\u4e00-\u9fa5]|$)/g, '廿七')
+                .replace(/二十八(?=[^\u4e00-\u9fa5]|$)/g, '廿八')
+                .replace(/二十九(?=[^\u4e00-\u9fa5]|$)/g, '廿九')
+                .replace(/三十(?=[^\u4e00-\u9fa5]|$)/g, '三十')
+                .replace(/十(?=[一二三四五六七八九]|$)/g, '初十')
+                .replace(/(?<![初十廿三])一(?=[^\u4e00-\u9fa5]|$)/g, '初一')
+                .replace(/(?<![初十廿三])二(?=[^\u4e00-\u9fa5]|$)/g, '初二')
+                .replace(/(?<![初十廿三])三(?=[^\u4e00-\u9fa5]|$)/g, '初三')
+                .replace(/(?<![初十廿三])四(?=[^\u4e00-\u9fa5]|$)/g, '初四')
+                .replace(/(?<![初十廿三])五(?=[^\u4e00-\u9fa5]|$)/g, '初五')
+                .replace(/(?<![初十廿三])六(?=[^\u4e00-\u9fa5]|$)/g, '初六')
+                .replace(/(?<![初十廿三])七(?=[^\u4e00-\u9fa5]|$)/g, '初七')
+                .replace(/(?<![初十廿三])八(?=[^\u4e00-\u9fa5]|$)/g, '初八')
+                .replace(/(?<![初十廿三])九(?=[^\u4e00-\u9fa5]|$)/g, '初九');
+        }
+
         function updateClockPanel() {
             const now = new Date();
             const currentTimeValue = document.getElementById('currentTimeValue');
             const currentDateValue = document.getElementById('currentDateValue');
-            const calendarWeekValue = document.getElementById('calendarWeekValue');
             const gregorianDayValue = document.getElementById('gregorianDayValue');
             const gregorianFullValue = document.getElementById('gregorianFullValue');
             const lunarDateValue = document.getElementById('lunarDateValue');
@@ -1397,15 +1425,11 @@
                 day: 'numeric',
                 weekday: 'long',
             }).format(now);
-            if (currentDateValue) {
-                currentDateValue.textContent = fullDate;
-            }
-
             const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
             const weekOfYear = Math.ceil((dayOfYear + new Date(now.getFullYear(), 0, 1).getDay()) / 7);
-                if (calendarWeekValue) {
-                calendarWeekValue.innerHTML = `<i class="fas fa-calendar-week"></i> 第 ${weekOfYear} 周 / 第 ${dayOfYear} 天`;
-                }
+            if (currentDateValue) {
+                currentDateValue.textContent = `${fullDate} · 第 ${weekOfYear} 周 / 第 ${dayOfYear} 天`;
+            }
 
                 if (gregorianDayValue) {
                 gregorianDayValue.innerHTML = `<i class="fas fa-sun"></i> ${fullDate.replace(/\s+/g, ' ')}`;
@@ -1424,7 +1448,8 @@
                 const lunarText = lunarFormatter.format(now).replace(/\s+/g, ' ').trim();
                 const lunarParts = lunarText.split('年');
                 const lunarYear = lunarParts.length > 1 ? `${lunarParts[0]}年` : lunarText;
-                const lunarMonthDay = lunarParts.length > 1 ? lunarParts.slice(1).join('年').trim() : '';
+                const lunarMonthDayRaw = lunarParts.length > 1 ? lunarParts.slice(1).join('年').trim() : '';
+                const lunarMonthDay = normalizeChineseLunarDayText(lunarMonthDayRaw);
                 const weekdayText = new Intl.DateTimeFormat('zh-CN', {
                     weekday: 'long',
                 }).format(now);
