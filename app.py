@@ -16,7 +16,8 @@ import re
 from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 import time
-from sqlalchemy import inspect
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.engine import make_url
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 
@@ -148,6 +149,59 @@ def _build_database_uri(db_path):
 
 def _mask_db_uri(uri):
     return re.sub(r'//([^:/@]+):([^@]+)@', r'//\1:***@', uri)
+
+
+def _ensure_mysql_database_exists(database_uri):
+    try:
+        url = make_url(database_uri)
+    except Exception:
+        return
+
+    backend = (url.get_backend_name() or "").lower()
+    if backend not in ("mysql", "mariadb"):
+        return
+
+    db_name = str(url.database or "").strip()
+    if not db_name:
+        return
+
+    server_url = url.set(database=None)
+    admin_engine = None
+    try:
+        admin_engine = create_engine(
+            server_url,
+            pool_pre_ping=True,
+            pool_recycle=280,
+        )
+        escaped_name = db_name.replace("`", "``")
+        with admin_engine.begin() as connection:
+            connection.exec_driver_sql(
+                f"CREATE DATABASE IF NOT EXISTS `{escaped_name}` "
+                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            )
+        if _should_log_startup():
+            print(f"MySQL database ready: {db_name}")
+    except Exception as e:
+        print(f"Failed to ensure MySQL database exists: {e}")
+    finally:
+        if admin_engine is not None:
+            admin_engine.dispose()
+
+
+def _describe_database_target(database_uri):
+    try:
+        url = make_url(database_uri)
+    except Exception:
+        return "unknown", ""
+
+    backend = (url.get_backend_name() or "").lower()
+    database_name = str(url.database or "").strip()
+
+    if backend in ("mysql", "mariadb"):
+        return "MySQL", database_name
+    if backend == "sqlite":
+        return "SQLite", database_name
+    return backend or "unknown", database_name
 
 STRATEGY_LABELS = {
     'ml': '机器学习预测',
@@ -507,9 +561,12 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_recycle": 280,
 }
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+_ensure_mysql_database_exists(app.config['SQLALCHEMY_DATABASE_URI'])
 
 # 只在主进程中打印一次
 if _should_log_startup():
+    db_kind, db_target = _describe_database_target(app.config['SQLALCHEMY_DATABASE_URI'])
+    print(f"Database backend: {db_kind}{f' ({db_target})' if db_target else ''}")
     print(f"数据库路径: {db_path}")
     print(f"数据库URI: {_mask_db_uri(app.config['SQLALCHEMY_DATABASE_URI'])}")
 
