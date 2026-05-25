@@ -7950,7 +7950,7 @@ def save_draws_to_database(draws, region):
         db.session.rollback()
 
 AUTO_BACKTEST_STRATEGIES = ("ai", "ml", "hybrid", "balanced", "trend", "hot", "cold")
-AUTO_BACKTEST_MIN_HISTORY = 60
+AUTO_BACKTEST_MIN_HISTORY = 10
 AUTO_BACKTEST_LIMIT = 240
 AI_BACKTEST_MAX_PERIODS = 24
 
@@ -8343,7 +8343,7 @@ def refresh_auto_backtest_snapshots(regions=None, force=False):
     return refreshed
 
 
-AUTO_OPTIMIZE_STRATEGIES = ("hot", "cold", "trend", "balanced", "hybrid", "ml")
+AUTO_OPTIMIZE_STRATEGIES = ("hot", "cold", "trend", "balanced", "hybrid", "ml", "ai")
 AUTO_OPTIMIZE_BACKTEST_PERIODS = 72
 
 
@@ -8487,11 +8487,47 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
                 "l2": round(_clamp(base_l2, 0.001, 0.005), 4),
             },
         ])
+    elif strategy == "ai":
+        base_history = int(config.get("history_window") or 12)
+        base_temperature = float(config.get("temperature") or 0.35)
+        base_sample_count = int(config.get("sample_count") or 3)
+        base_candidate_count = int(config.get("candidate_count") or 3)
+        base_special_shortlist = int(config.get("special_shortlist") or 8)
+        base_normal_shortlist = int(config.get("normal_shortlist") or 18)
+        candidates.extend([
+            {
+                "history_window": _clamp(base_history - max(1, delta["eval"] // 2), 8, 18),
+                "temperature": round(_clamp(base_temperature - 0.05, 0.18, 0.45), 2),
+                "sample_count": _clamp(base_sample_count + 1, 1, 5),
+                "candidate_count": _clamp(base_candidate_count, 2, 5),
+                "special_shortlist": _clamp(base_special_shortlist - 1, 6, 10),
+                "normal_shortlist": _clamp(base_normal_shortlist - 2, 12, 22),
+            },
+            {
+                "history_window": _clamp(base_history + max(1, delta["eval"] // 2), 8, 18),
+                "temperature": round(_clamp(base_temperature + 0.04, 0.18, 0.45), 2),
+                "sample_count": _clamp(base_sample_count, 1, 5),
+                "candidate_count": _clamp(base_candidate_count + 1, 2, 5),
+                "special_shortlist": _clamp(base_special_shortlist + 1, 6, 10),
+                "normal_shortlist": _clamp(base_normal_shortlist + 2, 12, 22),
+            },
+            {
+                "history_window": _clamp(base_history, 8, 18),
+                "temperature": round(_clamp(base_temperature - 0.02, 0.18, 0.45), 2),
+                "sample_count": _clamp(base_sample_count + 1, 1, 5),
+                "candidate_count": _clamp(base_candidate_count + 1, 2, 5),
+                "special_shortlist": _clamp(base_special_shortlist, 6, 10),
+                "normal_shortlist": _clamp(base_normal_shortlist, 12, 22),
+            },
+        ])
 
     return _dedupe_auto_optimize_candidates(candidates)
 
 
 def _build_strategy_backtest_summary(region, strategy, draws=None, config_override=None, min_history=AUTO_BACKTEST_MIN_HISTORY, max_periods=AUTO_OPTIMIZE_BACKTEST_PERIODS):
+    if strategy == "ai" and not _ai_backtest_enabled():
+        return {"total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0, "windows": [], "periods_evaluated": 0}
+
     source_draws = _normalize_backtest_draws(
         draws if draws is not None else _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT),
         limit=AUTO_BACKTEST_LIMIT,
@@ -8511,7 +8547,10 @@ def _build_strategy_backtest_summary(region, strategy, draws=None, config_overri
             target_draw = chronological[idx]
             history_desc = list(reversed(chronological[:idx]))
             try:
-                result = get_local_recommendations(strategy, history_desc, region)
+                if strategy == "ai":
+                    result = predict_with_ai(history_desc, region, config_override=config_override)
+                else:
+                    result = get_local_recommendations(strategy, history_desc, region)
                 if result.get("error"):
                     continue
             except Exception:
