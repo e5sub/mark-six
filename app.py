@@ -3370,6 +3370,174 @@ def analyze_special_zodiac_frequency(data, region, year=None):
             zodiacs.append(r.get('sno_zodiac'))
     return Counter(z for z in zodiacs if z)
 
+
+def _build_repeat_transition_profile(data, region, year=None, recent_window=36):
+    records = list(data or [])
+    if len(records) < 2:
+        return {
+            "latest_special": None,
+            "latest_zodiac": "",
+            "latest_special_streak": 0,
+            "latest_zodiac_streak": 0,
+            "latest_special_repeat_probability": 0.0,
+            "latest_zodiac_repeat_probability": 0.0,
+            "overall_special_repeat_rate": 0.0,
+            "overall_zodiac_repeat_rate": 0.0,
+        }
+
+    if year is None:
+        year = _infer_draw_year(records)
+    number_to_zodiac = _get_number_to_zodiac_map(year) if region == "hk" else {}
+
+    normalized = []
+    for record in records:
+        try:
+            special = int(str(record.get("sno") or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= special <= 49):
+            continue
+        zodiac = number_to_zodiac.get(str(special), "") if number_to_zodiac else ""
+        if not zodiac:
+            zodiac = str(record.get("sno_zodiac") or "").strip()
+        normalized.append({
+            "special": special,
+            "zodiac": zodiac,
+        })
+
+    if len(normalized) < 2:
+        return {
+            "latest_special": None,
+            "latest_zodiac": "",
+            "latest_special_streak": 0,
+            "latest_zodiac_streak": 0,
+            "latest_special_repeat_probability": 0.0,
+            "latest_zodiac_repeat_probability": 0.0,
+            "overall_special_repeat_rate": 0.0,
+            "overall_zodiac_repeat_rate": 0.0,
+        }
+
+    latest_special = normalized[0]["special"]
+    latest_zodiac = normalized[0]["zodiac"]
+
+    latest_special_streak = 1
+    for item in normalized[1:]:
+        if item["special"] != latest_special:
+            break
+        latest_special_streak += 1
+
+    latest_zodiac_streak = 1 if latest_zodiac else 0
+    if latest_zodiac:
+        for item in normalized[1:]:
+            if item["zodiac"] != latest_zodiac:
+                break
+            latest_zodiac_streak += 1
+
+    chronological = list(reversed(normalized))
+    total_transitions = 0
+    special_repeat_hits = 0
+    zodiac_transition_total = 0
+    zodiac_repeat_hits = 0
+    latest_special_prev_total = 0
+    latest_special_prev_hits = 0
+    latest_zodiac_prev_total = 0
+    latest_zodiac_prev_hits = 0
+
+    recent_slice = chronological[-max(6, int(recent_window or 36)):]
+    recent_total_transitions = 0
+    recent_special_repeat_hits = 0
+    recent_zodiac_total = 0
+    recent_zodiac_repeat_hits = 0
+    recent_latest_special_prev_total = 0
+    recent_latest_special_prev_hits = 0
+    recent_latest_zodiac_prev_total = 0
+    recent_latest_zodiac_prev_hits = 0
+
+    for idx in range(1, len(chronological)):
+        prev_item = chronological[idx - 1]
+        curr_item = chronological[idx]
+        total_transitions += 1
+        if curr_item["special"] == prev_item["special"]:
+            special_repeat_hits += 1
+        if prev_item["special"] == latest_special:
+            latest_special_prev_total += 1
+            if curr_item["special"] == latest_special:
+                latest_special_prev_hits += 1
+        prev_zodiac = prev_item["zodiac"]
+        curr_zodiac = curr_item["zodiac"]
+        if prev_zodiac:
+            zodiac_transition_total += 1
+            if curr_zodiac == prev_zodiac:
+                zodiac_repeat_hits += 1
+            if prev_zodiac == latest_zodiac:
+                latest_zodiac_prev_total += 1
+                if curr_zodiac == latest_zodiac:
+                    latest_zodiac_prev_hits += 1
+
+    for idx in range(1, len(recent_slice)):
+        prev_item = recent_slice[idx - 1]
+        curr_item = recent_slice[idx]
+        recent_total_transitions += 1
+        if curr_item["special"] == prev_item["special"]:
+            recent_special_repeat_hits += 1
+        if prev_item["special"] == latest_special:
+            recent_latest_special_prev_total += 1
+            if curr_item["special"] == latest_special:
+                recent_latest_special_prev_hits += 1
+        prev_zodiac = prev_item["zodiac"]
+        curr_zodiac = curr_item["zodiac"]
+        if prev_zodiac:
+            recent_zodiac_total += 1
+            if curr_zodiac == prev_zodiac:
+                recent_zodiac_repeat_hits += 1
+            if prev_zodiac == latest_zodiac:
+                recent_latest_zodiac_prev_total += 1
+                if curr_zodiac == latest_zodiac:
+                    recent_latest_zodiac_prev_hits += 1
+
+    overall_special_repeat_rate = special_repeat_hits / max(total_transitions, 1)
+    overall_zodiac_repeat_rate = zodiac_repeat_hits / max(zodiac_transition_total, 1) if zodiac_transition_total else 0.0
+    recent_special_repeat_rate = recent_special_repeat_hits / max(recent_total_transitions, 1) if recent_total_transitions else overall_special_repeat_rate
+    recent_zodiac_repeat_rate = recent_zodiac_repeat_hits / max(recent_zodiac_total, 1) if recent_zodiac_total else overall_zodiac_repeat_rate
+
+    latest_special_conditional = latest_special_prev_hits / max(latest_special_prev_total, 1) if latest_special_prev_total else overall_special_repeat_rate
+    latest_zodiac_conditional = latest_zodiac_prev_hits / max(latest_zodiac_prev_total, 1) if latest_zodiac_prev_total else overall_zodiac_repeat_rate
+    recent_latest_special_conditional = (
+        recent_latest_special_prev_hits / max(recent_latest_special_prev_total, 1)
+        if recent_latest_special_prev_total else latest_special_conditional
+    )
+    recent_latest_zodiac_conditional = (
+        recent_latest_zodiac_prev_hits / max(recent_latest_zodiac_prev_total, 1)
+        if recent_latest_zodiac_prev_total else latest_zodiac_conditional
+    )
+
+    latest_special_repeat_probability = (
+        overall_special_repeat_rate * 0.20 +
+        recent_special_repeat_rate * 0.25 +
+        latest_special_conditional * 0.30 +
+        recent_latest_special_conditional * 0.25
+    )
+    latest_zodiac_repeat_probability = (
+        overall_zodiac_repeat_rate * 0.20 +
+        recent_zodiac_repeat_rate * 0.25 +
+        latest_zodiac_conditional * 0.30 +
+        recent_latest_zodiac_conditional * 0.25
+    )
+
+    latest_special_repeat_probability *= (0.72 ** max(0, latest_special_streak - 1))
+    latest_zodiac_repeat_probability *= (0.78 ** max(0, latest_zodiac_streak - 1))
+
+    return {
+        "latest_special": latest_special,
+        "latest_zodiac": latest_zodiac,
+        "latest_special_streak": latest_special_streak,
+        "latest_zodiac_streak": latest_zodiac_streak,
+        "latest_special_repeat_probability": round(_clamp(latest_special_repeat_probability, 0.0, 1.0), 6),
+        "latest_zodiac_repeat_probability": round(_clamp(latest_zodiac_repeat_probability, 0.0, 1.0), 6),
+        "overall_special_repeat_rate": round(_clamp(overall_special_repeat_rate, 0.0, 1.0), 6),
+        "overall_zodiac_repeat_rate": round(_clamp(overall_zodiac_repeat_rate, 0.0, 1.0), 6),
+    }
+
 def analyze_special_color_frequency(data, region):
     colors = []
     for r in data:
@@ -4428,7 +4596,16 @@ def _get_ml_bucket_name(number):
     return "high"
 
 
-def _select_ml_normal_numbers(ranked_numbers, score_map, bucket_counts, variation_key=None, pool_size=18, parity_pref=None):
+def _select_ml_normal_numbers(
+    ranked_numbers,
+    score_map,
+    bucket_counts,
+    variation_key=None,
+    pool_size=18,
+    parity_pref=None,
+    recent_draw_number_counter=None,
+    latest_draw_numbers=None,
+):
     desired_counts = {
         "low": max(0, int(bucket_counts[0] if len(bucket_counts) > 0 else 2)),
         "mid": max(0, int(bucket_counts[1] if len(bucket_counts) > 1 else 2)),
@@ -4466,6 +4643,13 @@ def _select_ml_normal_numbers(ranked_numbers, score_map, bucket_counts, variatio
             parity_overflow = max(0, parity_usage.get(number_parity, 0) - parity_targets.get(number_parity, 0))
             adjusted_score += parity_gap * 0.06
             adjusted_score -= parity_overflow * 0.08
+            if latest_draw_numbers and number in latest_draw_numbers:
+                adjusted_score -= 0.22
+            draw_heat = int((recent_draw_number_counter or {}).get(number, 0) or 0)
+            if draw_heat >= 2:
+                adjusted_score -= 0.14
+            elif draw_heat == 1:
+                adjusted_score -= 0.05
             if (
                 best_score is None or
                 adjusted_score > best_score or
@@ -5092,6 +5276,29 @@ def _predict_with_ml(data, region, variation_key=None):
     normal_score_map = artifacts.get("normal_score_map") or {}
     special_ranked_numbers = list(artifacts.get("special_ranked_numbers") or [])
     normal_ranked_numbers = list(artifacts.get("normal_ranked_numbers") or [])
+    repeat_transition_profile = _build_repeat_transition_profile(enriched_data, region, year=year)
+    recent_draw_number_counter = Counter()
+    recent_draw_sets = []
+    for item in enriched_data[:6]:
+        draw_numbers = []
+        for raw_number in list(item.get("no") or []) + [item.get("sno")]:
+            try:
+                parsed = int(str(raw_number).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1 <= parsed <= 49:
+                draw_numbers.append(parsed)
+        deduped_draw = _dedupe_keep_order(draw_numbers)
+        if deduped_draw:
+            recent_draw_sets.append(set(deduped_draw))
+            for parsed in deduped_draw:
+                recent_draw_number_counter[parsed] += 1
+    latest_draw_numbers = recent_draw_sets[0] if recent_draw_sets else set()
+    latest_special_repeat_probability = float(repeat_transition_profile.get("latest_special_repeat_probability") or 0.0)
+    latest_zodiac_repeat_probability = float(repeat_transition_profile.get("latest_zodiac_repeat_probability") or 0.0)
+    latest_special = repeat_transition_profile.get("latest_special")
+    latest_zodiac = str(repeat_transition_profile.get("latest_zodiac") or "").strip()
+    number_to_zodiac = _get_number_to_zodiac_map(year)
 
     pool_size = _clamp(int(runtime_config.get("pool") or 18), 12, 24)
     special_pool_size = _clamp(int(runtime_config.get("special_pool") or 8), 6, 12)
@@ -5103,6 +5310,8 @@ def _predict_with_ml(data, region, variation_key=None):
         variation_key=variation_key,
         pool_size=pool_size,
         parity_pref=parity_pref,
+        recent_draw_number_counter=recent_draw_number_counter,
+        latest_draw_numbers=latest_draw_numbers,
     )
 
     preferred_special_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
@@ -5117,7 +5326,12 @@ def _predict_with_ml(data, region, variation_key=None):
         special_candidates,
         key=lambda number: (
             special_score_map.get(number, 0.0) +
-            (0.08 if preferred_special_parity and _get_parity_zh(number) == preferred_special_parity else 0.0)
+            (0.08 if preferred_special_parity and _get_parity_zh(number) == preferred_special_parity else 0.0) -
+            ((0.16 + max(0.0, 0.24 - latest_special_repeat_probability)) if number == latest_special else 0.0) -
+            ((0.12 + max(0.0, 0.20 - latest_zodiac_repeat_probability)) if latest_zodiac and number_to_zodiac.get(str(number), "") == latest_zodiac else 0.0) -
+            (0.24 if number in latest_draw_numbers else 0.0) -
+            (0.16 if int(recent_draw_number_counter.get(number, 0) or 0) >= 2 else 0.0) -
+            (0.06 if int(recent_draw_number_counter.get(number, 0) or 0) == 1 else 0.0)
         ),
         reverse=True,
     )
@@ -5134,7 +5348,6 @@ def _predict_with_ml(data, region, variation_key=None):
         special_num,
         model,
     )
-    number_to_zodiac = _get_number_to_zodiac_map(year)
     samples = int(model.get("samples", 0) or 0)
     history_window = int(model.get("history_window", 0) or 0)
     if samples > 0:
@@ -5260,6 +5473,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             year = _infer_draw_year(recent_data)
             number_to_zodiac = _get_number_to_zodiac_map(year)
             feedback = _build_prediction_feedback(region, strategy)
+            repeat_transition_profile = _build_repeat_transition_profile(recent_data, region, year=year)
             color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
                 recent_data,
                 region,
@@ -5268,6 +5482,27 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 apply_recent_zodiac_cooldown=(strategy != "cold"),
             )
             feedback_confidence = float(feedback.get("confidence") or 0.0)
+            recent_draw_number_hits = Counter()
+            recent_draw_sets = []
+            for item in recent_data[:6]:
+                draw_numbers = []
+                for raw_number in list(item.get("no") or []) + [item.get("sno")]:
+                    try:
+                        parsed = int(str(raw_number).strip())
+                    except (TypeError, ValueError):
+                        continue
+                    if 1 <= parsed <= 49:
+                        draw_numbers.append(parsed)
+                deduped_draw = _dedupe_keep_order(draw_numbers)
+                if deduped_draw:
+                    recent_draw_sets.append(set(deduped_draw))
+                    for parsed in deduped_draw:
+                        recent_draw_number_hits[parsed] += 1
+            latest_draw_numbers = recent_draw_sets[0] if recent_draw_sets else set()
+            latest_special = repeat_transition_profile.get("latest_special")
+            latest_zodiac = str(repeat_transition_profile.get("latest_zodiac") or "").strip()
+            latest_special_repeat_probability = float(repeat_transition_profile.get("latest_special_repeat_probability") or 0.0)
+            latest_zodiac_repeat_probability = float(repeat_transition_profile.get("latest_zodiac_repeat_probability") or 0.0)
 
             weights = _resolve_local_phase_weights(config, phase_profile)
             for key, delta in dict(strategy_handoff.get("boost_map") or {}).items():
@@ -5280,6 +5515,19 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             trend_multiplier = float(strategy_profile.get("trend_multiplier", 1.0))
             
             def overheat_penalty(number):
+                if strategy != "cold":
+                    number_zodiac = number_to_zodiac.get(str(number), "")
+                    if latest_special is not None and int(number) == int(latest_special):
+                        return -(0.18 + max(0.0, 0.24 - latest_special_repeat_probability))
+                    if latest_zodiac and number_zodiac == latest_zodiac:
+                        return -(0.12 + max(0.0, 0.20 - latest_zodiac_repeat_probability))
+                    if number in latest_draw_numbers:
+                        return -0.3
+                    draw_heat = int(recent_draw_number_hits.get(int(number), 0) or 0)
+                    if draw_heat >= 2:
+                        return -0.22
+                    if draw_heat == 1:
+                        return -0.08
                 count = short_freq.get(str(number), 0)
                 if count >= 3: return -0.40
                 if count == 2: return -0.15
@@ -5750,7 +5998,7 @@ def _build_ai_shortlist_context(data, region, config=None):
     except Exception:
         pass
 
-    heat_profile = _build_ai_recent_heat_profile(data, window=8)
+    heat_profile = _build_ai_recent_heat_profile(data, region, window=8)
     recent_specials = list(heat_profile.get("recent_specials") or [])
     phase_profile = _classify_ai_market_phase(data, window=max(8, int(config.get("history_window") or 12)))
     layered_shortlists = _build_ai_layered_shortlists(
@@ -5863,6 +6111,10 @@ def _build_ai_shortlist_context(data, region, config=None):
         "recent_color_counter": dict(heat_profile.get("color_counter") or {}),
         "recent_zodiacs": list(heat_profile.get("recent_zodiacs") or []),
         "recent_zodiac_counter": dict(heat_profile.get("zodiac_counter") or {}),
+        "recent_draw_numbers": list(heat_profile.get("recent_draw_numbers") or []),
+        "recent_draw_number_counter": dict(heat_profile.get("draw_number_counter") or {}),
+        "recent_draw_sets": list(heat_profile.get("recent_draw_sets") or []),
+        "repeat_transition_profile": dict(heat_profile.get("repeat_transition_profile") or {}),
         "layered_shortlists": layered_shortlists,
         "target_mode": str(config.get("target_mode") or "top1_safe"),
         "target_mode_stats": dict(config.get("target_mode_stats") or {}),
@@ -5992,17 +6244,35 @@ def _normalize_ai_candidate_entry(entry, region=None, source_text=""):
     }
 
 
-def _build_ai_recent_heat_profile(data, window=8):
+def _build_ai_recent_heat_profile(data, region, window=8):
     recent_specials = []
     special_counter = Counter()
     tail_counter = Counter()
     color_counter = Counter()
     zodiac_counter = Counter()
     recent_zodiacs = []
+    recent_draw_numbers = []
+    draw_number_counter = Counter()
+    recent_draw_sets = []
     year = _infer_draw_year(data)
     number_to_zodiac = _get_number_to_zodiac_map(year)
+    repeat_transition_profile = _build_repeat_transition_profile(data, region, year=year)
 
     for record in list(data or [])[:max(1, int(window or 8))]:
+        draw_numbers = []
+        for raw_number in list(record.get("no") or []) + [record.get("sno")]:
+            try:
+                parsed = int(str(raw_number).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1 <= parsed <= 49:
+                draw_numbers.append(parsed)
+        deduped_draw_numbers = _dedupe_keep_order(draw_numbers)
+        if deduped_draw_numbers:
+            recent_draw_sets.append(deduped_draw_numbers)
+            recent_draw_numbers.extend(deduped_draw_numbers)
+            for parsed in deduped_draw_numbers:
+                draw_number_counter[parsed] += 1
         try:
             number = int(str(record.get("sno") or "").strip())
         except (TypeError, ValueError):
@@ -6029,6 +6299,10 @@ def _build_ai_recent_heat_profile(data, window=8):
         "color_counter": color_counter,
         "recent_zodiacs": recent_zodiacs,
         "zodiac_counter": zodiac_counter,
+        "recent_draw_numbers": recent_draw_numbers,
+        "draw_number_counter": draw_number_counter,
+        "recent_draw_sets": recent_draw_sets,
+        "repeat_transition_profile": repeat_transition_profile,
     }
 
 
@@ -6728,6 +7002,10 @@ def _score_ai_candidate(candidate, context):
     recent_color_counter = Counter(context.get("recent_color_counter") or {})
     recent_zodiacs = list(context.get("recent_zodiacs") or [])
     recent_zodiac_counter = Counter(context.get("recent_zodiac_counter") or {})
+    recent_draw_numbers = list(context.get("recent_draw_numbers") or [])
+    recent_draw_number_counter = Counter(context.get("recent_draw_number_counter") or {})
+    recent_draw_sets = list(context.get("recent_draw_sets") or [])
+    repeat_transition_profile = dict(context.get("repeat_transition_profile") or {})
     target_mode = str(context.get("target_mode") or "top1_safe")
 
     base_special = special_score_map.get(special, 0.0)
@@ -6755,6 +7033,14 @@ def _score_ai_candidate(candidate, context):
     diversity_bonus += 0.04 if parity_mix >= 2 else -0.03
 
     repeat_penalty = 0.0
+    latest_special_repeat_probability = float(repeat_transition_profile.get("latest_special_repeat_probability") or 0.0)
+    latest_zodiac_repeat_probability = float(repeat_transition_profile.get("latest_zodiac_repeat_probability") or 0.0)
+    latest_special = repeat_transition_profile.get("latest_special")
+    latest_zodiac = str(repeat_transition_profile.get("latest_zodiac") or "").strip()
+    if latest_special is not None and special == int(latest_special):
+        repeat_penalty -= 0.18 + max(0.0, 0.24 - latest_special_repeat_probability)
+    if latest_zodiac and special_zodiac == latest_zodiac:
+        repeat_penalty -= 0.14 + max(0.0, 0.20 - latest_zodiac_repeat_probability)
     if recent_specials[:2] and special in recent_specials[:2]:
         repeat_penalty -= 0.2
     elif special in recent_specials:
@@ -6763,6 +7049,12 @@ def _score_ai_candidate(candidate, context):
         repeat_penalty -= 0.22
     elif recent_zodiacs[:2] and special_zodiac in recent_zodiacs[:2]:
         repeat_penalty -= 0.1
+    if recent_draw_sets:
+        latest_draw_set = {int(number) for number in (recent_draw_sets[0] or [])}
+        if special in latest_draw_set:
+            repeat_penalty -= 0.26
+        elif any(special in {int(number) for number in (draw_set or [])} for draw_set in recent_draw_sets[:3]):
+            repeat_penalty -= 0.12
 
     overheat_penalty = 0.0
     special_heat = int(recent_special_counter.get(special, 0) or 0)
@@ -6788,6 +7080,29 @@ def _score_ai_candidate(candidate, context):
         overheat_penalty -= 0.14
     elif zodiac_heat == 1:
         overheat_penalty -= 0.05
+    draw_heat = int(recent_draw_number_counter.get(special, 0) or 0)
+    if draw_heat >= 2:
+        overheat_penalty -= 0.18
+    elif draw_heat == 1:
+        overheat_penalty -= 0.07
+
+    normal_repeat_penalty = 0.0
+    if recent_draw_sets:
+        latest_draw_set = {int(number) for number in (recent_draw_sets[0] or [])}
+        latest_repeat_count = sum(1 for number in normal if number in latest_draw_set)
+        normal_repeat_penalty -= latest_repeat_count * 0.06
+        recent_three_sets = [
+            {int(number) for number in (draw_set or [])}
+            for draw_set in recent_draw_sets[:3]
+        ]
+        for number in normal:
+            appearances = int(recent_draw_number_counter.get(number, 0) or 0)
+            if appearances >= 2:
+                normal_repeat_penalty -= 0.035
+            elif appearances == 1:
+                normal_repeat_penalty -= 0.012
+            if any(number in draw_set for draw_set in recent_three_sets):
+                normal_repeat_penalty -= 0.01
 
     confidence_bonus = _clamp(candidate.get("confidence", 0.0), 0.0, 1.0) * 0.08
     shape_score, shape_diagnostics = _score_ai_combination_shape(normal, special, context)
@@ -6818,6 +7133,7 @@ def _score_ai_candidate(candidate, context):
         attr_bonus * rerank_weights.get("attr_bonus", 1.0) +
         diversity_bonus * rerank_weights.get("diversity_bonus", 1.0) +
         repeat_penalty * rerank_weights.get("repeat_penalty", 1.0) +
+        normal_repeat_penalty * 0.8 +
         overheat_penalty * rerank_weights.get("overheat_penalty", 1.0) +
         confidence_bonus * rerank_weights.get("confidence_bonus", 1.0) +
         shape_score * rerank_weights.get("shape_score", 1.0) +
@@ -6876,6 +7192,7 @@ def _score_ai_candidate(candidate, context):
         "attr_bonus": round(attr_bonus, 4),
         "diversity_bonus": round(diversity_bonus, 4),
         "repeat_penalty": round(repeat_penalty, 4),
+        "normal_repeat_penalty": round(normal_repeat_penalty, 4),
         "overheat_penalty": round(overheat_penalty, 4),
         "confidence_bonus": round(confidence_bonus, 4),
         "shape_score": round(shape_score, 4),
