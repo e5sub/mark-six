@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}六合彩数据分析{% endblock %}</title>
+    <title>{% block title %}{{ site_name or system_name or 'AI数据分析预测系统' }}{% endblock %}</title>
     <link href="https://fastly.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://fastly.jsdelivr.net/npm/chart.js"></script>
     <style>

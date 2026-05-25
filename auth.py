@@ -157,7 +157,7 @@ def send_activation_request_notification(request_record):
     if not recipients:
         return False
 
-    site_name = SystemConfig.get_config('site_name', 'AI Prediction System')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
     admin_url = url_for('admin.activation_codes', _external=True)
     created_at = getattr(request_record, 'created_at', None)
     created_at_text = (
@@ -201,7 +201,7 @@ def send_activation_request_notification(request_record):
 
 
 def send_verification_email(user, token):
-    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
     verify_url = url_for('auth.verify_email', token=token, _external=True)
     subject = f'{site_name} - 邮箱验证'
     html_body = f"""
@@ -564,7 +564,7 @@ def reset_password(token):
 
 def send_reset_email(email, username, token):
     """发送密码重置邮件"""
-    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
 
     # 构建重置链接
     reset_url = url_for('auth.reset_password', token=token, _external=True)

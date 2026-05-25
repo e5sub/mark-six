@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 聊天室 - 数据分析预测系统</title>
+    <title>AI 聊天室 - {{ site_name or system_name or 'AI数据分析预测系统' }}</title>
     <link href="https://fastly.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <!-- 添加 Markdown 解析库 -->
@@ -914,12 +914,12 @@
                             <span class="message-time" id="welcome-time"></span>
                         </div>
                         <div class="message-content">
-                            你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门六合彩的历史、规则或数据规律，我会尽力为您解答。
+                            你好！我是您的专属AI分析师。您可以向我提问关于香港或澳门开奖数据的历史、规则或数据规律，我会尽力为您解答。
                         </div>
                         <div class="quick-questions">
                             <div class="quick-question-title">快速提问:</div>
                             <div class="quick-question-buttons">
-                                <button type="button" class="quick-question-btn" data-question="请介绍一下六合彩的基本规则">六合彩规则</button>
+                                <button type="button" class="quick-question-btn" data-question="请介绍一下开奖数据分析的基本规则">基础规则</button>
                                 <button type="button" class="quick-question-btn" data-question="什么是特码和生肖？">特码和生肖</button>
                                 <button type="button" class="quick-question-btn" data-question="请分析最近几期的开奖趋势">开奖趋势分析</button>
                             </div>

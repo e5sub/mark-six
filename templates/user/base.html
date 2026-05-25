@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}用户中心{% endblock %} - AI数据分析预测系统</title>
+    <title>{% block title %}用户中心{% endblock %} - {{ site_name or system_name or 'AI数据分析预测系统' }}</title>
+    <meta name="description" content="{{ site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
     <style>
         * {
             margin: 0;
@@ -629,7 +630,7 @@
     <div class="github-watermark" aria-hidden="true"></div>
     <div class="sidebar">
         <div class="sidebar-header">
-            <a href="{{ url_for('user.dashboard') }}" class="sidebar-brand">用户中心</a>
+            <a href="{{ url_for('user.dashboard') }}" class="sidebar-brand">{{ site_name or '用户中心' }}</a>
         </div>
         <nav class="sidebar-nav">
             <a href="{{ url_for('user.dashboard') }}"><i>📊</i> 个人中心</a>

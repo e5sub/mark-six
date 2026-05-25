@@ -66,6 +66,27 @@ app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+
+def _safe_system_config(key, default=""):
+    try:
+        return SystemConfig.get_config(key, default)
+    except Exception:
+        return default
+
+
+@app.context_processor
+def inject_system_settings():
+    site_name = _safe_system_config("site_name", "AI数据分析预测系统")
+    site_description = _safe_system_config("site_description", "")
+    system_name = _safe_system_config("system_name", site_name or "AI数据分析预测系统")
+    system_description = _safe_system_config("system_description", site_description or "")
+    return {
+        "site_name": site_name,
+        "site_description": site_description,
+        "system_name": system_name,
+        "system_description": system_description,
+    }
+
 _startup_log_lock_path = None
 _startup_log_lock_acquired = False
 _lottery_update_thread = None
@@ -9195,7 +9216,7 @@ def send_winning_notification_email(user, prediction, region):
     smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
     smtp_username = SystemConfig.get_config('smtp_username')
     smtp_password = SystemConfig.get_config('smtp_password')
-    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
     
     # 检查SMTP配置是否完整
     if not all([smtp_server, smtp_username, smtp_password]):
@@ -9279,7 +9300,7 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
     smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
     smtp_username = SystemConfig.get_config('smtp_username')
     smtp_password = SystemConfig.get_config('smtp_password')
-    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
     
     if not all([smtp_server, smtp_username, smtp_password]):
         return
@@ -9373,7 +9394,7 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
     smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
     smtp_username = SystemConfig.get_config('smtp_username')
     smtp_password = SystemConfig.get_config('smtp_password')
-    site_name = SystemConfig.get_config('site_name', 'AI预测系统')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
     
     if not all([smtp_server, smtp_username, smtp_password]):
         return
