@@ -4,6 +4,7 @@ from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from types import SimpleNamespace
+from functools import wraps
 import json
 import threading
 import time
@@ -571,25 +572,35 @@ def _kickoff_backtest_snapshot_refresh(region):
 
 def login_required(f):
     """登录验证装饰器"""
+    @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
+        if not _get_session_user():
             flash('请先登录', 'error')
             return redirect(url_for('auth.login'))
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function
+
+
+def _get_session_user(clear_invalid=True):
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+
+    user = User.query.get(user_id)
+    if user:
+        return user
+
+    if clear_invalid:
+        session.pop('user_id', None)
+        session.pop('is_active', None)
+    return None
 
 def active_required(f):
     """激活验证装饰器"""
+    @wraps(f)
     def decorated_function(*args, **kwargs):
-        user_id = session.get('user_id')
-        if not user_id:
-            flash('请先登录', 'error')
-            return redirect(url_for('auth.login'))
-
-        user = User.query.get(user_id)
+        user = _get_session_user()
         if not user:
-            session.clear()
             flash('请先登录', 'error')
             return redirect(url_for('auth.login'))
 
@@ -599,14 +610,16 @@ def active_required(f):
             flash('请先激活账号后再使用此功能', 'warning')
             return redirect(url_for('auth.activate'))
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function
 
 @user_bp.route('/dashboard')
 @user_bp.route('/dashboard')
 @login_required
 def dashboard():
-    user = User.query.get(session['user_id'])
+    user = _get_session_user()
+    if not user:
+        flash('请先登录', 'error')
+        return redirect(url_for('auth.login'))
     if _sanitize_auto_prediction_strategies(user):
         try:
             db.session.commit()
@@ -1961,7 +1974,10 @@ def change_password():
 @active_required
 def analytics():
     """用户统计分析页面"""
-    user = User.query.get(session['user_id'])
+    user = _get_session_user()
+    if not user:
+        flash('请先登录', 'error')
+        return redirect(url_for('auth.login'))
     strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
     learning_snapshot = _learning_snapshot()
     learning_comparison = _build_learning_comparison()
