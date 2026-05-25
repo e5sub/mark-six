@@ -12,6 +12,13 @@ from datetime import datetime
 import hashlib
 import uuid
 
+DB_TYPE = os.environ.get("DB_TYPE", "sqlite").lower()
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+if DB_TYPE in ("mysql", "mariadb") or DATABASE_URL.lower().startswith("mysql"):
+    print("MySQL configured, skipping sqlite database creation.")
+    sys.exit(0)
+
 # 打印当前工作目录
 print(f"当前工作目录: {os.getcwd()}")
 
@@ -49,7 +56,11 @@ CREATE TABLE user (
     invite_code_used VARCHAR(32),
     invite_activated_at TIMESTAMP,
     last_login DATETIME,
-    login_count INTEGER DEFAULT 0
+    login_count INTEGER DEFAULT 0,
+    auto_prediction_enabled BOOLEAN DEFAULT 1,
+    auto_prediction_strategies TEXT DEFAULT 'hot,cold,trend,hybrid,balanced,ml',
+    auto_prediction_regions TEXT DEFAULT 'hk,macau',
+    show_normal_numbers BOOLEAN DEFAULT 0
 )
 ''')
 
@@ -67,6 +78,23 @@ CREATE TABLE activation_code (
 )
 ''')
 
+cursor.execute('''
+CREATE TABLE activation_code_request (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    username VARCHAR(80) NOT NULL,
+    email VARCHAR(120) NOT NULL,
+    request_note VARCHAR(255),
+    status VARCHAR(20) DEFAULT 'pending',
+    admin_note VARCHAR(255),
+    issued_code VARCHAR(64),
+    issued_validity_type VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES user (id)
+)
+''')
+
 # 创建预测记录表
 cursor.execute('''
 CREATE TABLE prediction_record (
@@ -79,6 +107,7 @@ CREATE TABLE prediction_record (
     special_number VARCHAR(10) NOT NULL,
     special_zodiac VARCHAR(10),
     prediction_text TEXT,
+    prediction_metadata TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     actual_normal_numbers VARCHAR(50),
     actual_special_number VARCHAR(10),
@@ -86,6 +115,33 @@ CREATE TABLE prediction_record (
     accuracy_score FLOAT,
     is_result_updated BOOLEAN DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES user (id)
+)
+''')
+
+cursor.execute('''
+CREATE UNIQUE INDEX IF NOT EXISTS uq_prediction_record_user_region_period_strategy
+ON prediction_record (user_id, region, period, strategy)
+''')
+
+cursor.execute('''
+CREATE INDEX IF NOT EXISTS ix_prediction_record_user_strategy_created_at
+ON prediction_record (user_id, strategy, created_at)
+''')
+
+cursor.execute('''
+CREATE INDEX IF NOT EXISTS ix_prediction_record_user_strategy_region_period
+ON prediction_record (user_id, strategy, region, period)
+''')
+
+cursor.execute('''
+CREATE TABLE backtest_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR(120) NOT NULL,
+    region VARCHAR(10),
+    strategies VARCHAR(255),
+    periods_evaluated INTEGER DEFAULT 0,
+    payload TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 ''')
 
@@ -115,9 +171,76 @@ CREATE TABLE system_config (
 )
 ''')
 
+cursor.execute('''
+CREATE TABLE payment_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    order_no VARCHAR(64) NOT NULL UNIQUE,
+    channel VARCHAR(32) NOT NULL DEFAULT 'alipay_f2f',
+    purpose VARCHAR(32) NOT NULL DEFAULT 'activation',
+    subject VARCHAR(128) NOT NULL,
+    amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    validity_type VARCHAR(20) NOT NULL DEFAULT 'month',
+    status VARCHAR(20) NOT NULL DEFAULT 'created',
+    alipay_trade_no VARCHAR(64),
+    buyer_logon_id VARCHAR(128),
+    qr_code TEXT,
+    issued_code VARCHAR(64),
+    raw_request_payload TEXT,
+    raw_response_payload TEXT,
+    raw_notify_payload TEXT,
+    paid_at TIMESTAMP,
+    activated_at TIMESTAMP,
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES user (id)
+)
+''')
+
+cursor.execute('''
+CREATE INDEX IF NOT EXISTS ix_payment_orders_status
+ON payment_orders (status)
+''')
+
+cursor.execute('''
+CREATE INDEX IF NOT EXISTS ix_payment_orders_alipay_trade_no
+ON payment_orders (alipay_trade_no)
+''')
+
+# 创建开奖记录表
+cursor.execute('''
+CREATE TABLE lottery_draws (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    region VARCHAR(10) NOT NULL,
+    draw_id VARCHAR(20) NOT NULL,
+    draw_date VARCHAR(20),
+    normal_numbers VARCHAR(50) NOT NULL,
+    special_number VARCHAR(10) NOT NULL,
+    special_zodiac VARCHAR(10),
+    raw_zodiac VARCHAR(100),
+    raw_wave VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(region, draw_id)
+)
+''')
+
+# 创建生肖设置表
+cursor.execute('''
+CREATE TABLE zodiac_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    year INTEGER NOT NULL,
+    zodiac VARCHAR(10) NOT NULL,
+    numbers VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(year, zodiac)
+)
+''')
+
 print("表创建完成，正在添加初始数据...")
 
-# 创建管理员用户
 # 使用与Werkzeug兼容的密码哈希格式
 def generate_password_hash(password):
     """生成与Werkzeug兼容的密码哈希"""
@@ -127,12 +250,6 @@ def generate_password_hash(password):
     h = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 150000)
     hash_value = h.hex()
     return f"{method}${salt}${hash_value}"
-
-admin_password_hash = generate_password_hash('admin123')
-cursor.execute('''
-INSERT INTO user (username, email, password_hash, is_active, is_admin)
-VALUES (?, ?, ?, ?, ?)
-''', ('admin', 'admin@example.com', admin_password_hash, 1, 1))
 
 # 添加系统配置
 configs = [
@@ -145,6 +262,29 @@ configs = [
     ('smtp_password', '', 'SMTP密码'),
     ('invite_daily_limit', '3', '每日邀请码生成限制'),
     ('invite_code_validity_days', '7', '邀请码有效期（天）'),
+    ('alipay_f2f_enabled', 'false', '支付宝当面付开关'),
+    ('alipay_gateway', 'https://openapi.alipay.com/gateway.do', '支付宝网关地址'),
+    ('alipay_app_id', '', '支付宝应用AppId'),
+    ('alipay_app_private_key', '', '支付宝应用私钥'),
+    ('alipay_public_key', '', '支付宝公钥'),
+    ('alipay_notify_url', '', '支付宝异步通知回调地址'),
+    ('alipay_activation_product_name', '账号激活服务', '支付宝付款商品名称'),
+    ('alipay_price_day', '1.00', '1天激活售价'),
+    ('alipay_price_month', '9.90', '1个月激活售价'),
+    ('alipay_price_quarter', '26.00', '3个月激活售价'),
+    ('alipay_price_year', '88.00', '1年激活售价'),
+    ('alipay_price_permanent', '199.00', '永久激活售价'),
+    ('wechat_native_enabled', 'false', '微信支付开关'),
+    ('wechat_gateway', 'https://api.mch.weixin.qq.com', '微信支付网关地址'),
+    ('wechat_mchid', '', '微信支付商户号'),
+    ('wechat_appid', '', '微信支付AppID'),
+    ('wechat_private_key', '', '微信支付商户私钥'),
+    ('wechat_serial_no', '', '微信支付商户证书序列号'),
+    ('wechat_api_v3_key', '', '微信支付APIv3密钥'),
+    ('wechat_platform_public_key', '', '微信支付平台公钥'),
+    ('wechat_platform_public_key_id', '', '微信支付平台公钥ID'),
+    ('wechat_notify_url', '', '微信支付异步通知地址'),
+    ('wechat_activation_product_name', '账号激活服务', '微信支付商品名称'),
 ]
 
 for key, value, description in configs:
@@ -158,10 +298,24 @@ conn.commit()
 conn.close()
 
 print(f"✓ 数据库文件已成功创建: {DB_PATH}")
+
+# 自动运行数据库更新脚本
+print("\n正在运行数据库自动更新...")
+try:
+    # 导入并执行更新
+    import auto_update_db
+    update_success = auto_update_db.update_database()
+    if update_success:
+        print("✓ 数据库自动更新完成")
+    else:
+        print("⚠ 数据库更新失败，请手动执行 auto_update_db.py")
+except Exception as e:
+    print(f"⚠ 自动更新失败: {str(e)}")
+    print("请手动执行 python auto_update_db.py")
+
 print("\n系统信息:")
-print("- 默认管理员账号: admin")
-print("- 默认管理员密码: admin123")
-print("- 请在首次登录后修改管理员密码")
+print("- 首次部署时，第一个注册的用户会自动成为管理员")
+print("- 系统不再写死默认管理员账号和密码")
 print("- 请在管理后台配置AI API和邮箱服务")
 print("\n邀请系统:")
 print("- 已创建邀请码表和相关字段")

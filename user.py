@@ -1,106 +1,765 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig, InviteCode
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun
+from sqlalchemy import func, case
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+from types import SimpleNamespace
+from functools import wraps
 import json
+import threading
+import time
+from collections import OrderedDict
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
 
+_BACKTEST_REFRESH_INTERVAL_SECONDS = 180
+_backtest_refresh_lock = threading.Lock()
+_backtest_refresh_state = {}
+
+STRATEGY_META = [
+    {"key": "hot", "label": "热门", "icon": "🔥"},
+    {"key": "cold", "label": "冷门", "icon": "🧊"},
+    {"key": "trend", "label": "走势", "icon": "📈"},
+    {"key": "hybrid", "label": "综合", "icon": "♻️"},
+    {"key": "balanced", "label": "均衡", "icon": "⚖️"},
+    {"key": "ml", "label": "机器学习", "icon": "🧪"},
+    {"key": "ai", "label": "AI", "icon": "🤖"},
+]
+STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
+AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
+
+LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
+
+def _strategy_label_map():
+    return {item["key"]: item["label"] for item in STRATEGY_META}
+
+def _get_prediction_display_info(prediction):
+    return {
+        "key": prediction.strategy,
+        "label": _strategy_label_map().get(prediction.strategy, prediction.strategy)
+    }
+
+
+def _sanitize_auto_prediction_strategies(user):
+    raw = str(getattr(user, "auto_prediction_strategies", "") or "").strip()
+    if not raw:
+        return False
+    allowed = {meta["key"] for meta in AUTO_STRATEGY_META}
+    cleaned = [item for item in raw.split(",") if item in allowed]
+    if not cleaned:
+        cleaned = list(LOCAL_STRATEGIES)
+    cleaned_csv = ",".join(cleaned)
+    if cleaned_csv == raw:
+        return False
+    user.auto_prediction_strategies = cleaned_csv
+    return True
+
+def _strategy_config(region, strategy):
+    raw = SystemConfig.get_config(f"strategy_config_{region}_{strategy}", "")
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def _serialize_prediction_metadata(metadata):
+    if not metadata:
+        return ""
+    try:
+        return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        return ""
+
+
+def _deserialize_prediction_metadata(value):
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except Exception:
+        return {}
+
+
+def _hydrate_user_prediction_model_meta(prediction):
+    metadata = _deserialize_prediction_metadata(
+        getattr(prediction, 'prediction_metadata', '')
+    )
+    if getattr(prediction, 'strategy', '') != 'ml':
+        return metadata
+
+    try:
+        from app import _get_prediction_data, _hydrate_prediction_model_meta
+
+        data, _ = _get_prediction_data(
+            getattr(prediction, 'region', ''),
+            datetime.now().year,
+        )
+        return _hydrate_prediction_model_meta(
+            getattr(prediction, 'strategy', ''),
+            metadata,
+            data,
+            getattr(prediction, 'region', ''),
+        )
+    except Exception as e:
+        print(f"用户侧补齐机器学习预测诊断信息失败: {e}")
+        return metadata
+
+
+def _hydrate_user_prediction_text(prediction):
+    text = getattr(prediction, 'prediction_text', '') or ''
+    if getattr(prediction, 'strategy', '') != 'ml':
+        return text
+
+    try:
+        from app import (
+            _get_prediction_data,
+            _hydrate_prediction_recommendation_text,
+        )
+
+        data, _ = _get_prediction_data(
+            getattr(prediction, 'region', ''),
+            datetime.now().year,
+        )
+        metadata = _deserialize_prediction_metadata(
+            getattr(prediction, 'prediction_metadata', '')
+        )
+        return _hydrate_prediction_recommendation_text(
+            getattr(prediction, 'strategy', ''),
+            text,
+            data,
+            getattr(prediction, 'region', ''),
+            special_number=getattr(prediction, 'special_number', ''),
+            normal_numbers=getattr(prediction, 'normal_numbers', ''),
+            existing_meta=metadata,
+        )
+    except Exception as e:
+        print(f"用户侧补齐机器学习预测文案失败: {e}")
+        return text
+
+
+def _translate_ml_runtime_profile(value):
+    mapping = {
+        "base": "标准模式",
+        "recent_bias": "侧重近期走势",
+        "context_bias": "侧重号码属性",
+        "recency_trim": "近期简化模式",
+        "learned_feature_bias": "学习偏好模式",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "标准模式")
+
+
+def _translate_ml_feature_profile(value):
+    mapping = {
+        "full": "综合参考全部因素",
+        "compact_attributes": "侧重波色生肖单双",
+        "compact_structure": "侧重整体结构",
+        "compact_recency": "侧重近期走势",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "综合参考全部因素")
+
+
+def _translate_ml_promotion_strength(value):
+    mapping = {
+        "hold": "观察中",
+        "watch": "待提升",
+        "promoted": "已固化",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "观察中")
+
+
+def _decorate_ml_config_snapshot(config):
+    snapshot = dict(config or {})
+    snapshot["primary_runtime_profile_label"] = _translate_ml_runtime_profile(
+        snapshot.get("primary_runtime_profile")
+    )
+    snapshot["primary_feature_profile_label"] = _translate_ml_feature_profile(
+        snapshot.get("primary_feature_profile")
+    )
+    snapshot["promotion_strength_label"] = _translate_ml_promotion_strength(
+        snapshot.get("promotion_strength")
+    )
+
+    history_items = []
+    for item in list(snapshot.get("promotion_history") or [])[:8]:
+        history_copy = dict(item or {})
+        history_copy["strength_label"] = _translate_ml_promotion_strength(
+            history_copy.get("strength")
+        )
+        history_copy["runtime_profile_label"] = _translate_ml_runtime_profile(
+            history_copy.get("runtime_profile")
+        )
+        history_copy["feature_profile_label"] = _translate_ml_feature_profile(
+            history_copy.get("feature_profile")
+        )
+        history_items.append(history_copy)
+    snapshot["promotion_history"] = history_items
+    snapshot["latest_promotion_time"] = (
+        history_items[0].get("timestamp") if history_items else snapshot.get("promoted_at", "")
+    )
+    return snapshot
+
+def _actual_in_normal_expr():
+    actual_as_string = db.cast(PredictionRecord.actual_special_number, db.String)
+    return db.or_(
+        PredictionRecord.normal_numbers.contains(',' + actual_as_string + ','),
+        PredictionRecord.normal_numbers.startswith(actual_as_string + ','),
+        PredictionRecord.normal_numbers.endswith(',' + actual_as_string)
+    )
+
+def _zodiac_hit_expr():
+    return db.and_(
+        PredictionRecord.special_zodiac != None,
+        PredictionRecord.actual_special_zodiac != None,
+        PredictionRecord.special_zodiac != '',
+        PredictionRecord.actual_special_zodiac != '',
+        PredictionRecord.special_zodiac == PredictionRecord.actual_special_zodiac
+    )
+
+def _secondary_hit_expr():
+    return db.or_(_actual_in_normal_expr(), _zodiac_hit_expr())
+
+def _calculate_accuracy_summary(query):
+    base_query = query.filter(
+        PredictionRecord.is_result_updated.is_(True),
+        PredictionRecord.actual_special_number != None
+    )
+
+    special_hit_expr = case(
+        (PredictionRecord.special_number == PredictionRecord.actual_special_number, 1),
+        else_=0
+    )
+    normal_hit_expr = case(
+        (
+            db.and_(
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                _secondary_hit_expr(),
+            ),
+            1
+        ),
+        else_=0
+    )
+    agg = base_query.with_entities(
+        func.count().label('total'),
+        func.sum(special_hit_expr).label('special_hits'),
+        func.sum(normal_hit_expr).label('normal_hits'),
+    ).first()
+
+    total = agg.total or 0
+    special_hits = agg.special_hits or 0
+    normal_hits = agg.normal_hits or 0
+    correct = special_hits + normal_hits
+
+    return {
+        "total": total,
+        "special_hits": special_hits,
+        "normal_hits": normal_hits,
+        "correct": correct,
+        "accuracy": round((special_hits / total) * 100, 1) if total else 0.0,
+        "special_hit_rate": round((special_hits / total) * 100, 1) if total else 0.0,
+        "normal_hit_rate": round((normal_hits / total) * 100, 1) if total else 0.0,
+    }
+
+def _calculate_accuracy_window(query, limit):
+    ids = [item.id for item in query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()]
+    limited = PredictionRecord.query.filter(PredictionRecord.id.in_(ids)) if ids else PredictionRecord.query.filter(PredictionRecord.id == -1)
+    summary = _calculate_accuracy_summary(limited)
+    summary["window"] = limit
+    return summary
+
+def _strategy_backtests(user_id):
+    windows = [20, 50, 100]
+    backtests = {}
+    ranked = []
+    labels = _strategy_label_map()
+    for strategy in LOCAL_STRATEGIES:
+        base_query = PredictionRecord.query.filter_by(user_id=user_id, strategy=strategy)
+        window_stats = [_calculate_accuracy_window(base_query, window) for window in windows]
+        backtests[strategy] = window_stats
+
+        weighted_values = []
+        samples = 0
+        for idx, item in enumerate(window_stats):
+            if item["total"] <= 0:
+                continue
+            weight = max(0.4, 1.0 - idx * 0.2)
+            confidence = min(1.0, item["total"] / 10.0)
+            weighted_values.append(item["accuracy"] * weight * confidence)
+            samples = max(samples, item["total"])
+        if weighted_values:
+            ranked.append({
+                "strategy": strategy,
+                "label": labels.get(strategy, strategy),
+                "score": round(sum(weighted_values) / len(weighted_values), 2),
+                "samples": samples
+            })
+
+    ranked.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
+    best = ranked[0] if ranked else {"strategy": "hybrid", "label": labels.get("hybrid", "hybrid"), "score": 0.0, "samples": 0}
+    return backtests, best, ranked[:3]
+
+def _learning_snapshot():
+    snapshots = {}
+    tracked = [item["key"] for item in STRATEGY_META if item["key"] in LOCAL_STRATEGIES or item["key"] == "ai"]
+    for region in ("hk", "macau"):
+        region_data = {}
+        for strategy in tracked:
+            config = _strategy_config(region, strategy)
+            if not config:
+                continue
+            region_data[strategy] = {
+                "window": config.get("window"),
+                "pool": config.get("pool"),
+                "special_pool": config.get("special_pool"),
+                "trend_window": config.get("trend_window"),
+                "history_window": config.get("history_window"),
+                "feature_window": config.get("feature_window"),
+                "evaluation_window": config.get("evaluation_window"),
+                "preferred_feature_profiles": config.get("preferred_feature_profiles", []),
+                "preferred_runtime_profiles": config.get("preferred_runtime_profiles", []),
+                "profile_learning_confidence": round(float(config.get("profile_learning_confidence") or 0.0) * 100, 1),
+                "profile_learning_samples": config.get("profile_learning_samples", 0),
+                "primary_feature_profile": config.get("primary_feature_profile", "full"),
+                "primary_runtime_profile": config.get("primary_runtime_profile", "base"),
+                "promotion_strength": config.get("promotion_strength", "hold"),
+                "promotion_history": config.get("promotion_history", []),
+                "epochs": config.get("epochs"),
+                "learning_rate": config.get("learning_rate"),
+                "l2": config.get("l2"),
+                "last_accuracy": round(float(config.get("last_accuracy") or 0.0) * 100, 1),
+                "last_total": config.get("last_total", 0),
+                "prev_accuracy": round(float(config.get("prev_accuracy") or 0.0) * 100, 1),
+                "prev_total": config.get("prev_total", 0),
+                "accuracy_delta": round(float(config.get("accuracy_delta") or 0.0) * 100, 1),
+                "weights": config.get("weights", {}),
+                "updated_at": config.get("updated_at", ""),
+            }
+            if strategy == "ml":
+                region_data[strategy] = _decorate_ml_config_snapshot(region_data[strategy])
+        snapshots[region] = region_data
+    return snapshots
+
+def _build_learning_comparison():
+    snapshots = _learning_snapshot()
+    comparisons = {}
+    tracked = [item["key"] for item in STRATEGY_META if item["key"] in LOCAL_STRATEGIES or item["key"] == "ai"]
+
+    for region, region_data in snapshots.items():
+        items = []
+        for strategy in tracked:
+            config = region_data.get(strategy)
+            if not config:
+                continue
+
+            current_accuracy = float(config.get("last_accuracy") or 0.0)
+            previous_accuracy = float(config.get("prev_accuracy") or 0.0)
+            current_total = int(config.get("last_total") or 0)
+            previous_total = int(config.get("prev_total") or 0)
+            delta = round(current_accuracy - previous_accuracy, 1) if previous_total > 0 else 0.0
+
+            if current_total <= 0:
+                trend = "暂无样本"
+                trend_class = "neutral"
+            elif previous_total <= 0:
+                trend = "刚开始学习"
+                trend_class = "neutral"
+            elif delta >= 0.5:
+                trend = "最近变强"
+                trend_class = "up"
+            elif delta <= -0.5:
+                trend = "最近变弱"
+                trend_class = "down"
+            else:
+                trend = "基本持平"
+                trend_class = "flat"
+
+            items.append({
+                "strategy": strategy,
+                "label": _strategy_label_map().get(strategy, strategy),
+                "icon": next((meta["icon"] for meta in STRATEGY_META if meta["key"] == strategy), ""),
+                "current_accuracy": round(current_accuracy, 1),
+                "previous_accuracy": round(previous_accuracy, 1),
+                "delta": delta,
+                "current_total": current_total,
+                "previous_total": previous_total,
+                "trend": trend,
+                "trend_class": trend_class,
+            })
+
+        items.sort(key=lambda item: (item["delta"], item["current_accuracy"]), reverse=True)
+        comparisons[region] = items
+
+    return comparisons
+
+
+def _latest_backtest_summary(limit=6):
+    items = []
+    region_order = [("hk", "香港"), ("macau", "澳门")]
+    seen_ids = set()
+
+    for region_key, region_label in region_order:
+        record = (
+            BacktestRun.query.filter_by(region=region_key)
+            .order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+            .first()
+        )
+        if not record:
+            _kickoff_backtest_snapshot_refresh(region_key)
+            items.append({
+                "id": None,
+                "name": f"auto-{region_key}",
+                "display_name": f"{region_label}历史模拟测试",
+                "region": region_key,
+                "region_label": region_label,
+                "created_at": None,
+                "periods_evaluated": 0,
+                "top_items": [],
+                "has_data": False,
+                "status_text": "暂无历史模拟快照",
+            })
+            continue
+
+        seen_ids.add(record.id)
+        try:
+            payload = json.loads(record.payload or "{}")
+        except Exception:
+            payload = {}
+        ranking = payload.get("ranking") or []
+        top_items = ranking[:3]
+        periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
+        if periods_evaluated <= 0 or not top_items:
+            _kickoff_backtest_snapshot_refresh(region_key)
+        items.append({
+            "id": record.id,
+            "name": record.name,
+            "display_name": f"{region_label}历史模拟测试",
+            "region": record.region or payload.get("region") or "",
+            "region_label": region_label,
+            "created_at": record.created_at,
+            "periods_evaluated": periods_evaluated,
+            "top_items": top_items,
+            "has_data": periods_evaluated > 0 and bool(top_items),
+            "status_text": f"{periods_evaluated} 期模拟" if periods_evaluated > 0 else "样本不足，暂未形成有效历史模拟",
+        })
+
+    extra_records = (
+        BacktestRun.query.order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+        .limit(limit)
+        .all()
+    )
+    for record in extra_records:
+        if record.id in seen_ids:
+            continue
+        try:
+            payload = json.loads(record.payload or "{}")
+        except Exception:
+            payload = {}
+        ranking = payload.get("ranking") or []
+        top_items = ranking[:3]
+        periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
+        items.append({
+            "id": record.id,
+            "name": record.name,
+            "display_name": f"{'香港' if (record.region or payload.get('region')) == 'hk' else '澳门' if (record.region or payload.get('region')) == 'macau' else (record.region or payload.get('region') or '')}历史模拟测试",
+            "region": record.region or payload.get("region") or "",
+            "region_label": "香港" if (record.region or payload.get("region")) == "hk" else "澳门" if (record.region or payload.get("region")) == "macau" else (record.region or payload.get("region") or ""),
+            "created_at": record.created_at,
+            "periods_evaluated": periods_evaluated,
+            "top_items": top_items,
+            "has_data": periods_evaluated > 0 and bool(top_items),
+            "status_text": f"{periods_evaluated} 期模拟" if periods_evaluated > 0 else "样本不足，暂未形成有效历史模拟",
+        })
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _latest_unique_backtest_summary(limit=6):
+    items = []
+    region_order = [("hk", "香港"), ("macau", "澳门")]
+
+    for region_key, region_label in region_order:
+        record = (
+            BacktestRun.query.filter_by(region=region_key)
+            .order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+            .first()
+        )
+        if not record:
+            _kickoff_backtest_snapshot_refresh(region_key)
+            items.append({
+                "id": None,
+                "name": f"auto-{region_key}",
+                "display_name": f"{region_label}历史模拟测试",
+                "region": region_key,
+                "region_label": region_label,
+                "created_at": None,
+                "periods_evaluated": 0,
+                "top_items": [],
+                "has_data": False,
+                "status_text": "暂无历史模拟快照",
+            })
+            continue
+
+        try:
+            payload = json.loads(record.payload or "{}")
+        except Exception:
+            payload = {}
+
+        ranking = payload.get("ranking") or []
+        top_items = ranking[:3]
+        periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
+
+        if periods_evaluated <= 0 or not top_items:
+            _kickoff_backtest_snapshot_refresh(region_key)
+
+        items.append({
+            "id": record.id,
+            "name": record.name,
+            "display_name": f"{region_label}历史模拟测试",
+            "region": record.region or payload.get("region") or region_key,
+            "region_label": region_label,
+            "created_at": record.created_at,
+            "periods_evaluated": periods_evaluated,
+            "top_items": top_items,
+            "has_data": periods_evaluated > 0 and bool(top_items),
+            "status_text": f"{periods_evaluated} 期模拟" if periods_evaluated > 0 else "样本不足，暂未形成有效历史模拟",
+        })
+
+    return items[:limit]
+
+
+def _kickoff_backtest_snapshot_refresh(region):
+    region_key = str(region or "").strip().lower()
+    if region_key not in ("hk", "macau"):
+        return
+
+    now = time.time()
+    with _backtest_refresh_lock:
+        state = _backtest_refresh_state.get(region_key) or {}
+        if state.get("running"):
+            return
+        last_started = float(state.get("started_at") or 0.0)
+        if now - last_started < _BACKTEST_REFRESH_INTERVAL_SECONDS:
+            return
+        _backtest_refresh_state[region_key] = {
+            "running": True,
+            "started_at": now,
+        }
+
+    def _worker():
+        try:
+            from app import app, refresh_auto_backtest_snapshot
+            with app.app_context():
+                refresh_auto_backtest_snapshot(region_key, force=True)
+        except Exception as e:
+            print(f"async backtest snapshot refresh failed for {region_key}: {e}")
+        finally:
+            with _backtest_refresh_lock:
+                _backtest_refresh_state[region_key] = {
+                    "running": False,
+                    "started_at": time.time(),
+                }
+
+    threading.Thread(
+        target=_worker,
+        name=f"backtest-refresh-{region_key}",
+        daemon=True,
+    ).start()
+
 def login_required(f):
     """登录验证装饰器"""
+    @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
+        if not _get_session_user():
             flash('请先登录', 'error')
             return redirect(url_for('auth.login'))
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function
+
+
+def _get_session_user(clear_invalid=True):
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+
+    user = User.query.get(user_id)
+    if user:
+        return user
+
+    if clear_invalid:
+        session.pop('user_id', None)
+        session.pop('is_active', None)
+    return None
 
 def active_required(f):
     """激活验证装饰器"""
+    @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('is_active'):
-            flash('请先激活账号才能使用此功能', 'warning')
+        user = _get_session_user()
+        if not user:
+            flash('请先登录', 'error')
+            return redirect(url_for('auth.login'))
+
+        is_active = user.check_and_update_activation_status()
+        session['is_active'] = bool(is_active and user.is_active)
+        if not session['is_active']:
+            flash('请先激活账号后再使用此功能', 'warning')
             return redirect(url_for('auth.activate'))
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function
 
 @user_bp.route('/dashboard')
 @user_bp.route('/dashboard')
 @login_required
 def dashboard():
-    user = User.query.get(session['user_id'])
+    user = _get_session_user()
+    if not user:
+        flash('请先登录', 'error')
+        return redirect(url_for('auth.login'))
+    if _sanitize_auto_prediction_strategies(user):
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
+    learning_snapshot = _learning_snapshot()
+    learning_comparison = _build_learning_comparison()
+    latest_backtests = _latest_unique_backtest_summary()
     
-    # 获取用户预测统计
     total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
     recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
         .order_by(PredictionRecord.created_at.desc()).limit(5).all()
     
-    # 计算不同策略的准确率（对比特码和生肖）
     def calculate_user_accuracy(strategy=None):
         query = PredictionRecord.query.filter_by(user_id=user.id, is_result_updated=True)
         if strategy:
             query = query.filter_by(strategy=strategy)
-        
-        predictions = query.all()
-        if not predictions:
+
+        base_query = query.filter(PredictionRecord.actual_special_number != None)
+
+        special_hit_expr = case(
+            (PredictionRecord.special_number == PredictionRecord.actual_special_number, 1),
+            else_=0
+        )
+        agg = base_query.with_entities(
+            func.count().label('total'),
+            func.sum(special_hit_expr).label('special_hits'),
+        ).first()
+
+        total_count = agg.total or 0
+        if total_count == 0:
             return 0.0
-        
-        total_score = 0.0
-        total_count = 0
-        
-        for pred in predictions:
-            if pred.actual_special_number and pred.special_number:
-                total_count += 1
-                
-                # 特码号码是否命中
-                special_hit = 1 if pred.special_number == pred.actual_special_number else 0
-                
-                # 特码生肖是否命中
-                zodiac_hit = 0
-                if hasattr(pred, 'special_zodiac') and hasattr(pred, 'actual_special_zodiac') and pred.special_zodiac and pred.actual_special_zodiac:
-                    zodiac_hit = 1 if pred.special_zodiac == pred.actual_special_zodiac else 0
-                
-                # 计算该预测的准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
-                accuracy = (special_hit * 0.7) + (zodiac_hit * 0.3)
-                total_score += accuracy
-        
-        # 返回平均准确率
-        return round((total_score / total_count) * 100, 1) if total_count > 0 else 0.0
-    
-    # 计算各种准确率
+
+        special_hits = agg.special_hits or 0
+        return round((special_hits / total_count) * 100, 1)
+
+    # 计算各策略命中率
     avg_accuracy = calculate_user_accuracy()
-    random_accuracy = calculate_user_accuracy('random')
-    balanced_accuracy = calculate_user_accuracy('balanced')
-    ai_accuracy = calculate_user_accuracy('ai')
+    strategy_accuracy = {
+        meta["key"]: calculate_user_accuracy(meta["key"])
+        for meta in STRATEGY_META
+    }
+
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    special_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None,
+        PredictionRecord.special_number == PredictionRecord.actual_special_number
+    ).count()
+    normal_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None,
+        PredictionRecord.special_number != PredictionRecord.actual_special_number,
+        _secondary_hit_expr()
+    ).count()
+    special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     
     stats = {
         'total_predictions': total_predictions,
         'avg_accuracy': avg_accuracy,
-        'random_accuracy': random_accuracy,
-        'balanced_accuracy': balanced_accuracy,
-        'ai_accuracy': ai_accuracy,
+        'special_hit_rate': round(special_hit_rate, 1),
+        'normal_hit_rate': round(normal_hit_rate, 1),
         'recent_predictions': recent_predictions
     }
     
     return render_template('user/dashboard.html', 
                           user=user, 
                           stats=stats,
+                          strategy_meta=STRATEGY_META,
+                          auto_strategy_meta=AUTO_STRATEGY_META,
+                          strategy_label_map=_strategy_label_map(),
+                          strategy_accuracy=strategy_accuracy,
+                          strategy_backtests=strategy_backtests,
+                          recommended_strategy=recommended_strategy,
+                          top_strategies=top_strategies,
+                          learning_snapshot=learning_snapshot,
+                          learning_comparison=learning_comparison,
+                          latest_backtests=latest_backtests,
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac)
 
 # 号码属性计算函数
-ZODIAC_MAPPING_SEQUENCE = ("虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马")
 RED_BALLS = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46]
 BLUE_BALLS = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48]
 GREEN_BALLS = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49]
 
+# 生肖映射由接口数据和 ZodiacSetting 提供
+
 def get_number_zodiac(number):
+    """
+    获取号码对应的生肖
+    使用 ZodiacSetting 模型获取当前年份的生肖设置
+    """
     try:
-        num = int(number)
-        if not 1 <= num <= 49: return ""
-        return ZODIAC_MAPPING_SEQUENCE[(num - 1) % 12]
-    except:
+        from models import ZodiacSetting
+        zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+        return ZodiacSetting.get_zodiac_for_number(zodiac_year, number) or ""
+    except Exception as e:
+        print(f"获取号码生肖失败: {e}")
         return ""
 
 def get_number_color(number):
@@ -113,14 +772,227 @@ def get_number_color(number):
     except:
         return ""
 
+def _get_ml_zodiac_map():
+    try:
+        from models import ZodiacSetting
+        zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+        return ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+    except Exception as e:
+        print(f"加载机器学习记录生肖映射失败: {e}")
+        return {}
+
+def _build_ml_prediction_query(user_id, region='', period='', result='', start_date='', end_date=''):
+    query = PredictionRecord.query.filter_by(
+        user_id=user_id,
+        strategy='ml',
+    )
+
+    if region:
+        query = query.filter_by(region=region)
+    if period:
+        query = query.filter(PredictionRecord.period.contains(period))
+
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+            query = query.filter(PredictionRecord.created_at >= start_date_obj)
+        except ValueError:
+            raise ValueError('开始日期格式不正确')
+
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+            end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59)
+            query = query.filter(PredictionRecord.created_at <= end_date_obj)
+        except ValueError:
+            raise ValueError('结束日期格式不正确')
+
+    if result:
+        if result == 'special_hit':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number == PredictionRecord.actual_special_number
+            )
+        elif result == 'normal_hit':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                _secondary_hit_expr()
+            )
+        elif result == 'wrong':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                ~_secondary_hit_expr()
+            )
+        elif result == 'pending':
+            query = query.filter(PredictionRecord.is_result_updated == False)
+
+    return query
+
+def _decorate_ml_prediction(prediction):
+    prediction.display_actual_special_zodiac = (
+        prediction.actual_special_zodiac or ''
+    ).strip()
+    prediction.is_zodiac_hit = bool(
+        prediction.is_result_updated
+        and prediction.actual_special_number
+        and prediction.special_number != prediction.actual_special_number
+        and prediction.special_zodiac
+        and prediction.display_actual_special_zodiac
+        and prediction.special_zodiac == prediction.display_actual_special_zodiac
+    )
+    prediction.is_normal_number_hit = bool(
+        prediction.is_result_updated
+        and prediction.actual_special_number
+        and prediction.special_number != prediction.actual_special_number
+        and prediction.normal_numbers
+        and (
+            prediction.normal_numbers.startswith(prediction.actual_special_number + ',')
+            or prediction.normal_numbers.endswith(',' + prediction.actual_special_number)
+            or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers
+        )
+    )
+    prediction.display_prediction_text = _hydrate_user_prediction_text(prediction)
+    return prediction
+
+def _get_ml_predictions_page(user_id, page=1, region='', period='', result='', start_date='', end_date=''):
+    query = _build_ml_prediction_query(
+        user_id,
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    deduped_prediction_ids = query.with_entities(
+        func.max(PredictionRecord.id).label('id')
+    ).group_by(
+        PredictionRecord.region,
+        PredictionRecord.period,
+        PredictionRecord.strategy,
+    ).subquery()
+
+    records_per_page = 12
+    total_records = db.session.query(func.count()).select_from(
+        deduped_prediction_ids
+    ).scalar() or 0
+    total_pages = max(1, (total_records + records_per_page - 1) // records_per_page)
+    current_page = min(max(page, 1), total_pages)
+    start_index = (current_page - 1) * records_per_page
+
+    items = PredictionRecord.query.join(
+        deduped_prediction_ids,
+        PredictionRecord.id == deduped_prediction_ids.c.id
+    ).order_by(
+        PredictionRecord.created_at.desc(),
+        PredictionRecord.id.desc()
+    ).offset(start_index).limit(records_per_page).all()
+
+    items = [_decorate_ml_prediction(item) for item in items]
+    return SimpleNamespace(
+        items=items,
+        page=current_page,
+        per_page=records_per_page,
+        total=total_records,
+        pages=total_pages,
+        has_prev=current_page > 1,
+        has_next=current_page < total_pages,
+        prev_num=current_page - 1 if current_page > 1 else None,
+        next_num=current_page + 1 if current_page < total_pages else None,
+    )
+
+def _get_ml_stats(user_id):
+    actual_special = PredictionRecord.actual_special_number
+    special_number = PredictionRecord.special_number
+    stats_row = db.session.query(
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
+    ).filter(
+        PredictionRecord.user_id == user_id,
+        PredictionRecord.strategy == 'ml',
+    ).one()
+
+    total_ml_predictions = stats_row[0] or 0
+    updated_predictions = stats_row[1] or 0
+    special_hit_predictions = stats_row[2] or 0
+    normal_hit_predictions = stats_row[3] or 0
+    wrong_predictions = stats_row[4] or 0
+    pending_predictions = max(total_ml_predictions - updated_predictions, 0)
+    special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+
+    region_label_map = {'hk': '香港', 'macau': '澳门'}
+    region_rows = db.session.query(
+        PredictionRecord.region,
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0))
+    ).filter(
+        PredictionRecord.user_id == user_id,
+        PredictionRecord.strategy == 'ml',
+        PredictionRecord.region.in_(tuple(region_label_map.keys())),
+    ).group_by(PredictionRecord.region).all()
+
+    region_stats_map = {
+        row[0]: {
+            'total': row[1] or 0,
+            'updated': row[2] or 0,
+            'special_hits': row[3] or 0,
+            'normal_hits': row[4] or 0,
+        }
+        for row in region_rows
+    }
+    region_ml_stats = []
+    for region_key, region_label in region_label_map.items():
+        region_data = region_stats_map.get(region_key, {})
+        region_total = region_data.get('total', 0)
+        region_updated = region_data.get('updated', 0)
+        region_special_hits = region_data.get('special_hits', 0)
+        region_normal_hits = region_data.get('normal_hits', 0)
+        region_ml_stats.append({
+            'region': region_key,
+            'label': region_label,
+            'total': region_total,
+            'updated': region_updated,
+            'special_hits': region_special_hits,
+            'normal_hits': region_normal_hits,
+            'special_hit_rate': round((region_special_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+            'normal_hit_rate': round((region_normal_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+        })
+
+    return {
+        'total_ml_predictions': total_ml_predictions,
+        'updated_predictions': updated_predictions,
+        'special_hit_count': special_hit_predictions,
+        'normal_hit_count': normal_hit_predictions,
+        'wrong_predictions': wrong_predictions,
+        'pending_predictions': pending_predictions,
+        'special_hit_rate': round(special_hit_rate, 2),
+        'normal_hit_rate': round(normal_hit_rate, 2),
+        'region_ml_stats': region_ml_stats,
+    }
+
 @user_bp.route('/predictions')
 @login_required
 @active_required
 def predictions():
+    user = User.query.get(session['user_id'])
     page = request.args.get('page', 1, type=int)
     region = request.args.get('region', '')
     period = request.args.get('period', '')
     zodiac = request.args.get('zodiac', '')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+    strategy = request.args.get('strategy', '')
+    result = request.args.get('result', '')
     
     query = PredictionRecord.query.filter_by(user_id=session['user_id'])
     
@@ -132,56 +1004,637 @@ def predictions():
     if zodiac:
         query = query.filter(PredictionRecord.special_zodiac == zodiac)
     
-    predictions = query.order_by(PredictionRecord.created_at.desc()).paginate(
-        page=page, per_page=20, error_out=False
+    # 添加日期范围筛选
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+            query = query.filter(PredictionRecord.created_at >= start_date_obj)
+        except ValueError:
+            flash('开始日期格式不正确', 'error')
+    
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+            end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59)
+            query = query.filter(PredictionRecord.created_at <= end_date_obj)
+        except ValueError:
+            flash('结束日期格式不正确', 'error')
+    
+    if strategy:
+        query = query.filter_by(strategy=strategy)
+    
+    if result:
+        if result == 'special_hit':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number == PredictionRecord.actual_special_number
+            )
+        elif result == 'normal_hit':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True, 
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                _secondary_hit_expr()
+            )
+        elif result == 'wrong':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                ~_secondary_hit_expr()
+            )
+        elif result == 'pending':
+            query = query.filter(PredictionRecord.is_result_updated == False)
+    
+    grouped_predictions = []
+    grouped_predictions_map = {}
+    all_predictions = query.order_by(
+        PredictionRecord.created_at.desc(),
+        PredictionRecord.id.desc()
+    ).all()
+    deduped_predictions = []
+    seen_prediction_keys = set()
+
+    for prediction in all_predictions:
+        unique_key = (prediction.region, prediction.period, prediction.strategy)
+        if unique_key in seen_prediction_keys:
+            continue
+        seen_prediction_keys.add(unique_key)
+        deduped_predictions.append(prediction)
+
+    for prediction in deduped_predictions:
+        prediction.display_actual_special_zodiac = (
+            prediction.actual_special_zodiac or ''
+        ).strip()
+        prediction.is_zodiac_hit = bool(
+            prediction.is_result_updated
+            and prediction.actual_special_number
+            and prediction.special_number != prediction.actual_special_number
+            and prediction.special_zodiac
+            and prediction.display_actual_special_zodiac
+            and prediction.special_zodiac == prediction.display_actual_special_zodiac
+        )
+        prediction.is_normal_number_hit = bool(
+            prediction.is_result_updated
+            and prediction.actual_special_number
+            and prediction.special_number != prediction.actual_special_number
+            and prediction.normal_numbers
+            and (
+                prediction.normal_numbers.startswith(prediction.actual_special_number + ',')
+                or prediction.normal_numbers.endswith(',' + prediction.actual_special_number)
+                or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers
+            )
+        )
+        period_key = f"{prediction.region}:{prediction.period}"
+        if period_key not in grouped_predictions_map:
+            group = {
+                'grouper': prediction.period,
+                'region': prediction.region,
+                'list': []
+            }
+            grouped_predictions_map[period_key] = group
+            grouped_predictions.append(group)
+        grouped_predictions_map[period_key]['list'].append(prediction)
+
+    groups_per_page = 4
+    total_groups = len(grouped_predictions)
+    total_pages = max(1, (total_groups + groups_per_page - 1) // groups_per_page)
+    current_page = min(max(page, 1), total_pages)
+    start_index = (current_page - 1) * groups_per_page
+    end_index = start_index + groups_per_page
+    paged_grouped_predictions = grouped_predictions[start_index:end_index]
+    paged_items = [
+        prediction
+        for group in paged_grouped_predictions
+        for prediction in group['list']
+    ]
+    predictions = SimpleNamespace(
+        items=paged_items,
+        page=current_page,
+        per_page=groups_per_page,
+        total=total_groups,
+        pages=total_pages,
+        has_prev=current_page > 1,
+        has_next=current_page < total_pages,
+        prev_num=current_page - 1 if current_page > 1 else None,
+        next_num=current_page + 1 if current_page < total_pages else None,
     )
+
+    try:
+        from models import ZodiacSetting
+        current_year = datetime.now().year
+        zodiac_map = ZodiacSetting.get_all_settings_for_year(current_year) or {}
+    except Exception as e:
+        print(f"鑾峰彇鐢熻倴鏄犲皠澶辫触: {e}")
+        zodiac_map = {}
+
+    def get_number_zodiac_cached(number):
+        try:
+            return zodiac_map.get(int(number), "")
+        except (TypeError, ValueError):
+            return ""
+
+    actual_special = PredictionRecord.actual_special_number
+    special_number = PredictionRecord.special_number
+
+    stats_row = db.session.query(
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
+    ).filter(PredictionRecord.user_id == session['user_id']).one()
+
+    total_predictions = stats_row[0] or 0
+    updated_predictions = stats_row[1] or 0
+    special_hit_predictions = stats_row[2] or 0
+    normal_hit_predictions = stats_row[3] or 0
+    wrong_predictions = stats_row[4] or 0
+
+    accurate_predictions = special_hit_predictions
     
-    # 计算总体预测准确率
-    total_predictions = PredictionRecord.query.filter_by(user_id=session['user_id']).count()
-    accurate_predictions = PredictionRecord.query.filter_by(user_id=session['user_id'])\
-        .filter(PredictionRecord.accuracy_score != None)\
-        .filter(PredictionRecord.accuracy_score > 0).count()
-    accuracy_rate = (accurate_predictions / total_predictions * 100) if total_predictions > 0 else 0
+    accuracy_rate = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     
+    regions = {
+        record.region
+        for record in all_predictions
+        if record.region
+    }
+
+    prediction_summary_cards = []
+    for r in regions:
+        region_records = [record for record in all_predictions if record.region == r]
+        region_records.sort(key=lambda x: (x.created_at, x.id))
+        
+        period_results = OrderedDict()
+        for record in region_records:
+            period_key = record.period
+            if period_key not in period_results:
+                period_results[period_key] = {
+                    'has_result': False,
+                    'is_hit': False,
+                }
+            if record.is_result_updated and record.special_number and record.actual_special_number:
+                period_results[period_key]['has_result'] = True
+                if str(record.special_number).strip() == str(record.actual_special_number).strip():
+                    period_results[period_key]['is_hit'] = True
+
+        total_special_hits = 0
+        consecutive_special_misses = 0
+        consecutive_special_hits = 0
+        max_consecutive_special_hits = 0
+        max_consecutive_special_misses = 0
+        resolved_periods = 0
+
+        for result in period_results.values():
+            if not result['has_result']:
+                continue
+            resolved_periods += 1
+            if result['is_hit']:
+                total_special_hits += 1
+                consecutive_special_hits += 1
+                consecutive_special_misses = 0
+                if consecutive_special_hits > max_consecutive_special_hits:
+                    max_consecutive_special_hits = consecutive_special_hits
+            else:
+                consecutive_special_hits = 0
+                consecutive_special_misses += 1
+                if consecutive_special_misses > max_consecutive_special_misses:
+                    max_consecutive_special_misses = consecutive_special_misses
+
+        accuracy = round((total_special_hits / resolved_periods * 100), 1) if resolved_periods > 0 else 0.0
+
+        if resolved_periods < 3:
+            recommendation = "样本较少，建议观望"
+            level = "neutral"
+        elif accuracy >= 30.0 or consecutive_special_hits >= 2:
+            recommendation = "胜率极佳，建议跟入"
+            level = "positive"
+        elif consecutive_special_misses >= 5:
+            recommendation = "连漏偏高，随时反弹"
+            level = "positive"
+        elif accuracy >= 15.0:
+            recommendation = "胜率稳定，可以参考"
+            level = "positive"
+        elif accuracy < 5.0 and resolved_periods >= 10:
+            recommendation = "走势低迷，暂且观望"
+            level = "negative"
+        else:
+            recommendation = "走势震荡，谨慎参考"
+            level = "warning"
+
+        prediction_summary_cards.append({
+            'region': r,
+            'region_label': '香港' if r == 'hk' else '澳门' if r == 'macau' else r,
+            'hit_periods': total_special_hits,
+            'miss_streak': consecutive_special_misses,
+            'max_hit_streak': max_consecutive_special_hits,
+            'max_miss_streak': max_consecutive_special_misses,
+            'resolved_periods': resolved_periods,
+            'total_predictions': len(region_records),
+            'accuracy': accuracy,
+            'recommendation': recommendation,
+            'recommendation_level': level,
+        })
+    
+    prediction_summary_cards.sort(
+        key=lambda item: 0 if item['region'] == 'hk' else 1 if item['region'] == 'macau' else 2
+    )
+
     return render_template('user/predictions.html', 
-                          predictions=predictions, 
+                          user=user,
+                          predictions=predictions,
+                          grouped_predictions=paged_grouped_predictions,
                           region=region, 
                           period=period, 
                           zodiac=zodiac,
+                          start_date=start_date,
+                          end_date=end_date,
+                          strategy=strategy,
+                          result=result,
                           get_number_color=get_number_color,
-                          get_number_zodiac=get_number_zodiac,
-                          accuracy_rate=round(accuracy_rate, 2))
+                          get_number_zodiac=get_number_zodiac_cached,
+                          correct_predictions=accurate_predictions,
+                          special_hit_count=special_hit_predictions,
+                          normal_hit_count=normal_hit_predictions,
+                          wrong_predictions=wrong_predictions,
+                          total_predictions=total_predictions,
+                          accuracy=round(accuracy_rate, 2),
+                          special_hit_rate=round(special_hit_rate, 2),
+                          normal_hit_rate=round(normal_hit_rate, 2),
+                          prediction_summary_cards=prediction_summary_cards)
+
+
+@user_bp.route('/ml-records')
+@login_required
+@active_required
+def ml_records():
+    user = User.query.get(session['user_id'])
+    page = request.args.get('page', 1, type=int)
+    region = request.args.get('region', '')
+    period = request.args.get('period', '')
+    result = request.args.get('result', '')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+
+    try:
+        _build_ml_prediction_query(
+            session['user_id'],
+            region=region,
+            period=period,
+            result=result,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except ValueError as exc:
+        flash(str(exc), 'error')
+
+    return render_template(
+        'user/ml_records.html',
+        user=user,
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+        initial_page=page,
+        **_get_ml_stats(session['user_id']),
+    )
+
+    query = PredictionRecord.query.filter_by(
+        user_id=session['user_id'],
+        strategy='ml',
+    )
+
+    if region:
+        query = query.filter_by(region=region)
+    if period:
+        query = query.filter(PredictionRecord.period.contains(period))
+
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+            query = query.filter(PredictionRecord.created_at >= start_date_obj)
+        except ValueError:
+            flash('开始日期格式不正确', 'error')
+
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+            end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59)
+            query = query.filter(PredictionRecord.created_at <= end_date_obj)
+        except ValueError:
+            flash('结束日期格式不正确', 'error')
+
+    if result:
+        if result == 'special_hit':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number == PredictionRecord.actual_special_number
+            )
+        elif result == 'normal_hit':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                _secondary_hit_expr()
+            )
+        elif result == 'wrong':
+            query = query.filter(
+                PredictionRecord.is_result_updated == True,
+                PredictionRecord.actual_special_number != None,
+                PredictionRecord.special_number != PredictionRecord.actual_special_number,
+                ~_secondary_hit_expr()
+            )
+        elif result == 'pending':
+            query = query.filter(PredictionRecord.is_result_updated == False)
+
+    deduped_prediction_ids = query.with_entities(
+        func.max(PredictionRecord.id).label('id')
+    ).group_by(
+        PredictionRecord.region,
+        PredictionRecord.period,
+        PredictionRecord.strategy,
+    ).subquery()
+
+    records_per_page = 12
+    total_records = db.session.query(func.count()).select_from(
+        deduped_prediction_ids
+    ).scalar() or 0
+    total_pages = max(1, (total_records + records_per_page - 1) // records_per_page)
+    current_page = min(max(page, 1), total_pages)
+    start_index = (current_page - 1) * records_per_page
+
+    paged_predictions = PredictionRecord.query.join(
+        deduped_prediction_ids,
+        PredictionRecord.id == deduped_prediction_ids.c.id
+    ).order_by(
+        PredictionRecord.created_at.desc(),
+        PredictionRecord.id.desc()
+    ).offset(start_index).limit(records_per_page).all()
+
+    for prediction in paged_predictions:
+        prediction.display_actual_special_zodiac = (
+            prediction.actual_special_zodiac or ''
+        ).strip()
+        prediction.is_zodiac_hit = bool(
+            prediction.is_result_updated
+            and prediction.actual_special_number
+            and prediction.special_number != prediction.actual_special_number
+            and prediction.special_zodiac
+            and prediction.display_actual_special_zodiac
+            and prediction.special_zodiac == prediction.display_actual_special_zodiac
+        )
+        prediction.is_normal_number_hit = bool(
+            prediction.is_result_updated
+            and prediction.actual_special_number
+            and prediction.special_number != prediction.actual_special_number
+            and prediction.normal_numbers
+            and (
+                prediction.normal_numbers.startswith(prediction.actual_special_number + ',')
+                or prediction.normal_numbers.endswith(',' + prediction.actual_special_number)
+                or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers
+            )
+        )
+        prediction.display_prediction_text = _hydrate_user_prediction_text(prediction)
+    predictions = SimpleNamespace(
+        items=paged_predictions,
+        page=current_page,
+        per_page=records_per_page,
+        total=total_records,
+        pages=total_pages,
+        has_prev=current_page > 1,
+        has_next=current_page < total_pages,
+        prev_num=current_page - 1 if current_page > 1 else None,
+        next_num=current_page + 1 if current_page < total_pages else None,
+    )
+
+    try:
+        from models import ZodiacSetting
+        zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+        zodiac_map = ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+    except Exception as e:
+        print(f"加载机器学习记录生肖映射失败: {e}")
+        zodiac_map = {}
+
+    def get_number_zodiac_cached(number):
+        try:
+            return zodiac_map.get(int(number), "")
+        except (TypeError, ValueError):
+            return ""
+
+    actual_special = PredictionRecord.actual_special_number
+    special_number = PredictionRecord.special_number
+    stats_row = db.session.query(
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
+    ).filter(
+        PredictionRecord.user_id == session['user_id'],
+        PredictionRecord.strategy == 'ml',
+    ).one()
+
+    total_ml_predictions = stats_row[0] or 0
+    updated_predictions = stats_row[1] or 0
+    special_hit_predictions = stats_row[2] or 0
+    normal_hit_predictions = stats_row[3] or 0
+    wrong_predictions = stats_row[4] or 0
+    pending_predictions = max(total_ml_predictions - updated_predictions, 0)
+    special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+
+    region_label_map = {'hk': '香港', 'macau': '澳门'}
+    region_rows = db.session.query(
+        PredictionRecord.region,
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0))
+    ).filter(
+        PredictionRecord.user_id == session['user_id'],
+        PredictionRecord.strategy == 'ml',
+        PredictionRecord.region.in_(tuple(region_label_map.keys())),
+    ).group_by(PredictionRecord.region).all()
+
+    fast_region_ml_stats = []
+    region_stats_map = {
+        row[0]: {
+            'total': row[1] or 0,
+            'updated': row[2] or 0,
+            'special_hits': row[3] or 0,
+            'normal_hits': row[4] or 0,
+        }
+        for row in region_rows
+    }
+    for region_key, region_label in region_label_map.items():
+        region_data = region_stats_map.get(region_key, {})
+        region_total = region_data.get('total', 0)
+        region_updated = region_data.get('updated', 0)
+        region_special_hits = region_data.get('special_hits', 0)
+        region_normal_hits = region_data.get('normal_hits', 0)
+        fast_region_ml_stats.append({
+            'region': region_key,
+            'label': region_label,
+            'total': region_total,
+            'updated': region_updated,
+            'special_hits': region_special_hits,
+            'normal_hits': region_normal_hits,
+            'special_hit_rate': round((region_special_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+            'normal_hit_rate': round((region_normal_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+        })
+
+    region_ml_stats = []
+    for region_key, region_label in ():
+        region_row = db.session.query(
+            db.func.count(PredictionRecord.id),
+            db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+            db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+            db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0))
+        ).filter(
+            PredictionRecord.user_id == session['user_id'],
+            PredictionRecord.strategy == 'ml',
+            PredictionRecord.region == region_key,
+        ).one()
+
+        region_total = region_row[0] or 0
+        region_updated = region_row[1] or 0
+        region_special_hits = region_row[2] or 0
+        region_normal_hits = region_row[3] or 0
+        region_ml_stats.append({
+            'region': region_key,
+            'label': region_label,
+            'total': region_total,
+            'updated': region_updated,
+            'special_hits': region_special_hits,
+            'normal_hits': region_normal_hits,
+            'special_hit_rate': round((region_special_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+            'normal_hit_rate': round((region_normal_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+        })
+
+    return render_template(
+        'user/ml_records.html',
+        user=user,
+        predictions=predictions,
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+        get_number_color=get_number_color,
+        get_number_zodiac=get_number_zodiac_cached,
+        total_ml_predictions=total_ml_predictions,
+        updated_predictions=updated_predictions,
+        special_hit_count=special_hit_predictions,
+        normal_hit_count=normal_hit_predictions,
+        wrong_predictions=wrong_predictions,
+        pending_predictions=pending_predictions,
+        special_hit_rate=round(special_hit_rate, 2),
+        normal_hit_rate=round(normal_hit_rate, 2),
+        region_ml_stats=fast_region_ml_stats,
+    )
+
+@user_bp.route('/ml-records/list')
+@login_required
+@active_required
+def ml_records_list():
+    page = request.args.get('page', 1, type=int)
+    region = request.args.get('region', '')
+    period = request.args.get('period', '')
+    result = request.args.get('result', '')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+
+    try:
+        predictions = _get_ml_predictions_page(
+            session['user_id'],
+            page=page,
+            region=region,
+            period=period,
+            result=result,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+    zodiac_map = _get_ml_zodiac_map()
+
+    def get_number_zodiac_cached(number):
+        try:
+            return zodiac_map.get(int(number), "")
+        except (TypeError, ValueError):
+            return ""
+
+    html = render_template(
+        'user/_ml_records_list.html',
+        predictions=predictions,
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+        get_number_color=get_number_color,
+        get_number_zodiac=get_number_zodiac_cached,
+    )
+    return jsonify({
+        'success': True,
+        'html': html,
+        'page': predictions.page,
+        'pages': predictions.pages,
+        'total': predictions.total,
+    })
 
 @user_bp.route('/save-prediction', methods=['POST'])
 @login_required
-@active_required
 def save_prediction():
     """保存预测记录"""
     try:
         data = request.get_json()
+
+        user = User.query.get(session['user_id'])
+        if not user:
+            return jsonify({
+                'success': False,
+                'message': '用户不存在'
+            })
+
+        user.check_and_update_activation_status()
+        session['is_active'] = bool(user.is_active)
+
+        if not user.is_active and data.get('strategy') != 'ai':
+            return jsonify({
+                'success': False,
+                'message': '请先激活账号'
+            })
         
-        # 检查用户是否已经为当前期生成过预测
         existing = PredictionRecord.query.filter_by(
-            user_id=session['user_id'],
+            user_id=user.id,
             region=data['region'],
-            period=data['period']
+            period=data['period'],
+            strategy=data['strategy']
         ).first()
         
         if existing:
             return jsonify({
                 'success': False,
-                'message': '您已经为本期生成过预测，不能重复生成'
+                'message': '您已经为本期的该策略生成过预测，不能重复生成'
             })
         
-        # 创建预测记录
         prediction = PredictionRecord(
-            user_id=session['user_id'],
+            user_id=user.id,
             region=data['region'],
             strategy=data['strategy'],
             period=data['period'],
             normal_numbers=','.join(map(str, data['normal_numbers'])),
             special_number=str(data['special_number']),
             special_zodiac=data.get('special_zodiac', ''),
+            prediction_metadata=_serialize_prediction_metadata(data.get('model_meta')),
             prediction_text=data.get('prediction_text', '')
         )
         
@@ -194,6 +1647,13 @@ def save_prediction():
         })
         
     except Exception as e:
+        duplicate_hint = str(e).lower()
+        if 'unique' in duplicate_hint or 'duplicate' in duplicate_hint:
+            db.session.rollback()
+            return jsonify({
+                'success': False,
+                'message': '您已经为本期的该策略生成过预测，不能重复生成'
+            })
         db.session.rollback()
         return jsonify({
             'success': False,
@@ -204,18 +1664,23 @@ def save_prediction():
 @login_required
 @active_required
 def check_prediction_exists():
-    """检查用户是否已经为当前期生成过预测"""
+    """检查用户是否已为当前期生成预测"""
     region = request.args.get('region')
     period = request.args.get('period')
-    
+    strategy = request.args.get('strategy')
+
     if not region or not period:
         return jsonify({'exists': False})
-    
-    existing = PredictionRecord.query.filter_by(
+
+    query = PredictionRecord.query.filter_by(
         user_id=session['user_id'],
         region=region,
         period=period
-    ).first()
+    )
+    if strategy:
+        query = query.filter_by(strategy=strategy)
+
+    existing = query.first()
     
     if existing:
         return jsonify({
@@ -224,7 +1689,8 @@ def check_prediction_exists():
                 'normal_numbers': existing.normal_numbers.split(','),
                 'special_number': existing.special_number,
                 'special_zodiac': existing.special_zodiac,
-                'prediction_text': existing.prediction_text,
+                'model_meta': _hydrate_user_prediction_model_meta(existing),
+                'prediction_text': _hydrate_user_prediction_text(existing),
                 'created_at': existing.created_at.strftime('%Y-%m-%d %H:%M:%S')
             }
         })
@@ -235,37 +1701,39 @@ def check_prediction_exists():
 @login_required
 def profile():
     user = User.query.get(session['user_id'])
+    if _sanitize_auto_prediction_strategies(user):
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     
     if request.method == 'POST':
-        # 更新用户信息
         new_email = request.form.get('email')
         current_password = request.form.get('current_password')
         new_password = request.form.get('new_password')
         confirm_password = request.form.get('confirm_password')
         
-        # 验证当前密码
         if not user.check_password(current_password):
             flash('当前密码错误', 'error')
-            return render_template('user/profile.html', user=user)
+            return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             
-        # 更新邮箱（仅管理员可修改）
         if new_email and new_email != user.email:
             if not user.is_admin:
                 flash('普通用户无权修改邮箱地址，如需修改请联系管理员', 'error')
-                return render_template('user/profile.html', user=user)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             if User.query.filter_by(email=new_email).first():
                 flash('邮箱已被其他用户使用', 'error')
-                return render_template('user/profile.html', user=user)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             user.email = new_email
         
         # 更新密码
         if new_password:
             if new_password != confirm_password:
                 flash('两次输入的新密码不一致', 'error')
-                return render_template('user/profile.html', user=user)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             if len(new_password) < 6:
-                flash('新密码长度至少6位', 'error')
-                return render_template('user/profile.html', user=user)
+                flash('新密码长度至少 6 位', 'error')
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
             user.set_password(new_password)
         
         try:
@@ -275,7 +1743,98 @@ def profile():
             db.session.rollback()
             flash(f'更新失败：{str(e)}', 'error')
     
-    return render_template('user/profile.html', user=user)
+    return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+
+@user_bp.route('/save_prediction_settings', methods=['POST'])
+@login_required
+@active_required
+def save_prediction_settings():
+    """保存用户预测设置"""
+    user = User.query.get(session['user_id'])
+
+    auto_prediction_enabled = 'auto_prediction_enabled' in request.form
+    show_normal_numbers = 'show_normal_numbers' in request.form
+    auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
+    auto_prediction_regions = request.form.getlist('auto_prediction_regions')
+
+    valid_strategies = []
+    for strategy in auto_prediction_strategies:
+        if strategy in STRATEGY_KEYS and strategy != 'ai':
+            valid_strategies.append(strategy)
+
+    if not valid_strategies:
+        valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+
+    valid_regions = []
+    for region in auto_prediction_regions:
+        if region in ['hk', 'macau']:
+            valid_regions.append(region)
+
+    if not valid_regions:
+        valid_regions = ['hk']
+
+    user.auto_prediction_enabled = auto_prediction_enabled
+    user.auto_prediction_strategies = ','.join(valid_strategies)
+    user.auto_prediction_regions = ','.join(valid_regions)
+    user.show_normal_numbers = show_normal_numbers
+
+    try:
+        db.session.commit()
+        flash('预测设置保存成功', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'保存失败：{str(e)}', 'error')
+
+    return redirect(url_for('user.profile'))
+
+@user_bp.route('/update_auto_prediction', methods=['POST'])
+@login_required
+@active_required
+def update_auto_prediction():
+    """更新自动预测设置"""
+    try:
+        user = User.query.get(session['user_id'])
+
+        auto_prediction_enabled = 'auto_prediction_enabled' in request.form
+        show_normal_numbers = 'show_normal_numbers' in request.form
+        auto_prediction_strategies = request.form.getlist('auto_prediction_strategies')
+        auto_prediction_regions = request.form.getlist('auto_prediction_regions')
+
+        valid_strategies = []
+        for strategy in auto_prediction_strategies:
+            if strategy in STRATEGY_KEYS and strategy != 'ai':
+                valid_strategies.append(strategy)
+
+        if not valid_strategies:
+            valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+
+        valid_regions = []
+        for region in auto_prediction_regions:
+            if region in ['hk', 'macau']:
+                valid_regions.append(region)
+
+        if not valid_regions:
+            valid_regions = ['hk', 'macau']
+
+        user.auto_prediction_enabled = auto_prediction_enabled
+        user.auto_prediction_strategies = ','.join(valid_strategies)
+        user.auto_prediction_regions = ','.join(valid_regions)
+        user.show_normal_numbers = show_normal_numbers
+
+        db.session.commit()
+        flash('自动预测设置保存成功', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'设置保存失败：{str(e)}', 'error')
+
+    return redirect(url_for('user.dashboard'))
+
+@user_bp.route('/invite')
+@login_required
+@active_required
+def invite():
+    """邀请好友页面，重定向到邀请码管理"""
+    return redirect(url_for('user.invite_codes'))
 
 @user_bp.route('/invite_codes')
 @login_required
@@ -284,28 +1843,26 @@ def invite_codes():
     """用户邀请码管理"""
     user = User.query.get(session['user_id'])
     
-    # 获取用户创建的邀请码
     page = request.args.get('page', 1, type=int)
-    codes = InviteCode.query.filter_by(created_by=user.username)\
-        .order_by(InviteCode.created_at.desc())\
-        .paginate(page=page, per_page=10, error_out=False)
+    invite_codes = InviteCode.query.filter_by(created_by=user.username, is_used=False)\
+        .order_by(InviteCode.created_at.desc()).all()
     
-    # 获取邀请统计
     total_invites = InviteCode.query.filter_by(created_by=user.username, is_used=True).count()
     active_invites = User.query.filter_by(invited_by=user.username, is_active=True).count()
+    total_generated = InviteCode.query.filter_by(created_by=user.username).count()
     
-    # 获取被邀请的用户列表
     invited_users = User.query.filter_by(invited_by=user.username)\
         .order_by(User.created_at.desc()).limit(10).all()
     
     stats = {
         'total_invites': total_invites,
         'active_invites': active_invites,
+        'total_generated': total_generated,
         'success_rate': round(active_invites / total_invites * 100, 1) if total_invites > 0 else 0
     }
     
     return render_template('user/invite_codes.html', 
-                          codes=codes, 
+                          invite_codes=invite_codes, 
                           stats=stats, 
                           invited_users=invited_users)
 
@@ -317,24 +1874,18 @@ def generate_invite_code():
     try:
         user = User.query.get(session['user_id'])
         
-        # 检查用户是否有权限生成邀请码（可以根据需要添加限制）
-        # 例如：限制每个用户每天只能生成3个邀请码
-        today_codes = InviteCode.query.filter_by(created_by=user.username)\
-            .filter(InviteCode.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0))\
-            .count()
+        total_codes = InviteCode.query.filter_by(created_by=user.username).count()
         
-        if today_codes >= 3:
+        if total_codes >= 10:
             return jsonify({
                 'success': False,
-                'message': '每天最多只能生成3个邀请码'
+                'message': '您已达到邀请码生成上限（10 个）'
             })
         
-        # 创建邀请码
         invite_code = InviteCode()
         invite_code.code = InviteCode.generate_code()
         invite_code.created_by = user.username
         
-        # 设置7天过期
         from datetime import timedelta
         invite_code.expires_at = datetime.utcnow() + timedelta(days=7)
         
@@ -353,3 +1904,293 @@ def generate_invite_code():
             'success': False,
             'message': f'生成失败：{str(e)}'
         })
+
+@user_bp.route('/update_profile', methods=['POST'])
+@login_required
+@active_required
+def update_profile():
+    """更新个人基本信息"""
+    try:
+        user = User.query.get(session['user_id'])
+        
+        # 更新邮箱
+        new_email = request.form.get('email')
+        if new_email and new_email != user.email:
+            # 检查邮箱是否已被使用
+            existing_user = User.query.filter_by(email=new_email).first()
+            if existing_user and existing_user.id != user.id:
+                flash('该邮箱已被其他用户使用', 'error')
+                return redirect(url_for('user.dashboard'))
+            
+            user.email = new_email
+        
+        db.session.commit()
+        flash('个人信息更新成功', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'更新失败：{str(e)}', 'error')
+    
+    return redirect(url_for('user.dashboard'))
+
+@user_bp.route('/change_password', methods=['POST'])
+@login_required
+@active_required
+def change_password():
+    """修改密码"""
+    try:
+        user = User.query.get(session['user_id'])
+        
+        current_password = request.form.get('current_password')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if not user.check_password(current_password):
+            flash('当前密码错误', 'error')
+            return redirect(url_for('user.dashboard'))
+        
+        # 验证新密码
+        if new_password != confirm_password:
+            flash('两次输入的新密码不一致', 'error')
+            return redirect(url_for('user.dashboard'))
+        
+        if len(new_password) < 6:
+            flash('新密码长度至少 6 位', 'error')
+            return redirect(url_for('user.dashboard'))
+        
+        # 更新密码
+        user.set_password(new_password)
+        db.session.commit()
+        flash('密码修改成功', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'密码修改失败：{str(e)}', 'error')
+    
+    return redirect(url_for('user.dashboard'))
+
+@user_bp.route('/analytics')
+@login_required
+@active_required
+def analytics():
+    """用户统计分析页面"""
+    user = _get_session_user()
+    if not user:
+        flash('请先登录', 'error')
+        return redirect(url_for('auth.login'))
+    strategy_backtests, recommended_strategy, top_strategies = _strategy_backtests(user.id)
+    learning_snapshot = _learning_snapshot()
+    learning_comparison = _build_learning_comparison()
+    latest_backtests = _latest_unique_backtest_summary()
+    
+    total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
+    updated_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None
+    ).count()
+    
+    special_hit_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None,
+        PredictionRecord.special_number == PredictionRecord.actual_special_number
+    ).count()
+    
+    normal_hit_predictions = 0
+    
+    accurate_predictions = special_hit_predictions
+    
+    wrong_predictions = PredictionRecord.query.filter_by(
+        user_id=user.id,
+        is_result_updated=True
+    ).filter(
+        PredictionRecord.actual_special_number != None,
+        (PredictionRecord.special_number != PredictionRecord.actual_special_number)
+    ).count()
+    
+    # 计算不同策略的命中率
+    def calculate_strategy_stats(strategy=None):
+        query = PredictionRecord.query.filter_by(user_id=user.id)
+        if strategy:
+            query = query.filter_by(strategy=strategy)
+        
+        total = query.count()
+        updated = query.filter_by(is_result_updated=True).filter(
+            PredictionRecord.actual_special_number != None
+        ).count()
+        
+        special_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.special_number == PredictionRecord.actual_special_number
+        ).count()
+        
+        normal_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            PredictionRecord.special_number != PredictionRecord.actual_special_number,
+            _secondary_hit_expr()
+        ).count()
+
+        zodiac_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            _zodiac_hit_expr()
+        ).count()
+        
+        wrong = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            (PredictionRecord.special_number != PredictionRecord.actual_special_number),
+            ~_secondary_hit_expr()
+        ).count()
+        
+        correct = special_hit
+        
+        accuracy = (special_hit / updated * 100) if updated > 0 else 0
+        special_hit_rate = (special_hit / updated * 100) if updated > 0 else 0
+        normal_hit_rate = (normal_hit / updated * 100) if updated > 0 else 0
+        zodiac_hit_rate = (zodiac_hit / updated * 100) if updated > 0 else 0
+        
+        return {
+            'total': total,
+            'updated': updated,
+            'correct': correct,
+            'wrong': wrong,
+            'special_hit': special_hit,
+            'normal_hit': normal_hit,
+            'zodiac_hit': zodiac_hit,
+            'accuracy': round(accuracy, 1),
+            'special_hit_rate': round(special_hit_rate, 1),
+            'normal_hit_rate': round(normal_hit_rate, 1),
+            'zodiac_hit_rate': round(zodiac_hit_rate, 1),
+        }
+    
+    def calculate_region_stats(region):
+        query = PredictionRecord.query.filter_by(user_id=user.id, region=region)
+        
+        total = query.count()
+        updated = query.filter_by(is_result_updated=True).filter(
+            PredictionRecord.actual_special_number != None
+        ).count()
+        
+        special_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.special_number == PredictionRecord.actual_special_number
+        ).count()
+        
+        normal_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            PredictionRecord.special_number != PredictionRecord.actual_special_number,
+            _secondary_hit_expr()
+        ).count()
+
+        zodiac_hit = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            _zodiac_hit_expr()
+        ).count()
+        
+        wrong = query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            (PredictionRecord.special_number != PredictionRecord.actual_special_number),
+            ~_secondary_hit_expr()
+        ).count()
+        
+        correct = special_hit
+        
+        accuracy = (special_hit / updated * 100) if updated > 0 else 0
+        special_hit_rate = (special_hit / updated * 100) if updated > 0 else 0
+        normal_hit_rate = (normal_hit / updated * 100) if updated > 0 else 0
+        zodiac_hit_rate = (zodiac_hit / updated * 100) if updated > 0 else 0
+        
+        return {
+            'total': total,
+            'updated': updated,
+            'correct': correct,
+            'wrong': wrong,
+            'special_hit': special_hit,
+            'normal_hit': normal_hit,
+            'zodiac_hit': zodiac_hit,
+            'accuracy': round(accuracy, 1),
+            'special_hit_rate': round(special_hit_rate, 1),
+            'normal_hit_rate': round(normal_hit_rate, 1),
+            'zodiac_hit_rate': round(zodiac_hit_rate, 1),
+        }
+    
+    stats = calculate_strategy_stats()
+    
+    stats['total_predictions'] = total_predictions
+    stats['updated_predictions'] = updated_predictions
+    stats['special_hit_count'] = special_hit_predictions
+    stats['normal_hit_count'] = normal_hit_predictions
+    stats['wrong_predictions'] = wrong_predictions
+    stats['accuracy'] = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    stats['special_hit_rate'] = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    stats['normal_hit_rate'] = 0
+    
+    # 计算各策略统计
+    strategy_stats = {
+        meta["key"]: calculate_strategy_stats(meta["key"])
+        for meta in STRATEGY_META
+    }
+    
+    # 计算各地区统计
+    region_stats = {
+        'hk': calculate_region_stats('hk'),
+        'macau': calculate_region_stats('macau')
+    }
+
+    best_strategy = None
+    best_accuracy = -1
+    for meta in STRATEGY_META:
+        stats_entry = strategy_stats.get(meta["key"])
+        if stats_entry and stats_entry.get("updated", 0) > 0:
+            accuracy_value = stats_entry.get("accuracy", 0)
+            if accuracy_value > best_accuracy:
+                best_accuracy = accuracy_value
+                best_strategy = meta
+    
+    recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
+        .order_by(PredictionRecord.created_at.desc()).limit(10).all()
+    
+    from datetime import timedelta
+    
+    trend_data = []
+    for i in range(6, -1, -1):
+        date = datetime.utcnow().date() - timedelta(days=i)
+        date_start = datetime.combine(date, datetime.min.time())
+        date_end = datetime.combine(date, datetime.max.time())
+        
+        day_predictions = PredictionRecord.query.filter(
+            PredictionRecord.user_id == user.id,
+            PredictionRecord.created_at >= date_start,
+            PredictionRecord.created_at <= date_end
+        ).count()
+        
+        trend_data.append({
+            'date': date.strftime('%m-%d'),
+            'count': day_predictions
+        })
+    
+    return render_template('user/analytics.html',
+                          user=user,
+                          stats=stats,
+                          strategy_stats=strategy_stats,
+                          strategy_meta=STRATEGY_META,
+                          strategy_label_map=_strategy_label_map(),
+                          best_strategy=best_strategy,
+                          recommended_strategy=recommended_strategy,
+                          top_strategies=top_strategies,
+                          strategy_backtests=strategy_backtests,
+                          learning_snapshot=learning_snapshot,
+                          learning_comparison=learning_comparison,
+                          latest_backtests=latest_backtests,
+                          region_stats=region_stats,
+                          recent_predictions=recent_predictions,
+                          trend_data=trend_data,
+                          get_number_color=get_number_color)

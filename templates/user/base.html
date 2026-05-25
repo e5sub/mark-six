@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}用户中心{% endblock %} - AI数据分析预测系统</title>
+    <title>{% block title %}用户中心{% endblock %} - {{ site_name or system_name or 'AI数据分析预测系统' }}</title>
+    <meta name="description" content="{{ site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
     <style>
         * {
             margin: 0;
@@ -13,34 +14,70 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #111827 100%);
+            background-attachment: fixed;
             min-height: 100vh;
-            color: #333;
+            color: #e5e7eb;
             display: flex;
+            overflow-x: hidden;
+        }
+
+        body,
+        p,
+        li,
+        label,
+        td,
+        th,
+        input,
+        select,
+        textarea {
+            color: #f8fafc;
+        }
+
+        .github-watermark {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.06;
+            overflow: hidden;
+        }
+
+        .github-watermark::before {
+            content: "";
+            position: absolute;
+            inset: -35%;
+            transform: rotate(-45deg);
+            transform-origin: center;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='520' height='240' viewBox='0 0 520 240'><text x='18' y='102' font-size='28' font-family='Arial, sans-serif' fill='%23e2e8f0' fill-opacity='1'>github.com/e5sub/mark-six</text><text x='18' y='146' font-size='22' font-family='Arial, sans-serif' fill='%23e2e8f0' fill-opacity='1'>本项目源码仅限非商业用途使用</text></svg>");
+            background-repeat: repeat;
+            background-size: 520px 240px;
         }
         
         .sidebar {
-            width: 260px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            width: 240px;
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(148, 163, 184, 0.16);
             position: fixed;
             height: 100vh;
             left: 0;
             top: 0;
             z-index: 1000;
             overflow-y: auto;
+            transition: width 0.3s ease, transform 0.3s ease;
         }
         
         .sidebar-header {
-            padding: 2rem 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1.5rem 1.25rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
         }
         
         .sidebar-brand {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: white;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #f8fafc;
             text-decoration: none;
         }
         
@@ -51,25 +88,26 @@
         .sidebar-nav a {
             display: flex;
             align-items: center;
-            color: rgba(255, 255, 255, 0.8);
+            color: #e5e7eb;
             text-decoration: none;
             padding: 1rem 1.5rem;
             transition: all 0.3s ease;
             border-left: 3px solid transparent;
             font-size: 0.95rem;
+            font-weight: 700;
         }
         
         .sidebar-nav a:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-            border-left-color: white;
+            background: rgba(30, 41, 59, 0.8);
+            color: #f8fafc;
+            border-left-color: #667eea;
         }
         
         .sidebar-nav a.active {
-            background: rgba(255, 255, 255, 0.15);
-            color: white;
-            border-left-color: white;
-            font-weight: 500;
+            background: rgba(30, 41, 59, 0.92);
+            color: #f8fafc;
+            border-left-color: #667eea;
+            font-weight: 700;
         }
         
         .sidebar-nav a i {
@@ -77,45 +115,112 @@
             width: 20px;
             text-align: center;
         }
+
+        .sidebar-nav .nav-text {
+            transition: opacity 0.2s ease, width 0.2s ease;
+            white-space: nowrap;
+        }
+
+        body.sidebar-collapsed .sidebar {
+            width: 80px;
+        }
+
+        body.sidebar-collapsed .main-content {
+            margin-left: 80px;
+            width: calc(100% - 80px);
+        }
+
+        body.sidebar-collapsed .sidebar-header {
+            padding: 1.25rem 0.75rem;
+        }
+
+        body.sidebar-collapsed .sidebar-brand {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        body.sidebar-collapsed .sidebar-nav a {
+            justify-content: center;
+            padding: 1rem 0.75rem;
+        }
+
+        body.sidebar-collapsed .sidebar-nav a i {
+            margin-right: 0;
+        }
+
+        body.sidebar-collapsed .sidebar-nav .nav-text {
+            opacity: 0;
+            width: 0;
+            overflow: hidden;
+        }
         
         .main-content {
-            margin-left: 260px;
+            margin-left: 240px;
             flex: 1;
             padding: 2rem;
-            width: calc(100% - 260px);
+            width: calc(100% - 240px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            position: relative;
+            z-index: 1;
+        }
+
+        .app-footer {
+            margin-top: 2.5rem;
+            padding: 1rem 1.25rem;
+            text-align: center;
+            color: #cbd5e1;
+            font-size: 0.9rem;
+            line-height: 1.7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .app-footer a {
+            color: #93c5fd;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        .app-footer a:hover {
+            text-decoration: underline;
         }
         
         .top-bar {
-            background: white;
+            background: rgba(15, 23, 42, 0.88);
             padding: 1.5rem 2rem;
             border-radius: 20px;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(2, 6, 23, 0.35);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .page-title {
             font-size: 1.8rem;
             font-weight: 600;
-            color: #333;
+            color: #f8fafc;
         }
         
         .user-info {
             display: flex;
             align-items: center;
             gap: 1rem;
-            color: #666;
+            color: #cbd5e1;
             font-size: 0.95rem;
         }
         
         .card {
-            background: white;
+            background: rgba(15, 23, 42, 0.82);
             border-radius: 20px;
             padding: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(2, 6, 23, 0.32);
             margin-bottom: 2rem;
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .card-header {
@@ -124,13 +229,13 @@
             align-items: center;
             margin-bottom: 2rem;
             padding-bottom: 1rem;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .card-title {
             font-size: 1.4rem;
             font-weight: 600;
-            color: #333;
+            color: #f8fafc;
         }
         
         .btn {
@@ -177,18 +282,19 @@
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 10px;
             margin-bottom: 1rem;
             padding: 10px;
         }
         
         .stat-card {
-            background: white;
+            background: rgba(15, 23, 42, 0.72);
             padding: 10px;
             border-radius: 10px;
             text-align: center;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 12px 24px rgba(2, 6, 23, 0.22);
+            border: 1px solid rgba(148, 163, 184, 0.1);
         }
         
         .stat-number {
@@ -201,7 +307,7 @@
         }
         
         .stat-label {
-            color: #666;
+            color: #dbe4f0;
             font-size: 0.85rem;
             font-weight: 500;
         }
@@ -212,11 +318,11 @@
         }
         
         .invite-code-item {
-            background: white;
+            background: rgba(15, 23, 42, 0.8);
             border-radius: 16px;
             padding: 1.5rem;
             margin-bottom: 1rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 36px rgba(2, 6, 23, 0.28);
             border-left: 4px solid #667eea;
         }
         
@@ -257,7 +363,7 @@
         
         .status-expired {
             background: rgba(108, 117, 125, 0.1);
-            color: #495057;
+            color: #cbd5e1;
         }
         
         .invite-details {
@@ -274,13 +380,13 @@
         
         .invite-detail-label {
             font-size: 0.8rem;
-            color: #666;
+            color: #dbe4f0;
             margin-bottom: 0.25rem;
         }
         
         .invite-detail-value {
             font-weight: 600;
-            color: #333;
+            color: #e5e7eb;
         }
         
         .copy-btn {
@@ -307,32 +413,202 @@
         }
         
         .alert-success {
-            background: rgba(40, 167, 69, 0.1);
-            color: #155724;
+            background: rgba(34, 197, 94, 0.12);
+            color: #86efac;
             border: 1px solid rgba(40, 167, 69, 0.2);
         }
         
         .alert-danger {
-            background: rgba(220, 53, 69, 0.1);
-            color: #721c24;
+            background: rgba(248, 113, 113, 0.12);
+            color: #fca5a5;
             border: 1px solid rgba(220, 53, 69, 0.2);
+        }
+
+        /* Force dark styling for child templates that still ship light cards or inline colors. */
+        .main-content .card,
+        .main-content .card-compact,
+        .main-content .stat-card,
+        .main-content .stat-card-compact,
+        .main-content .prediction-card-compact,
+        .main-content .prediction-period-compare,
+        .main-content .strategy-compare-card,
+        .main-content .help-card,
+        .main-content .help-item,
+        .main-content .accuracy-item,
+        .main-content .learning-card,
+        .main-content .strategy-item,
+        .main-content .region-item,
+        .main-content .trend-item,
+        .main-content .suggestion-item,
+        .main-content .hero-card,
+        .main-content .invite-code-item,
+        .main-content .table-wrap,
+        .main-content .modal-content,
+        .main-content [style*="background: white"],
+        .main-content [style*="background:white"],
+        .main-content [style*="linear-gradient(135deg, #fff"],
+        .main-content [style*="linear-gradient(180deg, #fff"],
+        .main-content [style*="rgba(255,255,255"],
+        .main-content [style*="rgba(255, 255, 255"],
+        .main-content [style*="background-color: #fff"],
+        .main-content [style*="background-color:#fff"],
+        .main-content [style*="background: #fff"],
+        .main-content [style*="background:#fff"],
+        .main-content [style*="#f8f9ff"],
+        .main-content [style*="#fbfcfe"],
+        .main-content [style*="#f8f9fa"],
+        .main-content [style*="#ffffff"] {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e5e7eb !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+            box-shadow: 0 14px 32px rgba(2, 6, 23, 0.28) !important;
+        }
+
+        .main-content .card-header,
+        .main-content .card-header-compact,
+        .main-content .period-compare-header,
+        .main-content [style*="border-bottom: 1px solid #f0f0f0"],
+        .main-content [style*="border-bottom:1px solid #f0f0f0"],
+        .main-content [style*="border-top:1px solid #eef2f6"],
+        .main-content [style*="border-top: 1px solid #eef2f6"],
+        .main-content [style*="border:1px solid #edf0f4"],
+        .main-content [style*="border: 1px solid #edf0f4"],
+        .main-content [style*="border:1px solid #e8edf5"],
+        .main-content [style*="border: 1px solid #e8edf5"] {
+            border-color: rgba(148, 163, 184, 0.14) !important;
+        }
+
+        .main-content h1,
+        .main-content h2,
+        .main-content h3,
+        .main-content h4,
+        .main-content .card-title,
+        .main-content .card-title-compact,
+        .main-content .prediction-title-compact,
+        .main-content .period-compare-title,
+        .main-content .strategy-special-zodiac,
+        .main-content .learning-title,
+        .main-content .comparison-title,
+        .main-content .strategy-name,
+        .main-content .region-name,
+        .main-content .empty-state h3,
+        .main-content .modal-body h3,
+        .main-content [style*="color: #333"],
+        .main-content [style*="color:#333"],
+        .main-content [style*="color: #24324a"],
+        .main-content [style*="color:#24324a"],
+        .main-content [style*="color: #1f3a56"],
+        .main-content [style*="color:#1f3a56"] {
+            color: #f8fafc !important;
+        }
+
+        .main-content p,
+        .main-content li,
+        .main-content small,
+        .main-content label,
+        .main-content .stat-label,
+        .main-content .invite-detail-label,
+        .main-content .strategy-time-mini,
+        .main-content .strategy-special-label,
+        .main-content .comparison-meta,
+        .main-content .table-sub,
+        .main-content .empty-text,
+        .main-content .region-details,
+        .main-content .trend-count,
+        .main-content .trend-accuracy,
+        .main-content .help-text,
+        .main-content .zodiac-info-compact,
+        .main-content [style*="color: #666"],
+        .main-content [style*="color:#666"],
+        .main-content [style*="color: #667"],
+        .main-content [style*="color:#667"],
+        .main-content [style*="color: #778"],
+        .main-content [style*="color:#778"],
+        .main-content [style*="color: #888"],
+        .main-content [style*="color:#888"] {
+            color: #dbe4f0 !important;
+        }
+
+        .main-content .stat-number,
+        .main-content .accuracy-value,
+        .main-content .region-accuracy,
+        .main-content .table-main,
+        .main-content .invite-detail-value {
+            color: #a5b4fc !important;
+        }
+
+        .main-content table,
+        .main-content .analytics-table,
+        .main-content .modern-table {
+            background: transparent !important;
+            color: #e5e7eb !important;
+        }
+
+        .main-content th,
+        .main-content thead th,
+        .main-content .modern-table th {
+            background: rgba(30, 41, 59, 0.92) !important;
+            color: #e2e8f0 !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+        }
+
+        .main-content td,
+        .main-content .modern-table td {
+            color: #cbd5e1 !important;
+            border-color: rgba(148, 163, 184, 0.12) !important;
+        }
+
+        .main-content input,
+        .main-content select,
+        .main-content textarea,
+        .main-content .form-control,
+        .main-content .compact-select {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e5e7eb !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
+        }
+
+        .main-content input::placeholder,
+        .main-content textarea::placeholder {
+            color: #dbe4f0 !important;
+        }
+
+        .main-content .alert-card {
+            background: rgba(120, 53, 15, 0.3) !important;
+            border-left-color: #fbbf24 !important;
+        }
+
+        .main-content .alert-text {
+            color: #fde68a !important;
         }
         
         @media (max-width: 768px) {
             .sidebar {
-                transform: translateX(-100%);
-                transition: transform 0.3s ease;
-            }
+            width: 240px;
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(148, 163, 184, 0.16);
+            position: fixed;
+            height: 100vh;
+            left: 0;
+            top: 0;
+            z-index: 1000;
+            overflow-y: auto;
+            transition: width 0.3s ease, transform 0.3s ease;
+        }
             
             .sidebar.show {
                 transform: translateX(0);
             }
             
             .main-content {
-                margin-left: 0;
-                width: 100%;
-                padding: 1rem;
-            }
+            margin-left: 240px;
+            flex: 1;
+            padding: 2rem;
+            width: calc(100% - 240px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+        }
             
             .top-bar {
                 flex-direction: column;
@@ -351,16 +627,17 @@
     </style>
 </head>
 <body>
+    <div class="github-watermark" aria-hidden="true"></div>
     <div class="sidebar">
         <div class="sidebar-header">
-            <a href="{{ url_for('user.dashboard') }}" class="sidebar-brand">用户中心</a>
+            <a href="{{ url_for('user.dashboard') }}" class="sidebar-brand">{{ site_name or '用户中心' }}</a>
         </div>
         <nav class="sidebar-nav">
             <a href="{{ url_for('user.dashboard') }}"><i>📊</i> 个人中心</a>
             <a href="{{ url_for('user.predictions') }}"><i>📋</i> 预测记录</a>
-            <a href="{{ url_for('user.profile') }}"><i>👤</i> 个人资料</a>
-            <a href="{{ url_for('user.invite_codes') }}"><i>🎫</i> 我的邀请码</a>
-            <a href="{{ url_for('index') }}"><i>🎯</i> 开始预测</a>
+            <a href="{{ url_for('user.ml_records') }}"><i>🧪</i> 机器学习</a>
+            <a href="{{ url_for('user.analytics') }}" class="{% if request.endpoint == 'user.analytics' %}active{% endif %}"><i>📈</i> 统计分析</a>
+            <a href="{{ url_for('user.invite_codes') }}"><i>🎫</i> 邀请好友</a>
             <a href="{{ url_for('index') }}"><i>🏠</i> 返回首页</a>
             <a href="{{ url_for('auth.logout') }}"><i>🚪</i> 退出登录</a>
         </nav>
@@ -383,15 +660,22 @@
                 {% endfor %}
             {% endif %}
         {% endwith %}
-
+        
         {% block content %}{% endblock %}
+
+        <footer class="app-footer">
+            <span>GitHub：</span>
+            <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
+            <span>本项目源码仅限非商业用途使用。</span>
+            <a href="https://github.com/e5sub/mark-six/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">许可协议</a>
+        </footer>
     </div>
 
     <script>
-        // 复制邀请码功能
+        // 复制邀请链接功能
         function copyInviteCode(code) {
             navigator.clipboard.writeText(code).then(function() {
-                showToast('邀请码已复制到剪贴板: ' + code, 'success');
+                showToast('邀请链接已复制到剪贴板: ' + code, 'success');
             }).catch(function(err) {
                 console.error('复制失败: ', err);
                 // 备用方法
@@ -401,7 +685,7 @@
                 textArea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
-                showToast('邀请码已复制到剪贴板: ' + code, 'success');
+                showToast('邀请链接已复制到剪贴板: ' + code, 'success');
             });
         }
         
@@ -451,3 +735,4 @@
     </script>
 </body>
 </html>
+

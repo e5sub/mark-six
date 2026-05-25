@@ -1,27 +1,33 @@
-{% extends "user/base.html" %}
+﻿{% extends "user/base.html" %}
 
 {% block page_title %}个人中心{% endblock %}
 
 {% block content %}
 <!-- 统计信息 -->
-<div class="stats-grid">
-    <div class="stat-card">
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
+    <div class="stat-card-compact">
         <div class="stat-icon" style="color: #667eea;">📊</div>
         <div class="stat-number">{{ stats.total_predictions }}</div>
         <div class="stat-label">总预测次数</div>
     </div>
     
-    <div class="stat-card">
+    <div class="stat-card-compact">
         <div class="stat-icon" style="color: #28a745;">🎯</div>
-        <div class="stat-number">{{ stats.avg_accuracy }}%</div>
-        <div class="stat-label">平均准确率</div>
+        <div class="stat-number">{{ stats.special_hit_rate }}%</div>
+        <div class="stat-label">特码命中率</div>
     </div>
     
-    <div class="stat-card">
+    <div class="stat-card-compact">
+        <div class="stat-icon" style="color: #6f42c1;">✅</div>
+        <div class="stat-number">{{ stats.normal_hit_rate }}%</div>
+        <div class="stat-label">平码命中率</div>
+    </div>
+    
+    <div class="stat-card-compact">
         <div class="stat-icon" style="color: #ffc107;">⏰</div>
         <div class="stat-number">
             {% if user.activation_expires_at %}
-                {{ user.activation_expires_at.strftime('%Y-%m-%d') }}
+                {{ user.activation_expires_at.strftime('%m-%d') }}
             {% else %}
                 永久
             {% endif %}
@@ -29,7 +35,7 @@
         <div class="stat-label">有效期至</div>
     </div>
     
-    <div class="stat-card">
+    <div class="stat-card-compact">
         <div class="stat-icon" style="color: #17a2b8;">
             {% if user.is_active %}✅{% else %}❌{% endif %}
         </div>
@@ -38,198 +44,842 @@
     </div>
 </div>
 
-<!-- 快速操作 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">🚀 快速操作</h2>
+<!-- 预测策略准确率 - 紧凑版 -->
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📈 预测策略准确率</h2>
     </div>
     
-    <div class="stats-grid">
-        <div class="stat-card" style="text-align: center; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
-            <div class="stat-icon" style="color: #667eea;">🎯</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">开始预测</h3>
-            <a href="{{ url_for('index') }}" class="btn btn-sm" style="display: inline-flex; align-items: center; justify-content: center;">
-                开始预测
-            </a>
+    <div class="accuracy-grid">
+        {% for meta in strategy_meta %}
+        <div class="accuracy-item">
+            <span class="accuracy-icon">{{ meta.icon }}</span>
+            <span class="accuracy-name">{{ meta.label }}</span>
+            <span class="accuracy-value">{{ strategy_accuracy.get(meta.key, 0) }}%</span>
         </div>
-        
-        <div class="stat-card" style="text-align: center; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
-            <div class="stat-icon" style="color: #28a745;">📊</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">预测记录</h3>
-            <a href="{{ url_for('user.predictions') }}" class="btn btn-success btn-sm" style="display: inline-flex; align-items: center; justify-content: center;">
-                查看记录
-            </a>
-        </div>
-        
-        <div class="stat-card" style="text-align: center; border-left: 4px solid #6c757d; background: rgba(108, 117, 125, 0.05);">
-            <div class="stat-icon" style="color: #6c757d;">⚙️</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #6c757d; font-size: 1rem;">个人设置</h3>
-            <a href="{{ url_for('user.profile') }}" class="btn btn-sm" style="display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
-                修改设置
-            </a>
-        </div>
-        
-        <div class="stat-card" style="text-align: center; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
-            <div class="stat-icon" style="color: #17a2b8;">🏠</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">返回首页</h3>
-            <a href="{{ url_for('index') }}" class="btn btn-info btn-sm" style="display: inline-flex; align-items: center; justify-content: center;">
-                返回首页
-            </a>
-        </div>
+        {% endfor %}
     </div>
 </div>
 
-<!-- 预测策略准确率 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📈 预测策略准确率</h2>
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📊 近期历史模拟</h2>
     </div>
-    
-    <div class="stats-grid">
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
-            <div class="stat-icon" style="color: #28a745;">🎲</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">随机预测</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">随机算法</p>
-            <div class="stat-number" style="color: #28a745;">{{ stats.random_accuracy }}%</div>
-        </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
-            <div class="stat-icon" style="color: #ffc107;">⚖️</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">均衡预测</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">历史数据分析</p>
-            <div class="stat-number" style="color: #ffc107;">{{ stats.balanced_accuracy }}%</div>
-        </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
-            <div class="stat-icon" style="color: #17a2b8;">🤖</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">AI智能预测</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">人工智能算法</p>
-            <div class="stat-number" style="color: #17a2b8;">{{ stats.ai_accuracy }}%</div>
-        </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
-            <div class="stat-icon" style="color: #667eea;">📊</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">平均准确率</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">所有策略平均</p>
-            <div class="stat-number" style="color: #667eea;">{{ stats.avg_accuracy }}%</div>
-        </div>
+
+    <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="text-align:left; color:#666;">
+                    <th style="padding:0.6rem;">策略</th>
+                    <th style="padding:0.6rem;">近20期</th>
+                    <th style="padding:0.6rem;">近50期</th>
+                    <th style="padding:0.6rem;">近100期</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for meta in strategy_meta if meta.key in strategy_backtests %}
+                <tr style="border-top:1px solid #eef2f6;">
+                    <td style="padding:0.7rem 0.6rem; font-weight:600;">{{ meta.icon }} {{ meta.label }}</td>
+                    {% for item in strategy_backtests[meta.key] %}
+                    <td style="padding:0.7rem 0.6rem;">
+                        <div style="font-weight:700; color:#1f3a56;">{{ item.accuracy }}%</div>
+                        <div style="font-size:0.82rem; color:#778;">{{ item.total }} 期样本</div>
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 
-<!-- 最近预测记录 -->
-{% if stats.recent_predictions %}
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📋 最近预测记录</h2>
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">⚙️ 学习参数摘要</h2>
     </div>
-    
-    <div style="display: grid; gap: 1rem;">
-        {% for prediction in stats.recent_predictions %}
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; padding: 1rem; margin-bottom: 0.5rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                <div>
-                    <h3 style="margin: 0; color: #333; font-size: 1rem;">
-                        {{ '香港' if prediction.region == 'hk' else '澳门' }}六合彩 - 第{{ prediction.period }}期
-                    </h3>
-                    <p style="margin: 0.25rem 0 0 0; color: #666; font-size: 0.8rem;">
-                        {% if prediction.strategy == 'random' %}
-                        🎲 随机预测
-                        {% elif prediction.strategy == 'balanced' %}
-                        ⚖️ 均衡预测
-                        {% else %}
-                        🤖 AI预测
+
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem;">
+        {% for region_key, title in [('hk', '香港'), ('macau', '澳门')] %}
+        <div style="padding:1rem; border:1px solid rgba(148,163,184,0.16); border-radius:12px; background:rgba(15,23,42,0.82); box-shadow:inset 0 1px 0 rgba(255,255,255,0.03);">
+            <div style="font-weight:700; margin-bottom:0.6rem; color:#f8fafc;">{{ title }}</div>
+            {% set current = learning_snapshot.get(region_key, {}) %}
+            {% if current %}
+                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml'] if current.get(strategy_key) %}
+                <div style="padding:0.55rem 0; border-top:1px dashed rgba(148,163,184,0.14);">
+                    <div style="font-weight:600; color:#f8fafc;">{{ strategy_label_map.get(strategy_key, strategy_key) }}：{{ current[strategy_key].last_accuracy }}%</div>
+                    <div style="font-size:0.84rem; color:#cbd5e1;">
+                        {% if strategy_key == 'ml' %}
+                        历史窗={{ current[strategy_key].history_window or '-' }}，特征窗={{ current[strategy_key].feature_window or '-' }}，评估窗={{ current[strategy_key].evaluation_window or '-' }}，学习样本={{ current[strategy_key].last_total or 0 }}
+                        <br>
+                        主配置={{ current[strategy_key].primary_runtime_profile_label or '基础档' }} · {{ current[strategy_key].primary_feature_profile_label or '完整特征' }}，固化状态={{ current[strategy_key].promotion_strength_label or '观察中' }}，学习把握度={{ current[strategy_key].profile_learning_confidence or 0 }}%
+                        {% if current[strategy_key].promotion_history %}
+                        <div style="margin-top:0.45rem; display:grid; gap:0.3rem;">
+                            {% for history in current[strategy_key].promotion_history[:1] %}
+                            <div style="padding:0.38rem 0.5rem; border-radius:8px; background:rgba(30,41,59,0.92); border:1px solid rgba(148,163,184,0.12); color:#dbe4f0;">
+                                {{ history.timestamp[:16].replace('T', ' ') if history.timestamp else '' }} ·
+                                {{ history.strength_label or '观察中' }} ·
+                                {{ history.runtime_profile_label or '基础档' }} / {{ history.feature_profile_label or '完整特征' }}
+                                {% if history.backtest_rank %}
+                                · 模拟第 {{ history.backtest_rank }} 名
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
                         {% endif %}
-                    </p>
-                </div>
-                <div style="text-align: right; color: #666; font-size: 0.8rem;">
-                    {{ prediction.created_at.strftime('%Y-%m-%d') }}
-                </div>
-            </div>
-            
-            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem;">
-                {% for num in prediction.normal_numbers.split(',') %}
-                {% set color = get_number_color(num) %}
-                <div style="width: 25px; height: 25px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.8rem; background: {% if color == 'red' %}#ff4b4b{% elif color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %};">
-                    {{ num }}
+                        {% else %}
+                        参考期数={{ current[strategy_key].window or '-' }}，平码候选池={{ current[strategy_key].pool or '-' }}，特码候选池={{ current[strategy_key].special_pool or '-' }}，学习样本={{ current[strategy_key].last_total or 0 }}
+                        {% endif %}
+                    </div>
                 </div>
                 {% endfor %}
-                
-                {% set special_color = get_number_color(prediction.special_number) %}
-                <div style="width: 25px; height: 25px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.8rem; background: {% if special_color == 'red' %}#ff4b4b{% elif special_color == 'blue' %}#4b83ff{% else %}#4bff91{% endif %}; border: 2px solid #ffd700;">
-                    {{ prediction.special_number }}
+            {% else %}
+                <div style="color:#94a3b8;">暂无学习数据</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🚀 最近学习变化</h2>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem;">
+        {% for region_key, title in [('hk', '香港'), ('macau', '澳门')] %}
+        <div style="padding:1rem; border:1px solid rgba(148,163,184,0.16); border-radius:12px; background:rgba(15,23,42,0.82); box-shadow:inset 0 1px 0 rgba(255,255,255,0.03);">
+            <div style="font-weight:700; margin-bottom:0.6rem; color:#f8fafc;">{{ title }}</div>
+            {% set comparison_items = learning_comparison.get(region_key, [])[:4] %}
+            {% if comparison_items %}
+                {% for item in comparison_items %}
+                <div style="display:flex; justify-content:space-between; gap:0.75rem; padding:0.65rem 0; border-top:1px dashed rgba(148,163,184,0.14); align-items:center;">
+                    <div>
+                        <div style="font-weight:600; color:#f8fafc;">{{ item.icon }} {{ item.label }}</div>
+                        <div style="font-size:0.84rem; color:#cbd5e1;">
+                            这次 {{ item.current_accuracy }}%
+                            {% if item.previous_total > 0 %}，上次 {{ item.previous_accuracy }}%{% endif %}
+                        </div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:0.8rem; font-weight:700; color:{% if item.trend_class == 'up' %}#1e7e34{% elif item.trend_class == 'down' %}#c82333{% else %}#5f6872{% endif %};">
+                            {{ item.trend }}
+                        </div>
+                        <div style="font-weight:700; color:{% if item.delta > 0 %}#1e7e34{% elif item.delta < 0 %}#c82333{% else %}#5f6872{% endif %};">
+                            {% if item.previous_total > 0 %}
+                                {% if item.delta > 0 %}+{% endif %}{{ item.delta }}%
+                            {% else %}
+                                --
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
+                {% endfor %}
+            {% else %}
+                <div style="color:#94a3b8;">暂无学习对比数据</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🧪 最近历史模拟测试</h2>
+    </div>
+
+    {% if latest_backtests %}
+    <div class="backtest-grid">
+        {% for item in latest_backtests[:3] %}
+        <div style="padding:1rem; border:1px solid rgba(148,163,184,0.16); border-radius:12px; background:rgba(15,23,42,0.82); box-shadow:inset 0 1px 0 rgba(255,255,255,0.03);">
+            <div style="display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
+                <div>
+                    <div style="font-weight:700; color:#f8fafc;">{{ item.display_name or item.name }}</div>
+                    <div style="font-size:0.84rem; color:#cbd5e1; margin-top:0.2rem;">
+                        {{ item.region_label or ('香港' if item.region == 'hk' else '澳门' if item.region == 'macau' else item.region) }} ·
+                        {{ (item.periods_evaluated ~ ' 期模拟') if item.has_data else '模拟准备中' }} ·
+                        {{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '等待生成' }}
+                    </div>
+                </div>
+                <div style="font-size:0.82rem; color:#cbd5e1;">Top 3</div>
             </div>
-            
-            <div style="color: #666; font-size: 0.8rem;">
-                特码生肖: {{ prediction.special_zodiac }}
-                {% if prediction.accuracy_score != None and prediction.accuracy_score != '' %}
-                <span style="margin-left: 0.5rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; {% if prediction.accuracy_score > 0 %}background-color: #28a745; color: white;{% else %}background-color: #dc3545; color: white;{% endif %}">
-                    {{ "命中" if prediction.accuracy_score > 0 else "未中" }}
-                </span>
+            <div style="display:grid; gap:0.45rem; margin-top:0.8rem;">
+                {% if item.has_data and item.top_items %}
+                {% for rank in item.top_items %}
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.65rem; border-radius:10px; background:rgba(30,41,59,0.92); border:1px dashed rgba(148,163,184,0.18);">
+                    <span style="font-weight:600; color:#f8fafc;">{{ loop.index }}. {{ strategy_label_map.get(rank.strategy, rank.strategy) }}</span>
+                    <span style="color:#dbe4f0;">单号 {{ rank.top1_hit_rate }}% / 六码 {{ rank.top6_hit_rate }}%</span>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div style="padding:0.75rem 0.85rem; border-radius:10px; background:rgba(30,41,59,0.92); border:1px dashed rgba(148,163,184,0.18); color:#cbd5e1;">
+                    当前正在后台生成历史模拟快照，稍后刷新页面即可查看最新表现。
+                </div>
                 {% endif %}
             </div>
         </div>
         {% endfor %}
     </div>
+    {% else %}
+    <div style="color:#94a3b8;">还没有历史模拟结果。运行 `python scripts/backtest_predictions.py --region macau` 后，这里会自动显示最新排行。</div>
+    {% endif %}
+</div>
+
+<!-- 快速操作 -->
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🚀 快速操作</h2>
+    </div>
     
-    <div style="text-align: center; margin-top: 1rem;">
-        <a href="{{ url_for('user.predictions') }}" class="btn btn-sm">
-            📊 查看全部记录
+    <div class="quick-actions">
+        <a href="{{ url_for('index') }}" class="action-btn action-primary">
+            <span class="action-icon">🎯</span>
+            <span class="action-text">开始预测</span>
         </a>
+        
+        <a href="{{ url_for('user.predictions') }}" class="action-btn action-success">
+            <span class="action-icon">📊</span>
+            <span class="action-text">预测记录</span>
+        </a>
+
+        <a href="{{ url_for('user.invite_codes') }}" class="action-btn action-warning">
+            <span class="action-icon">👥</span>
+            <span class="action-text">邀请好友</span>
+        </a>
+        
+        <button onclick="openProfileModal()" class="action-btn action-info">
+            <span class="action-icon">⚙️</span>
+            <span class="action-text">个人信息</span>
+        </button>
     </div>
 </div>
-{% endif %}
+
+<!-- 自动预测设置 - 紧凑版 -->
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">自动预测设置</h2>
+    </div>
+    
+    <form method="POST" action="{{ url_for('user.update_auto_prediction') }}" class="auto-prediction-form">
+        <div class="setting-row">
+            <!-- 功能开关 -->
+            <div class="setting-group">
+                <label class="setting-label">
+                    <input type="checkbox" name="auto_prediction_enabled" value="1" 
+                           {{ 'checked' if user.auto_prediction_enabled else '' }}>
+                    <span class="setting-text">启用自动预测</span>
+                </label>
+            </div>
+            
+            <!-- 预测策略 -->
+            <div class="setting-group">
+                <label class="setting-label">
+                    <input type="checkbox" name="show_normal_numbers" value="1"
+                           {{ 'checked' if user.show_normal_numbers else '' }}>
+                    <span class="setting-text">显示平码</span>
+                </label>
+            </div>
+
+            <div class="setting-group">
+                <span class="group-title">预测策略：</span>
+                <div class="checkbox-group">
+                    {% for meta in auto_strategy_meta %}
+                    <label class="mini-checkbox">
+                        <input type="checkbox" name="auto_prediction_strategies" value="{{ meta.key }}" 
+                               {{ 'checked' if user.auto_prediction_strategies and meta.key in user.auto_prediction_strategies.split(',') else '' }}>
+                        <span>{{ meta.icon }}{{ meta.label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- 预测地区 -->
+            <div class="setting-group">
+                <span class="group-title">预测地区：</span>
+                <div class="checkbox-group">
+                    <label class="mini-checkbox">
+                        <input type="checkbox" name="auto_prediction_regions" value="hk" 
+                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'hk' in user.auto_prediction_regions.split(',')) else '' }}>
+                        <span>香港</span>
+                    </label>
+                    <label class="mini-checkbox">
+                        <input type="checkbox" name="auto_prediction_regions" value="macau" 
+                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'macau' in user.auto_prediction_regions.split(',')) else '' }}>
+                        <span>澳门</span>
+                    </label>
+                </div>
+            </div>
+            
+            <!-- 保存按钮 -->
+            <div class="setting-group">
+                <button type="submit" class="save-btn">保存</button>
+            </div>
+        </div>
+    </form>
+</div>
 
 <!-- 账户提醒 -->
 {% if not user.is_active %}
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">⚠️ 账户提醒</h2>
-    </div>
-    
-    <div class="stats-grid">
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
-            <div class="stat-icon" style="color: #ffc107;">⚠️</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">账户未激活</h3>
-            <p style="margin: 0 0 0.5rem 0; color: #666; font-size: 0.8rem;">您的账号尚未激活，请先激活账号才能使用预测功能。</p>
-            <a href="{{ url_for('auth.activate') }}" class="btn btn-sm" style="background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
-                🔑 立即激活
-            </a>
-        </div>
+<div class="card-compact alert-card">
+    <div class="alert-content">
+        <span class="alert-icon">⚠️</span>
+        <span class="alert-text">账户未激活，请先激活账号才能使用预测功能</span>
+        <a href="{{ url_for('auth.activate') }}" class="alert-btn">🔑 立即激活</a>
     </div>
 </div>
 {% endif %}
 
 <!-- 使用说明 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📖 使用说明</h2>
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📖 使用说明</h2>
     </div>
     
-    <div class="stats-grid">
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #667eea; background: rgba(102, 126, 234, 0.05);">
-            <div class="stat-icon" style="color: #667eea;">🎯</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1rem;">预测功能</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">支持香港和澳门六合彩预测，提供三种预测策略</p>
+    <div class="help-grid">
+        <div class="help-item">
+            <span class="help-icon"></span>
+            <span class="help-text">支持香港和澳门数据预测，提供多种预测策略</span>
         </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #28a745; background: rgba(40, 167, 69, 0.05);">
-            <div class="stat-icon" style="color: #28a745;">📊</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1rem;">记录管理</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">自动保存预测记录，支持查看历史预测和统计分析</p>
+        <div class="help-item">
+            <span class="help-icon"></span>
+            <span class="help-text">自动保存预测记录，支持查看历史预测和统计分析</span>
         </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #17a2b8; background: rgba(23, 162, 184, 0.05);">
-            <div class="stat-icon" style="color: #17a2b8;">⚙️</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1rem;">个人设置</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">修改个人信息、密码，查看账户状态和有效期</p>
+        <div class="help-item">
+            <span class="help-icon"></span>
+            <span class="help-text">启用自动预测功能，系统将自动为每期生成预测结果</span>
         </div>
-        
-        <div class="stat-card" style="text-align: left; border-left: 4px solid #ffc107; background: rgba(255, 193, 7, 0.05);">
-            <div class="stat-icon" style="color: #ffc107;">🔔</div>
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1rem;">系统通知</h3>
-            <p style="margin: 0; color: #666; font-size: 0.8rem;">接收系统更新、开奖结果等重要通知</p>
+        <div class="help-item">
+            <span class="help-icon"></span>
+            <span class="help-text">邀请好友注册，双方都可获得额外有效期奖励</span>
         </div>
     </div>
 </div>
+
+<!-- 个人信息弹出框 -->
+<div id="profileModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>👤 个人信息管理</h2>
+            <span class="close" onclick="closeProfileModal()">&times;</span>
+        </div>
+        
+        <div class="modal-body">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                <!-- 基本信息 -->
+                <div>
+                    <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem; display: flex; align-items: center;">
+                        <span style="margin-right: 0.5rem;">ℹ️</span> 基本信息
+                    </h3>
+                    
+                    <form method="POST" action="{{ url_for('user.update_profile') }}" style="display: grid; gap: 1rem;">
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">用户名</label>
+                            <input type="text" name="username" value="{{ user.username }}" 
+                                   style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" readonly>
+                            <small style="color: #666; font-size: 0.8rem;">用户名不可修改</small>
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">邮箱地址</label>
+                            <input type="email" name="email" value="{{ user.email }}" 
+                                   style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" required>
+                        </div>
+                        
+                        <button type="submit" class="btn" style="justify-self: start; padding: 0.75rem 1.5rem;">
+                            💾 保存基本信息
+                        </button>
+                    </form>
+                </div>
+                
+                <!-- 密码修改 -->
+                <div>
+                    <h3 style="margin: 0 0 1rem 0; color: #dc3545; font-size: 1.1rem; display: flex; align-items: center;">
+                        <span style="margin-right: 0.5rem;">🔒</span> 密码修改
+                    </h3>
+                    
+                    <form method="POST" action="{{ url_for('user.change_password') }}" style="display: grid; gap: 1rem;">
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">当前密码</label>
+                            <input type="password" name="current_password" 
+                                   style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" required>
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">新密码</label>
+                            <input type="password" name="new_password" 
+                                   style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" required>
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: bold; color: #333;">确认新密码</label>
+                            <input type="password" name="confirm_password" 
+                                   style="width: 100%; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 1rem;" required>
+                        </div>
+                        
+                        <button type="submit" class="btn" style="justify-self: start; padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
+                            🔑 修改密码
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* 紧凑型卡片样式 */
+.card-compact {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.86) 100%);
+    border-radius: 12px;
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.28);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.card-header-compact {
+    padding: 0.8rem 1.2rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.card-title-compact {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+/* 统计卡片 */
+.stat-card-compact {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.24);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    transition: all 0.3s ease;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.stat-card-compact:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.stat-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.stat-number {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 0.3rem;
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+/* 准确率网格 */
+.accuracy-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+    padding: 1rem;
+}
+
+.accuracy-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.8rem;
+    background: rgba(30, 41, 59, 0.72);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.accuracy-item:hover {
+    background: rgba(102, 126, 234, 0.1);
+    transform: translateY(-1px);
+}
+
+.accuracy-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.accuracy-name {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    margin-bottom: 0.3rem;
+}
+
+.accuracy-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #667eea;
+}
+
+/* 快速操作 */
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.8rem;
+    padding: 1rem;
+}
+
+.action-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1rem 0.5rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.action-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.action-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.action-success {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+}
+
+.action-warning {
+    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+}
+
+.action-info {
+    background: linear-gradient(135deg, #17a2b8 0%, #6f42c1 100%);
+}
+
+.action-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.action-text {
+    font-size: 0.85rem;
+}
+
+.backtest-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+}
+
+/* 自动预测设置 */
+.auto-prediction-form {
+    padding: 1rem;
+}
+
+.setting-row {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr auto;
+    gap: 1.5rem;
+    align-items: center;
+}
+
+.setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.setting-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.setting-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+}
+
+.setting-text {
+    font-size: 0.9rem;
+    color: #e5e7eb;
+}
+
+.group-title {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.mini-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #e5e7eb;
+}
+
+.mini-checkbox input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+}
+
+.save-btn {
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.save-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 警告卡片 */
+.alert-card {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+    border-left: 4px solid #ffc107;
+}
+
+.alert-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.alert-icon {
+    font-size: 1.5rem;
+}
+
+.alert-text {
+    flex: 1;
+    color: #856404;
+    font-weight: 500;
+}
+
+.alert-btn {
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.alert-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 帮助网格 */
+.help-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.8rem;
+    padding: 1rem;
+}
+
+.help-item {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.8rem;
+    background: rgba(30, 41, 59, 0.72);
+    border-radius: 8px;
+}
+
+.help-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.help-text {
+    font-size: 0.85rem;
+    color: #cbd5e1;
+    line-height: 1.4;
+}
+
+/* 弹出框样式 */
+.modal {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(5px);
+}
+
+.modal-content {
+    background-color: #0f172a;
+    margin: 5% auto;
+    padding: 0;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 800px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-50px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 16px 16px 0 0;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 1.3rem;
+}
+
+.close {
+    color: white;
+    font-size: 2rem;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: all 0.3s ease;
+}
+
+.close:hover {
+    transform: scale(1.1);
+    opacity: 0.8;
+}
+
+.modal-body {
+    padding: 2rem;
+    color: #e5e7eb;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .accuracy-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .quick-actions {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .backtest-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .setting-row {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .help-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .modal-content {
+        width: 95%;
+        margin: 10% auto;
+    }
+    
+    .modal-body > div {
+        grid-template-columns: 1fr !important;
+        gap: 1.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .accuracy-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .quick-actions {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<script>
+function openProfileModal() {
+    document.getElementById('profileModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeProfileModal() {
+    document.getElementById('profileModal').style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+// 点击弹出框外部关闭
+window.onclick = function(event) {
+    const modal = document.getElementById('profileModal');
+    if (event.target === modal) {
+        closeProfileModal();
+    }
+}
+
+// ESC键关闭弹出框
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        closeProfileModal();
+    }
+});
+</script>
 {% endblock %}
+
+

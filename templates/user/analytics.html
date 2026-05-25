@@ -1,265 +1,787 @@
-{% extends "user/base.html" %}
+﻿{% extends "user/base.html" %}
 
 {% block page_title %}数据分析{% endblock %}
 
 {% block content %}
-<!-- 总体统计 -->
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #667eea;">📊</div>
-        <div class="stat-number">{{ total_predictions or 0 }}</div>
-        <div class="stat-label">总预测次数</div>
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📊 统计总览</h2>
     </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #28a745;">✅</div>
-        <div class="stat-number">{{ correct_predictions or 0 }}</div>
-        <div class="stat-label">预测正确</div>
-    </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #dc3545;">❌</div>
-        <div class="stat-number">{{ wrong_predictions or 0 }}</div>
-        <div class="stat-label">预测错误</div>
-    </div>
-    
-    <div class="stat-card">
-        <div class="stat-icon" style="font-size: 2rem; margin-bottom: 0.5rem; color: #ffc107;">📈</div>
-        <div class="stat-number">{{ accuracy or 0 }}%</div>
-        <div class="stat-label">总体准确率</div>
-    </div>
-</div>
 
-<!-- 策略分析 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">🎯 预测策略分析</h2>
-    </div>
-    
-    <div style="display: grid; gap: 1.5rem;">
-        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h3 style="margin: 0; color: #667eea; font-size: 1.2rem;">🎲 随机预测策略</h3>
-                <span style="background: #667eea; color: white; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem; font-weight: 500;">
-                    {{ random_accuracy or 0 }}% 准确率
-                </span>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #667eea;">{{ random_total or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">总次数</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">{{ random_correct or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">正确次数</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc3545;">{{ random_wrong or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">错误次数</div>
-                </div>
-            </div>
+    <div class="stats-grid analytics-stats">
+        <div class="stat-card-compact clickable-stat" data-filter="all">
+            <div class="stat-icon" style="color: #667eea;">📊</div>
+            <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
+            <div class="stat-label">总预测次数</div>
         </div>
-        
-        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h3 style="margin: 0; color: #28a745; font-size: 1.2rem;">⚖️ 均衡预测策略</h3>
-                <span style="background: #28a745; color: white; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem; font-weight: 500;">
-                    {{ balanced_accuracy or 0 }}% 准确率
-                </span>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">{{ balanced_total or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">总次数</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">{{ balanced_correct or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">正确次数</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc3545;">{{ balanced_wrong or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">错误次数</div>
-                </div>
-            </div>
+
+        <div class="stat-card-compact clickable-stat" data-filter="special_hit">
+            <div class="stat-icon" style="color: #28a745;">🎯</div>
+            <div class="stat-number">{{ stats.special_hit_count or 0 }}</div>
+            <div class="stat-label">特码命中</div>
         </div>
-        
-        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h3 style="margin: 0; color: #ffc107; font-size: 1.2rem;">🤖 AI智能预测</h3>
-                <span style="background: #ffc107; color: white; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.9rem; font-weight: 500;">
-                    {{ ai_accuracy or 0 }}% 准确率
-                </span>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #ffc107;">{{ ai_total or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">总次数</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #28a745;">{{ ai_correct or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">正确次数</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #dc3545;">{{ ai_wrong or 0 }}</div>
-                    <div style="font-size: 0.8rem; color: #666;">错误次数</div>
-                </div>
-            </div>
+
+        <div class="stat-card-compact clickable-stat" data-filter="normal_hit">
+            <div class="stat-icon" style="color: #17a2b8;">✅</div>
+            <div class="stat-number">{{ stats.normal_hit_count or 0 }}</div>
+            <div class="stat-label">平码命中</div>
+        </div>
+
+        <div class="stat-card-compact clickable-stat" data-filter="wrong">
+            <div class="stat-icon" style="color: #dc3545;">❌</div>
+            <div class="stat-number">{{ stats.wrong_predictions or 0 }}</div>
+            <div class="stat-label">未命中</div>
+        </div>
+
+        <div class="stat-card-compact">
+            <div class="stat-icon" style="color: #ffc107;">🎲</div>
+            <div class="stat-number">{{ "%.1f"|format(stats.special_hit_rate or 0) }}%</div>
+            <div class="stat-label">特码命中率</div>
+        </div>
+
+        <div class="stat-card-compact">
+            <div class="stat-icon" style="color: #6f42c1;">📈</div>
+            <div class="stat-number">{{ "%.1f"|format(stats.normal_hit_rate or 0) }}%</div>
+            <div class="stat-label">平码命中率</div>
         </div>
     </div>
 </div>
 
-<!-- 时间趋势分析 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📈 预测趋势分析</h2>
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📊 策略历史模拟</h2>
     </div>
-    
-    <div style="display: grid; gap: 1.5rem;">
-        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
-            <h3 style="margin: 0 0 1rem 0; color: #17a2b8; font-size: 1.1rem;">📅 最近7天预测情况</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 1rem;">
-                {% for day in recent_days %}
-                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
-                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">{{ day.date }}</div>
-                    <div style="font-size: 1.2rem; font-weight: 700; color: #17a2b8;">{{ day.count }}</div>
-                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
+
+    <div class="table-wrap">
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>策略</th>
+                    <th>近 20 期</th>
+                    <th>近 50 期</th>
+                    <th>近 100 期</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for meta in strategy_meta if meta.key in strategy_backtests %}
+                <tr>
+                    <td>{{ meta.icon }} {{ meta.label }}</td>
+                    {% for item in strategy_backtests[meta.key] %}
+                    <td>
+                        <div class="table-main">{{ item.accuracy }}%</div>
+                        <div class="table-sub">{{ item.total }} 期样本</div>
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">⚙️ 自动学习摘要</h2>
+    </div>
+
+    <div class="learning-grid">
+        {% for region_key, title in [('hk', '香港'), ('macau', '澳门')] %}
+        <div class="learning-card">
+            <div class="learning-title">{{ title }}</div>
+            {% set current = learning_snapshot.get(region_key, {}) %}
+            {% if current %}
+                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml'] if current.get(strategy_key) %}
+                <div class="learning-row">
+                    <div class="learning-name">{{ strategy_label_map.get(strategy_key, strategy_key) }}：{{ current[strategy_key].last_accuracy }}%</div>
+                    <div class="learning-meta">
+                        {% if strategy_key == 'ml' %}
+                        历史窗 {{ current[strategy_key].history_window or '-' }}，
+                        特征窗 {{ current[strategy_key].feature_window or '-' }}，
+                        评估窗 {{ current[strategy_key].evaluation_window or '-' }}，
+                        学习样本 {{ current[strategy_key].last_total or 0 }}
+                        <br>
+                        主配置 {{ current[strategy_key].primary_runtime_profile_label or '基础档' }} · {{ current[strategy_key].primary_feature_profile_label or '完整特征' }}，
+                        固化状态 {{ current[strategy_key].promotion_strength_label or '观察中' }}，
+                        学习把握度 {{ current[strategy_key].profile_learning_confidence or 0 }}%
+                        {% if current[strategy_key].promotion_history %}
+                        <div style="margin-top:0.45rem; display:grid; gap:0.3rem;">
+                            {% for history in current[strategy_key].promotion_history[:1] %}
+                            <div style="padding:0.38rem 0.5rem; border-radius:8px; background:rgba(30,41,59,0.92); border:1px solid rgba(148,163,184,0.12); color:#dbe4f0;">
+                                {{ history.timestamp[:16].replace('T', ' ') if history.timestamp else '' }} ·
+                                {{ history.strength_label or '观察中' }} ·
+                                {{ history.runtime_profile_label or '基础档' }} / {{ history.feature_profile_label or '完整特征' }}
+                                {% if history.backtest_rank %}
+                                · 模拟第 {{ history.backtest_rank }} 名
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        {% else %}
+                        参考期数 {{ current[strategy_key].window or '-' }}，
+                        平码候选池 {{ current[strategy_key].pool or '-' }}，
+                        特码候选池 {{ current[strategy_key].special_pool or '-' }}，
+                        学习样本 {{ current[strategy_key].last_total or 0 }}
+                        {% endif %}
+                    </div>
                 </div>
                 {% endfor %}
+            {% else %}
+                <div class="empty-text">暂无学习数据</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🚀 学习前后对比</h2>
+    </div>
+
+    <div class="learning-grid">
+        {% for region_key, title in [('hk', '香港'), ('macau', '澳门')] %}
+        <div class="learning-card">
+            <div class="learning-title">{{ title }}</div>
+            {% set comparison_items = learning_comparison.get(region_key, []) %}
+            {% if comparison_items %}
+                {% for item in comparison_items %}
+                <div class="comparison-row">
+                    <div class="comparison-main">
+                        <div class="comparison-title">{{ item.icon }} {{ item.label }}</div>
+                        <div class="comparison-meta">
+                            这次 {{ item.current_accuracy }}% / {{ item.current_total }} 期
+                            {% if item.previous_total > 0 %}
+                            ，上次 {{ item.previous_accuracy }}% / {{ item.previous_total }} 期
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="comparison-side">
+                        <span class="comparison-badge comparison-{{ item.trend_class }}">{{ item.trend }}</span>
+                        <div class="comparison-delta {% if item.delta > 0 %}delta-up{% elif item.delta < 0 %}delta-down{% else %}delta-flat{% endif %}">
+                            {% if item.previous_total > 0 %}
+                                {% if item.delta > 0 %}+{% endif %}{{ item.delta }}%
+                            {% else %}
+                                --
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-text">暂无学习对比数据</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🧪 历史模拟测试快照</h2>
+    </div>
+
+    {% if latest_backtests %}
+    <div class="learning-grid">
+        {% for item in latest_backtests[:4] %}
+        <div class="learning-card">
+            <div class="learning-title">{{ item.display_name or item.name }}</div>
+            <div class="learning-meta" style="margin-bottom:0.8rem;">
+                {{ item.region_label or ('香港' if item.region == 'hk' else '澳门' if item.region == 'macau' else item.region) }} ·
+                {{ (item.periods_evaluated ~ ' 期模拟') if item.has_data else '模拟准备中' }} ·
+                {{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '等待生成' }}
+            </div>
+            {% if item.has_data and item.top_items %}
+            {% for rank in item.top_items %}
+            <div class="comparison-row">
+                <div class="comparison-main">
+                    <div class="comparison-title">{{ loop.index }}. {{ strategy_label_map.get(rank.strategy, rank.strategy) }}</div>
+                    <div class="comparison-meta">单号 {{ rank.top1_hit_rate }}% · 六码 {{ rank.top6_hit_rate }}% · {{ rank.total }} 期样本</div>
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="comparison-row">
+                <div class="comparison-main">
+                    <div class="comparison-meta">
+                        当前正在后台生成历史模拟快照，稍后刷新页面即可查看最新表现。
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-text">暂无历史模拟结果。先运行 `python scripts/backtest_predictions.py --region macau`。</div>
+    {% endif %}
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🎯 策略效果分析</h2>
+    </div>
+
+    <div class="strategy-analysis">
+        {% for meta in strategy_meta %}
+        <div class="strategy-item">
+            <div class="strategy-header">
+                <span class="strategy-icon">{{ meta.icon }}</span>
+                <span class="strategy-name">{{ meta.label }}预测</span>
+            </div>
+            <div class="strategy-stats">
+                <div class="stat-item">
+                    <span class="stat-label">预测次数</span>
+                    <span class="stat-value">{{ strategy_stats[meta.key].total or 0 }}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">命中次数</span>
+                    <span class="stat-value">{{ strategy_stats[meta.key].correct or 0 }}</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">特码命中率</span>
+                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].special_hit_rate or 0) }}%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">平码命中率</span>
+                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].normal_hit_rate or 0) }}%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">生肖命中率</span>
+                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].zodiac_hit_rate or 0) }}%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">综合命中率</span>
+                    <span class="stat-value accuracy">{{ "%.1f"|format(strategy_stats[meta.key].accuracy or 0) }}%</span>
+                </div>
             </div>
         </div>
-        
-        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
-            <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.1rem;">🕐 预测时间分布</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
-                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
-                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">上午 (6-12点)</div>
-                    <div style="font-size: 1.2rem; font-weight: 700; color: #667eea;">{{ morning_predictions or 0 }}</div>
-                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
-                </div>
-                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
-                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">下午 (12-18点)</div>
-                    <div style="font-size: 1.2rem; font-weight: 700; color: #28a745;">{{ afternoon_predictions or 0 }}</div>
-                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
-                </div>
-                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
-                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">晚上 (18-24点)</div>
-                    <div style="font-size: 1.2rem; font-weight: 700; color: #ffc107;">{{ evening_predictions or 0 }}</div>
-                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
-                </div>
-                <div style="text-align: center; padding: 1rem; background: white; border-radius: 8px;">
-                    <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.5rem;">深夜 (0-6点)</div>
-                    <div style="font-size: 1.2rem; font-weight: 700; color: #6c757d;">{{ night_predictions or 0 }}</div>
-                    <div style="font-size: 0.7rem; color: #666;">次预测</div>
-                </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🌏 地区预测分析</h2>
+    </div>
+
+    <div class="region-analysis">
+        <div class="region-item">
+            <div class="region-header">
+                <span class="region-name">香港数据</span>
+                <span class="region-accuracy">{{ "%.1f"|format(region_stats.hk.accuracy or 0) }}%</span>
+            </div>
+            <div class="region-progress">
+                <div class="progress-bar" style="width: {{ region_stats.hk.accuracy or 0 }}%"></div>
+            </div>
+            <div class="region-details">
+                <span>累计 {{ region_stats.hk.total or 0 }} 次预测，命中 {{ region_stats.hk.correct or 0 }} 次</span>
+            </div>
+        </div>
+
+        <div class="region-item">
+            <div class="region-header">
+                <span class="region-name">澳门数据</span>
+                <span class="region-accuracy">{{ "%.1f"|format(region_stats.macau.accuracy or 0) }}%</span>
+            </div>
+            <div class="region-progress">
+                <div class="progress-bar" style="width: {{ region_stats.macau.accuracy or 0 }}%"></div>
+            </div>
+            <div class="region-details">
+                <span>累计 {{ region_stats.macau.total or 0 }} 次预测，命中 {{ region_stats.macau.correct or 0 }} 次</span>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 号码分析 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">🔢 号码分析</h2>
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📅 预测趋势分析</h2>
     </div>
-    
-    <div style="display: grid; gap: 1.5rem;">
-        <div style="background: rgba(220, 53, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #dc3545;">
-            <h3 style="margin: 0 0 1rem 0; color: #dc3545; font-size: 1.1rem;">🎯 最常预测的号码</h3>
-            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                {% for num in most_predicted_numbers %}
-                <div style="display: flex; align-items: center; gap: 0.5rem; background: white; padding: 0.5rem 1rem; border-radius: 20px;">
-                    <span style="background: #dc3545; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.8rem;">
-                        {{ num.number }}
-                    </span>
-                    <span style="font-size: 0.8rem; color: #666;">{{ num.count }}次</span>
-                </div>
-                {% endfor %}
+
+    <div class="trend-analysis trend-analysis-columns">
+        <div class="trend-item">
+            <div class="trend-period">最近 7 天</div>
+            <div class="trend-stats">
+                <div class="trend-count">{{ trend_data|selectattr('count')|sum(attribute='count') or 0 }} 次预测</div>
+                <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
             </div>
         </div>
-        
-        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-            <h3 style="margin: 0 0 1rem 0; color: #28a745; font-size: 1.1rem;">⭐ 最常预测的特码</h3>
-            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                {% for num in most_predicted_specials %}
-                <div style="display: flex; align-items: center; gap: 0.5rem; background: white; padding: 0.5rem 1rem; border-radius: 20px;">
-                    <span style="background: #28a745; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.9rem;">
-                        {{ num.number }}
-                    </span>
-                    <span style="font-size: 0.8rem; color: #666;">{{ num.count }}次</span>
-                </div>
-                {% endfor %}
+
+        <div class="trend-item">
+            <div class="trend-period">今天</div>
+            <div class="trend-stats">
+                <div class="trend-count">{{ trend_data[-1].count if trend_data and trend_data|length > 0 else 0 }} 次预测</div>
+                <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
+            </div>
+        </div>
+
+        <div class="trend-item">
+            <div class="trend-period">总计</div>
+            <div class="trend-stats">
+                <div class="trend-count">{{ stats.total_predictions or 0 }} 次预测</div>
+                <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 建议和提示 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">💡 智能建议</h2>
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">💡 智能建议</h2>
     </div>
-    
-    <div style="display: grid; gap: 1rem;">
-        {% if accuracy < 30 %}
-        <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #ffc107; font-size: 1.1rem;">⚠️ 准确率提升建议</h3>
-            <p style="margin: 0; color: #666;">您的预测准确率较低，建议尝试不同的预测策略，或者分析历史数据寻找规律。</p>
+
+    <div class="suggestions">
+        {% if stats.total_predictions == 0 %}
+        <div class="suggestion-item">
+            <span class="suggestion-icon">🎯</span>
+            <div class="suggestion-content">
+                <h4>开始您的预测之旅</h4>
+                <p>您还没有进行任何预测，建议先尝试不同的预测策略，等积累一定数据后再查看分析结果。</p>
+            </div>
         </div>
-        {% elif accuracy > 70 %}
-        <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #28a745; font-size: 1.1rem;">🎉 预测表现优秀</h3>
-            <p style="margin: 0; color: #666;">您的预测准确率很高！继续保持当前的预测策略，并可以尝试更具挑战性的预测。</p>
+        {% else %}
+        {% if best_strategy %}
+        <div class="suggestion-item">
+            <span class="suggestion-icon">{{ best_strategy.icon }}</span>
+            <div class="suggestion-content">
+                <h4>{{ best_strategy.label }}策略表现更好</h4>
+                <p>当前特码命中率最高的是 {{ best_strategy.label }} 策略，建议优先尝试，并持续观察后续表现。</p>
+            </div>
         </div>
         {% endif %}
-        
-        <div style="background: rgba(23, 162, 184, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #17a2b8;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #17a2b8; font-size: 1.1rem;">📊 数据分析提示</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
-                <li>定期查看预测趋势，了解自己的预测习惯</li>
-                <li>比较不同策略的效果，选择最适合的方法</li>
-                <li>关注号码出现频率，但不要过度依赖历史数据</li>
-                <li>保持理性预测，避免情绪化决策</li>
-            </ul>
+
+        {% if region_stats and region_stats.hk and region_stats.macau %}
+            {% if region_stats.hk.accuracy and region_stats.macau.accuracy %}
+                {% if region_stats.hk.accuracy > region_stats.macau.accuracy %}
+                <div class="suggestion-item">
+                    <span class="suggestion-icon">📍</span>
+                    <div class="suggestion-content">
+                        <h4>香港地区预测更稳定</h4>
+                        <p>您在香港数据的预测准确率为 {{ "%.1f"|format(region_stats.hk.accuracy) }}%，目前高于澳门，可优先关注香港数据。</p>
+                    </div>
+                </div>
+                {% elif region_stats.macau.accuracy > region_stats.hk.accuracy %}
+                <div class="suggestion-item">
+                    <span class="suggestion-icon">📍</span>
+                    <div class="suggestion-content">
+                        <h4>澳门地区预测更稳定</h4>
+                        <p>您在澳门数据的预测准确率为 {{ "%.1f"|format(region_stats.macau.accuracy) }}%，目前高于香港，可优先关注澳门数据。</p>
+                    </div>
+                </div>
+                {% endif %}
+            {% endif %}
+        {% endif %}
+
+        {% if stats.accuracy and stats.accuracy < 30 %}
+        <div class="suggestion-item">
+            <span class="suggestion-icon">🧪</span>
+            <div class="suggestion-content">
+                <h4>建议多样化尝试策略</h4>
+                <p>当前整体准确率偏低，可以尝试不同的预测策略，逐步找到更适合自己的方式。</p>
+            </div>
         </div>
-        
-        <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
-            <h3 style="margin: 0 0 0.5rem 0; color: #667eea; font-size: 1.1rem;">🎯 预测技巧</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #666;">
-                <li><strong>随机策略</strong>：适合新手，无需复杂分析</li>
-                <li><strong>均衡策略</strong>：基于统计学原理，相对稳定</li>
-                <li><strong>AI智能</strong>：利用机器学习，适合有经验的用户</li>
-                <li><strong>组合使用</strong>：可以结合多种策略提高准确率</li>
-            </ul>
-        </div>
+        {% endif %}
+        {% endif %}
     </div>
 </div>
 
-<!-- 快速操作 -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">⚡ 快速操作</h2>
-    </div>
-    
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-        <a href="{{ url_for('index') }}" class="btn" style="padding: 1.5rem; text-align: center; flex-direction: column; gap: 0.5rem;">
-            <div style="font-size: 2rem;">🎯</div>
-            <div>开始新预测</div>
-        </a>
-        
-        <a href="{{ url_for('user.predictions') }}" class="btn" style="padding: 1.5rem; text-align: center; flex-direction: column; gap: 0.5rem; background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
-            <div style="font-size: 2rem;">📋</div>
-            <div>查看预测记录</div>
-        </a>
-        
-        <a href="{{ url_for('user.profile') }}" class="btn" style="padding: 1.5rem; text-align: center; flex-direction: column; gap: 0.5rem; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
-            <div style="font-size: 2rem;">👤</div>
-            <div>个人设置</div>
-        </a>
-        
-        <a href="{{ url_for('user.invite_codes') }}" class="btn" style="padding: 1.5rem; text-align: center; flex-direction: column; gap: 0.5rem; background: linear-gradient(135deg, #ffc107 0%, #ff8c00 100%);">
-            <div style="font-size: 2rem;">🎫</div>
-            <div>邀请码管理</div>
-        </a>
-    </div>
-</div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.clickable-stat').forEach(stat => {
+        stat.addEventListener('click', function() {
+            const filterType = this.getAttribute('data-filter');
+            if (!filterType) return;
+            if (filterType === 'all') {
+                window.location.href = "{{ url_for('user.predictions') }}";
+            } else {
+                window.location.href = "{{ url_for('user.predictions') }}?result=" + filterType;
+            }
+        });
+        stat.style.cursor = 'pointer';
+        stat.title = '点击查看相关记录';
+    });
+});
+</script>
+
+<style>
+.card-compact {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.86) 100%);
+    border-radius: 12px;
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.28);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.card-header-compact {
+    padding: 0.8rem 1.2rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.card-title-compact {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.stat-card-compact {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.24);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.analytics-stats {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1rem;
+}
+
+.hero-grid,
+.learning-grid,
+.strategy-analysis,
+.region-analysis,
+.trend-analysis-columns {
+    display: grid;
+    gap: 1rem;
+}
+
+.hero-grid,
+.learning-grid,
+.region-analysis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.strategy-analysis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.trend-analysis-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.hero-card,
+.learning-card,
+.strategy-item,
+.region-item,
+.trend-item,
+.suggestion-item {
+    padding: 1rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.78);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.hero-card-primary {
+    background: linear-gradient(135deg, #fff7e8, #fffdf8);
+    border: 1px solid #f2dfb4;
+}
+
+.hero-card-secondary {
+    background: #f8fbff;
+    border: 1px solid #d9e8fb;
+}
+
+.hero-label {
+    font-size: 0.9rem;
+    color: #8a6d1f;
+}
+
+.hero-title {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: #3a2f12;
+    margin: 0.35rem 0;
+}
+
+.hero-desc,
+.hero-tip {
+    color: #7b6a3a;
+}
+
+.hero-tip {
+    margin-top: 0.8rem;
+    font-size: 0.9rem;
+}
+
+.hero-rank-row,
+.learning-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px dashed #dbe6f3;
+}
+
+.hero-rank-row:last-child {
+    border-bottom: 0;
+}
+
+.learning-card {
+    background: rgba(15, 23, 42, 0.72);
+}
+
+.learning-title {
+    font-weight: 700;
+    margin-bottom: 0.6rem;
+}
+
+.learning-row {
+    display: block;
+    padding: 0.55rem 0;
+    border-top: 1px dashed #e6ebf2;
+    border-bottom: 0;
+}
+
+.learning-row:first-of-type {
+    border-top: 0;
+}
+
+.learning-name {
+    font-weight: 600;
+}
+
+.learning-meta,
+.table-sub,
+.empty-text,
+.region-details,
+.trend-count,
+.trend-accuracy,
+.suggestion-content p {
+    font-size: 0.84rem;
+    color: #94a3b8;
+}
+
+.comparison-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-top: 1px dashed #e6ebf2;
+    align-items: center;
+}
+
+.comparison-row:first-of-type {
+    border-top: 0;
+}
+
+.comparison-main {
+    min-width: 0;
+}
+
+.comparison-title {
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.comparison-meta {
+    font-size: 0.84rem;
+    color: #94a3b8;
+    margin-top: 0.2rem;
+}
+
+.comparison-side {
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.comparison-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.comparison-up {
+    background: rgba(40, 167, 69, 0.12);
+    color: #1e7e34;
+}
+
+.comparison-down {
+    background: rgba(220, 53, 69, 0.12);
+    color: #c82333;
+}
+
+.comparison-flat,
+.comparison-neutral {
+    background: rgba(108, 117, 125, 0.12);
+    color: #5f6872;
+}
+
+.comparison-delta {
+    margin-top: 0.3rem;
+    font-weight: 700;
+}
+
+.delta-up {
+    color: #1e7e34;
+}
+
+.delta-down {
+    color: #c82333;
+}
+
+.delta-flat {
+    color: #5f6872;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+.analytics-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.analytics-table th,
+.analytics-table td {
+    padding: 0.7rem 0.6rem;
+    text-align: left;
+    border-top: 1px solid rgba(148, 163, 184, 0.12);
+    white-space: nowrap;
+}
+
+.analytics-table thead th {
+    color: #cbd5e1;
+    border-top: 0;
+}
+
+.table-main {
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.clickable-stat {
+    position: relative;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.clickable-stat:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(102, 126, 234, 0.12);
+}
+
+.strategy-header,
+.region-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.strategy-header {
+    justify-content: flex-start;
+}
+
+.region-header {
+    justify-content: space-between;
+}
+
+.strategy-icon {
+    font-size: 1.2rem;
+    margin-right: 0.35rem;
+}
+
+.strategy-name,
+.region-name,
+.suggestion-content h4 {
+    font-weight: 700;
+}
+
+.strategy-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.92rem;
+}
+
+.stat-value.accuracy,
+.region-accuracy {
+    color: #0b6b4f;
+    font-weight: 700;
+}
+
+.region-progress {
+    height: 8px;
+    background: rgba(51, 65, 85, 0.65);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #0b6b4f, #f4b547);
+}
+
+.trend-stats {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.suggestions {
+    display: grid;
+    gap: 1rem;
+}
+
+.suggestion-item {
+    display: flex;
+    gap: 0.9rem;
+    align-items: flex-start;
+}
+
+.suggestion-icon {
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.suggestion-content h4 {
+    margin: 0 0 0.35rem 0;
+}
+
+.suggestion-content p {
+    margin: 0;
+    line-height: 1.6;
+}
+
+@media (max-width: 960px) {
+    .analytics-stats,
+    .hero-grid,
+    .learning-grid,
+    .strategy-analysis,
+    .region-analysis,
+    .trend-analysis-columns {
+        grid-template-columns: 1fr;
+    }
+
+    .trend-stats,
+    .stat-item,
+    .comparison-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .comparison-side {
+        text-align: left;
+    }
+}
+</style>
 {% endblock %}

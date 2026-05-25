@@ -3,216 +3,249 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>账号激活 - AI数据分析系统</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <title>账号激活 - {{ site_name or system_name or 'AI数据分析预测系统' }}</title>
+    <meta name="description" content="{{ site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <style>
         :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-            --glass-bg: rgba(255, 255, 255, 0.25);
-            --text-primary: #2d3748;
-            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            --bg-start: #071226;
+            --bg-end: #13233f;
+            --glass-bg: rgba(15, 23, 42, 0.76);
+            --glass-border: rgba(148, 163, 184, 0.18);
+            --text-primary: #e2e8f0;
+            --text-muted: #94a3b8;
+            --primary: #38bdf8;
+            --primary-strong: #0284c7;
+            --secondary: #1e293b;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         body {
-            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
-            background-attachment: fixed;
+            margin: 0;
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: var(--text-primary);
+            background:
+                radial-gradient(circle at top, rgba(56, 189, 248, 0.15), transparent 30%),
+                linear-gradient(160deg, var(--bg-start), var(--bg-end));
+            padding: 24px;
         }
 
         .activate-container {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: var(--shadow-light);
-            padding: 40px;
-            width: 100%;
-            max-width: 450px;
-            animation: slideInUp 0.6s ease-out;
-        }
-
-        @keyframes slideInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            max-width: 760px;
+            margin: 0 auto;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
+            backdrop-filter: blur(16px);
         }
 
         .activate-header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 28px;
         }
 
         .activate-header h1 {
-            color: var(--text-primary);
+            margin: 0 0 10px 0;
             font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 10px;
         }
 
         .activate-header p {
-            color: #6c757d;
-            font-size: 1rem;
-            line-height: 1.6;
+            margin: 0;
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+
+        .info-box,
+        .request-box {
+            background: rgba(15, 23, 42, 0.58);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            border-radius: 18px;
+            padding: 20px;
+            margin-top: 18px;
+        }
+
+        .info-box h3,
+        .request-box h3 {
+            margin: 0 0 12px 0;
+            font-size: 1.08rem;
         }
 
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
 
         .form-group label {
             display: block;
+            margin-bottom: 8px;
             color: var(--text-primary);
             font-weight: 600;
-            margin-bottom: 8px;
         }
 
         .form-control {
             width: 100%;
-            padding: 12px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.7);
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            background: rgba(15, 23, 42, 0.74);
             color: var(--text-primary);
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(5px);
+            font-size: 0.96rem;
         }
 
         .form-control:focus {
             outline: none;
-            border-color: #007bff;
-            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(56, 189, 248, 0.72);
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
         }
 
         .btn {
-            width: 100%;
-            padding: 14px;
-            border: none;
-            border-radius: 10px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            margin-bottom: 15px;
-        }
-
-        .btn-primary {
-            background: var(--primary-gradient);
+            gap: 0.5rem;
+            padding: 12px 18px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 0.96rem;
             color: white;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: transform 0.18s ease, opacity 0.18s ease;
         }
 
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-        }
+        .btn:hover { transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.7);
-            color: var(--text-primary);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-
-        .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.9);
-            transform: translateY(-1px);
-        }
+        .btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-strong)); }
+        .btn-secondary { background: linear-gradient(135deg, #334155, #1e293b); }
 
         .alert {
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-weight: 500;
+            border-radius: 14px;
+            padding: 14px 16px;
+            margin-bottom: 14px;
+            border: 1px solid transparent;
         }
 
-        .alert-success {
-            background: rgba(40, 167, 69, 0.1);
-            color: #155724;
-            border: 1px solid rgba(40, 167, 69, 0.3);
+        .alert-success { background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.26); }
+        .alert-warning { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.26); }
+        .alert-error { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.26); }
+        .alert-info { background: rgba(56, 189, 248, 0.12); border-color: rgba(56, 189, 248, 0.26); }
+
+        .request-lock {
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.24);
+            color: #fde68a;
         }
 
-        .alert-error {
-            background: rgba(220, 53, 69, 0.1);
-            color: #721c24;
-            border: 1px solid rgba(220, 53, 69, 0.3);
+        .payment-grid {
+            display: grid;
+            gap: 14px;
+            margin-top: 14px;
         }
 
-        .alert-warning {
-            background: rgba(255, 193, 7, 0.1);
-            color: #856404;
-            border: 1px solid rgba(255, 193, 7, 0.3);
+        .payment-card {
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            border-radius: 18px;
+            padding: 16px;
+            background: rgba(15, 23, 42, 0.48);
         }
 
-        .text-center {
-            text-align: center;
+        .payment-card h4 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
         }
 
-        .text-muted {
-            color: #6c757d;
+        .payment-actions {
+            display: grid;
+            gap: 10px;
+            margin-top: 12px;
         }
 
-        a {
-            color: #007bff;
-            text-decoration: none;
-            transition: color 0.3s ease;
+        .payment-btn {
+            width: 100%;
+            justify-content: space-between;
+            text-align: left;
         }
 
-        a:hover {
-            color: #0056b3;
+        .request-list {
+            display: grid;
+            gap: 12px;
+            margin-top: 16px;
         }
 
-        .info-box {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+        .request-item {
+            padding: 14px;
+            border-radius: 14px;
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
 
-        .info-box h3 {
-            color: var(--text-primary);
-            margin-bottom: 10px;
-            font-size: 1.2rem;
-        }
-
-        .info-box p {
-            color: #6c757d;
-            line-height: 1.6;
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.84rem;
             margin-bottom: 8px;
         }
 
-        @media (max-width: 480px) {
-            .activate-container {
-                padding: 30px 20px;
-            }
+        .status-pending { background: rgba(245, 158, 11, 0.16); color: #fde68a; }
+        .status-issued, .status-used { background: rgba(34, 197, 94, 0.16); color: #bbf7d0; }
+        .status-rejected { background: rgba(239, 68, 68, 0.16); color: #fecaca; }
 
-            .activate-header h1 {
-                font-size: 1.8rem;
-            }
+        .payment-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            padding: 20px;
+            background: rgba(2, 6, 23, 0.75);
+            z-index: 9999;
+        }
+
+        .payment-modal-card {
+            max-width: 420px;
+            margin: 40px auto;
+            background: #0f172a;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 20px 45px rgba(15, 23, 42, 0.45);
+        }
+
+        .payment-modal-card img {
+            width: 240px;
+            height: 240px;
+            background: white;
+            border-radius: 16px;
+            padding: 10px;
+        }
+
+        .payment-order-history {
+            display: grid;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .payment-order-history-item {
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(15, 23, 42, 0.2);
+        }
+
+        .text-center { text-align: center; }
+        .text-muted { color: var(--text-muted); }
+
+        @media (max-width: 640px) {
+            body { padding: 16px; }
+            .activate-container { padding: 22px; }
         }
     </style>
 </head>
@@ -220,14 +253,13 @@
     <div class="activate-container">
         <div class="activate-header">
             <h1><i class="fas fa-key"></i> 账号激活</h1>
-            <p>请输入激活码来激活您的账号</p>
+            <p>请输入激活码，或使用扫码支付直接购买激活套餐。</p>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
                     <div class="alert alert-{{ 'error' if category == 'error' else category }}">
-                        <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'info-circle' }}"></i>
                         {{ message }}
                     </div>
                 {% endfor %}
@@ -235,18 +267,15 @@
         {% endwith %}
 
         <div class="info-box">
-            <h3><i class="fas fa-info-circle"></i> 激活说明</h3>           
-            <p>• 您可以联系管理员获取激活码</p>
-            <p>• 激活后即可使用预测功能和查看历史记录</p>
+            <h3><i class="fas fa-info-circle"></i> 激活说明</h3>
+            <p>管理员发放的激活码和扫码支付购买的激活套餐，都会在到账后立即生效。</p>
+            <p>如果支付成功后页面未自动刷新，可重新进入本页面查看订单状态。</p>
         </div>
 
-        <form method="POST">
+        <form method="POST" style="margin-top: 18px;">
             <div class="form-group">
-                <label for="activation_code">
-                    <i class="fas fa-key"></i> 激活码
-                </label>
-                <input type="text" id="activation_code" name="activation_code" class="form-control" 
-                       placeholder="请输入激活码" required>
+                <label for="activation_code"><i class="fas fa-key"></i> 激活码</label>
+                <input type="text" id="activation_code" name="activation_code" class="form-control" placeholder="请输入激活码" required>
             </div>
 
             <button type="submit" class="btn btn-primary">
@@ -258,13 +287,228 @@
             </a>
         </form>
 
-        <div class="text-center">
+        {% if payment_enabled %}
+        <div class="request-box">
+            <h3><i class="fas fa-qrcode"></i> 扫码购买激活</h3>
+            <p>支持支付宝和微信扫码支付，支付成功后系统会自动激活账号。</p>
+
+            {% if alipay_enabled and alipay_runtime_error %}
+            <div class="request-lock" style="margin-top:12px;">支付宝依赖未安装：{{ alipay_runtime_error }}</div>
+            {% endif %}
+            {% if wechat_enabled and wechat_runtime_error %}
+            <div class="request-lock" style="margin-top:12px;">微信支付依赖未安装：{{ wechat_runtime_error }}</div>
+            {% endif %}
+
+            <div class="payment-grid">
+                {% if alipay_enabled %}
+                <div class="payment-card">
+                    <h4>支付宝</h4>
+                    <div class="payment-actions">
+                        {% for package in payment_packages %}
+                        <button type="button" class="btn btn-secondary payment-btn" onclick="createPaymentOrder('alipay', '{{ package.key }}')" {{ 'disabled' if alipay_runtime_error else '' }}>
+                            <span>{{ package.label }}</span>
+                            <strong>¥{{ package.price_text }}</strong>
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if wechat_enabled %}
+                <div class="payment-card">
+                    <h4>微信支付</h4>
+                    <div class="payment-actions">
+                        {% for package in payment_packages %}
+                        <button type="button" class="btn btn-secondary payment-btn" onclick="createPaymentOrder('wechat', '{{ package.key }}')" {{ 'disabled' if wechat_runtime_error else '' }}>
+                            <span>{{ package.label }}</span>
+                            <strong>¥{{ package.price_text }}</strong>
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            {% if recent_payment_orders %}
+            <div class="payment-order-history">
+                {% for order in recent_payment_orders %}
+                <div class="payment-order-history-item">
+                    <div><strong>{{ '支付宝' if order.channel == 'alipay_f2f' else '微信支付' if order.channel == 'wechat_native' else order.channel }}</strong> · {{ order.validity_label }} · ¥{{ order.amount_text }}</div>
+                    <div style="font-size:0.88rem; color:#94a3b8; margin-top:4px;">订单号：{{ order.order_no }}</div>
+                    <div style="font-size:0.88rem; color:#94a3b8; margin-top:4px;">状态：{{ order.status }}{% if order.issued_code %} · 激活码：{{ order.issued_code }}{% endif %}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div id="paymentModal" class="payment-modal">
+            <div class="payment-modal-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+                    <h3 id="paymentModalTitle" style="margin:0;">扫码支付</h3>
+                    <button type="button" onclick="closePaymentModal()" style="background:none; border:none; color:#e2e8f0; font-size:24px; cursor:pointer;">&times;</button>
+                </div>
+                <p id="paymentModalSubject" style="margin:12px 0 16px 0; color:#94a3b8;"></p>
+                <div style="text-align:center;">
+                    <img id="paymentModalQrImage" src="" alt="支付二维码">
+                </div>
+                <div id="paymentModalStatus" style="margin-top:14px; text-align:center; color:#93c5fd;">等待付款中...</div>
+                <div style="display:grid; gap:10px; margin-top:16px;">
+                    <a id="paymentModalOpenLink" href="#" target="_blank" rel="noopener" class="btn btn-primary">打开支付链接</a>
+                    <button type="button" class="btn btn-secondary" onclick="closePaymentModal()">稍后支付</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="request-box">
+            <h3><i class="fas fa-paper-plane"></i> 申请激活码</h3>
+            <p>如果你想由管理员手动发放激活码，也可以提交申请。</p>
+            {% if has_pending_request %}
+            <div class="request-lock">你当前已有一条“申请中”的记录，管理员处理前不能再次提交。</div>
+            {% else %}
+            <form method="POST" action="{{ url_for('auth.request_activation_code') }}" style="margin-top: 14px;">
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label for="request_note"><i class="fas fa-comment-dots"></i> 申请说明</label>
+                    <textarea id="request_note" name="request_note" class="form-control" placeholder="可选：填写用途、时长需求或备注"></textarea>
+                </div>
+                <button type="submit" class="btn btn-secondary">
+                    <i class="fas fa-paper-plane"></i> 申请激活码
+                </button>
+            </form>
+            {% endif %}
+
+            {% if activation_requests %}
+            <div class="request-list">
+                {% for item in activation_requests %}
+                <div class="request-item">
+                    <div class="status-badge status-{{ item.status }}">{{ item.status_label }}</div>
+                    <div><strong>申请时间：</strong>{{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '-' }}</div>
+                    {% if item.request_note %}
+                    <div><strong>申请说明：</strong>{{ item.request_note }}</div>
+                    {% endif %}
+                    {% if item.issued_code %}
+                    <div class="issued-code" style="margin-top:8px;"><strong>已发放激活码：</strong>{{ item.issued_code }}</div>
+                    <div><strong>有效类型：</strong>{{ item.issued_validity_label or '-' }}</div>
+                    {% endif %}
+                    {% if item.admin_note %}
+                    <div><strong>管理员备注：</strong>{{ item.admin_note }}</div>
+                    {% endif %}
+                    {% if item.processed_at %}
+                    <small>处理时间：{{ item.processed_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="text-center" style="margin-top:20px;">
             <p class="text-muted">
-                <a href="{{ url_for('auth.logout') }}">
+                <a href="{{ url_for('auth.logout') }}" style="color:inherit; text-decoration:none;">
                     <i class="fas fa-sign-out-alt"></i> 退出登录
                 </a>
             </p>
         </div>
     </div>
+
+    {% if payment_enabled %}
+    <script>
+        let currentPaymentOrderNo = '';
+        let currentPaymentChannel = '';
+        let currentPaymentPollTimer = null;
+
+        const paymentRouteMap = {
+            alipay: {
+                create: '{{ url_for("auth.create_alipay_activation_order") }}',
+                status: '{{ url_for("auth.alipay_order_status", order_no="__ORDER__") }}',
+                label: '支付宝'
+            },
+            wechat: {
+                create: '{{ url_for("auth.create_wechat_activation_order") }}',
+                status: '{{ url_for("auth.wechat_order_status", order_no="__ORDER__") }}',
+                label: '微信支付'
+            }
+        };
+
+        async function createPaymentOrder(channel, validityType) {
+            const route = paymentRouteMap[channel];
+            if (!route) {
+                return;
+            }
+
+            try {
+                const response = await fetch(route.create, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ validity_type: validityType })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    alert(data.message || '创建订单失败');
+                    return;
+                }
+
+                currentPaymentOrderNo = data.order_no;
+                currentPaymentChannel = channel;
+                document.getElementById('paymentModalTitle').textContent = `${route.label}扫码支付`;
+                document.getElementById('paymentModalSubject').textContent = `${data.subject} · ¥${data.amount}`;
+                document.getElementById('paymentModalQrImage').src = data.qr_image_data_uri;
+                document.getElementById('paymentModalOpenLink').href = data.qr_link || '#';
+                document.getElementById('paymentModalStatus').textContent = '等待付款中...';
+                document.getElementById('paymentModal').style.display = 'block';
+                startPaymentPolling();
+            } catch (error) {
+                alert(`创建订单失败: ${error}`);
+            }
+        }
+
+        function closePaymentModal() {
+            document.getElementById('paymentModal').style.display = 'none';
+            if (currentPaymentPollTimer) {
+                clearInterval(currentPaymentPollTimer);
+                currentPaymentPollTimer = null;
+            }
+        }
+
+        function startPaymentPolling() {
+            if (currentPaymentPollTimer) {
+                clearInterval(currentPaymentPollTimer);
+            }
+            currentPaymentPollTimer = setInterval(checkPaymentOrderStatus, 3000);
+        }
+
+        async function checkPaymentOrderStatus() {
+            if (!currentPaymentOrderNo || !currentPaymentChannel) {
+                return;
+            }
+
+            const route = paymentRouteMap[currentPaymentChannel];
+            try {
+                const response = await fetch(route.status.replace('__ORDER__', currentPaymentOrderNo));
+                const data = await response.json();
+                if (!data.success) {
+                    return;
+                }
+                if (data.is_paid) {
+                    document.getElementById('paymentModalStatus').textContent = '支付成功，正在刷新页面...';
+                    clearInterval(currentPaymentPollTimer);
+                    currentPaymentPollTimer = null;
+                    setTimeout(() => {
+                        window.location.href = '{{ url_for("user.dashboard") }}';
+                    }, 1200);
+                    return;
+                }
+                if (data.status === 'closed' || data.status === 'failed') {
+                    document.getElementById('paymentModalStatus').textContent = `订单状态：${data.status}`;
+                    clearInterval(currentPaymentPollTimer);
+                    currentPaymentPollTimer = null;
+                }
+            } catch (error) {
+                console.error(error);
+            }
+        }
+    </script>
+    {% endif %}
 </body>
 </html>

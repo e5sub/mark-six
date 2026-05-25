@@ -1,0 +1,232 @@
+﻿﻿<!-- 控制面板 -->
+<style>
+    .control-surface {
+        margin-top: 0;
+        padding: 2px 0 0;
+        margin-bottom: 12px;
+    }
+
+    .search-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .search-toolbar .control-group {
+        margin-right: 10px;
+        flex-shrink: 0;
+    }
+
+    .search-inline-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1 1 420px;
+        min-width: 320px;
+        max-width: 560px;
+    }
+
+    .search-inline-group .control-label {
+        flex-shrink: 0;
+        margin-bottom: 0;
+        white-space: nowrap;
+    }
+
+    .search-inline-group .modern-select {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .search-toolbar .modern-btn {
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 768px) {
+        .search-toolbar {
+            align-items: stretch;
+        }
+
+        .search-toolbar .control-group,
+        .search-inline-group,
+        .search-toolbar .modern-btn {
+            width: 100%;
+            max-width: none;
+        }
+
+        .search-inline-group {
+            min-width: 0;
+        }
+    }
+</style>
+
+<!-- 搜索面板 -->
+<div class="control-surface">
+    <div class="search-toolbar">
+        <div class="control-group">
+            <span class="control-label">地区:</span>
+            <div class="region-selector" id="regionSelector">
+                <button class="region-btn active" data-region="macau">澳门</button>
+                <button class="region-btn" data-region="hk">香港</button>
+            </div>
+        </div>
+
+        <div class="search-inline-group">
+            <span class="control-label">搜索:</span>
+            <input type="text" id="unifiedSearch" class="modern-select" placeholder="输入期数、特码号码或生肖...">
+        </div>
+
+        <button class="modern-btn btn-primary" onclick="searchDraws()" style="padding: 10px 20px;">
+            <i class="fas fa-search"></i> 搜索
+        </button>
+
+        <button class="modern-btn btn-secondary" onclick="resetSearch()" style="padding: 10px 20px;">
+            <i class="fas fa-redo"></i> 重置
+        </button>
+    </div>
+</div>
+
+{% if session.get('user_id') and session.get('is_active') %}
+<div class="button-grid" id="predictionButtons">
+    <button id="updateDataBtn" class="modern-btn btn-success" style="padding: 10px 20px;">
+        <i class="fas fa-sync-alt"></i> 更新开奖数据
+    </button>
+    <button class="modern-btn btn-info" onclick="getPrediction('ml')" id="mlPredBtn">
+        <i class="fas fa-flask"></i> 机器学习预测
+    </button>
+    <button class="modern-btn btn-success" onclick="getPrediction('balanced')" id="balancedPredBtn">
+        <i class="fas fa-balance-scale"></i> 均衡预测
+    </button>
+    <button class="modern-btn btn-danger" onclick="getPrediction('hot')" id="hotPredBtn">
+        <i class="fas fa-fire"></i> 热门预测
+    </button>
+    <button class="modern-btn btn-secondary" onclick="getPrediction('cold')" id="coldPredBtn">
+        <i class="fas fa-snowflake"></i> 冷门预测
+    </button>
+    <button class="modern-btn btn-primary" onclick="getPrediction('trend')" id="trendPredBtn">
+        <i class="fas fa-chart-line"></i> 走势预测
+    </button>
+    <button class="modern-btn btn-success" onclick="getPrediction('hybrid')" id="hybridPredBtn">
+        <i class="fas fa-sliders-h"></i> 综合预测
+    </button>
+    <button class="modern-btn btn-warning" onclick="getPrediction('ai')" id="aiPredBtn">
+        <i class="fas fa-robot"></i> AI智能预测
+    </button>
+    <a href="{{ url_for('chat_page') }}" class="modern-btn btn-secondary" id="chatBtn">
+        <i class="fas fa-comments"></i> AI智能聊天室
+    </a>
+</div>
+
+<div id="predictionResult" class="recommendation-card" style="display: none;">
+    <div id="predictionContent" style="width: 100%;"></div>
+</div>
+
+<div id="loadingIndicator" style="display: none; text-align: center; padding: 20px;">
+    <div class="loading-spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
+    <p style="margin-top: 15px; color: #dbe4f0;">正在生成预测结果，请稍候...</p>
+</div>
+
+<div id="updateStatusIndicator" style="display: none; position: fixed; top: 20px; right: 20px; max-width: 300px; background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.96) 100%); border-radius: 12px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); z-index: 1000; overflow: hidden; animation: slideIn 0.3s ease-out;">
+    <div style="display: flex; align-items: center; padding: 15px;">
+        <div style="margin-right: 15px; width: 24px; height: 24px; flex-shrink: 0;">
+            <i id="updateStatusIcon" class="fas fa-spinner fa-spin" style="font-size: 24px; color: #3498db;"></i>
+        </div>
+        <div>
+            <p id="updateStatusText" style="margin: 0; font-size: 14px; font-weight: 600; color: #f8fafc;">正在从官方数据源获取最新开奖数据...</p>
+        </div>
+        <div style="margin-left: auto; cursor: pointer;" onclick="document.getElementById('updateStatusIndicator').style.display = 'none';">
+            <i class="fas fa-times" style="color: #cbd5e1;"></i>
+        </div>
+    </div>
+</div>
+{% else %}
+<div style="background: rgba(30, 64, 175, 0.18); color: #dbeafe; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(96, 165, 250, 0.3);">
+    <i class="fas fa-info-circle"></i> 登录并激活账号后可使用预测功能和 AI 智能聊天室。
+</div>
+{% endif %}
+
+<div id="yearLimitNotice" style="display: none; background: rgba(120, 53, 15, 0.26); color: #fde68a; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(251, 191, 36, 0.3);">
+    <i class="fas fa-exclamation-triangle"></i> 预测功能仅在选择“全部年份”时可用，请将年份设置为“全部”。地区选择不受影响。
+</div>
+
+<div class="table-container">
+    <table class="modern-table" id="drawsTable">
+        <thead>
+            <tr>
+                <th>期数</th>
+                <th>开奖日期</th>
+                <th>平码</th>
+                <th>特码</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="drawsTableBody">
+            <!-- 开奖记录将通过 JavaScript 动态加载 -->
+        </tbody>
+    </table>
+</div>
+
+<div style="text-align: center; margin-top: 20px;">
+    <button id="loadMoreBtn" class="modern-btn btn-primary" style="padding: 10px 20px;" onclick="loadMoreDraws()">
+        <i class="fas fa-sync-alt"></i> 加载更多
+    </button>
+</div>
+
+<script>
+    document.getElementById('updateDataBtn')?.addEventListener('click', function() {
+        const btn = this;
+        const updateStatusIndicator = document.getElementById('updateStatusIndicator');
+        const updateStatusIcon = document.getElementById('updateStatusIcon');
+        const updateStatusText = document.getElementById('updateStatusText');
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在更新...';
+
+        updateStatusIndicator.style.display = 'block';
+        updateStatusIcon.className = 'fas fa-spinner fa-spin';
+        updateStatusIcon.style.color = '#3498db';
+        updateStatusText.textContent = '正在从官方数据源获取最新开奖数据...';
+
+        fetch('/api/update_data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ region: 'all' })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateStatusIcon.className = 'fas fa-check-circle';
+                updateStatusIcon.style.color = '#2ecc71';
+                updateStatusText.textContent = data.message;
+
+                setTimeout(() => {
+                    fetchDraws();
+                }, 1000);
+
+                setTimeout(() => {
+                    updateStatusIndicator.style.display = 'none';
+                }, 3000);
+            } else {
+                updateStatusIcon.className = 'fas fa-exclamation-circle';
+                updateStatusIcon.style.color = '#e74c3c';
+                updateStatusText.textContent = data.message;
+            }
+        })
+        .catch(error => {
+            updateStatusIcon.className = 'fas fa-exclamation-circle';
+            updateStatusIcon.style.color = '#e74c3c';
+            updateStatusText.textContent = '更新失败，请稍后再试';
+            console.error('更新数据出错:', error);
+        })
+        .finally(() => {
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync-alt"></i> 更新开奖数据';
+            }, 2000);
+        });
+    });
+</script>

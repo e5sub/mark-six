@@ -1,9 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}管理后台{% endblock %} - AI数据分析预测系统</title>
+    <title>{% block title %}管理后台{% endblock %} - {{ system_name or site_name or 'AI数据分析预测系统' }}</title>
+    <meta name="description" content="{{ system_description or site_description or (system_name or site_name or 'AI数据分析预测系统') }}">
     <style>
         * {
             margin: 0;
@@ -13,17 +14,49 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #111827 100%);
             min-height: 100vh;
-            color: #333;
+            color: #e5e7eb;
             display: flex;
+        }
+
+        body,
+        p,
+        li,
+        label,
+        td,
+        th,
+        input,
+        select,
+        textarea {
+            color: #f8fafc;
+        }
+
+        .github-watermark {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.06;
+            overflow: hidden;
+        }
+
+        .github-watermark::before {
+            content: "";
+            position: absolute;
+            inset: -35%;
+            transform: rotate(-45deg);
+            transform-origin: center;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='520' height='240' viewBox='0 0 520 240'><text x='18' y='102' font-size='28' font-family='Arial, sans-serif' fill='%23ffffff' fill-opacity='1'>github.com/e5sub/mark-six</text><text x='18' y='146' font-size='22' font-family='Arial, sans-serif' fill='%23ffffff' fill-opacity='1'>本项目源码仅限非商业用途使用</text></svg>");
+            background-repeat: repeat;
+            background-size: 520px 240px;
         }
         
         .sidebar {
             width: 260px;
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.72);
             backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(255, 255, 255, 0.2);
+            border-right: 1px solid rgba(148, 163, 184, 0.16);
             position: fixed;
             height: 100vh;
             left: 0;
@@ -34,7 +67,7 @@
         
         .sidebar-header {
             padding: 2rem 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
         }
         
         .sidebar-brand {
@@ -51,7 +84,7 @@
         .sidebar-nav a {
             display: flex;
             align-items: center;
-            color: rgba(255, 255, 255, 0.8);
+            color: #cbd5e1;
             text-decoration: none;
             padding: 1rem 1.5rem;
             transition: all 0.3s ease;
@@ -60,13 +93,13 @@
         }
         
         .sidebar-nav a:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(30, 41, 59, 0.82);
             color: white;
             border-left-color: white;
         }
         
         .sidebar-nav a.active {
-            background: rgba(255, 255, 255, 0.15);
+            background: rgba(30, 41, 59, 0.96);
             color: white;
             border-left-color: white;
             font-weight: 500;
@@ -83,39 +116,67 @@
             flex: 1;
             padding: 2rem;
             width: calc(100% - 260px);
+            position: relative;
+            z-index: 1;
+        }
+
+        .app-footer {
+            margin-top: 2.5rem;
+            padding: 1rem 1.25rem;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.9rem;
+            line-height: 1.7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .app-footer a {
+            color: #ffffff;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        .app-footer a:hover {
+            text-decoration: underline;
         }
         
         .top-bar {
-            background: white;
+            background: rgba(15, 23, 42, 0.88);
             padding: 1.5rem 2rem;
             border-radius: 20px;
             margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(2, 6, 23, 0.35);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .page-title {
             font-size: 1.8rem;
             font-weight: 600;
-            color: #333;
+            color: #f8fafc;
         }
         
         .user-info {
             display: flex;
             align-items: center;
             gap: 1rem;
-            color: #666;
+            color: #cbd5e1;
             font-size: 0.95rem;
         }
         
         .card {
-            background: white;
+            background: rgba(15, 23, 42, 0.82);
             border-radius: 20px;
             padding: 2rem;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 18px 40px rgba(2, 6, 23, 0.32);
             margin-bottom: 2rem;
+            border: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .card-header {
@@ -124,13 +185,13 @@
             align-items: center;
             margin-bottom: 2rem;
             padding-bottom: 1rem;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .card-title {
             font-size: 1.4rem;
             font-weight: 600;
-            color: #333;
+            color: #f8fafc;
         }
         
         .btn {
@@ -185,23 +246,23 @@
         .table td {
             padding: 1rem;
             text-align: left;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
         }
         
         .table th {
-            background: #f8f9fa;
+            background: rgba(30, 41, 59, 0.92);
             font-weight: 600;
-            color: #555;
+            color: #e2e8f0;
             font-size: 0.9rem;
         }
         
         .table td {
-            color: #666;
+            color: #cbd5e1;
             font-size: 0.95rem;
         }
         
         .table tr:hover {
-            background: #f8f9fa;
+            background: rgba(30, 41, 59, 0.45);
         }
         
         .form-group {
@@ -212,18 +273,19 @@
             display: block;
             margin-bottom: 0.5rem;
             font-weight: 500;
-            color: #333;
+            color: #e5e7eb;
             font-size: 0.95rem;
         }
         
         .form-control {
             width: 100%;
             padding: 0.75rem 1rem;
-            border: 2px solid #e9ecef;
+            border: 2px solid rgba(148, 163, 184, 0.16);
             border-radius: 12px;
             font-size: 0.95rem;
             transition: all 0.3s ease;
-            background: white;
+            background: rgba(15, 23, 42, 0.72);
+            color: #e5e7eb;
         }
         
         .form-control:focus {
@@ -240,14 +302,14 @@
         }
         
         .alert-success {
-            background: rgba(40, 167, 69, 0.1);
-            color: #155724;
+            background: rgba(34, 197, 94, 0.12);
+            color: #86efac;
             border: 1px solid rgba(40, 167, 69, 0.2);
         }
         
         .alert-danger {
-            background: rgba(220, 53, 69, 0.1);
-            color: #721c24;
+            background: rgba(248, 113, 113, 0.12);
+            color: #fca5a5;
             border: 1px solid rgba(220, 53, 69, 0.2);
         }
         
@@ -260,11 +322,12 @@
         }
         
         .stat-card {
-            background: white;
+            background: rgba(15, 23, 42, 0.72);
             padding: 10px;
             border-radius: 10px;
             text-align: center;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 12px 24px rgba(2, 6, 23, 0.22);
+            border: 1px solid rgba(148, 163, 184, 0.1);
         }
         
         .stat-number {
@@ -275,7 +338,7 @@
         }
         
         .stat-label {
-            color: #666;
+            color: #cbd5e1;
             font-size: 0.85rem;
             font-weight: 500;
         }
@@ -309,7 +372,75 @@
         
         .badge-secondary {
             background: rgba(108, 117, 125, 0.1);
-            color: #495057;
+            color: #cbd5e1;
+        }
+
+        /* Force dark styling for admin child templates that still embed light cards or inline colors. */
+        .main-content .card,
+        .main-content .stat-card,
+        .main-content .table,
+        .main-content .modal-content,
+        .main-content [style*="background: white"],
+        .main-content [style*="background:white"],
+        .main-content [style*="linear-gradient(135deg, #fff"],
+        .main-content [style*="linear-gradient(180deg, #fff"],
+        .main-content [style*="rgba(255,255,255"],
+        .main-content [style*="rgba(255, 255, 255"],
+        .main-content [style*="background: #fff"],
+        .main-content [style*="background:#fff"],
+        .main-content [style*="background-color: #f8f9fa"],
+        .main-content [style*="background-color:#f8f9fa"],
+        .main-content [style*="#f8f9fa"],
+        .main-content [style*="#f8f9ff"],
+        .main-content [style*="#ffffff"] {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e5e7eb !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+            box-shadow: 0 14px 32px rgba(2, 6, 23, 0.28) !important;
+        }
+
+        .main-content h1,
+        .main-content h2,
+        .main-content h3,
+        .main-content h4,
+        .main-content .card-title,
+        .main-content [style*="color: #333"],
+        .main-content [style*="color:#333"] {
+            color: #f8fafc !important;
+        }
+
+        .main-content p,
+        .main-content li,
+        .main-content small,
+        .main-content label,
+        .main-content td,
+        .main-content [style*="color: #666"],
+        .main-content [style*="color:#666"] {
+            color: #dbe4f0 !important;
+        }
+
+        .main-content th,
+        .main-content thead th {
+            background: rgba(30, 41, 59, 0.92) !important;
+            color: #e2e8f0 !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+        }
+
+        .main-content td,
+        .main-content tr,
+        .main-content [style*="border-top:1px solid #"],
+        .main-content [style*="border: 1px solid #"],
+        .main-content [style*="border:1px solid #"] {
+            border-color: rgba(148, 163, 184, 0.12) !important;
+        }
+
+        .main-content input,
+        .main-content select,
+        .main-content textarea,
+        .main-content .form-control {
+            background: rgba(15, 23, 42, 0.88) !important;
+            color: #e5e7eb !important;
+            border-color: rgba(148, 163, 184, 0.18) !important;
         }
         
         .invite-code {
@@ -352,7 +483,7 @@
             padding: 0.5rem 1rem;
             border-radius: 8px;
             text-decoration: none;
-            color: #666;
+            color: #cbd5e1;
             transition: all 0.3s ease;
         }
         
@@ -395,17 +526,24 @@
     </style>
 </head>
 <body>
+    <div class="github-watermark" aria-hidden="true"></div>
     <div class="sidebar">
         <div class="sidebar-header">
-            <a href="{{ url_for('admin.dashboard') }}" class="sidebar-brand">管理后台</a>
+            <a href="{{ url_for('admin.dashboard') }}" class="sidebar-brand">{{ system_name or '管理后台' }}</a>
         </div>
         <nav class="sidebar-nav">
             <a href="{{ url_for('admin.dashboard') }}"><i>📊</i> 仪表板</a>
             <a href="{{ url_for('admin.users') }}"><i>👥</i> 用户管理</a>
             <a href="{{ url_for('admin.activation_codes') }}"><i>🔑</i> 激活码管理</a>
+            {% if payment_enabled %}
+            <a href="{{ url_for('admin.payment_orders') }}"><i>💳</i> 支付订单</a>
+            {% endif %}
             <a href="{{ url_for('admin.invite_codes') }}"><i>🎫</i> 邀请码管理</a>
+            <a href="{{ url_for('admin.zodiac_settings') }}"><i>🐲</i> 生肖管理</a>
             <a href="{{ url_for('admin.user_invites') }}"><i>🤝</i> 邀请关系</a>
             <a href="{{ url_for('admin.predictions') }}"><i>🎯</i> 预测记录</a>
+            <a href="{{ url_for('admin.bets') }}"><i>💰</i> 下注记录</a>
+            <a href="{{ url_for('admin.data_transfer') }}"><i>🗃️</i> 数据迁移</a>
             <a href="{{ url_for('admin.system_config') }}"><i>⚙️</i> 系统配置</a>
             <a href="{{ url_for('index') }}"><i>🏠</i> 返回首页</a>
             <a href="{{ url_for('auth.logout') }}"><i>🚪</i> 退出登录</a>
@@ -429,8 +567,15 @@
                 {% endfor %}
             {% endif %}
         {% endwith %}
-
+        
         {% block content %}{% endblock %}
+
+        <footer class="app-footer">
+            <span>GitHub：</span>
+            <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
+            <span>本项目源码仅限非商业用途使用。</span>
+            <a href="https://github.com/e5sub/mark-six/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">许可协议</a>
+        </footer>
     </div>
 
     <script>

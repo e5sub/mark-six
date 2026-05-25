@@ -1,22 +1,45 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}六合彩数据分析{% endblock %}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>{% block title %}{{ site_name or system_name or 'AI数据分析预测系统' }}{% endblock %}</title>
+    <link href="https://fastly.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://fastly.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background-color: #f8f9fa; }
+        body {
+            background-color: #0f172a;
+            color: #e5e7eb;
+        }
         .flash-messages { list-style: none; padding: 0; margin: 0; }
         .flash-messages .alert { margin-top: 1rem; }
+        .site-footer {
+            padding: 1.25rem 0 2rem;
+            text-align: center;
+            color: #cbd5e1;
+            font-size: 0.9rem;
+            line-height: 1.7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .site-footer a {
+            color: #93c5fd;
+            text-decoration: none;
+            font-weight: 700;
+        }
+        .site-footer a:hover {
+            text-decoration: underline;
+        }
     </style>
     {% block head_extra %}{% endblock %}
 </head>
 <body>
     
     {% block header %}
-    <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top border-bottom shadow-sm">
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top border-bottom shadow-sm" style="background: rgba(15, 23, 42, 0.92); border-color: rgba(148, 163, 184, 0.2) !important;">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('index') }}"><strong>数据分析平台</strong></a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -40,15 +63,15 @@
                                 {{ current_user.username }}
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-                                <li><a class="dropdown-item" href="{{ url_for('logout') }}">退出登录</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">退出登录</a></li>
                             </ul>
                         </li>
                     {% else %}
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('login') }}">登录</a>
+                            <a class="nav-link" href="{{ url_for('auth.login') }}">登录</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('register') }}">注册</a>
+                            <a class="nav-link" href="{{ url_for('auth.register') }}">注册</a>
                         </li>
                     {% endif %}
                 </ul>
@@ -77,9 +100,15 @@
         {% endwith %}
         {% block content %}{% endblock %}
     </main>
+    <footer class="site-footer">
+        <span>GitHub：</span>
+        <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
+        <span>本项目源码仅限非商业用途使用。</span>
+        <a href="https://github.com/e5sub/mark-six/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">许可协议</a>
+    </footer>
     {% endblock %}
     
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://fastly.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

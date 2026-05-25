@@ -6,7 +6,7 @@
 
 import os
 import sys
-from app import app, init_database
+from app import app, init_database, start_scheduler
 
 def main():
     """主函数"""
@@ -18,15 +18,15 @@ def main():
         # 初始化数据库
         print("正在初始化数据库...")
         init_database()
+        start_scheduler(force=True)
         print("✓ 数据库初始化完成")
         
         # 香港六合彩数据将在首次访问时自动从API获取
         print("✓ 数据将在首次访问时自动获取")
         
         print("\n系统信息:")
-        print("- 默认管理员账号: admin")
-        print("- 默认管理员密码: admin123")
-        print("- 请在首次登录后修改管理员密码")
+        print("- 首次部署时，第一个注册的用户会自动成为管理员")
+        print("- 系统不再写死默认管理员账号和密码")
         print("- 请在管理后台配置AI API和邮箱服务")
         
         print("\n启动Web服务器...")

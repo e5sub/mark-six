@@ -1,546 +1,795 @@
 {% extends "user/base.html" %}
 
-{% block page_title %}邀请码管理{% endblock %}
+{% block page_title %}邀请好友{% endblock %}
 
 {% block content %}
-<!-- 添加Font Awesome图标库 -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-<div class="container mt-4">
-    <div class="row">
-        <div class="col-md-12">
-            <!-- 页面标题和统计信息 -->
-            <div class="page-header-wrapper mb-4">
-                <div class="page-header d-flex justify-content-between align-items-center">
-                    <h2 class="mb-0">🎫 我的邀请码</h2>
-                    <button type="button" class="btn-generate" onclick="generateInviteCode()">
-                        <i class="fas fa-plus-circle me-2"></i>生成新邀请码
-                    </button>
-                </div>
-                
-                <!-- 统计信息卡片 -->
-                <div class="stats-cards mt-4">
-                    <div class="stat-card stat-total">
-                        <div class="stat-icon"><i class="fas fa-ticket-alt"></i></div>
-                        <div class="stat-content">
-                            <div class="stat-number">{{ stats.total_invites }}</div>
-                            <div class="stat-label">总邀请数</div>
-                        </div>
-                    </div>
-                    <div class="stat-card stat-active">
-                        <div class="stat-icon"><i class="fas fa-user-check"></i></div>
-                        <div class="stat-content">
-                            <div class="stat-number">{{ stats.active_invites }}</div>
-                            <div class="stat-label">成功激活</div>
-                        </div>
-                    </div>
-                    <div class="stat-card stat-rate">
-                        <div class="stat-icon"><i class="fas fa-chart-line"></i></div>
-                        <div class="stat-content">
-                            <div class="stat-number">{{ stats.success_rate }}%</div>
-                            <div class="stat-label">成功率</div>
-                        </div>
-                    </div>
-                </div>
+<!-- 统计信息 -->
+<div class="stats-grid">
+    <div class="stat-card-compact">
+        <div class="stat-icon" style="color: #667eea;">👥</div>
+        <div class="stat-number">{{ stats.total_generated or 0 }}</div>
+        <div class="stat-label">总生成数</div>
+    </div>
+    
+    <div class="stat-card-compact">
+        <div class="stat-icon" style="color: #28a745;">✅</div>
+        <div class="stat-number">{{ stats.total_invites or 0 }}</div>
+        <div class="stat-label">已使用</div>
+    </div>
+    
+    <div class="stat-card-compact">
+        <div class="stat-icon" style="color: #ffc107;">⏳</div>
+        <div class="stat-number">{{ invite_codes|length if invite_codes else 0 }}</div>
+        <div class="stat-label">剩余可用</div>
+    </div>
+    
+    <div class="stat-card-compact">
+        <div class="stat-icon" style="color: #17a2b8;">🎁</div>
+        <div class="stat-number">7天</div>
+        <div class="stat-label">奖励天数</div>
+    </div>
+</div>
+
+<!-- 邀请奖励说明 -->
+<div class="card-compact reward-card">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🎁 邀请奖励机制</h2>
+    </div>
+    
+    <div class="reward-content">
+        <div class="reward-item">
+            <span class="reward-icon">👤</span>
+            <div class="reward-text">
+                <strong>邀请好友注册</strong>
+                <p>每成功邀请一位好友注册，您和好友都将获得额外的有效期奖励</p>
             </div>
-
-            <!-- 邀请码列表 -->
-            <div class="card invite-codes-card">
-                <div class="card-header">
-                    <h4 class="mb-0"><i class="fas fa-list me-2"></i>邀请码列表</h4>
-                </div>
-                <div class="card-body">
-                    {% if codes.items %}
-                        <div class="table-responsive">
-                            <table class="table invite-codes-table">
-                                <thead>
-                                    <tr>
-                                        <th>邀请码</th>
-                                        <th>状态</th>
-                                        <th>创建时间</th>
-                                        <th>过期时间</th>
-                                        <th>使用者</th>
-                                        <th>操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for code in codes.items %}
-                                    <tr>
-                                        <td>
-                                            <div class="code-display">
-                                                <span class="invite-code">{{ code.code }}</span>
-                                                <button class="btn-copy" onclick="copyCode('{{ code.code }}')">
-                                                    <i class="fas fa-copy"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            {% if code.is_used %}
-                                                <span class="status-badge status-used">
-                                                    <i class="fas fa-check-circle me-1"></i>已使用
-                                                </span>
-                                            {% elif code.is_expired() %}
-                                                <span class="status-badge status-expired">
-                                                    <i class="fas fa-times-circle me-1"></i>已过期
-                                                </span>
-                                            {% else %}
-                                                <span class="status-badge status-active">
-                                                    <i class="fas fa-check-circle me-1"></i>可用
-                                                </span>
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            <div class="time-display">
-                                                <i class="far fa-calendar-alt me-1"></i>
-                                                {{ code.created_at.strftime('%Y-%m-%d %H:%M') if code.created_at else '-' }}
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div class="time-display">
-                                                <i class="far fa-clock me-1"></i>
-                                                {{ code.expires_at.strftime('%Y-%m-%d %H:%M') if code.expires_at else '永久' }}
-                                            </div>
-                                        </td>
-                                        <td>
-                                            {% if code.used_by %}
-                                                <span class="user-badge">
-                                                    <i class="fas fa-user me-1"></i>{{ code.used_by }}
-                                                </span>
-                                            {% else %}
-                                                <span class="text-muted">-</span>
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            {% if not code.is_used %}
-                                                <button class="btn-share" onclick="shareCode('{{ code.code }}')">
-                                                    <i class="fas fa-share-alt me-1"></i>分享
-                                                </button>
-                                            {% else %}
-                                                <span class="text-muted">-</span>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <!-- 分页 -->
-                        {% if codes.pages > 1 %}
-                        <nav aria-label="邀请码分页">
-                            <ul class="pagination justify-content-center">
-                                {% if codes.has_prev %}
-                                    <li class="page-item">
-                                        <a class="page-link" href="{{ url_for('user.invite_codes', page=codes.prev_num) }}">上一页</a>
-                                    </li>
-                                {% endif %}
-                                
-                                {% for page_num in codes.iter_pages() %}
-                                    {% if page_num %}
-                                        {% if page_num != codes.page %}
-                                            <li class="page-item">
-                                                <a class="page-link" href="{{ url_for('user.invite_codes', page=page_num) }}">{{ page_num }}</a>
-                                            </li>
-                                        {% else %}
-                                            <li class="page-item active">
-                                                <span class="page-link">{{ page_num }}</span>
-                                            </li>
-                                        {% endif %}
-                                    {% else %}
-                                        <li class="page-item disabled">
-                                            <span class="page-link">…</span>
-                                        </li>
-                                    {% endif %}
-                                {% endfor %}
-                                
-                                {% if codes.has_next %}
-                                    <li class="page-item">
-                                        <a class="page-link" href="{{ url_for('user.invite_codes', page=codes.next_num) }}">下一页</a>
-                                    </li>
-                                {% endif %}
-                            </ul>
-                        </nav>
-                        {% endif %}
-                    {% else %}
-                        <div class="text-center py-4">
-                            <p class="text-muted">您还没有创建任何邀请码</p>
-                            <button type="button" class="btn btn-primary" onclick="generateInviteCode()">
-                                生成第一个邀请码
-                            </button>
-                        </div>
-                    {% endif %}
-                </div>
+        </div>
+        
+        <div class="reward-item">
+            <span class="reward-icon">⏰</span>
+            <div class="reward-text">
+                <strong>有效期延长</strong>
+                <p>根据邀请数量，系统会自动为您的账户延长相应的有效期天数</p>
+            </div>
+        </div>
+        
+        <div class="reward-item">
+            <span class="reward-icon">🔄</span>
+            <div class="reward-text">
+                <strong>双向奖励</strong>
+                <p>邀请者和被邀请者都能获得奖励，实现互利共赢</p>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- 被邀请用户列表 -->
-    {% if invited_users %}
-    <div class="row mt-4">
-        <div class="col-md-12">
-            <div class="card invited-users-card">
-                <div class="card-header">
-                    <h4 class="mb-0"><i class="fas fa-users me-2"></i>我邀请的用户</h4>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table invited-users-table">
-                            <thead>
-                                <tr>
-                                    <th>用户名</th>
-                                    <th>邮箱</th>
-                                    <th>注册时间</th>
-                                    <th>激活状态</th>
-                                    <th>使用的邀请码</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for user in invited_users %}
-                                <tr>
-                                    <td>
-                                        <div class="user-info">
-                                            <i class="fas fa-user-circle me-2"></i>
-                                            {{ user.username }}
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="email-info">
-                                            <i class="fas fa-envelope me-2"></i>
-                                            {{ user.email }}
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="time-display">
-                                            <i class="far fa-calendar-alt me-1"></i>
-                                            {{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}
-                                        </div>
-                                    </td>
-                                    <td>
-                                        {% if user.is_active %}
-                                            <span class="status-badge status-active">
-                                                <i class="fas fa-check-circle me-1"></i>已激活
-                                            </span>
-                                        {% else %}
-                                            <span class="status-badge status-pending">
-                                                <i class="fas fa-clock me-1"></i>未激活
-                                            </span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        <span class="code-used">{{ user.invite_code_used or '-' }}</span>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+<!-- 生成邀请码 -->
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🔗 生成邀请码</h2>
+    </div>
+    
+    <div class="generate-section">
+        <div class="generate-info">
+            <div class="info-item">
+                <span class="info-icon">📝</span>
+                <span class="info-text">每个用户最多可生成 <strong>10个</strong> 邀请码</span>
+            </div>
+            <div class="info-item">
+                <span class="info-icon">⏱️</span>
+                <span class="info-text">邀请码永久有效，可重复使用</span>
+            </div>
+            <div class="info-item">
+                <span class="info-icon">🎯</span>
+                <span class="info-text">分享给好友，共同享受预测乐趣</span>
             </div>
         </div>
+        
+        {% set total_codes = invite_codes|length if invite_codes else 0 %}
+        {% if total_codes < 10 %}
+        <form method="POST" action="{{ url_for('user.generate_invite_code') }}" class="generate-form">
+            <button type="submit" class="generate-btn">
+                <span class="btn-icon">✨</span>
+                <span class="btn-text">生成新的邀请码</span>
+            </button>
+        </form>
+        {% else %}
+        <div class="limit-notice">
+            <span class="notice-icon">⚠️</span>
+            <span class="notice-text">您已达到邀请码生成上限（10个）</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 我的邀请码 -->
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📋 我的邀请码</h2>
+    </div>
+    
+    {% if invite_codes %}
+    <div class="invite-codes-grid">
+        {% for code in invite_codes %}
+        <div class="invite-code-item {% if code.is_used %}used{% endif %}">
+            <div class="code-header">
+                <div class="code-status">
+                    {% if code.is_used %}
+                    <span class="status-badge used">✅ 已使用</span>
+                    {% else %}
+                    <span class="status-badge available">🔥 可用</span>
+                    {% endif %}
+                </div>
+                <div class="code-date">
+                    {{ code.created_at.strftime('%m-%d %H:%M') }}
+                </div>
+            </div>
+            
+            <div class="code-content">
+                <div class="code-value" onclick="copyToClipboard('{{ code.code }}', this)">
+                    <span class="code-text">{{ code.code }}</span>
+                    <span class="copy-icon">📋</span>
+                </div>
+                
+                {% if code.is_used and code.used_by_user %}
+                <div class="used-info">
+                    <span class="used-icon">👤</span>
+                    <span class="used-text">被用户 <strong>{{ code.used_by_user.username }}</strong> 使用</span>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="code-actions">
+                <button onclick="shareInviteCode('{{ code.code }}')" class="action-btn share-btn">
+                    <span class="btn-icon">📤</span>
+                    <span class="btn-text">分享</span>
+                </button>
+                
+                <button onclick="copyInviteLink('{{ code.code }}')" class="action-btn copy-btn">
+                    <span class="btn-icon">🔗</span>
+                    <span class="btn-text">复制链接</span>
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📝</div>
+        <h3 class="empty-title">没有可用的邀请码</h3>
+        <p class="empty-text">
+            {% if stats.total_generated > 0 %}
+            您的邀请码已全部使用，可以点击上方按钮生成新的邀请码！
+            {% else %}
+            点击上方按钮生成您的第一个邀请码吧！
+            {% endif %}
+        </p>
     </div>
     {% endif %}
 </div>
 
+<!-- 使用说明 -->
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">📖 使用说明</h2>
+    </div>
+    
+    <div class="help-content">
+        <div class="help-section">
+            <h4 class="help-title">🎯 如何邀请好友</h4>
+            <ol class="help-list">
+                <li>点击"生成新的邀请码"按钮创建邀请码</li>
+                <li>复制邀请码或邀请链接分享给好友</li>
+                <li>好友在注册时输入您的邀请码</li>
+                <li>注册成功后，双方都将获得奖励</li>
+            </ol>
+        </div>
+        
+        <div class="help-section">
+            <h4 class="help-title">💡 温馨提示</h4>
+            <ul class="help-list">
+                <li>每个邀请码可以被多个用户使用</li>
+                <li>邀请码永久有效，请妥善保管</li>
+                <li>点击邀请码可以快速复制到剪贴板</li>
+                <li>分享链接包含完整的注册地址</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
 <style>
-/* 页面整体样式 */
-.page-header-wrapper {
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    border-radius: 16px;
-    padding: 30px;
-    color: white;
-    box-shadow: 0 10px 25px rgba(99, 102, 241, 0.2);
-}
-
-.page-header h2 {
-    font-weight: 700;
-    font-size: 1.8rem;
-    margin: 0;
-}
-
-/* 生成按钮样式 */
-.btn-generate {
-    background: white;
-    color: #6366f1;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 50px;
-    font-weight: 600;
-    font-size: 0.95rem;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
-    display: flex;
-    align-items: center;
-}
-
-.btn-generate:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
-}
-
-/* 统计卡片样式 */
-.stats-cards {
-    display: flex;
-    justify-content: space-between;
-    gap: 20px;
-    margin-top: 20px;
-}
-
-.stat-card {
-    background: rgba(255, 255, 255, 0.2);
-    backdrop-filter: blur(10px);
+/* 继承dashboard的基础样式 */
+.card-compact {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92) 0%, rgba(30, 41, 59, 0.88) 100%);
     border-radius: 12px;
-    padding: 15px 20px;
-    flex: 1;
-    display: flex;
-    align-items: center;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
-    transition: transform 0.3s ease;
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.28);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    margin-bottom: 1rem;
+    overflow: hidden;
 }
 
-.stat-card:hover {
-    transform: translateY(-5px);
+/* 统计卡片网格 - 4个一排 */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.card-header-compact {
+    padding: 0.8rem 1.2rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.card-title-compact {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.stat-card-compact {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 12px 26px rgba(2, 6, 23, 0.24);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    transition: all 0.3s ease;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.stat-card-compact:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
 }
 
 .stat-icon {
     font-size: 2rem;
-    margin-right: 15px;
-    opacity: 0.8;
-}
-
-.stat-content {
-    flex: 1;
+    margin-bottom: 0.5rem;
 }
 
 .stat-number {
-    font-size: 2.2rem;
+    font-size: 1.8rem;
     font-weight: 700;
-    line-height: 1;
-    margin-bottom: 5px;
+    color: #f8fafc;
+    margin-bottom: 0.3rem;
 }
 
 .stat-label {
     font-size: 0.9rem;
-    opacity: 0.8;
+    color: #dbe4f0;
+    font-weight: 500;
 }
 
-/* 邀请码卡片样式 */
-.invite-codes-card, .invited-users-card {
-    border: none;
-    border-radius: 16px;
-    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
-    overflow: hidden;
-    margin-bottom: 30px;
+/* 奖励卡片 */
+.reward-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(22, 50, 38, 0.88) 100%);
+    border-left: 4px solid #4ade80;
 }
 
-.card-header {
-    background: #f8f9fa;
-    padding: 20px;
-    border-bottom: 1px solid #eee;
+.reward-content {
+    padding: 1.2rem;
+    display: grid;
+    gap: 1rem;
 }
 
-.card-header h4 {
-    font-weight: 600;
-    color: #333;
-}
-
-/* 表格样式 */
-.invite-codes-table, .invited-users-table {
-    margin: 0;
-}
-
-.invite-codes-table th, .invited-users-table th {
-    font-weight: 600;
-    color: #555;
-    padding: 15px;
-    border-bottom: 2px solid #eee;
-}
-
-.invite-codes-table td, .invited-users-table td {
-    padding: 15px;
-    vertical-align: middle;
-}
-
-/* 邀请码显示样式 */
-.code-display {
+.reward-item {
     display: flex;
-    align-items: center;
-}
-
-.invite-code {
-    background: linear-gradient(135deg, #f0f4ff 0%, #e6eeff 100%);
-    padding: 8px 15px;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1rem;
+    background: rgba(15, 23, 42, 0.76);
     border-radius: 8px;
-    font-family: 'Courier New', monospace;
-    font-weight: 700;
-    color: #3b82f6;
-    letter-spacing: 1px;
-    margin-right: 10px;
-    border: 1px solid #d1deff;
+    transition: all 0.3s ease;
 }
 
-.btn-copy, .btn-share {
-    background: none;
-    border: none;
-    color: #6366f1;
-    cursor: pointer;
-    padding: 5px 10px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
+.reward-item:hover {
+    background: rgba(30, 41, 59, 0.9);
+    transform: translateX(5px);
 }
 
-.btn-copy:hover, .btn-share:hover {
-    background: #f0f4ff;
+.reward-icon {
+    font-size: 2rem;
+    flex-shrink: 0;
 }
 
-.btn-share {
-    background: #f0f4ff;
-    color: #6366f1;
-    padding: 6px 15px;
-    border-radius: 20px;
-    font-weight: 500;
-    font-size: 0.85rem;
-    border: 1px solid #d1deff;
+.reward-text strong {
+    color: #4ade80;
+    font-size: 1.1rem;
+    display: block;
+    margin-bottom: 0.3rem;
 }
 
-.btn-share:hover {
-    background: #e6eeff;
-}
-
-/* 状态标签样式 */
-.status-badge {
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    display: inline-flex;
-    align-items: center;
-}
-
-.status-active {
-    background-color: #dcfce7;
-    color: #16a34a;
-}
-
-.status-used {
-    background-color: #dbeafe;
-    color: #2563eb;
-}
-
-.status-expired {
-    background-color: #fee2e2;
-    color: #dc2626;
-}
-
-.status-pending {
-    background-color: #fef3c7;
-    color: #d97706;
-}
-
-/* 时间显示样式 */
-.time-display {
-    color: #666;
+.reward-text p {
+    margin: 0;
+    color: #dbe4f0;
     font-size: 0.9rem;
-    display: flex;
-    align-items: center;
+    line-height: 1.4;
 }
 
-/* 用户信息样式 */
-.user-info, .email-info {
+/* 生成区域 */
+.generate-section {
+    padding: 1.2rem;
     display: flex;
+    justify-content: space-between;
     align-items: center;
+    gap: 2rem;
 }
 
-.user-badge {
-    background: #f0f4ff;
-    color: #3b82f6;
-    padding: 5px 10px;
+.generate-info {
+    flex: 1;
+    display: grid;
+    gap: 0.5rem;
+}
+
+.info-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #dbe4f0;
+}
+
+.info-icon {
+    font-size: 1.1rem;
+}
+
+.generate-form {
+    flex-shrink: 0;
+}
+
+.generate-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 1.5rem;
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+}
+
+.generate-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(40, 167, 69, 0.4);
+}
+
+.btn-icon {
+    font-size: 1.2rem;
+}
+
+.limit-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 1.5rem;
+    background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+    color: white;
+    border-radius: 8px;
+    font-weight: 600;
+}
+
+.notice-icon {
+    font-size: 1.2rem;
+}
+
+/* 邀请码网格 */
+.invite-codes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    padding: 1.2rem;
+}
+
+.invite-code-item {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
+    border: 2px solid rgba(148, 163, 184, 0.12);
+    border-radius: 12px;
+    padding: 1rem;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.invite-code-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    border-color: rgba(102, 126, 234, 0.3);
+}
+
+.invite-code-item.used {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(51, 65, 85, 0.88) 100%);
+    border-color: rgba(148, 163, 184, 0.18);
+}
+
+.invite-code-item.used::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #6c757d 0%, #495057 100%);
+}
+
+.invite-code-item:not(.used)::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+}
+
+.code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.8rem;
+}
+
+.status-badge {
+    padding: 0.3rem 0.8rem;
     border-radius: 20px;
-    font-size: 0.85rem;
-    display: inline-flex;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.status-badge.available {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+}
+
+.status-badge.used {
+    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+    color: white;
+}
+
+.code-date {
+    font-size: 0.8rem;
+    color: #dbe4f0;
+}
+
+.code-content {
+    margin-bottom: 1rem;
+}
+
+.code-value {
+    display: flex;
     align-items: center;
+    justify-content: space-between;
+    padding: 0.8rem;
+    background: rgba(49, 46, 129, 0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-bottom: 0.5rem;
 }
 
-.code-used {
+.code-value:hover {
+    background: rgba(79, 70, 229, 0.36);
+    transform: scale(1.02);
+}
+
+.code-text {
     font-family: 'Courier New', monospace;
-    color: #6366f1;
-    font-weight: 500;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #667eea;
+    letter-spacing: 1px;
 }
 
-/* 响应式调整 */
+.copy-icon {
+    font-size: 1.2rem;
+    opacity: 0.7;
+    transition: all 0.3s ease;
+}
+
+.code-value:hover .copy-icon {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.used-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: #dbe4f0;
+    padding: 0.5rem 0.8rem;
+    background: rgba(51, 65, 85, 0.6);
+    border-radius: 6px;
+}
+
+.used-icon {
+    font-size: 1rem;
+}
+
+.code-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    padding: 0.6rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.share-btn {
+    background: linear-gradient(135deg, #17a2b8 0%, #6f42c1 100%);
+    color: white;
+}
+
+.copy-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.action-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* 空状态 */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #dbe4f0;
+}
+
+.empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+.empty-title {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.3rem;
+    color: #f8fafc;
+}
+
+.empty-text {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+/* 帮助内容 */
+.help-content {
+    padding: 1.2rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+}
+
+.help-section {
+    background: rgba(30, 41, 59, 0.72);
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 3px solid #667eea;
+}
+
+.help-title {
+    margin: 0 0 0.8rem 0;
+    color: #667eea;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.help-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: #dbe4f0;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.help-list li {
+    margin-bottom: 0.3rem;
+}
+
+/* 响应式设计 */
 @media (max-width: 768px) {
-    .stats-cards {
-        flex-direction: column;
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
     }
     
-    .page-header {
+    .generate-section {
         flex-direction: column;
-        gap: 15px;
+        align-items: stretch;
+        gap: 1rem;
     }
     
-    .btn-generate {
-        width: 100%;
-        justify-content: center;
+    .invite-codes-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .help-content {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .code-actions {
+        flex-direction: column;
+    }
+}
+
+/* 复制成功提示 */
+.copy-success {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
     }
 }
 </style>
 
 <script>
-function generateInviteCode() {
-    if (confirm('确定要生成新的邀请码吗？每天最多只能生成3个邀请码。')) {
-        fetch('{{ url_for("user.generate_invite_code") }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('邀请码生成成功：' + data.code);
-                location.reload();
-            } else {
-                alert('生成失败：' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('生成失败，请稍后重试');
-        });
+// 复制到剪贴板
+function copyToClipboard(text, element) {
+    // 使用降级方案，确保在所有浏览器中都能工作
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    
+    try {
+        document.execCommand('copy');
+        showCopySuccess('邀请码已复制到剪贴板');
+        
+        // 添加复制动画效果
+        if (element) {
+            element.style.background = 'rgba(40, 167, 69, 0.2)';
+            setTimeout(() => {
+                element.style.background = 'rgba(102, 126, 234, 0.1)';
+            }, 300);
+        }
+    } catch (err) {
+        console.error('复制失败:', err);
+        showCopySuccess('复制失败，请手动复制', 'error');
+    } finally {
+        document.body.removeChild(textArea);
     }
 }
 
-function copyCode(code) {
-    navigator.clipboard.writeText(code).then(function() {
-        alert('邀请码已复制到剪贴板：' + code);
-    }, function(err) {
-        console.error('复制失败: ', err);
-        // 备用复制方法
-        const textArea = document.createElement('textarea');
-        textArea.value = code;
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-        alert('邀请码已复制到剪贴板：' + code);
-    });
-}
+// 处理生成邀请码表单提交
+document.addEventListener('DOMContentLoaded', function() {
+    const generateForm = document.querySelector('.generate-form');
+    if (generateForm) {
+        generateForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            fetch('{{ url_for("user.generate_invite_code") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showCopySuccess('邀请码生成成功！');
+                    // 刷新页面显示新生成的邀请码
+                    window.location.reload();
+                } else {
+                    showCopySuccess(data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showCopySuccess('生成邀请码时出错，请稍后再试', 'error');
+            });
+        });
+    }
+});
 
-function shareCode(code) {
-    const shareText = `邀请您注册六合彩预测系统！\n邀请码：${code}\n注册链接：${window.location.origin}/auth/register`;
+// 分享邀请码
+function shareInviteCode(code) {
+    // 使用当前部署的URL作为基础，确保链接可访问
+    const baseUrl = window.location.origin;
+    const text = `🎯 邀请您加入AI数据分析预测系统！\n\n邀请码：${code}\n\n注册地址：${baseUrl}/register\n\n使用邀请码注册，我们都能获得额外奖励哦！`;
     
     if (navigator.share) {
         navigator.share({
-            title: '邀请注册',
-            text: shareText
+            title: 'AI数据分析预测系统邀请',
+            text: text
+        }).catch(err => {
+            console.error('分享失败:', err);
+            copyToClipboard(text);
+            showCopySuccess('邀请信息已复制到剪贴板');
         });
     } else {
-        // 复制分享文本到剪贴板
-        navigator.clipboard.writeText(shareText).then(function() {
-            alert('分享内容已复制到剪贴板，您可以粘贴发送给朋友！');
-        }, function(err) {
-            console.error('复制失败: ', err);
-            alert('分享内容：\n' + shareText);
-        });
+        copyToClipboard(text);
+        showCopySuccess('邀请信息已复制到剪贴板');
     }
+}
+
+// 复制邀请链接
+function copyInviteLink(code) {
+    // 使用当前部署的URL作为基础，确保链接可访问
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}/invite/${code}`;
+    copyToClipboard(link, null);
+    showCopySuccess('邀请链接已复制到剪贴板');
+}
+
+// 显示复制成功提示
+function showCopySuccess(message, type = 'success') {
+    // 移除已存在的提示
+    const existing = document.querySelector('.copy-success');
+    if (existing) {
+        existing.remove();
+    }
+    
+    // 创建新提示
+    const toast = document.createElement('div');
+    toast.className = 'copy-success';
+    
+    if (type === 'error') {
+        toast.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)';
+    }
+    
+    toast.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 1.2rem;">${type === 'success' ? '✅' : '❌'}</span>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // 3秒后自动移除
+    setTimeout(() => {
+        toast.style.animation = 'slideInRight 0.3s ease-out reverse';
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        }, 300);
+    }, 3000);
 }
 </script>
 {% endblock %}

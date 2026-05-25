@@ -11,6 +11,13 @@ echo "当前目录: $(pwd)"
 echo "数据目录内容:"
 ls -la /app/data
 
+DB_TYPE_LOWER=$(echo "${DB_TYPE:-}" | tr '[:upper:]' '[:lower:]')
+if [ "$DB_TYPE_LOWER" = "mysql" ] || [ "$DB_TYPE_LOWER" = "mariadb" ] || echo "${DATABASE_URL:-}" | grep -qi "^mysql"; then
+    echo "MySQL configured, skipping sqlite initialization."
+    echo "Starting service..."
+    exec "$@"
+fi
+
 # 检查数据库文件是否存在
 if [ ! -f /app/data/lottery_system.db ]; then
     echo "数据库文件不存在，正在初始化数据库..."

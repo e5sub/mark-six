@@ -1,0 +1,378 @@
+﻿{% extends "admin/base.html" %}
+
+{% macro render_number_stakes(raw) -%}
+    {% set red_numbers = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46] %}
+    {% set blue_numbers = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48] %}
+    {% for part in raw.split(',') if part.strip() %}
+        {% set pair = part.strip().split(':') %}
+        {% if pair|length >= 2 %}
+            {% set num = pair[0].strip() %}
+            {% set amount = pair[1].strip()|float|int %}
+            {% set num_int = num|int %}
+            <span class="bet-pair">
+                <span class="bet-ball {% if num_int in red_numbers %}ball-red{% elif num_int in blue_numbers %}ball-blue{% else %}ball-green{% endif %}">{{ '%02d'|format(num_int) }}</span>
+                <span class="bet-amount">{{ amount }}元</span>
+            </span>
+        {% endif %}
+    {% endfor %}
+{%- endmacro %}
+
+{% macro render_stake_chips(raw, tone='default') -%}
+    {% for part in raw.split(',') if part.strip() %}
+        {% set pair = part.strip().split(':') %}
+        {% if pair|length >= 2 %}
+            {% set label = pair[0].strip() %}
+            {% set amount = pair[1].strip()|float|int %}
+            <span class="bet-chip {{ tone }}">{{ label }}</span>
+            <span class="bet-amount">{{ amount }}元</span>
+        {% else %}
+            <span class="bet-chip {{ tone }}">{{ part.strip() }}</span>
+        {% endif %}
+    {% endfor %}
+{%- endmacro %}
+
+{% block page_title %}下注记录{% endblock %}
+
+{% block content %}
+<style>
+    .bet-content {
+        display: grid;
+        gap: 0.55rem;
+    }
+
+    .bet-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+        line-height: 1.7;
+    }
+
+    .bet-label {
+        color: #cbd5e1;
+        min-width: 56px;
+        font-weight: 700;
+    }
+
+    .bet-pair,
+    .bet-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+        margin-right: 0.25rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .bet-ball {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        color: #fff;
+        font-size: 0.82rem;
+        font-weight: 800;
+        box-shadow: 0 4px 10px rgba(2, 6, 23, 0.2);
+    }
+
+    .ball-red { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+    .ball-blue { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); }
+    .ball-green { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); }
+
+    .bet-chip {
+        padding: 0.28rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(59, 130, 246, 0.12);
+        color: #dbeafe;
+        border: 1px solid rgba(96, 165, 250, 0.18);
+        font-size: 0.84rem;
+        font-weight: 700;
+    }
+
+    .bet-chip.wave {
+        background: rgba(14, 165, 233, 0.14);
+        color: #bae6fd;
+        border-color: rgba(56, 189, 248, 0.18);
+    }
+
+    .bet-chip.zodiac {
+        background: rgba(168, 85, 247, 0.14);
+        color: #e9d5ff;
+        border-color: rgba(192, 132, 252, 0.18);
+    }
+
+    .bet-chip.parity {
+        background: rgba(245, 158, 11, 0.14);
+        color: #fde68a;
+        border-color: rgba(251, 191, 36, 0.18);
+    }
+
+    .bet-amount {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.24rem 0.58rem;
+        border-radius: 999px;
+        background: rgba(34, 197, 94, 0.14);
+        color: #86efac;
+        border: 1px solid rgba(74, 222, 128, 0.18);
+        font-size: 0.82rem;
+        font-weight: 800;
+    }
+
+    .profit-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 72px;
+        padding: 0.35rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.84rem;
+        font-weight: 800;
+    }
+
+    .profit-win {
+        background: rgba(34, 197, 94, 0.14);
+        color: #86efac;
+        border: 1px solid rgba(74, 222, 128, 0.18);
+    }
+
+    .profit-lose {
+        background: rgba(239, 68, 68, 0.14);
+        color: #fca5a5;
+        border: 1px solid rgba(248, 113, 113, 0.18);
+    }
+
+    .profit-draw {
+        background: rgba(148, 163, 184, 0.14);
+        color: #cbd5e1;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+    }
+</style>
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">筛选条件</h2>
+    </div>
+    <form method="GET" action="{{ url_for('admin.bets') }}">
+        <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;">
+            <div class="form-group">
+                <label>用户（ID/用户名/邮箱）</label>
+                <input class="form-control" name="user" value="{{ user_query }}">
+            </div>
+            <div class="form-group">
+                <label>地区</label>
+                <select class="form-control" name="region">
+                    <option value="">全部</option>
+                    <option value="hk" {% if region == 'hk' %}selected{% endif %}>香港</option>
+                    <option value="macau" {% if region == 'macau' %}selected{% endif %}>澳门</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>期号</label>
+                <input class="form-control" name="period" value="{{ period }}">
+            </div>
+            <div class="form-group">
+                <label>状态</label>
+                <select class="form-control" name="status">
+                    <option value="">全部</option>
+                    <option value="pending" {% if status == 'pending' %}selected{% endif %}>待结算</option>
+                    <option value="settled" {% if status == 'settled' %}selected{% endif %}>已结算</option>
+                    <option value="win" {% if status == 'win' %}selected{% endif %}>盈利</option>
+                    <option value="lose" {% if status == 'lose' %}selected{% endif %}>亏损</option>
+                    <option value="draw" {% if status == 'draw' %}selected{% endif %}>持平</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>开始日期</label>
+                <input class="form-control" type="date" name="start_date" value="{{ start_date }}">
+            </div>
+            <div class="form-group">
+                <label>结束日期</label>
+                <input class="form-control" type="date" name="end_date" value="{{ end_date }}">
+            </div>
+        </div>
+        <div style="margin-top: 1rem; display: flex; gap: 0.75rem;">
+            <button type="submit" class="btn">查询</button>
+            <a class="btn btn-success" href="{{ url_for('admin.bets') }}">重置</a>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">统计信息</h2>
+    </div>
+    <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.total }}</div>
+            <div class="stat-label">总记录数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.total_stake|int }}元</div>
+            <div class="stat-label">总下注</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" style="color:{% if summary.total_profit > 0 %}#22c55e{% elif summary.total_profit < 0 %}#ef4444{% else %}#f8fafc{% endif %};">
+                {{ summary.total_profit|int }}元
+            </div>
+            <div class="stat-label">总盈亏</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.pending_count }}</div>
+            <div class="stat-label">待结算</div>
+        </div>
+    </div>
+    <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem;">
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.win_count }}</div>
+            <div class="stat-label">盈利次数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.lose_count }}</div>
+            <div class="stat-label">亏损次数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ summary.draw_count }}</div>
+            <div class="stat-label">持平次数</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">下注记录</h2>
+    </div>
+    <div style="overflow-x: auto;">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>用户</th>
+                    <th>地区</th>
+                    <th>期号</th>
+                    <th>下注内容</th>
+                    <th>下注金额</th>
+                    <th>盈亏</th>
+                    <th>状态</th>
+                    <th>时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if bets.items %}
+                    {% for record in bets.items %}
+                    <tr>
+                        <td>{{ user_map.get(record.user_id, '未知用户') }}</td>
+                        <td>{{ '香港' if record.region == 'hk' else '澳门' }}</td>
+                        <td>{{ record.period }}</td>
+                        <td>
+                            <div class="bet-content">
+                                {% if record.bettor_name %}
+                                <div class="bet-row"><span class="bet-label">下注人</span><span>{{ record.bettor_name }}</span></div>
+                                {% endif %}
+                                {% if record.selected_numbers %}
+                                <div class="bet-row">
+                                    <span class="bet-label">号码</span>
+                                    {% if ':' in record.selected_numbers %}
+                                        {{ render_number_stakes(record.selected_numbers) }}
+                                    {% else %}
+                                        <span>{{ record.selected_numbers }}</span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                                {% if record.selected_zodiacs %}
+                                <div class="bet-row">
+                                    <span class="bet-label">生肖</span>
+                                    {% if ':' in record.selected_zodiacs %}
+                                        {{ render_stake_chips(record.selected_zodiacs, 'zodiac') }}
+                                    {% else %}
+                                        <span class="bet-chip zodiac">{{ record.selected_zodiacs }}</span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                                {% if record.selected_colors %}
+                                <div class="bet-row">
+                                    <span class="bet-label">波色</span>
+                                    {% if ':' in record.selected_colors %}
+                                        {{ render_stake_chips(record.selected_colors, 'wave') }}
+                                    {% else %}
+                                        <span class="bet-chip wave">{{ record.selected_colors }}</span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                                {% if record.selected_parity %}
+                                <div class="bet-row">
+                                    <span class="bet-label">单双</span>
+                                    {% if ':' in record.selected_parity %}
+                                        {{ render_stake_chips(record.selected_parity, 'parity') }}
+                                    {% else %}
+                                        <span class="bet-chip parity">{{ record.selected_parity }}</span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            总额：{{ (record.total_stake or 0)|int }}元
+                        </td>
+                        <td>
+                            {% if record.total_profit is none %}
+                                <span class="profit-badge profit-draw">-</span>
+                            {% elif record.total_profit > 0 %}
+                                <span class="profit-badge profit-win">+{{ record.total_profit|int }}元</span>
+                            {% elif record.total_profit < 0 %}
+                                <span class="profit-badge profit-lose">{{ record.total_profit|int }}元</span>
+                            {% else %}
+                                <span class="profit-badge profit-draw">0元</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if record.total_profit is none %}
+                                待结算
+                            {% elif record.total_profit > 0 %}
+                                盈利
+                            {% elif record.total_profit < 0 %}
+                                亏损
+                            {% else %}
+                                持平
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if record.created_at %}
+                                {{ record.created_at.strftime('%Y-%m-%d %H:%M') }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="POST" action="{{ url_for('admin.delete_bet', bet_id=record.id) }}" onsubmit="return confirm('确定删除该下注记录吗？')">
+                                <button type="submit" class="btn btn-sm" style="background: #f8d7da; color: #721c24;">删除</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="9" style="text-align: center; color: #999;">暂无记录</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>共 {{ bets.total }} 条记录</div>
+        <div style="display: flex; gap: 0.5rem;">
+            {% if bets.has_prev %}
+                <a class="btn btn-sm" href="{{ url_for('admin.bets', page=bets.prev_num, user=user_query, region=region, period=period, status=status, start_date=start_date, end_date=end_date) }}">上一页</a>
+            {% endif %}
+            <span style="line-height: 36px;">第 {{ bets.page }} / {{ bets.pages }} 页</span>
+            {% if bets.has_next %}
+                <a class="btn btn-sm" href="{{ url_for('admin.bets', page=bets.next_num, user=user_query, region=region, period=period, status=status, start_date=start_date, end_date=end_date) }}">下一页</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>初始化管理员 - {{ site_name or system_name or 'AI数据分析预测系统' }}</title>
+    <meta name="description" content="{{ site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --glass-bg: rgba(15, 23, 42, 0.78);
+            --glass-border: rgba(148, 163, 184, 0.18);
+            --text-primary: #e2e8f0;
+            --shadow-light: 0 16px 40px rgba(2, 6, 23, 0.4);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #111827 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .setup-container {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 20px;
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow-light);
+            padding: 40px;
+            width: 100%;
+            max-width: 460px;
+        }
+
+        .setup-header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .setup-header h1 {
+            color: var(--text-primary);
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .setup-header p {
+            color: #94a3b8;
+            font-size: 0.98rem;
+            line-height: 1.6;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            color: var(--text-primary);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid var(--glass-border);
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.72);
+            color: var(--text-primary);
+            font-size: 1rem;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+            background: rgba(15, 23, 42, 0.92);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: var(--primary-gradient);
+            color: white;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .alert-success {
+            background: rgba(40, 167, 69, 0.1);
+            color: #155724;
+            border: 1px solid rgba(40, 167, 69, 0.3);
+        }
+
+        .alert-error {
+            background: rgba(220, 53, 69, 0.1);
+            color: #721c24;
+            border: 1px solid rgba(220, 53, 69, 0.3);
+        }
+
+        .hint {
+            margin-top: 18px;
+            color: #94a3b8;
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="setup-header">
+            <h1><i class="fas fa-user-shield"></i> 初始化管理员</h1>
+            <p>首次部署完成后，请先手动创建首个管理员账号。创建成功后，系统将不再显示此页面。</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'error' if category == 'error' else category }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="post">
+            <div class="form-group">
+                <label for="username">管理员用户名</label>
+                <input id="username" name="username" type="text" class="form-control" required autocomplete="username">
+            </div>
+
+            <div class="form-group">
+                <label for="email">管理员邮箱</label>
+                <input id="email" name="email" type="email" class="form-control" required autocomplete="email">
+            </div>
+
+            <div class="form-group">
+                <label for="password">管理员密码</label>
+                <input id="password" name="password" type="password" class="form-control" required autocomplete="new-password">
+            </div>
+
+            <div class="form-group">
+                <label for="confirm_password">确认密码</label>
+                <input id="confirm_password" name="confirm_password" type="password" class="form-control" required autocomplete="new-password">
+            </div>
+
+            <button type="submit" class="btn">
+                <i class="fas fa-check-circle"></i>
+                创建首个管理员
+            </button>
+        </form>
+
+        <div class="hint">
+            首个管理员默认会自动激活，并在创建成功后直接登录到后台。
+        </div>
+    </div>
+</body>
+</html>

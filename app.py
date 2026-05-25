@@ -1,92 +1,783 @@
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask import Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
+import hashlib
+import math
 import os
-import random
+import copy
 import requests
+import smtplib
+import threading
+from contextlib import contextmanager
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from collections import Counter
-from datetime import datetime
+import re
+from urllib.parse import quote_plus
+from datetime import datetime, timedelta
+import time
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.engine import make_url
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 
 # 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig, InviteCode
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord, BacktestRun
 from auth import auth_bp
 from admin import admin_bp
 from user import user_bp
 from activation_code_routes import activation_code_bp
+from invite_routes import invite_bp
+from api_mobile import mobile_api_bp
 
 # --- 配置信息 ---
-app = Flask(__name__)
-# 使用环境变量设置密钥，如果不存在则使用随机生成的密钥
-import os
-import secrets
-app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
-
-# 确保数据目录存在
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
+_ML_PREDICTION_CACHE_TTL_SECONDS = 180
+_ml_prediction_cache = {}
+_ml_prediction_cache_lock = threading.Lock()
+_strategy_config_override_local = threading.local()
+
+def _load_or_create_secret_key():
+    env_secret = os.environ.get("SECRET_KEY")
+    if env_secret:
+        return env_secret
+
+    import secrets
+    secret_key_path = os.path.join(data_dir, "secret_key.txt")
+    try:
+        if os.path.exists(secret_key_path):
+            with open(secret_key_path, "r", encoding="utf-8") as f:
+                persisted = (f.read() or "").strip()
+                if persisted:
+                    return persisted
+        persisted = secrets.token_hex(32)
+        with open(secret_key_path, "w", encoding="utf-8") as f:
+            f.write(persisted)
+        return persisted
+    except OSError:
+        # 兜底：即使文件写入失败，也至少保证当前进程可运行
+        return secrets.token_hex(32)
+
+app = Flask(__name__)
+app.secret_key = _load_or_create_secret_key()
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+
+def _safe_system_config(key, default=""):
+    try:
+        return SystemConfig.get_config(key, default)
+    except Exception:
+        return default
+
+
+@app.context_processor
+def inject_system_settings():
+    site_name = _safe_system_config("site_name", "AI数据分析预测系统")
+    site_description = _safe_system_config("site_description", "")
+    system_name = _safe_system_config("system_name", site_name or "AI数据分析预测系统")
+    system_description = _safe_system_config("system_description", site_description or "")
+    alipay_f2f_enabled = str(_safe_system_config("alipay_f2f_enabled", "false")).strip().lower() in {
+        "true", "1", "yes", "on"
+    }
+    wechat_native_enabled = str(_safe_system_config("wechat_native_enabled", "false")).strip().lower() in {
+        "true", "1", "yes", "on"
+    }
+    return {
+        "site_name": site_name,
+        "site_description": site_description,
+        "system_name": system_name,
+        "system_description": system_description,
+        "alipay_f2f_enabled": alipay_f2f_enabled,
+        "wechat_native_enabled": wechat_native_enabled,
+        "payment_enabled": alipay_f2f_enabled or wechat_native_enabled,
+    }
+
+_startup_log_lock_path = None
+_startup_log_lock_acquired = False
+_lottery_update_thread = None
+_lottery_update_lock = threading.Lock()
+_lottery_update_state_lock = threading.Lock()
+_lottery_update_running = False
+_lottery_update_started_at = None
+
+def _pid_is_running(pid):
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+def _try_acquire_startup_log_lock():
+    import tempfile
+    global _startup_log_lock_path, _startup_log_lock_acquired
+    if _startup_log_lock_acquired:
+        return True
+    lock_path = os.path.join(tempfile.gettempdir(), "mark-six-startup.log.lock")
+    pid = os.getpid()
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w") as f:
+            f.write(str(pid))
+        _startup_log_lock_path = lock_path
+        _startup_log_lock_acquired = True
+        return True
+    except FileExistsError:
+        try:
+            with open(lock_path, "r") as f:
+                existing_pid = int((f.read() or "").strip() or "0")
+        except Exception:
+            existing_pid = 0
+        if existing_pid and _pid_is_running(existing_pid):
+            return False
+        try:
+            os.remove(lock_path)
+        except OSError:
+            return False
+        return _try_acquire_startup_log_lock()
+
+def _release_startup_log_lock():
+    global _startup_log_lock_path, _startup_log_lock_acquired
+    if not _startup_log_lock_acquired or not _startup_log_lock_path:
+        return
+    try:
+        os.remove(_startup_log_lock_path)
+    except OSError:
+        pass
+    _startup_log_lock_path = None
+    _startup_log_lock_acquired = False
+
+def _should_log_startup():
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        return False
+    if not _try_acquire_startup_log_lock():
+        return False
+    import atexit
+    atexit.register(_release_startup_log_lock)
+    return True
+
+def _build_database_uri(db_path):
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        return db_url
+
+    db_type = os.environ.get("DB_TYPE", "sqlite").lower()
+    if db_type in ("mysql", "mariadb"):
+        host = os.environ.get("DB_HOST", "localhost")
+        port = os.environ.get("DB_PORT", "3306")
+        name = os.environ.get("DB_NAME", "mark_six")
+        user = os.environ.get("DB_USER", "root")
+        password = quote_plus(os.environ.get("DB_PASSWORD", ""))
+        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
+
+    return f"sqlite:///{db_path}"
+
+def _mask_db_uri(uri):
+    return re.sub(r'//([^:/@]+):([^@]+)@', r'//\1:***@', uri)
+
+
+def _ensure_mysql_database_exists(database_uri):
+    try:
+        url = make_url(database_uri)
+    except Exception:
+        return
+
+    backend = (url.get_backend_name() or "").lower()
+    if backend not in ("mysql", "mariadb"):
+        return
+
+    db_name = str(url.database or "").strip()
+    if not db_name:
+        return
+
+    server_url = url.set(database=None)
+    admin_engine = None
+    try:
+        admin_engine = create_engine(
+            server_url,
+            pool_pre_ping=True,
+            pool_recycle=280,
+        )
+        escaped_name = db_name.replace("`", "``")
+        with admin_engine.begin() as connection:
+            connection.exec_driver_sql(
+                f"CREATE DATABASE IF NOT EXISTS `{escaped_name}` "
+                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            )
+        if _should_log_startup():
+            print(f"MySQL database ready: {db_name}")
+    except Exception as e:
+        print(f"Failed to ensure MySQL database exists: {e}")
+    finally:
+        if admin_engine is not None:
+            admin_engine.dispose()
+
+
+def _describe_database_target(database_uri):
+    try:
+        url = make_url(database_uri)
+    except Exception:
+        return "unknown", ""
+
+    backend = (url.get_backend_name() or "").lower()
+    database_name = str(url.database or "").strip()
+
+    if backend in ("mysql", "mariadb"):
+        return "MySQL", database_name
+    if backend == "sqlite":
+        return "SQLite", database_name
+    return backend or "unknown", database_name
+
+STRATEGY_LABELS = {
+    'ml': '机器学习预测',
+    'balanced': '均衡预测',
+    'ai': 'AI智能预测',
+    'hot': '热门预测',
+    'cold': '冷门预测',
+    'trend': '走势预测',
+    'hybrid': '综合预测'
+}
+
+def _get_strategy_label(strategy):
+    return STRATEGY_LABELS.get(strategy, strategy or '未知策略')
+
+def _build_strategy_note(requested_strategy, resolved_strategy):
+    return _get_strategy_label(resolved_strategy)
+
+def _build_special_focus_text(special, normal=None, strategy_name=None, accuracy=None, samples=None, confidence=None, extra_reason=None):
+    lines = [f"本期主推特码：{special}"]
+    if normal:
+        lines.append(f"参考平码：{', '.join(map(str, normal))}")
+    if strategy_name:
+        lines.append(f"预测策略：{strategy_name}")
+    if accuracy is not None:
+        lines.append(f"历史参考值：{accuracy}%")
+    if samples is not None:
+        lines.append(f"学习样本：{samples}期")
+    if confidence is not None:
+        lines.append(f"本期把握度：{confidence}%")
+    if extra_reason:
+        lines.append(f"简要说明：{extra_reason}")
+    return "\n".join(lines)
+
+def _has_meaningful_ai_reasoning(text):
+    content = str(text or "").strip()
+    if not content:
+        return False
+    if len(content) >= 120:
+        return True
+    return any(token in content for token in ("理由", "分析", "排除", "风险", "信心", "波色", "生肖", "单双"))
+
+
+def _build_ai_number_reason(number, zodiac_map):
+    value = str(number).strip()
+    try:
+        num = int(value)
+    except (TypeError, ValueError):
+        return None
+
+    color = _get_color_zh(num) or "待定"
+    zodiac = zodiac_map.get(str(num), "") or "待定"
+    parity = "双" if num % 2 == 0 else "单"
+    zone = "小号区" if num <= 16 else "中段区" if num <= 33 else "大号区"
+    tail = num % 10
+    return (
+        f"号码：`{num:02d}`\n"
+        f"理由：{color}波、生肖{zodiac}、{parity}数，落在{zone}，尾数为`{tail}`，用于补齐组合的区间与属性分布。\n"
+        f"风险：如果本期继续集中在相邻区间或同属性号码，这个点位会先被挤掉。"
+    )
+
+
+def _build_ai_reason_fallback(special_number, normal_numbers, region=None):
+    year = datetime.now().year
+    try:
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+    except Exception:
+        number_to_zodiac = {}
+
+    normal_sections = []
+    for number in normal_numbers or []:
+        section = _build_ai_number_reason(number, number_to_zodiac)
+        if section:
+            normal_sections.append(section)
+
+    try:
+        special_num = int(str(special_number).strip())
+    except (TypeError, ValueError):
+        special_num = None
+
+    special_color = _get_color_zh(special_num) if special_num is not None else ""
+    special_zodiac = number_to_zodiac.get(str(special_num), "") if special_num is not None else ""
+    special_parity = ""
+    if special_num is not None:
+        special_parity = "双" if special_num % 2 == 0 else "单"
+
+    normal_text = "\n\n".join(normal_sections) if normal_sections else "暂无可用的平码说明。"
+    region_label = "香港" if str(region or "").lower() == "hk" else "澳门" if str(region or "").lower() == "macau" else "当前"
+
+    return (
+        f"**平码预测**\n\n{normal_text}\n\n"
+        f"**特别号**\n\n"
+        f"号码：`{special_number}`\n"
+        f"理由：作为本期主推特码，优先参考{region_label}最近样本里的结构平衡；当前属性为{special_color or '待定'}波、生肖{special_zodiac or '待定'}、{special_parity or '待定'}数，用来和平码候选拉开主次。\n"
+        f"风险：特码本身波动更大，即使属性匹配，也可能被临场冷号打断。\n\n"
+        f"**排除逻辑**\n\n"
+        f"1. 不优先追与主推号完全同属性、且最近已经连续出现的过热号码。\n"
+        f"2. 不把六码全部压在同一区间，尽量避免小号、中段、大号失衡。\n"
+        f"3. 如果 AI 原始回复只给了号码，这一段是系统自动补的结构化理由。"
+    )
+
+
+def _compose_ai_recommendation_text(ai_response, special_number, normal_numbers, region=None):
+    raw_text = str(ai_response or "").strip()
+    fallback_text = _build_ai_reason_fallback(special_number, normal_numbers, region=region)
+    if not _has_meaningful_ai_reasoning(raw_text):
+        return fallback_text
+
+    has_structured_sections = all(token in raw_text for token in ("号码", "理由")) and "排除" in raw_text
+    if has_structured_sections:
+        return raw_text
+    return f"{raw_text}\n\n{fallback_text}"
+
+
+def _decorate_recommendation_text(requested_strategy, resolved_strategy, recommendation_text):
+    return recommendation_text or ''
+
+
+def _build_ai_normal_summary(normal_numbers, zodiac_map):
+    numbers = []
+    for value in normal_numbers or []:
+        try:
+            numbers.append(int(str(value).strip()))
+        except (TypeError, ValueError):
+            continue
+
+    if not numbers:
+        return "参考平码：暂无可用号码。"
+
+    labels = []
+    for num in numbers:
+        zodiac = zodiac_map.get(str(num), "") or ""
+        color = _get_color_zh(num) or ""
+        parts = [f"{num:02d}"]
+        if zodiac:
+            parts.append(zodiac)
+        if color:
+            parts.append(color)
+        labels.append("/".join(parts))
+
+    zone_names = []
+    if any(num <= 16 for num in numbers):
+        zone_names.append("小号区")
+    if any(17 <= num <= 33 for num in numbers):
+        zone_names.append("中段区")
+    if any(num >= 34 for num in numbers):
+        zone_names.append("大号区")
+    zone_text = "、".join(zone_names) if zone_names else "多区间"
+
+    color_counter = Counter(_get_color_zh(num) or "待定" for num in numbers)
+    color_text = "、".join(
+        f"{name}{count}枚"
+        for name, count in color_counter.items()
+        if name and name != "待定"
+    ) or "属性均衡"
+
+    return (
+        f"参考平码：[{', '.join(f'{num:02d}' for num in numbers)}]\n"
+        f"简述：{'、'.join(labels)}。整体以{zone_text}分散覆盖为主，当前波色分布为{color_text}，主要用于配合特码，不逐个展开。"
+    )
+
+
+def _build_ai_reason_fallback(special_number, normal_numbers, region=None):
+    year = datetime.now().year
+    try:
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+    except Exception:
+        number_to_zodiac = {}
+
+    try:
+        special_num = int(str(special_number).strip())
+    except (TypeError, ValueError):
+        special_num = None
+
+    special_color = _get_color_zh(special_num) if special_num is not None else ""
+    special_zodiac = number_to_zodiac.get(str(special_num), "") if special_num is not None else ""
+    special_parity = ""
+    if special_num is not None:
+        special_parity = "双" if special_num % 2 == 0 else "单"
+
+    normal_text = _build_ai_normal_summary(normal_numbers, number_to_zodiac)
+    region_label = "香港" if str(region or "").lower() == "hk" else "澳门" if str(region or "").lower() == "macau" else "当前"
+
+    return (
+        f"**平码预测**\n\n{normal_text}\n\n"
+        f"**特码重点**\n\n"
+        f"号码：`{special_number}`\n"
+        f"理由：作为本期主推特码，优先参考{region_label}最近样本里的结构平衡；当前属性为{special_color or '待定'}波、生肖{special_zodiac or '待定'}、{special_parity or '待定'}数，用来和平码候选拉开主次。\n"
+        f"风险：特码本身波动更大，即使属性匹配，也可能被临场冷号打断。\n\n"
+        f"**排除逻辑**\n\n"
+        f"1. 不优先追与主推号完全同属性、且最近已经连续出现的过热号码。\n"
+        f"2. 不把六码全部压在同一区间，尽量避免小号、中段、大号失衡。\n"
+        f"3. 如果 AI 原始回复只给了号码，这一段是系统自动补的结构化说明。"
+    )
+
+
+def _compose_ai_recommendation_text(ai_response, special_number, normal_numbers, region=None):
+    raw_text = str(ai_response or "").strip()
+    fallback_text = _build_ai_reason_fallback(special_number, normal_numbers, region=region)
+    if not _has_meaningful_ai_reasoning(raw_text):
+        return fallback_text
+
+    final_special = _normalize_draw_number(special_number)
+    _, extracted_special = _extract_ai_numbers_v2(raw_text, region=region)
+    cleaned_lines = []
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            cleaned_lines.append("")
+            continue
+        if any(token in stripped for token in ("本期主推特码", "参考平码", "特码重点")):
+            continue
+        conflicting_specials = re.findall(r"(?:特码|主推特码|本期主推特码)\D{0,4}(\d{1,2})", stripped)
+        if conflicting_specials and any(_normalize_draw_number(item) != final_special for item in conflicting_specials):
+            continue
+        cleaned_lines.append(line)
+
+    cleaned_text = "\n".join(cleaned_lines).strip()
+    if extracted_special and _normalize_draw_number(extracted_special) != final_special:
+        cleaned_text = ""
+    if not _has_meaningful_ai_reasoning(cleaned_text):
+        return fallback_text
+    return f"{cleaned_text}\n\n{fallback_text}"
+
+
+def _normalize_special_candidate_numbers(candidates):
+    normalized = []
+    seen = set()
+    for value in candidates or []:
+        try:
+            number = int(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= number <= 49) or number in seen:
+            continue
+        seen.add(number)
+        normalized.append(number)
+    return normalized
+
+
+def _load_used_special_numbers(user_id, region, period, exclude_strategy=None):
+    if not user_id or not region or not period:
+        return set()
+
+    query = PredictionRecord.query.filter_by(
+        user_id=user_id,
+        region=region,
+        period=period,
+    )
+    if exclude_strategy:
+        query = query.filter(PredictionRecord.strategy != exclude_strategy)
+
+    used_numbers = set()
+    for row in query.with_entities(PredictionRecord.special_number).all():
+        raw = str(row[0] or "").strip()
+        if raw.isdigit():
+            used_numbers.add(int(raw))
+    return used_numbers
+
+
+def _refresh_special_recommendation_text(strategy, recommendation_text, special_number, normal_numbers, region=None):
+    if strategy == "ai":
+        return _compose_ai_recommendation_text(
+            recommendation_text,
+            str(special_number),
+            normal_numbers,
+            region=region,
+        )
+
+    return _build_special_focus_text(
+        str(special_number),
+        normal_numbers,
+        strategy_name=_get_strategy_label(strategy),
+    )
+
+
+def _ensure_period_unique_special(
+    result,
+    strategy,
+    region,
+    period,
+    user_id=None,
+    prediction_zodiac_year=None,
+    used_special_numbers=None,
+):
+    if not result or not user_id:
+        return result
+
+    special_info = result.get("special") or {}
+    special_raw = str(special_info.get("number") or "").strip()
+    if not special_raw.isdigit():
+        return result
+
+    current_special = int(special_raw)
+    used_numbers = set(used_special_numbers or _load_used_special_numbers(
+        user_id,
+        region,
+        period,
+        exclude_strategy=strategy,
+    ))
+    if current_special not in used_numbers:
+        return result
+
+    normal_numbers = []
+    for value in result.get("normal") or []:
+        try:
+            normal_numbers.append(int(str(value).strip()))
+        except (TypeError, ValueError):
+            continue
+
+    model_meta = dict(result.get("model_meta") or {})
+    candidate_numbers = _normalize_special_candidate_numbers(model_meta.get("special_candidates"))
+    if current_special not in candidate_numbers:
+        candidate_numbers.insert(0, current_special)
+
+    replacement = None
+    for candidate in candidate_numbers:
+        if candidate == current_special:
+            continue
+        if candidate in used_numbers or candidate in normal_numbers:
+            continue
+        replacement = candidate
+        break
+
+    if replacement is None:
+        return result
+
+    zodiac_year = prediction_zodiac_year or datetime.now().year
+    zodiac_map = _get_number_to_zodiac_map(zodiac_year)
+    result["special"] = {
+        "number": str(replacement),
+        "sno_zodiac": zodiac_map.get(str(replacement), ""),
+    }
+    model_meta["special_candidates"] = candidate_numbers
+    model_meta["special_unique_original"] = str(current_special)
+    model_meta["special_unique_adjusted"] = True
+    model_meta["special_unique_reason"] = "deduplicated_within_period"
+    result["model_meta"] = model_meta
+    result["recommendation_text"] = _refresh_special_recommendation_text(
+        strategy,
+        result.get("recommendation_text", ""),
+        replacement,
+        normal_numbers,
+        region=region,
+    )
+    return result
+
+def _get_email_strategy_display(prediction):
+    return _get_strategy_label(prediction.strategy)
+
+LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
+
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+app.config['SQLALCHEMY_DATABASE_URI'] = _build_database_uri(db_path)
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 280,
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+_ensure_mysql_database_exists(app.config['SQLALCHEMY_DATABASE_URI'])
 
-print(f"数据库路径: {db_path}")
-print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
-import json
-import os
-import random
-import requests
-from collections import Counter
-from datetime import datetime
-
-# 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig
-from auth import auth_bp
-from admin import admin_bp
-from user import user_bp
-
-# --- 配置信息 ---
-app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'  # 请在生产环境中更改此密钥
-
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
-import json
-import os
-import random
-import requests
-from collections import Counter
-from datetime import datetime
-
-# 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig
-from auth import auth_bp
-from admin import admin_bp
-from user import user_bp
-
-# --- 配置信息 ---
-app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-in-production'  # 请在生产环境中更改此密钥
-
-# 确保数据目录存在
-import os
-data_dir = os.path.join(os.getcwd(), 'data')
-os.makedirs(data_dir, exist_ok=True)
-
-# 数据库配置
-db_path = os.path.join(data_dir, 'lottery_system.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-print(f"数据库路径: {db_path}")
-print(f"数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+# 只在主进程中打印一次
+if _should_log_startup():
+    db_kind, db_target = _describe_database_target(app.config['SQLALCHEMY_DATABASE_URI'])
+    print(f"Database backend: {db_kind}{f' ({db_target})' if db_target else ''}")
+    print(f"数据库路径: {db_path}")
+    print(f"数据库URI: {_mask_db_uri(app.config['SQLALCHEMY_DATABASE_URI'])}")
 
 # 初始化数据库
 # 初始化数据库
 db.init_app(app)
 
+
+def _execute_ddl(statement):
+    with db.engine.begin() as connection:
+        connection.exec_driver_sql(statement)
+
+
+def _quote_identifier(name):
+    return db.engine.dialect.identifier_preparer.quote_identifier(str(name))
+
+
+def _deduplicate_prediction_records():
+    duplicate_groups = (
+        db.session.query(
+            PredictionRecord.user_id,
+            PredictionRecord.region,
+            PredictionRecord.period,
+            PredictionRecord.strategy,
+        )
+        .group_by(
+            PredictionRecord.user_id,
+            PredictionRecord.region,
+            PredictionRecord.period,
+            PredictionRecord.strategy,
+        )
+        .having(db.func.count(PredictionRecord.id) > 1)
+        .all()
+    )
+
+    removed_count = 0
+    for user_id, region, period, strategy in duplicate_groups:
+        duplicates = (
+            PredictionRecord.query.filter_by(
+                user_id=user_id,
+                region=region,
+                period=period,
+                strategy=strategy,
+            )
+            .order_by(PredictionRecord.id.desc())
+            .all()
+        )
+        for stale_row in duplicates[1:]:
+            db.session.delete(stale_row)
+            removed_count += 1
+
+    if removed_count:
+        db.session.commit()
+        if _should_log_startup():
+            print(f"Removed {removed_count} duplicate prediction_record rows")
+
+
+def _sync_runtime_database_schema():
+    inspector = inspect(db.engine)
+    dialect = db.engine.dialect.name
+
+    column_specs = {
+        'user': {
+            'auto_prediction_regions': "VARCHAR(20) DEFAULT 'hk,macau'",
+            'show_normal_numbers': 'BOOLEAN DEFAULT 0',
+        },
+        'prediction_record': {
+            'prediction_metadata': 'TEXT',
+        },
+    }
+
+    for table_name, columns in column_specs.items():
+        try:
+            existing_columns = {column['name'] for column in inspector.get_columns(table_name)}
+        except Exception:
+            existing_columns = set()
+        for column_name, ddl in columns.items():
+            if column_name in existing_columns:
+                continue
+            try:
+                quoted_table = _quote_identifier(table_name)
+                quoted_column = _quote_identifier(column_name)
+                _execute_ddl(f"ALTER TABLE {quoted_table} ADD COLUMN {quoted_column} {ddl}")
+                if _should_log_startup():
+                    print(f"Added missing column {table_name}.{column_name} for {dialect}")
+            except Exception as e:
+                print(f"Failed to add missing column {table_name}.{column_name}: {e}")
+
+    try:
+        existing_indexes = {item['name'] for item in inspector.get_indexes('prediction_record')}
+    except Exception:
+        existing_indexes = set()
+    try:
+        existing_unique_constraints = {
+            item['name']
+            for item in inspector.get_unique_constraints('prediction_record')
+            if item.get('name')
+        }
+    except Exception:
+        existing_unique_constraints = set()
+
+    prediction_record_index_ddls = {
+        'uq_prediction_record_user_region_period_strategy': (
+            f'CREATE UNIQUE INDEX {_quote_identifier("uq_prediction_record_user_region_period_strategy")} '
+            f'ON {_quote_identifier("prediction_record")} '
+            f'({_quote_identifier("user_id")}, {_quote_identifier("region")}, '
+            f'{_quote_identifier("period")}, {_quote_identifier("strategy")})'
+        ),
+        'ix_prediction_record_user_strategy_created_at': (
+            f'CREATE INDEX {_quote_identifier("ix_prediction_record_user_strategy_created_at")} '
+            f'ON {_quote_identifier("prediction_record")} '
+            f'({_quote_identifier("user_id")}, {_quote_identifier("strategy")}, '
+            f'{_quote_identifier("created_at")})'
+        ),
+        'ix_prediction_record_user_strategy_region_period': (
+            f'CREATE INDEX {_quote_identifier("ix_prediction_record_user_strategy_region_period")} '
+            f'ON {_quote_identifier("prediction_record")} '
+            f'({_quote_identifier("user_id")}, {_quote_identifier("strategy")}, '
+            f'{_quote_identifier("region")}, {_quote_identifier("period")})'
+        ),
+    }
+
+    for name, ddl in prediction_record_index_ddls.items():
+        if name == 'uq_prediction_record_user_region_period_strategy':
+            try:
+                _deduplicate_prediction_records()
+            except Exception as e:
+                db.session.rollback()
+                print(f"Failed to deduplicate prediction_record before creating {name}: {e}")
+        if name in existing_indexes or name in existing_unique_constraints:
+            continue
+        try:
+            _execute_ddl(ddl)
+            if _should_log_startup():
+                print(f"Created missing index {name} for {dialect}")
+        except Exception as e:
+            print(f"Failed to create missing index {name}: {e}")
+
+def ensure_runtime_database_schema():
+    """在应用启动时尽早补齐数据库结构，避免WSGI模式下缺列报错。"""
+    with app.app_context():
+        try:
+            db.create_all()
+        except Exception as e:
+            print(f"创建数据库表时出错: {e}")
+
+        try:
+            _sync_runtime_database_schema()
+        except Exception as e:
+            print(f"Runtime schema sync failed: {e}")
+
+        try:
+            from auto_update_db import check_and_update_database
+            check_and_update_database()
+        except Exception as e:
+            print(f"运行时自动更新数据库结构时出错: {e}")
+
+ensure_runtime_database_schema()
+
 # 初始化Flask-Login
+def cleanup_legacy_smart_strategy():
+    """Clean up legacy smart auto-prediction strategies stored in the database."""
+    with app.app_context():
+        try:
+            users = User.query.filter(User.auto_prediction_strategies.like('%smart%')).all()
+            if not users:
+                return
+            default_strategies = ",".join(LOCAL_STRATEGY_KEYS)
+            for user in users:
+                raw = str(user.auto_prediction_strategies or "").strip()
+                parts = [part.strip() for part in raw.split(",") if part.strip() in LOCAL_STRATEGY_KEYS]
+                user.auto_prediction_strategies = ",".join(parts) if parts else default_strategies
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Failed to clean legacy smart strategies: {e}")
+
+cleanup_legacy_smart_strategy()
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'auth.login'
@@ -96,11 +787,19 @@ login_manager.login_message = '请先登录以访问此页面。'
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+@app.before_request
+def _refresh_persistent_session():
+    if session.get("user_id"):
+        session.permanent = True
+        session.modified = True
+
 # 注册蓝图
 app.register_blueprint(auth_bp, url_prefix='/auth')
 app.register_blueprint(admin_bp)
 app.register_blueprint(user_bp)
 app.register_blueprint(activation_code_bp)
+app.register_blueprint(invite_bp, url_prefix='/invite')
+app.register_blueprint(mobile_api_bp)
 
 # 获取AI配置的函数
 def get_ai_config():
@@ -110,9 +809,15 @@ def get_ai_config():
         'model': SystemConfig.get_config('ai_model', 'gemini-2.0-flash')
     }
 # 澳门数据API
-MACAU_API_URL_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}"
+# 原始API可能不可访问，使用备用API
+# MACAU_API_URL_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}"
+MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
+# 只在主进程中打印一次
+if _should_log_startup():
+    print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
 # 香港数据API
-HK_DATA_SOURCE_URL = "https://gh-proxy.com/https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/data/all.json"
+HK_DATA_SOURCE_URL = "https://api3.marksix6.net/lottery_api.php?type=hk"
+HK_NEXT_DRAW_TIME_URL = "https://api3.marksix6.net/"
 
 # --- 号码属性计算与映射 ---
 ZODIAC_MAPPING_SEQUENCE = ("虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马")
@@ -122,13 +827,13 @@ GREEN_BALLS = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49]
 COLOR_MAP_EN_TO_ZH = {'red': '红', 'blue': '蓝', 'green': '绿'}
 ZODIAC_TRAD_TO_SIMP = {'鼠':'鼠','牛':'牛','虎':'虎','兔':'兔','龍':'龙','蛇':'蛇','馬':'马','羊':'羊','猴':'猴','雞':'鸡','狗':'狗','豬':'猪'}
 
+# 此函数已不再使用，保留是为了兼容性
 def _get_hk_number_zodiac(number):
-    try:
-        num = int(number)
-        if not 1 <= num <= 49: return ""
-        return ZODIAC_MAPPING_SEQUENCE[(num - 1) % 12]
-    except:
-        return ""
+    """
+    此函数已不再使用，香港数据也应使用澳门接口返回的生肖数据
+    保留此函数仅为兼容性考虑
+    """
+    return ""
 
 def _get_hk_number_color(number):
     try:
@@ -140,24 +845,738 @@ def _get_hk_number_color(number):
     except:
         return ""
 
-# --- 数据加载与处理 ---
-def load_hk_data():
-    # 直接从URL获取数据
+def _get_color_zh(number):
     try:
-        response = requests.get(HK_DATA_SOURCE_URL, timeout=15)
+        num = int(number)
+    except (TypeError, ValueError):
+        return ""
+    if num in RED_BALLS:
+        return "红"
+    if num in BLUE_BALLS:
+        return "蓝"
+    if num in GREEN_BALLS:
+        return "绿"
+    return ""
+
+def _parse_csv_list(value):
+    if not value:
+        return []
+    return [item.strip() for item in str(value).split(',') if item.strip()]
+
+def _parse_number_stakes_from_string(value):
+    stakes = {}
+    if not value:
+        return stakes
+    for chunk in str(value).split(','):
+        part = chunk.strip()
+        if not part or ':' not in part:
+            continue
+        num_str, stake_str = part.split(':', 1)
+        try:
+            number = int(num_str.strip())
+            amount = float(stake_str.strip())
+        except (TypeError, ValueError):
+            continue
+        if number > 0 and amount > 0:
+            stakes[number] = amount
+    return stakes
+
+
+def _parse_common_stake_entries(value):
+    if not value:
+        return []
+    entries = []
+    for part in str(value).split(","):
+        piece = part.strip()
+        if not piece or ":" not in piece:
+            continue
+        key, amount_text = piece.split(":", 1)
+        key = key.strip()
+        try:
+            amount = float(amount_text.strip())
+        except (TypeError, ValueError):
+            continue
+        if key and amount > 0:
+            entries.append((key, amount))
+    return entries
+
+
+def _serialize_prediction_metadata(metadata):
+    if not metadata:
+        return ""
+    try:
+        return json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        return ""
+
+
+def _deserialize_prediction_metadata(value):
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except Exception:
+        return {}
+
+
+def _hydrate_prediction_model_meta(strategy, existing_meta, data, region):
+    meta = dict(existing_meta or {})
+    if strategy != "ml" or not data:
+        return meta
+
+    try:
+        refreshed = (_predict_with_ml(data, region) or {}).get("model_meta") or {}
+        if refreshed:
+            meta = {**meta, **refreshed}
+        if meta:
+            meta["display_copy"] = _build_ml_display_copy(meta)
+    except Exception as e:
+        print(f"补齐机器学习预测诊断信息失败: {e}")
+    return meta
+
+
+def _hydrate_prediction_recommendation_text(
+    strategy,
+    existing_text,
+    data,
+    region,
+    special_number=None,
+    normal_numbers=None,
+    existing_meta=None,
+):
+    normal_values = []
+    if isinstance(normal_numbers, str):
+        normal_values = [item.strip() for item in normal_numbers.split(",") if item.strip()]
+    elif isinstance(normal_numbers, (list, tuple)):
+        normal_values = [str(item).strip() for item in normal_numbers if str(item).strip()]
+
+    special_value = str(special_number or "").strip()
+
+    if strategy == "ai":
+        if special_value:
+            return _compose_ai_recommendation_text(
+                existing_text,
+                special_value,
+                normal_values,
+                region=region,
+            )
+        return existing_text or ""
+
+    if strategy != "ml":
+        return existing_text or ""
+
+    try:
+        hydrated_meta = _hydrate_prediction_model_meta(
+            strategy,
+            existing_meta or {},
+            data,
+            region,
+        )
+        if special_value:
+            rebuilt_text = _build_special_focus_text(
+                special_value,
+                normal_values,
+                strategy_name="机器学习预测",
+                samples=hydrated_meta.get("samples"),
+                confidence=hydrated_meta.get("special_probability"),
+            )
+            if rebuilt_text:
+                return rebuilt_text
+    except Exception as e:
+        print(f"补齐机器学习预测文案失败: {e}")
+    return existing_text or ""
+
+def _dedupe_keep_order(values):
+    seen = set()
+    result = []
+    for item in values:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+_DRAW_SYNC_INTERVAL = timedelta(minutes=5)
+_last_draw_sync_times = {
+    'hk': datetime.min,
+    'macau': datetime.min
+}
+_last_sync_window_skip_date = None
+
+def _is_within_sync_window(now):
+    if now.hour != 21:
+        return False
+    return 32 <= now.minute <= 40
+
+def _format_datetime_ymdhm(value):
+    return value.strftime("%Y-%m-%d %H:%M")
+
+def _normalize_datetime_string(value):
+    if not value:
+        return None
+    match = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})', value)
+    if not match:
+        return None
+    year, month, day, hour, minute = match.groups()
+    try:
+        dt = datetime(int(year), int(month), int(day), int(hour), int(minute))
+    except ValueError:
+        return None
+    return _format_datetime_ymdhm(dt)
+
+def _parse_hk_next_draw_time_from_text(text):
+    if not text:
+        return None
+    match = re.search(r'下期时间[:：]\s*([^\n\r<]+)', text)
+    if not match:
+        return None
+    raw = match.group(1).strip()
+    return _normalize_datetime_string(raw) or raw
+
+def _compute_next_hk_draw_time(now=None):
+    now = now or datetime.now()
+    draw_hour = 21
+    draw_minute = 32
+    draw_days = {1, 3, 5}  # Tue, Thu, Sat (Python: Mon=0)
+    today_draw = datetime(now.year, now.month, now.day, draw_hour, draw_minute)
+    if now.weekday() in draw_days and now < today_draw:
+        return today_draw
+    for i in range(1, 8):
+        candidate = now + timedelta(days=i)
+        if candidate.weekday() in draw_days:
+            return datetime(candidate.year, candidate.month, candidate.day, draw_hour, draw_minute)
+    return today_draw + timedelta(days=2)
+
+def _compute_next_macau_draw_time(now=None):
+    now = now or datetime.now()
+    draw_hour = 21
+    draw_minute = 32
+    today_draw = datetime(now.year, now.month, now.day, draw_hour, draw_minute)
+    if now < today_draw:
+        return today_draw
+    return today_draw + timedelta(days=1)
+
+def update_hk_next_draw_time_cache(force=False):
+    now = datetime.now()
+    if not force:
+        cached_at = SystemConfig.get_config('hk_next_draw_time_cached_at', '').strip()
+        if cached_at:
+            try:
+                cached_dt = datetime.fromisoformat(cached_at)
+                if now - cached_dt < timedelta(minutes=30):
+                    return
+            except ValueError:
+                pass
+
+    value = None
+    try:
+        response = requests.get(HK_NEXT_DRAW_TIME_URL, timeout=10)
+        if response.ok:
+            if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+                response.encoding = "utf-8"
+            value = _parse_hk_next_draw_time_from_text(response.text)
+    except Exception as e:
+        print(f"获取香港下期时间失败: {e}")
+
+    if not value:
+        value = _format_datetime_ymdhm(_compute_next_hk_draw_time(now))
+
+    SystemConfig.set_config('hk_next_draw_time', value, '香港下期时间')
+    SystemConfig.set_config(
+        'hk_next_draw_time_cached_at',
+        now.isoformat(timespec='seconds'),
+        '香港下期时间缓存更新时间'
+    )
+
+@app.route('/api/next_draw_time')
+def next_draw_time_api():
+    region = request.args.get('region', 'hk').strip().lower()
+    now = datetime.now()
+    if region == 'hk':
+        update_hk_next_draw_time_cache(force=False)
+        value = SystemConfig.get_config('hk_next_draw_time', '').strip()
+        if not value:
+            value = _format_datetime_ymdhm(_compute_next_hk_draw_time(now))
+            SystemConfig.set_config('hk_next_draw_time', value, '香港下期时间')
+            SystemConfig.set_config(
+                'hk_next_draw_time_cached_at',
+                now.isoformat(timespec='seconds'),
+                '香港下期时间缓存更新时间'
+            )
+        return jsonify({
+            "success": True,
+            "region": "hk",
+            "next_time": value
+        })
+    if region == 'macau':
+        value = _format_datetime_ymdhm(_compute_next_macau_draw_time(now))
+        return jsonify({
+            "success": True,
+            "region": "macau",
+            "next_time": value
+        })
+    return jsonify({
+        "success": False,
+        "message": "未知地区"
+    }), 400
+
+def _finalize_ai_result(ai_response):
+    normal_numbers, special_number = _extract_ai_numbers(ai_response)
+    if not normal_numbers or not special_number:
+        return None, "无法从AI回复中提取有效号码"
+
+    normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
+    if len(normal_numbers) < 6:
+        return None, "AI生成的平码数量不足"
+
+    try:
+        special_num_value = int(special_number)
+    except (TypeError, ValueError):
+        special_num_value = None
+    if special_num_value is not None:
+        normal_numbers = [n for n in normal_numbers if n != special_num_value]
+    normal_numbers = _dedupe_keep_order(normal_numbers)[:6]
+
+    if not special_number or not (1 <= int(special_number) <= 49):
+        return None, "AI生成的特码无效"
+
+    sno_zodiac = ""
+    return {
+        "recommendation_text": _build_special_focus_text(special_number, normal_numbers),
+        "normal": normal_numbers,
+        "special": {
+            "number": special_number,
+            "sno_zodiac": sno_zodiac
+        }
+    }, None
+
+def _extract_ai_numbers(ai_response):
+    if not ai_response:
+        return None, None
+
+    normalized = (
+        str(ai_response)
+        .replace("：", ":")
+        .replace("，", ",")
+        .replace("、", ",")
+        .replace("【", "[")
+        .replace("】", "]")
+        .replace("特碼", "特码")
+    )
+
+    json_match = re.search(
+        r'"normal"\s*:\s*\[\s*([0-9\s,]{5,})\s*\].{0,120}?"special"\s*:\s*"?(\d{1,2})"?',
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+    if json_match:
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', json_match.group(1))]
+        special_number = json_match.group(2)
+        if len(normal_numbers) >= 6:
+            return normal_numbers[:6], special_number
+
+    list_patterns = [
+        r'推荐号码\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
+        r'号码推荐\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
+        r'参考平码\s*[:：]\s*\[\s*([0-9\s,，]{5,})\s*\]',
+        r'推荐号码\s*[:：]\s*([0-9\s,，]{5,})',
+        r'号码推荐\s*[:：]\s*([0-9\s,，]{5,})',
+        r'参考平码\s*[:：]\s*([0-9\s,，]{5,})',
+    ]
+    special_patterns = [
+        r'特?码\s*[:：]\s*\[\s*(\d{1,2})(?:\s*[^\d\]]+)?\s*\]',
+        r'特?码\s*[:：]\s*(\d{1,2})(?:\s*[^\d]+)?',
+    ]
+
+    normal_numbers = None
+    special_number = None
+
+    for pattern in list_patterns:
+        matches = list(re.finditer(pattern, normalized, flags=re.IGNORECASE))
+        if not matches:
+            continue
+        match = matches[-1]
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', match.group(1))]
+        break
+
+    for pattern in special_patterns:
+        matches = list(re.finditer(pattern, normalized, flags=re.IGNORECASE))
+        if not matches:
+            continue
+        special_number = matches[-1].group(1)
+        break
+
+    if not special_number:
+        special_line_match = re.search(r'特码\s*[:：]\s*\[\s*(\d{1,2})\s*\]', normalized)
+        if special_line_match:
+            special_number = special_line_match.group(1)
+
+    if normal_numbers and special_number:
+        return normal_numbers, special_number
+
+    lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+    candidate_lines = [
+        line for line in lines
+        if any(k in line for k in ("推荐号码", "号码推荐", "参考平码", "特码"))
+    ]
+
+    for line in candidate_lines:
+        if "特码" not in line:
+            continue
+        parts = re.split(r'特码', line, maxsplit=1)
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', parts[0])]
+        special_candidates = re.findall(r'\d{1,2}', parts[1]) if len(parts) > 1 else []
+        if len(normal_numbers) >= 6 and special_candidates:
+            return normal_numbers[:6], special_candidates[0]
+
+    scoped_numbers = []
+    for line in candidate_lines:
+        scoped_numbers.extend(re.findall(r'\d{1,2}', line))
+    valid_numbers = [int(n) for n in scoped_numbers if 1 <= int(n) <= 49]
+    if len(valid_numbers) >= 7:
+        return valid_numbers[:6], str(valid_numbers[6])
+
+    return None, None
+
+
+def _normalize_ai_response_v2(ai_response):
+    return (
+        str(ai_response or "")
+        .replace("：", ":")
+        .replace("，", ",")
+        .replace("【", "[")
+        .replace("】", "]")
+        .replace("特碼", "特码")
+        .replace("特码号", "特码")
+        .replace("號碼", "号码")
+    )
+
+
+def _extract_ai_numbers_v2(ai_response, region=None):
+    if not ai_response:
+        return None, None
+
+    normalized = _normalize_ai_response_v2(ai_response)
+
+    json_patterns = [
+        r'"normal"\s*:\s*\[\s*([0-9\s,]{5,})\s*\].{0,160}?"special"\s*:\s*"?(\d{1,2})"?',
+        r'"recommended_numbers"\s*:\s*\[\s*([0-9\s,]{5,})\s*\].{0,160}?"special_number"\s*:\s*"?(\d{1,2})"?',
+    ]
+    for pattern in json_patterns:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', match.group(1))]
+        if len(normal_numbers) >= 6:
+            return normal_numbers[:6], match.group(2)
+
+    label_pairs = [("推荐号码", "特码"), ("号码推荐", "特码"), ("参考平码", "本期主推特码"), ("参考平码", "特码")]
+    if region == "macau":
+        label_pairs.extend([("平码", "特码"), ("号码", "特码")])
+    for normal_label, special_label in label_pairs:
+        pattern = rf'{normal_label}\s*[:：]\s*\[\s*([0-9\s,，]{{5,}})\s*\].{{0,80}}?{special_label}\s*[:：]\s*\[\s*(\d{{1,2}})\s*\]'
+        match = re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            continue
+        normal_numbers = [int(n) for n in re.findall(r'\d{1,2}', match.group(1))]
+        if len(normal_numbers) >= 6:
+            return normal_numbers[:6], match.group(2)
+
+    return _extract_ai_numbers(normalized)
+
+
+def _finalize_ai_result_v2(ai_response, region=None):
+    normal_numbers, special_number = _extract_ai_numbers_v2(ai_response, region=region)
+    if not normal_numbers or not special_number:
+        return None, "无法从AI回复中提取有效号码"
+
+    normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
+    if len(normal_numbers) < 6:
+        return None, "AI生成的平码数量不足"
+
+    try:
+        special_num_value = int(special_number)
+    except (TypeError, ValueError):
+        special_num_value = None
+
+    if special_num_value is None or not (1 <= special_num_value <= 49):
+        return None, "AI生成的特码无效"
+
+    normal_numbers = [n for n in normal_numbers if n != special_num_value]
+    normal_numbers = _dedupe_keep_order(normal_numbers)[:6]
+    if len(normal_numbers) < 6:
+        return None, "AI生成的平码数量不足"
+
+    return {
+        "recommendation_text": _compose_ai_recommendation_text(
+            ai_response,
+            str(special_num_value),
+            normal_numbers,
+            region=region,
+        ),
+        "normal": normal_numbers,
+        "special": {
+            "number": str(special_num_value),
+            "sno_zodiac": ""
+        }
+    }, None
+
+def _settle_manual_bet_record(record, draw):
+    raw_zodiacs = _parse_csv_list(draw.raw_zodiac)
+    special_zodiac = draw.special_zodiac or ""
+    if raw_zodiacs:
+        special_zodiac = raw_zodiacs[-1] or special_zodiac
+
+    special_number = draw.special_number or ""
+    special_color = _get_color_zh(special_number)
+    special_parity = ""
+    try:
+        special_parity = "双" if int(special_number) % 2 == 0 else "单"
+    except (TypeError, ValueError):
+        special_parity = ""
+
+    number_stakes = _parse_number_stakes_from_string(record.selected_numbers)
+    if number_stakes:
+        selected_numbers = list(number_stakes.keys())
+    else:
+        selected_numbers = [int(n) for n in _parse_csv_list(record.selected_numbers) if n.isdigit()]
+    zodiac_entries = _parse_common_stake_entries(record.selected_zodiacs)
+    color_entries = _parse_common_stake_entries(record.selected_colors)
+    parity_entries = _parse_common_stake_entries(record.selected_parity)
+    selected_zodiacs = (
+        [value for value, _ in zodiac_entries]
+        if zodiac_entries
+        else _parse_csv_list(record.selected_zodiacs)
+    )
+    selected_colors = (
+        [value for value, _ in color_entries]
+        if color_entries
+        else _parse_csv_list(record.selected_colors)
+    )
+    selected_parity = (
+        [value for value, _ in parity_entries]
+        if parity_entries
+        else _parse_csv_list(record.selected_parity)
+    )
+
+    stake_special = record.stake_special or 0
+    stake_common = record.stake_common or 0
+    odds_number = record.odds_number or 0
+    odds_zodiac = record.odds_zodiac or 0
+    odds_color = record.odds_color or 0
+    odds_parity = record.odds_parity or 0
+
+    result_number = None
+    result_zodiac = None
+    result_color = None
+    result_parity = None
+    profit_number = None
+    profit_zodiac = None
+    profit_color = None
+    profit_parity = None
+    total_profit = 0
+
+    if selected_numbers:
+        result_number = special_number.isdigit() and int(special_number) in selected_numbers
+        if number_stakes:
+            hit_stake = number_stakes.get(int(special_number), 0) if special_number.isdigit() else 0
+            total_stake_number = sum(number_stakes.values())
+            profit_number = hit_stake * odds_number - total_stake_number
+            total_profit += profit_number
+        else:
+            profit_number = (
+                stake_special * odds_number - stake_special
+                if result_number
+                else -stake_special
+            )
+            total_profit += profit_number
+
+    if selected_zodiacs:
+        if zodiac_entries:
+            result_zodiac = any(value == special_zodiac for value, _ in zodiac_entries)
+            profit_zodiac = 0
+            for value, amount in zodiac_entries:
+                if value == special_zodiac:
+                    profit_zodiac += amount * odds_zodiac - amount
+                else:
+                    profit_zodiac += -amount
+        else:
+            result_zodiac = special_zodiac in selected_zodiacs
+            profit_zodiac = (
+                stake_common * odds_zodiac - stake_common
+                if result_zodiac
+                else -stake_common
+            )
+        total_profit += profit_zodiac
+
+    if selected_colors:
+        if color_entries:
+            result_color = any(value == special_color for value, _ in color_entries)
+            profit_color = 0
+            for value, amount in color_entries:
+                if value == special_color:
+                    profit_color += amount * odds_color - amount
+                else:
+                    profit_color += -amount
+        else:
+            result_color = special_color in selected_colors
+            profit_color = (
+                stake_common * odds_color - stake_common
+                if result_color
+                else -stake_common
+            )
+        total_profit += profit_color
+
+    if selected_parity:
+        if parity_entries:
+            result_parity = any(value == special_parity for value, _ in parity_entries)
+            profit_parity = 0
+            for value, amount in parity_entries:
+                if value == special_parity:
+                    profit_parity += amount * odds_parity - amount
+                else:
+                    profit_parity += -amount
+        else:
+            result_parity = special_parity in selected_parity
+            profit_parity = (
+                stake_common * odds_parity - stake_common
+                if result_parity
+                else -stake_common
+            )
+        total_profit += profit_parity
+
+    record.result_number = result_number
+    record.result_zodiac = result_zodiac
+    record.result_color = result_color
+    record.result_parity = result_parity
+    record.profit_number = profit_number
+    record.profit_zodiac = profit_zodiac
+    record.profit_color = profit_color
+    record.profit_parity = profit_parity
+    record.total_profit = total_profit
+    if number_stakes and record.total_stake is None:
+        total_stake_number = sum(number_stakes.values())
+        extra_common = 0
+        if zodiac_entries:
+            extra_common += sum(amount for _, amount in zodiac_entries)
+        elif selected_zodiacs:
+            extra_common += stake_common
+        if color_entries:
+            extra_common += sum(amount for _, amount in color_entries)
+        elif selected_colors:
+            extra_common += stake_common
+        if parity_entries:
+            extra_common += sum(amount for _, amount in parity_entries)
+        elif selected_parity:
+            extra_common += stake_common
+        record.total_stake = total_stake_number + extra_common
+    record.special_number = special_number
+    record.special_zodiac = special_zodiac
+    record.special_color = special_color
+    record.special_parity = special_parity
+
+def settle_pending_manual_bets(region, draw_id):
+    if not draw_id:
+        return 0
+    draw = LotteryDraw.query.filter_by(region=region, draw_id=draw_id).first()
+    if not draw:
+        return 0
+    pending_records = ManualBetRecord.query.filter_by(
+        region=region, period=draw_id
+    ).filter(ManualBetRecord.total_profit.is_(None)).all()
+    if not pending_records:
+        return 0
+    for record in pending_records:
+        _settle_manual_bet_record(record, draw)
+    db.session.commit()
+    return len(pending_records)
+
+# --- 数据加载与处理 ---
+def load_hk_data(force_refresh=False):
+    """从新接口获取香港开奖数据"""
+    try:
+        print(f"正在获取香港数据，URL: {HK_DATA_SOURCE_URL}")
+        params = {"_": int(time.time())} if force_refresh else None
+        response = requests.get(HK_DATA_SOURCE_URL, params=params, timeout=15)
         response.raise_for_status()
-        return response.json()
+        api_data = response.json()
+        
+        # 标准化数据格式
+        normalized_data = []
+        
+        # 如果返回的是单条数据，转换为列表
+        if isinstance(api_data, dict):
+            api_data = [api_data]
+        elif isinstance(api_data, list):
+            pass
+        else:
+            print(f"香港API返回数据格式错误: {api_data}")
+            return []
+        
+        for record in api_data:
+            raw_numbers_str = record.get("openCode", "").split(',')
+            try:
+                numbers = [str(int(n)) for n in raw_numbers_str]
+            except (ValueError, TypeError):
+                continue
+            
+            traditional_zodiacs = record.get("zodiac", "").split(',')
+            if len(numbers) < 7:
+                continue
+            
+            # 简化生肖
+            simplified_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in traditional_zodiacs]
+            
+            # 提取波浪（颜色）信息
+            wave = record.get("wave", "").split(',')
+            
+            normalized_data.append({
+                "id": record.get("expect"),
+                "date": record.get("openTime"),
+                "no": numbers[:6],
+                "sno": numbers[6],
+                "sno_zodiac": simplified_zodiacs[6] if len(simplified_zodiacs) >= 7 else "",
+                "raw_zodiac": ",".join(simplified_zodiacs),
+                "raw_wave": ",".join(wave)
+            })
+        
+        print(f"香港API返回数据条数: {len(normalized_data)}")
+        
+        # 去重
+        unique_data = []
+        seen_ids = set()
+        for record in normalized_data:
+            record_id = record.get("id")
+            if record_id and record_id not in seen_ids:
+                unique_data.append(record)
+                seen_ids.add(record_id)
+        
+        print(f"去重后数据条数: {len(unique_data)}")
+        
+        # 按日期和期号排序（降序）
+        result = sorted(unique_data, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+        
+        if len(result) > 0:
+            print(f"最新一期数据: {result[0]}")
+        
+        return result
+        
     except Exception as e:
         print(f"从URL获取香港数据失败: {e}")
         return []
 
-def get_macau_data(year):
+def _fetch_macau_data_from_api(year):
     url = MACAU_API_URL_TEMPLATE.format(year=year)
     try:
+        print(f"正在获取澳门数据，URL: {url}")
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         api_data = response.json()
-        if not api_data or not api_data.get("data"): return []
+        if not api_data or not api_data.get("data"): 
+            print(f"澳门API返回空数据或格式错误: {api_data}")
+            return []
+        
+        print(f"澳门API返回数据条数: {len(api_data['data'])}")
         
         normalized_data = []
         for record in api_data["data"]:
@@ -177,6 +1596,8 @@ def get_macau_data(year):
                 "raw_wave": record.get("wave", ""), "raw_zodiac": ",".join(simplified_zodiacs)
             })
         
+        print(f"标准化后的数据条数: {len(normalized_data)}")
+        
         # --- 新增去重逻辑 ---
         unique_data = []
         seen_ids = set()
@@ -186,13 +1607,38 @@ def get_macau_data(year):
                 unique_data.append(record)
                 seen_ids.add(record_id)
         # --- 去重逻辑结束 ---
+        
+        print(f"去重后的数据条数: {len(unique_data)}")
 
         # 使用去重后的 unique_data 进行过滤和排序
         filtered_by_year = [rec for rec in unique_data if rec.get("date", "").startswith(str(year))]
-        return sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+        print(f"按年份过滤后的数据条数: {len(filtered_by_year)}")
+        
+        result = sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+        print(f"最终返回的数据条数: {len(result)}")
+        
+        if len(result) > 0:
+            print(f"示例数据: {result[0]}")
+        
+        return result
     except Exception as e:
         print(f"Error in get_macau_data for year {year}: {e}")
         return []
+
+def get_macau_data(year, force_api=False):
+    if not force_api:
+        try:
+            query = LotteryDraw.query.filter_by(region='macau')
+            if year != 'all':
+                query = query.filter(LotteryDraw.draw_date.like(f"{year}%"))
+            db_records = query.order_by(LotteryDraw.draw_date.desc()).all()
+            if db_records:
+                print(f"从数据库获取到{len(db_records)}条澳门{year}年数据")
+                return [record.to_dict() for record in db_records]
+        except Exception as e:
+            print(f"从数据库获取澳门数据失败: {e}")
+
+    return _fetch_macau_data_from_api(year)
 
 def analyze_special_number_frequency(data):
     special_numbers = []
@@ -202,16 +1648,2137 @@ def analyze_special_number_frequency(data):
     counts = Counter(special_numbers)
     return {str(i): counts.get(str(i), 0) for i in range(1, 50)}
 
-def analyze_special_zodiac_frequency(data, region):
+def _clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def _normalize_period_value(period):
+    raw = str(period or "").strip()
+    if not raw:
+        return ""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return digits or raw
+
+
+def _period_sort_key(period):
+    normalized = _normalize_period_value(period)
+    if normalized.isdigit():
+        return (1, int(normalized))
+    return (0, normalized)
+
+
+def _is_period_before(candidate_period, cutoff_period):
+    if not cutoff_period:
+        return True
+    return _period_sort_key(candidate_period) < _period_sort_key(cutoff_period)
+
+
+def _is_secondary_hit(prediction, actual_special, actual_zodiac):
+    return False
+
+
+def _softmax(values):
+    if not values:
+        return []
+    max_value = max(values)
+    exp_values = [math.exp(_clamp(value - max_value, -30.0, 30.0)) for value in values]
+    total = sum(exp_values)
+    if total <= 0:
+        fallback = 1.0 / len(values)
+        return [fallback] * len(values)
+    return [value / total for value in exp_values]
+
+
+def _build_ml_heuristic_score_map(feature_table):
+    score_map = {}
+    for key, features in (feature_table or {}).items():
+        if not features:
+            continue
+        momentum_short = max(0.0, features[15]) if len(features) > 15 else 0.0
+        momentum_medium = max(0.0, features[16]) if len(features) > 16 else 0.0
+        recent_special_penalty = features[6] if len(features) > 6 else 0.0
+        recent_number_penalty = features[7] if len(features) > 7 else 0.0
+        score_map[key] = (
+            features[0] * 0.22 +
+            features[1] * 0.18 +
+            features[2] * 0.10 +
+            features[3] * 0.06 +
+            features[4] * 0.12 +
+            features[5] * 0.09 +
+            features[8] * 0.07 +
+            features[9] * 0.05 +
+            features[10] * 0.06 +
+            features[11] * 0.05 +
+            momentum_short * 0.10 +
+            momentum_medium * 0.08 -
+            recent_special_penalty * 0.08 -
+            recent_number_penalty * 0.04 +
+            (features[17] * 0.05 if len(features) > 17 else 0.0) +
+            (features[18] * 0.06 if len(features) > 18 else 0.0) -
+            (features[19] * 0.07 if len(features) > 19 else 0.0) +
+            (features[20] * 0.05 if len(features) > 20 else 0.0) +
+            (features[21] * 0.06 if len(features) > 21 else 0.0) +
+            (features[22] * 0.03 if len(features) > 22 else 0.0)
+        )
+    return _normalize_metric_map(score_map)
+
+
+def _blend_ml_rankings(probability_map, heuristic_map, blend_weight):
+    numbers = sorted({
+        int(number)
+        for number in list(probability_map.keys()) + list(heuristic_map.keys())
+    })
+    blended = {}
+    for number in numbers:
+        key = str(number)
+        blended[number] = round(
+            float(probability_map.get(number, probability_map.get(key, 0.0))) * blend_weight +
+            float(heuristic_map.get(number, heuristic_map.get(key, 0.0))) * (1.0 - blend_weight),
+            6
+        )
+    return blended
+
+def _strategy_config_key(region, strategy):
+    return f"strategy_config_{region}_{strategy}"
+
+def _default_strategy_config(strategy):
+    defaults = {
+        "hot": {
+            "window": 50,
+            "pool": 16,
+            "special_pool": 10,
+            "weights": {"hot": 1.25, "trend": 0.55, "cold": 0.05, "normal": 0.35, "overdue": 0.15, "feedback": 0.95, "color": 0.18, "zodiac": 0.16, "parity": 0.18},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "cold": {
+            "window": 50,
+            "pool": 16,
+            "special_pool": 10,
+            "weights": {"hot": 0.10, "trend": 0.25, "cold": 1.20, "normal": 0.15, "overdue": 0.95, "feedback": 0.75, "color": 0.15, "zodiac": 0.14, "parity": 0.16},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "trend": {
+            "window": 15,
+            "pool": 18,
+            "special_pool": 10,
+            "weights": {"hot": 0.55, "trend": 1.30, "cold": 0.05, "normal": 0.40, "overdue": 0.12, "feedback": 0.90, "color": 0.18, "zodiac": 0.18, "parity": 0.18},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "balanced": {
+            "window": 60,
+            "pool": 16,
+            "special_pool": 10,
+            "bucket_counts": [2, 2, 2],
+            "weights": {"hot": 0.55, "trend": 0.55, "cold": 0.45, "normal": 0.45, "overdue": 0.35, "feedback": 0.95, "color": 0.20, "zodiac": 0.20, "parity": 0.20},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "hybrid": {
+            "window": 50,
+            "pool": 16,
+            "special_pool": 10,
+            "trend_window": 15,
+            "mix": {"hot": 2, "cold": 2, "trend": 2},
+            "weights": {"hot": 0.85, "trend": 0.85, "cold": 0.70, "normal": 0.40, "overdue": 0.35, "feedback": 1.05, "color": 0.22, "zodiac": 0.22, "parity": 0.22},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "ml": {
+            "history_window": 120,
+            "feature_window": 60,
+            "evaluation_window": 30,
+            "pool": 18,
+            "special_pool": 8,
+            "bucket_counts": [2, 2, 2],
+            "epochs": 18,
+            "learning_rate": 0.035,
+            "l2": 0.0025,
+            "primary_feature_profile": "full",
+            "primary_runtime_profile": "base",
+            "blend_candidates": [0.55, 0.7, 0.82],
+            "ensemble_core_strategies": ["hybrid", "balanced", "trend"],
+            "ensemble_replace_margin": 4.0,
+            "ensemble_replace_min_samples": 8,
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+        "ai": {
+            "history_window": 12,
+            "temperature": 0.35,
+            "sample_count": 3,
+            "candidate_count": 3,
+            "special_shortlist": 8,
+            "normal_shortlist": 18,
+            "target_mode": "top1",
+            "rerank_weights": {
+                "base_special": 0.9,
+                "avg_normal": 0.55,
+                "special_vote": 0.18,
+                "normal_vote_avg": 0.1,
+                "shortlist_bonus": 1.0,
+                "attr_bonus": 1.0,
+                "diversity_bonus": 1.0,
+                "repeat_penalty": 1.0,
+                "overheat_penalty": 1.0,
+                "confidence_bonus": 1.0,
+                "shape_score": 1.0,
+                "structure_bonus": 1.0,
+                "gate_adjustment": 1.0,
+                "appearance_vote": 0.24,
+            },
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
+    }
+    return defaults.get(strategy, {})
+
+def _load_strategy_config(strategy, region):
+    key = _strategy_config_key(region, strategy)
+    raw = SystemConfig.get_config(key, "")
+    stored = {}
+    if raw:
+        try:
+            stored = json.loads(raw)
+        except Exception:
+            stored = {}
+    default = _default_strategy_config(strategy)
+    merged = {**default, **stored}
+    for key, default_value in default.items():
+        stored_value = stored.get(key)
+        if isinstance(default_value, dict) and isinstance(stored_value, dict):
+            merged[key] = {**default_value, **stored_value}
+    override_bucket = getattr(_strategy_config_override_local, "configs", {})
+    override = dict(override_bucket.get((region, strategy)) or {})
+    if override:
+        base_before_override = dict(merged)
+        merged = {**merged, **override}
+        for field, override_value in override.items():
+            default_value = base_before_override.get(field)
+            if isinstance(default_value, dict) and isinstance(override_value, dict):
+                merged[field] = {**default_value, **override_value}
+    if "updated_at" not in merged:
+        merged["updated_at"] = datetime.now().isoformat()
+    return merged
+
+def _save_strategy_config(strategy, region, config):
+    key = _strategy_config_key(region, strategy)
+    payload = json.dumps(config, ensure_ascii=True)
+    SystemConfig.set_config(key, payload, f"Auto-tuned config for {strategy} ({region})")
+
+
+@contextmanager
+def _temporary_strategy_config_override(region, strategy, override):
+    if not override:
+        yield
+        return
+
+    bucket = dict(getattr(_strategy_config_override_local, "configs", {}) or {})
+    override_key = (region, strategy)
+    previous = bucket.get(override_key)
+    merged_override = {**(previous or {}), **dict(override)}
+    bucket[override_key] = merged_override
+    _strategy_config_override_local.configs = bucket
+    try:
+        yield
+    finally:
+        current_bucket = dict(getattr(_strategy_config_override_local, "configs", {}) or {})
+        if previous is None:
+            current_bucket.pop(override_key, None)
+        else:
+            current_bucket[override_key] = previous
+        _strategy_config_override_local.configs = current_bucket
+
+
+def _normalize_draw_number(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return str(int(text))
+    except (TypeError, ValueError):
+        return text
+
+
+def _ml_runtime_profile_label(value):
+    mapping = {
+        "base": "标准模式",
+        "compact": "轻量模式",
+        "deep": "深度模式",
+        "adaptive": "自动调整",
+        "recent_bias": "侧重近期走势",
+        "context_bias": "侧重号码属性",
+        "recency_trim": "近期简化模式",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "标准模式")
+
+
+def _ml_feature_profile_label(value):
+    mapping = {
+        "full": "综合参考全部因素",
+        "compact_structure": "侧重整体结构",
+        "compact_attributes": "侧重波色生肖单双",
+        "compact_recency": "侧重近期走势",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "综合参考全部因素")
+
+
+def _ml_promotion_strength_label(value):
+    mapping = {
+        "hold": "观察中",
+        "watch": "重点观察",
+        "promoted": "已提升",
+    }
+    key = str(value or "").strip()
+    return mapping.get(key, key or "观察中")
+
+
+def _build_ml_display_copy(model_meta):
+    meta = dict(model_meta or {})
+    display = {}
+    normal_numbers = [
+        str(item).strip()
+        for item in (meta.get("normal_numbers") or [])
+        if str(item).strip()
+    ]
+
+    primary_runtime = _ml_runtime_profile_label(meta.get("primary_runtime_profile"))
+    primary_feature = _ml_feature_profile_label(meta.get("primary_feature_profile"))
+    display["primary_config"] = (
+        f"当前主配置：{primary_runtime} · {primary_feature}（会根据近期表现自动微调）"
+    )
+
+    preferred_features = [
+        _ml_feature_profile_label(item)
+        for item in (meta.get("preferred_feature_profiles") or [])
+        if str(item or "").strip()
+    ]
+    if preferred_features:
+        line = f"地区偏好特征：{'、'.join(preferred_features)}"
+        if meta.get("profile_learning_confidence") is not None:
+            line += f" · 学习把握度{meta.get('profile_learning_confidence')}%"
+        display["preferred_features"] = line
+
+    preferred_runtimes = [
+        _ml_runtime_profile_label(item)
+        for item in (meta.get("preferred_runtime_profiles") or [])
+        if str(item or "").strip()
+    ]
+    if preferred_runtimes:
+        display["preferred_runtimes"] = f"地区偏好参数：{'、'.join(preferred_runtimes)}"
+
+    color_preference = str(meta.get("preferred_special_color") or "").strip()
+    color_preferences = meta.get("color_preferences") or {}
+    if color_preference:
+        color_conf = color_preferences.get(color_preference)
+        suffix = (
+            f"（历史特码参考 {color_conf}%）"
+            if color_conf is not None else "（历史特码参考）"
+        )
+        display["color_preference"] = f"本期波色偏向：{color_preference}{suffix}"
+
+    parity_preference = str(meta.get("preferred_special_parity") or "").strip()
+    parity_preferences = meta.get("parity_preferences") or {}
+    if parity_preference:
+        parity_conf = parity_preferences.get(parity_preference)
+        suffix = (
+            f"（历史特码参考 {parity_conf}%）"
+            if parity_conf is not None else "（历史特码参考）"
+        )
+        display["parity_preference"] = f"本期单双偏向：{parity_preference}{suffix}"
+
+    if normal_numbers:
+        display["six_reference"] = f"六码参考号：{'、'.join(normal_numbers[:6])}"
+
+    selected_strategies = [
+        _get_strategy_label(item)
+        for item in (meta.get("ensemble_selected_strategies") or [])
+        if str(item or "").strip()
+    ]
+    if selected_strategies:
+        display["selected_strategies"] = f"当前核心集成：{'、'.join(selected_strategies)}"
+
+    weight_entries = sorted(
+        (meta.get("ensemble_strategy_weights") or {}).items(),
+        key=lambda item: float(item[1] or 0.0),
+        reverse=True,
+    )
+    if weight_entries:
+        weight_text = "、".join(
+            f"{_get_strategy_label(key)}:{str(round(float(value), 1)).rstrip('0').rstrip('.') if '.' in str(round(float(value), 1)) else round(float(value), 1)}%"
+            for key, value in weight_entries
+        )
+        line = f"集成权重：{weight_text}（按近20/50/100期表现自动分配）"
+        if meta.get("ensemble_weight_confidence") is not None:
+            line += f" · 集成把握度{meta.get('ensemble_weight_confidence')}%"
+        display["weight_summary"] = line
+
+    special_votes = meta.get("ensemble_special_votes") or {}
+    if special_votes:
+        vote_entries = "、".join(
+            f"{num}({str(round(float(votes), 2)).rstrip('0').rstrip('.')})"
+            for num, votes in sorted(
+                special_votes.items(),
+                key=lambda item: (float(item[1] or 0.0), int(item[0])),
+                reverse=True,
+            )[:5]
+        )
+        display["special_votes"] = f"特码共识票：{vote_entries}"
+
+    diagnostics = meta.get("ensemble_weight_diagnostics") or {}
+    weight_reason_items = []
+    rank_titles = [
+        ("冠军策略", "当前集成优先级最高"),
+        ("亚军策略", "当前集成优先级第二"),
+        ("季军策略", "当前集成优先级第三"),
+    ]
+    for idx, (key, value) in enumerate(sorted(
+        diagnostics.items(),
+        key=lambda item: float((item[1] or {}).get("weighted_score", 0.0) or 0.0),
+        reverse=True,
+    )):
+        title, note = rank_titles[min(idx, 2)]
+        overall_total = int((value or {}).get("overall_total", 0) or 0)
+        overall_accuracy = float((value or {}).get("overall_accuracy", 0.0) or 0.0)
+        accuracy_text = (
+            f"特码命中率：{overall_accuracy}% ({overall_total}条)"
+            if overall_total > 0 else "特码命中率：样本不足"
+        )
+        weight_value = float((meta.get("ensemble_strategy_weights") or {}).get(key, 0.0) or 0.0)
+        weight_reason_items.append({
+            "rank": idx + 1,
+            "ribbon_title": title,
+            "ribbon_note": note,
+            "strategy_label": _get_strategy_label(key),
+            "weight_text": f"权重{round(weight_value, 1)}%",
+            "accuracy_text": accuracy_text,
+            "multiplier_text": (
+                f"排名系数×命中率加成：{(value or {}).get('rank_multiplier', '-')} × "
+                f"{(value or {}).get('accuracy_multiplier', '-')}，加权分 {(value or {}).get('weighted_score', '-')}"
+            ),
+        })
+    display["weight_reason_items"] = weight_reason_items
+    return display
+
+
+def _calculate_strategy_accuracy(region, strategy, limit=200):
+    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
+    if not predictions:
+        return 0.0, 0
+
+    correct = 0
+    valid_total = 0
+    for pred in predictions:
+        actual = _normalize_draw_number(pred.actual_special_number)
+        if not actual:
+            continue
+        valid_total += 1
+        if _normalize_draw_number(pred.special_number) == actual:
+            correct += 1
+    return (correct / valid_total) if valid_total else 0.0, valid_total
+
+
+def _calculate_strategy_hit_rates(region, strategy, limit=200):
+    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
+    if not predictions:
+        return {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0}
+
+    top1 = 0
+    top6 = 0
+    zodiac = 0
+    valid_total = 0
+    for pred in predictions:
+        actual = _normalize_draw_number(pred.actual_special_number)
+        if not actual:
+            continue
+        valid_total += 1
+        predicted_special = _normalize_draw_number(pred.special_number)
+        normal_numbers = {
+            _normalize_draw_number(item)
+            for item in str(getattr(pred, "normal_numbers", "") or "").split(",")
+            if _normalize_draw_number(item)
+        }
+        predicted_zodiac = str(getattr(pred, "special_zodiac", "") or "").strip()
+        actual_zodiac = str(getattr(pred, "actual_special_zodiac", "") or "").strip()
+        if predicted_special == actual:
+            top1 += 1
+        if actual in normal_numbers:
+            top6 += 1
+        if predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac:
+            zodiac += 1
+
+    if valid_total <= 0:
+        return {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0}
+    return {
+        "top1": round(top1 / valid_total, 4),
+        "top6": round(top6 / valid_total, 4),
+        "zodiac": round(zodiac / valid_total, 4),
+        "total": valid_total,
+    }
+
+
+def _calculate_strategy_hit_rate_windows(region, strategy, windows=(12, 36, 72)):
+    window_items = []
+    weighted = {"top1": 0.0, "top6": 0.0, "zodiac": 0.0}
+    total_weight = 0.0
+    for idx, window in enumerate(windows or ()):
+        stats = _calculate_strategy_hit_rates(region, strategy, limit=window)
+        samples = int(stats.get("total", 0) or 0)
+        base_weight = max(0.35, 1.0 - idx * 0.18)
+        confidence = _clamp(samples / max(min(int(window), 24), 1), 0.18, 1.0)
+        effective_weight = base_weight * confidence
+        window_item = {
+            "window": int(window),
+            "top1": round(_safe_float(stats.get("top1"), 0.0), 4),
+            "top6": round(_safe_float(stats.get("top6"), 0.0), 4),
+            "zodiac": round(_safe_float(stats.get("zodiac"), 0.0), 4),
+            "total": samples,
+            "weight": round(effective_weight, 4),
+        }
+        window_items.append(window_item)
+        total_weight += effective_weight
+        for key in weighted.keys():
+            weighted[key] += _safe_float(window_item.get(key), 0.0) * effective_weight
+
+    if total_weight <= 0:
+        aggregate = {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0}
+    else:
+        aggregate = {
+            "top1": round(weighted["top1"] / total_weight, 4),
+            "top6": round(weighted["top6"] / total_weight, 4),
+            "zodiac": round(weighted["zodiac"] / total_weight, 4),
+            "total": max((item["total"] for item in window_items), default=0),
+        }
+    return {
+        "windows": window_items,
+        "aggregate": aggregate,
+    }
+
+
+def _load_region_draw_history(region, limit=None):
+    query = LotteryDraw.query.filter_by(region=region).order_by(
+        LotteryDraw.draw_date.desc(),
+        LotteryDraw.draw_id.desc(),
+    )
+    if limit:
+        query = query.limit(limit)
+    return [record.to_dict() for record in query.all()]
+
+
+def _get_phase_history_before_period(draws_desc, target_period, window=12):
+    if not draws_desc or not target_period:
+        return []
+    normalized_target = _normalize_period_value(target_period)
+    history = []
+    for draw in draws_desc:
+        draw_period = _normalize_period_value(draw.get("id"))
+        if not draw_period:
+            continue
+        if _is_period_before(draw_period, normalized_target):
+            history.append(draw)
+        if len(history) >= max(4, int(window or 12)):
+            break
+    return history
+
+
+def _calculate_strategy_phase_hit_rates(region, strategy, phases=("hot", "cold", "concentrated", "dispersed"), phase_window=12, limit=180):
+    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
+    if not predictions:
+        return {
+            "aggregate": {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0, "score": 0.0},
+            "phases": {},
+        }
+
+    draws_desc = _load_region_draw_history(region)
+    phase_counters = {
+        phase: {"top1": 0, "top6": 0, "zodiac": 0, "total": 0}
+        for phase in phases
+    }
+    aggregate = {"top1": 0, "top6": 0, "zodiac": 0, "total": 0}
+
+    for pred in predictions:
+        actual = _normalize_draw_number(pred.actual_special_number)
+        if not actual:
+            continue
+        history = _get_phase_history_before_period(draws_desc, getattr(pred, "period", ""), window=phase_window)
+        phase_profile = _classify_ai_market_phase(history, window=max(4, min(len(history), phase_window))) if history else {"label": "neutral"}
+        phase_label = str(phase_profile.get("label") or "neutral")
+        if phase_label not in phase_counters:
+            continue
+
+        predicted_special = _normalize_draw_number(pred.special_number)
+        normal_numbers = {
+            _normalize_draw_number(item)
+            for item in str(getattr(pred, "normal_numbers", "") or "").split(",")
+            if _normalize_draw_number(item)
+        }
+        predicted_zodiac = str(getattr(pred, "special_zodiac", "") or "").strip()
+        actual_zodiac = str(getattr(pred, "actual_special_zodiac", "") or "").strip()
+
+        aggregate["total"] += 1
+        phase_counters[phase_label]["total"] += 1
+        if predicted_special == actual:
+            aggregate["top1"] += 1
+            phase_counters[phase_label]["top1"] += 1
+        if actual in normal_numbers:
+            aggregate["top6"] += 1
+            phase_counters[phase_label]["top6"] += 1
+        if predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac:
+            aggregate["zodiac"] += 1
+            phase_counters[phase_label]["zodiac"] += 1
+
+    def _normalize_phase_counter(counter):
+        total = int(counter.get("total", 0) or 0)
+        if total <= 0:
+            return {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0, "score": 0.0}
+        top1 = round(counter["top1"] / total, 4)
+        top6 = round(counter["top6"] / total, 4)
+        zodiac = round(counter["zodiac"] / total, 4)
+        score = round(top1 + (top6 * 0.55) + (zodiac * 0.15), 4)
+        return {
+            "top1": top1,
+            "top6": top6,
+            "zodiac": zodiac,
+            "total": total,
+            "score": score,
+        }
+
+    return {
+        "aggregate": _normalize_phase_counter(aggregate),
+        "phases": {
+            phase: _normalize_phase_counter(counter)
+            for phase, counter in phase_counters.items()
+        },
+    }
+
+
+def _build_local_phase_learning_map(strategy, base_weights, phase_hit_rates):
+    base = dict(base_weights or {})
+    aggregate = dict((phase_hit_rates or {}).get("aggregate") or {})
+    overall_score = _safe_float(aggregate.get("score"), 0.0)
+    phase_stats = dict((phase_hit_rates or {}).get("phases") or {})
+    learning_map = {}
+    phase_biases = {
+        "hot": {
+            "hot": {"hot": 0.22, "trend": 0.08, "feedback": 0.08},
+            "cold": {"hot": -0.14, "cold": 0.06, "overdue": 0.05},
+            "concentrated": {"trend": 0.08, "color": 0.05, "parity": 0.04},
+            "dispersed": {"normal": 0.06, "cold": 0.04, "feedback": 0.04},
+        },
+        "cold": {
+            "hot": {"overdue": 0.04, "cold": -0.08, "feedback": -0.04},
+            "cold": {"cold": 0.2, "overdue": 0.12, "feedback": 0.04},
+            "concentrated": {"color": 0.04, "parity": 0.04, "cold": 0.06},
+            "dispersed": {"cold": 0.1, "normal": 0.05, "overdue": 0.06},
+        },
+        "trend": {
+            "hot": {"trend": 0.16, "hot": 0.06, "feedback": 0.05},
+            "cold": {"trend": -0.06, "cold": 0.05, "overdue": 0.04},
+            "concentrated": {"trend": 0.14, "color": 0.05, "zodiac": 0.05},
+            "dispersed": {"trend": 0.05, "normal": 0.05, "feedback": 0.04},
+        },
+        "balanced": {
+            "hot": {"hot": 0.04, "trend": 0.05, "parity": 0.05},
+            "cold": {"cold": 0.05, "overdue": 0.04, "parity": 0.05},
+            "concentrated": {"color": 0.08, "zodiac": 0.08, "parity": 0.06},
+            "dispersed": {"normal": 0.08, "cold": 0.04, "trend": 0.04},
+        },
+        "hybrid": {
+            "hot": {"hot": 0.12, "trend": 0.07, "feedback": 0.07},
+            "cold": {"cold": 0.1, "overdue": 0.06, "feedback": 0.05},
+            "concentrated": {"trend": 0.08, "color": 0.06, "zodiac": 0.06},
+            "dispersed": {"normal": 0.06, "cold": 0.05, "trend": 0.05},
+        },
+    }
+    profile_biases = {
+        "hot": {"special_focus_multiplier": 0.08, "feedback_multiplier": 0.07},
+        "cold": {"cold_multiplier": 0.08, "overheat_multiplier": -0.06},
+        "concentrated": {"attribute_multiplier": 0.08, "trend_multiplier": 0.05},
+        "dispersed": {"feedback_multiplier": 0.05, "special_focus_multiplier": 0.04},
+    }
+
+    for phase, stats in phase_stats.items():
+        samples = int(stats.get("total", 0) or 0)
+        if samples < 6:
+            tier = "low"
+            gate_multiplier = 0.35
+        elif samples < 12:
+            tier = "medium"
+            gate_multiplier = 0.65
+        else:
+            tier = "high"
+            gate_multiplier = 1.0
+        confidence = _clamp(samples / 8.0, 0.0, 1.0)
+        phase_score = _safe_float(stats.get("score"), 0.0)
+        score_delta = phase_score - overall_score
+        drift = _clamp(score_delta * 1.8, -0.22, 0.28)
+        strength = confidence * gate_multiplier * (0.65 + max(-0.25, drift))
+        learned_weights = dict(base)
+        for key, bias in (phase_biases.get(strategy, {}).get(phase) or {}).items():
+            base_value = _safe_float(base.get(key), 0.0)
+            if base_value <= 0:
+                continue
+            learned_weights[key] = round(_clamp(base_value + (bias * strength), 0.0, max(base_value + 0.5, 1.6)), 4)
+        learning_map[phase] = {
+            "weights": learned_weights,
+            "samples": samples,
+            "confidence": round(confidence, 4),
+            "sample_tier": tier,
+            "gate_multiplier": round(gate_multiplier, 4),
+            "score": round(phase_score, 4),
+            "score_delta": round(score_delta, 4),
+            "profile_adjustments": {
+                key: round(value * strength, 4)
+                for key, value in profile_biases.get(phase, {}).items()
+            },
+        }
+    return learning_map
+
+
+def _build_local_phase_runtime_templates(strategy, config, phase_hit_rates):
+    base_window = int(config.get("window") or 0)
+    base_pool = int(config.get("pool") or 16)
+    base_special_pool = int(config.get("special_pool") or max(8, base_pool // 2))
+    base_trend_window = int(config.get("trend_window") or min(base_window or 15, 15))
+    base_bucket_counts = list(config.get("bucket_counts") or [2, 2, 2])[:3]
+    base_mix = dict(config.get("mix") or {"hot": 2, "cold": 2, "trend": 2})
+    templates = {}
+    phase_stats = dict((phase_hit_rates or {}).get("phases") or {})
+
+    for phase, stats in phase_stats.items():
+        samples = int(stats.get("total", 0) or 0)
+        if samples < 6:
+            gate_multiplier = 0.35
+        elif samples < 12:
+            gate_multiplier = 0.65
+        else:
+            gate_multiplier = 1.0
+        phase_score = _safe_float(stats.get("score"), 0.0)
+        score_lift = _clamp((phase_score - 0.3) * gate_multiplier, -0.12, 0.18)
+        window = base_window
+        pool = base_pool
+        special_pool = base_special_pool
+        trend_window = base_trend_window
+        bucket_counts = list(base_bucket_counts)
+        mix = dict(base_mix)
+
+        if strategy == "hot":
+            if phase == "hot":
+                window = _clamp(int(base_window - 8 + score_lift * 20), 16, 72)
+                pool = _clamp(int(base_pool - 2 + score_lift * 6), 8, 22)
+                special_pool = _clamp(int(base_special_pool - 2 + score_lift * 4), 6, 12)
+            elif phase == "cold":
+                window = _clamp(int(base_window + 6), 18, 84)
+                pool = _clamp(int(base_pool + 1), 9, 24)
+            elif phase == "dispersed":
+                pool = _clamp(int(base_pool + 2), 10, 24)
+        elif strategy == "cold":
+            if phase == "cold":
+                window = _clamp(int(base_window + 10 + score_lift * 16), 20, 92)
+                pool = _clamp(int(base_pool + 2 + score_lift * 4), 10, 24)
+                special_pool = _clamp(int(base_special_pool + 1), 6, 14)
+            elif phase == "hot":
+                special_pool = _clamp(int(base_special_pool - 1), 6, 12)
+            elif phase == "dispersed":
+                pool = _clamp(int(base_pool + 3), 10, 24)
+        elif strategy == "trend":
+            if phase == "concentrated":
+                trend_window = _clamp(int(base_trend_window - 4 + score_lift * 10), 6, 22)
+                pool = _clamp(int(base_pool - 1 + score_lift * 4), 8, 20)
+            elif phase == "hot":
+                trend_window = _clamp(int(base_trend_window - 2), 6, 24)
+            elif phase == "dispersed":
+                trend_window = _clamp(int(base_trend_window + 2), 8, 28)
+                pool = _clamp(int(base_pool + 1), 8, 22)
+        elif strategy == "balanced":
+            if phase == "concentrated":
+                bucket_counts = [1, 3, 2]
+            elif phase == "dispersed":
+                bucket_counts = [2, 2, 2]
+                pool = _clamp(int(base_pool + 2), 10, 24)
+            elif phase == "hot":
+                bucket_counts = [2, 3, 1]
+            elif phase == "cold":
+                bucket_counts = [2, 2, 2]
+                special_pool = _clamp(int(base_special_pool + 1), 6, 14)
+        elif strategy == "hybrid":
+            if phase == "hot":
+                mix = {"hot": 3, "cold": 1, "trend": 2}
+            elif phase == "cold":
+                mix = {"hot": 1, "cold": 3, "trend": 2}
+            elif phase == "concentrated":
+                mix = {"hot": 1, "cold": 2, "trend": 3}
+                trend_window = _clamp(int(base_trend_window - 3), 6, 22)
+            elif phase == "dispersed":
+                mix = {"hot": 2, "cold": 3, "trend": 1}
+                pool = _clamp(int(base_pool + 2), 10, 24)
+
+        templates[phase] = {
+            "window": int(window),
+            "pool": int(pool),
+            "special_pool": int(special_pool),
+            "trend_window": int(trend_window),
+            "bucket_counts": bucket_counts,
+            "mix": mix,
+            "samples": samples,
+            "gate_multiplier": round(gate_multiplier, 4),
+            "score": round(phase_score, 4),
+        }
+    return templates
+
+
+def _score_local_strategy_phase_strength(config, phase_label):
+    if not config or not phase_label:
+        return 0.0, 0
+    phase_stats = dict((config.get("phase_hit_rates") or {}).get("phases") or {}).get(phase_label) or {}
+    aggregate = dict((config.get("phase_hit_rates") or {}).get("aggregate") or {})
+    samples = int(phase_stats.get("total", 0) or 0)
+    if samples <= 0:
+        return round(_safe_float(aggregate.get("score"), 0.0) * 0.55, 4), 0
+    if samples < 6:
+        gate_multiplier = 0.35
+    elif samples < 12:
+        gate_multiplier = 0.65
+    else:
+        gate_multiplier = 1.0
+    phase_score = _safe_float(phase_stats.get("score"), 0.0)
+    overall_score = _safe_float(aggregate.get("score"), 0.0)
+    blended = (phase_score * gate_multiplier) + (overall_score * (1.0 - gate_multiplier) * 0.75)
+    return round(blended, 4), samples
+
+
+def _calculate_strategy_window_stats(region, strategy, limit=50):
+    accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=limit)
+    return {
+        "strategy": strategy,
+        "label": _get_strategy_label(strategy),
+        "window": limit,
+        "total": total,
+        "accuracy": round(accuracy * 100, 1),
+    }
+
+
+def _score_prediction_outcome(prediction):
+    actual_special = _normalize_draw_number(
+        getattr(prediction, "actual_special_number", "")
+    )
+    special_number = _normalize_draw_number(
+        getattr(prediction, "special_number", "")
+    )
+    normal_numbers = {
+        _normalize_draw_number(item)
+        for item in str(getattr(prediction, "normal_numbers", "") or "").split(",")
+        if _normalize_draw_number(item)
+    }
+    actual_zodiac = str(getattr(prediction, "actual_special_zodiac", "") or "").strip()
+    special_zodiac = str(getattr(prediction, "special_zodiac", "") or "").strip()
+
+    if actual_special and actual_special == special_number:
+        return 1.0
+
+    score = 0.0
+    if actual_special and actual_special in normal_numbers:
+        score += 0.58
+    if actual_zodiac and special_zodiac and actual_zodiac == special_zodiac:
+        score += 0.26
+    return round(min(score, 0.9), 4)
+
+
+def _rank_weighted_preferences(counter_map, limit=3):
+    if not counter_map:
+        return []
+    return [
+        key
+        for key, _ in sorted(
+            counter_map.items(),
+            key=lambda item: (item[1], str(item[0])),
+            reverse=True,
+        )[:limit]
+    ]
+
+
+def _learn_ml_region_profile(region, limit=180):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy="ml",
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+
+    feature_scores = Counter()
+    runtime_scores = Counter()
+    blend_scores = Counter()
+    total_quality = 0.0
+
+    for idx, prediction in enumerate(predictions):
+        metadata = _deserialize_prediction_metadata(
+            getattr(prediction, "prediction_metadata", "")
+        )
+        if not metadata:
+            continue
+
+        recency_weight = max(0.25, 1.0 - (idx / max(limit, 1)) * 0.7)
+        quality = max(0.05, _score_prediction_outcome(prediction)) * recency_weight
+        total_quality += quality
+
+        feature_profile = str(metadata.get("feature_profile") or "").strip()
+        if feature_profile:
+            feature_scores[feature_profile] += quality
+
+        runtime_profile = str(metadata.get("runtime_profile") or "").strip()
+        if runtime_profile:
+            runtime_scores[runtime_profile] += quality
+
+        try:
+            blend_value = round(float(metadata.get("selected_blend", 0.0)) / 100.0, 2)
+        except (TypeError, ValueError):
+            blend_value = 0.0
+        if 0.0 < blend_value <= 1.0:
+            blend_scores[blend_value] += quality
+
+    ensemble_raw = {}
+    for strategy in [item for item in LOCAL_STRATEGY_KEYS if item != "ml"]:
+        weighted_scores = []
+        for idx, window in enumerate((20, 50, 100)):
+            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            if total <= 0:
+                continue
+            recency_weight = max(0.45, 1.0 - idx * 0.22)
+            confidence = _clamp(total / 10.0, 0.25, 1.0)
+            weighted_scores.append(accuracy * recency_weight * confidence)
+        ensemble_raw[strategy] = max(
+            0.08,
+            (sum(weighted_scores) / len(weighted_scores)) if weighted_scores else 0.18,
+        )
+
+    ensemble_total = sum(ensemble_raw.values()) or 1.0
+    ensemble_bias = {
+        key: round(value / ensemble_total, 4)
+        for key, value in ensemble_raw.items()
+    }
+
+    confidence = _clamp(len(predictions) / 24.0, 0.2, 1.0) * _clamp(total_quality / 10.0, 0.35, 1.0)
+    learned_blends = _rank_weighted_preferences(blend_scores, limit=3)
+    if not learned_blends:
+        learned_blends = [0.55, 0.7, 0.82]
+
+    return {
+        "feature_profiles": _rank_weighted_preferences(feature_scores, limit=3),
+        "runtime_profiles": _rank_weighted_preferences(runtime_scores, limit=3),
+        "blend_candidates": [round(float(item), 2) for item in learned_blends[:3]],
+        "ensemble_bias": ensemble_bias,
+        "confidence": round(confidence, 4),
+        "samples": len(predictions),
+    }
+
+
+def _load_latest_auto_backtest_payload(region):
+    record = (
+        BacktestRun.query.filter(
+            BacktestRun.region == region,
+            BacktestRun.name.like(f"auto-{region}-%"),
+        )
+        .order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+        .first()
+    )
+    if not record or not record.payload:
+        return {}
+    try:
+        payload = json.loads(record.payload)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _promote_ml_region_profile(region, persist=True):
+    config = _load_strategy_config("ml", region)
+    previous_primary_feature = str(config.get("primary_feature_profile") or "full").strip() or "full"
+    previous_primary_runtime = str(config.get("primary_runtime_profile") or "base").strip() or "base"
+    previous_promotion_strength = str(config.get("promotion_strength") or "hold").strip() or "hold"
+    learned_profile = _learn_ml_region_profile(region)
+    backtest_payload = _load_latest_auto_backtest_payload(region)
+    ranking = backtest_payload.get("ranking") or []
+    ml_rank = next((idx + 1 for idx, item in enumerate(ranking) if item.get("strategy") == "ml"), 0)
+    ml_entry = next((item for item in ranking if item.get("strategy") == "ml"), {})
+    leader_entry = ranking[0] if ranking else {}
+
+    ml_top1 = float(ml_entry.get("top1_hit_rate") or 0.0)
+    leader_top1 = float(leader_entry.get("top1_hit_rate") or 0.0)
+    ml_top6 = float(ml_entry.get("top6_hit_rate") or 0.0)
+    leader_top6 = float(leader_entry.get("top6_hit_rate") or 0.0)
+    close_to_leader = (
+        ml_rank == 1 or (
+            ranking and
+            (leader_top1 - ml_top1) <= 1.5 and
+            (leader_top6 - ml_top6) <= 2.5
+        )
+    )
+
+    feature_profiles = learned_profile.get("feature_profiles") or []
+    runtime_profiles = learned_profile.get("runtime_profiles") or []
+    blend_candidates = [
+        round(float(item), 2)
+        for item in (learned_profile.get("blend_candidates") or [])
+        if 0.0 < float(item) <= 1.0
+    ]
+    learning_confidence = float(learned_profile.get("confidence") or 0.0)
+
+    promotion_strength = "hold"
+    if close_to_leader and learning_confidence >= 0.45:
+        promotion_strength = "promoted"
+    elif learning_confidence >= 0.3:
+        promotion_strength = "watch"
+
+    if feature_profiles and promotion_strength in ("promoted", "watch"):
+        config["primary_feature_profile"] = feature_profiles[0]
+    if runtime_profiles and promotion_strength == "promoted":
+        config["primary_runtime_profile"] = runtime_profiles[0]
+
+    default_blends = [0.55, 0.7, 0.82]
+    merged_blends = []
+    for candidate in blend_candidates + default_blends:
+        rounded = round(float(candidate), 2)
+        if rounded not in merged_blends:
+            merged_blends.append(rounded)
+        if len(merged_blends) >= 4:
+            break
+    if merged_blends:
+        config["blend_candidates"] = merged_blends
+
+    config["preferred_feature_profiles"] = feature_profiles
+    config["preferred_runtime_profiles"] = runtime_profiles
+    config["profile_learning_confidence"] = round(learning_confidence, 4)
+    config["profile_learning_samples"] = int(learned_profile.get("samples") or 0)
+    config["ensemble_bias"] = learned_profile.get("ensemble_bias", {})
+    config["promotion_strength"] = promotion_strength
+    config["promotion_backtest_rank"] = ml_rank
+    config["promotion_backtest_top1"] = round(ml_top1, 2)
+    config["promotion_backtest_top6"] = round(ml_top6, 2)
+    config["promoted_at"] = datetime.now().isoformat()
+
+    promotion_history = list(config.get("promotion_history") or [])
+    current_primary_feature = str(config.get("primary_feature_profile") or "full").strip() or "full"
+    current_primary_runtime = str(config.get("primary_runtime_profile") or "base").strip() or "base"
+    change_detected = (
+        current_primary_feature != previous_primary_feature or
+        current_primary_runtime != previous_primary_runtime or
+        promotion_strength != previous_promotion_strength
+    )
+    if change_detected:
+        promotion_history.insert(0, {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "region": region,
+            "strength": promotion_strength,
+            "previous_feature_profile": previous_primary_feature,
+            "previous_runtime_profile": previous_primary_runtime,
+            "feature_profile": current_primary_feature,
+            "runtime_profile": current_primary_runtime,
+            "backtest_rank": ml_rank,
+            "top1_hit_rate": round(ml_top1, 2),
+            "top6_hit_rate": round(ml_top6, 2),
+            "learning_confidence": round(learning_confidence * 100, 2),
+        })
+    config["promotion_history"] = promotion_history[:8]
+
+    if persist:
+        _save_strategy_config("ml", region, config)
+    return config
+
+
+def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phase_label=None):
+    candidates = list(LOCAL_STRATEGY_KEYS)
+    current_phase_label = str(phase_label or "").strip()
+    if not current_phase_label:
+        try:
+            current_phase_label = str(_classify_ai_market_phase(_load_region_draw_history(region, limit=12)).get("label") or "neutral")
+        except Exception:
+            current_phase_label = "neutral"
+    scored = []
+    for strategy in candidates:
+        window_scores = []
+        total_samples = 0
+        for idx, window in enumerate(windows):
+            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            total_samples = max(total_samples, total)
+            if total <= 0:
+                continue
+            weight = max(0.4, 1.0 - idx * 0.2)
+            confidence = _clamp(total / max(min_samples, 1), 0.3, 1.0)
+            window_scores.append(accuracy * 100 * weight * confidence)
+        if not window_scores:
+            continue
+        tuned = _load_strategy_config(strategy, region)
+        config_bonus = float(tuned.get("last_accuracy") or 0.0) * 100 * 0.15
+        phase_score, phase_samples = _score_local_strategy_phase_strength(tuned, current_phase_label)
+        phase_bonus = (phase_score * 100 * 0.18) if current_phase_label in ("hot", "cold", "concentrated", "dispersed") else 0.0
+        score = round(sum(window_scores) / len(window_scores) + config_bonus + phase_bonus, 2)
+        scored.append({
+            "strategy": strategy,
+            "label": _get_strategy_label(strategy),
+            "score": score,
+            "samples": total_samples,
+            "phase_score": round(phase_score, 4),
+            "phase_samples": int(phase_samples or 0),
+        })
+
+    if not scored:
+        return {"strategy": "hybrid", "label": _get_strategy_label("hybrid"), "score": 0.0, "samples": 0}
+
+    scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
+    return scored[0]
+
+
+def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100), min_samples=5):
+    candidates = tuple(strategies or ("hybrid", "balanced", "trend", "hot", "cold"))
+    ml_config = _load_strategy_config("ml", region)
+    learned_bias = ml_config.get("ensemble_bias") or {}
+    learning_confidence = float(ml_config.get("profile_learning_confidence") or 0.0)
+    scored = []
+
+    for strategy in candidates:
+        config = _load_strategy_config(strategy, region)
+        overall_accuracy, overall_total = _calculate_strategy_accuracy(
+            region, strategy, limit=None
+        )
+        total_samples = int(overall_total or 0)
+        accuracy_percent = round(float(overall_accuracy or 0.0) * 100, 2)
+        confidence = _clamp(total_samples / max(min_samples, 1), 0.25, 1.0)
+        base_score = max(0.01, accuracy_percent * confidence)
+        bias_value = float(learned_bias.get(strategy, 0.0) or 0.0)
+        bias_multiplier = 1.0 + (
+            (bias_value - (1.0 / max(len(candidates), 1))) * 0.12 * learning_confidence
+        )
+        score = round(max(0.01, base_score * bias_multiplier), 2)
+        scored.append({
+            "strategy": strategy,
+            "label": _get_strategy_label(strategy),
+            "score": score,
+            "samples": total_samples,
+            "bias": round(bias_value * 100, 2),
+            "recent_accuracy": accuracy_percent,
+            "overall_accuracy": accuracy_percent,
+            "overall_total": total_samples,
+        })
+
+    scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
+    return scored
+
+
+def _build_ai_gate_profile(region, windows=(20, 50), min_samples=6):
+    ai_scores = []
+    anchor_scores = []
+    for idx, window in enumerate(windows):
+        ai_accuracy, ai_total = _calculate_strategy_accuracy(region, "ai", limit=window)
+        recommended = _get_recommended_strategy(region, windows=(window,), min_samples=min_samples)
+        anchor_strategy = str(recommended.get("strategy") or "hybrid")
+        anchor_accuracy, anchor_total = _calculate_strategy_accuracy(region, anchor_strategy, limit=window)
+        weight = max(0.55, 1.0 - idx * 0.18)
+        ai_confidence = _clamp(ai_total / max(min_samples, 1), 0.2, 1.0)
+        anchor_confidence = _clamp(anchor_total / max(min_samples, 1), 0.2, 1.0)
+        ai_scores.append(ai_accuracy * 100 * weight * ai_confidence)
+        anchor_scores.append(anchor_accuracy * 100 * weight * anchor_confidence)
+
+    ai_score = round(sum(ai_scores) / len(ai_scores), 2) if ai_scores else 0.0
+    anchor_score = round(sum(anchor_scores) / len(anchor_scores), 2) if anchor_scores else 0.0
+    score_gap = round(anchor_score - ai_score, 2)
+    status = "active"
+    if score_gap >= 5.0:
+        status = "fallback"
+    elif score_gap >= 2.5:
+        status = "guarded"
+
+    return {
+        "status": status,
+        "ai_score": ai_score,
+        "anchor_score": anchor_score,
+        "score_gap": score_gap,
+        "anchor_strategy": str((_get_recommended_strategy(region, windows=windows, min_samples=min_samples) or {}).get("strategy") or "hybrid"),
+    }
+
+
+def _learn_ai_region_profile(region, limit=180):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy="ai",
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+
+    structure_scores = Counter()
+    failure_scores = Counter()
+    target_scores = Counter()
+    total_quality = 0.0
+
+    for idx, prediction in enumerate(predictions):
+        recency_weight = max(0.22, 1.0 - (idx / max(limit, 1)) * 0.72)
+        quality = max(0.04, _score_prediction_outcome(prediction)) * recency_weight
+        total_quality += quality
+        raw_outcome = _score_prediction_outcome(prediction)
+
+        try:
+            special = int(str(getattr(prediction, "special_number", "") or "").strip())
+        except (TypeError, ValueError):
+            special = 0
+        normal = [
+            int(item)
+            for item in _parse_csv_list(getattr(prediction, "normal_numbers", "") or "")
+            if str(item).isdigit()
+        ][:6]
+        if special and normal:
+            zone_spread = len(set(1 if n <= 16 else 2 if n <= 33 else 3 for n in normal))
+            structure_scores[f"zone_spread:{zone_spread}"] += quality
+
+            tail_spread = len(set(n % 10 for n in normal))
+            if tail_spread >= 5:
+                structure_scores["tail_spread:wide"] += quality
+            elif tail_spread >= 4:
+                structure_scores["tail_spread:balanced"] += quality
+            else:
+                structure_scores["tail_spread:tight"] += quality
+
+            all_numbers = normal + [special]
+            color_spread = len(set(_get_color_zh(n) for n in all_numbers if _get_color_zh(n)))
+            structure_scores[f"color_spread:{color_spread}"] += quality
+
+            odd_count = sum(1 for n in all_numbers if n % 2 == 1)
+            even_count = len(all_numbers) - odd_count
+            parity_gap = abs(odd_count - even_count)
+            structure_scores["parity:balanced" if parity_gap <= 1 else "parity:skewed"] += quality
+
+            special_zone = "small" if special <= 16 else "mid" if special <= 33 else "large"
+            structure_scores[f"special_zone:{special_zone}"] += quality
+            structure_scores[f"special_color:{_get_color_zh(special) or 'unknown'}"] += quality
+            if raw_outcome < 0.3:
+                failure_scores[f"zone_spread:{zone_spread}"] += recency_weight
+                if tail_spread >= 5:
+                    failure_scores["tail_spread:wide"] += recency_weight
+                elif tail_spread >= 4:
+                    failure_scores["tail_spread:balanced"] += recency_weight
+                else:
+                    failure_scores["tail_spread:tight"] += recency_weight
+                failure_scores[f"color_spread:{color_spread}"] += recency_weight
+                failure_scores["parity:balanced" if parity_gap <= 1 else "parity:skewed"] += recency_weight
+                failure_scores[f"special_zone:{special_zone}"] += recency_weight
+                failure_scores[f"special_color:{_get_color_zh(special) or 'unknown'}"] += recency_weight
+
+        actual_special = _normalize_draw_number(getattr(prediction, "actual_special_number", ""))
+        predicted_special = _normalize_draw_number(getattr(prediction, "special_number", ""))
+        if actual_special and predicted_special == actual_special:
+            target_scores["top1"] += quality
+        elif actual_special and actual_special in {str(n) for n in normal}:
+            target_scores["top6"] += quality
+
+    confidence = _clamp(len(predictions) / 30.0, 0.2, 1.0) * _clamp(total_quality / 12.0, 0.3, 1.0)
+    return {
+        "samples": len(predictions),
+        "confidence": round(confidence, 4),
+        "structure_scores": dict(structure_scores),
+        "failure_scores": dict(failure_scores),
+        "target_scores": dict(target_scores),
+        "preferred_structures": _rank_weighted_preferences(structure_scores, limit=8),
+    }
+
+
+def _learn_ai_offline_rerank_profile(region, limit=180):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy="ai",
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+    if not predictions:
+        return {
+            "samples": 0,
+            "confidence": 0.0,
+            "weight_adjustments": {},
+            "mode_scores": {},
+        }
+
+    adjustment_scores = Counter()
+    mode_scores = Counter()
+    mode_adjustments = {}
+    mode_window_adjustments = {}
+    ranking_signal_scores = Counter()
+    total_quality = 0.0
+
+    for idx, prediction in enumerate(predictions):
+        metadata = _deserialize_prediction_metadata(
+            getattr(prediction, "prediction_metadata", "")
+        )
+        recency_weight = max(0.22, 1.0 - (idx / max(limit, 1)) * 0.72)
+        outcome = _score_prediction_outcome(prediction)
+        total_quality += outcome * recency_weight
+
+        actual_special = _normalize_draw_number(getattr(prediction, "actual_special_number", ""))
+        predicted_special = _normalize_draw_number(getattr(prediction, "special_number", ""))
+        normal_numbers = {
+            _normalize_draw_number(item)
+            for item in str(getattr(prediction, "normal_numbers", "") or "").split(",")
+            if _normalize_draw_number(item)
+        }
+        predicted_zodiac = str(getattr(prediction, "special_zodiac", "") or "").strip()
+        actual_zodiac = str(getattr(prediction, "actual_special_zodiac", "") or "").strip()
+        top1_hit = bool(actual_special and predicted_special == actual_special)
+        top6_hit = bool(actual_special and actual_special in normal_numbers)
+        zodiac_hit = bool(predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac)
+        target_mode = str(metadata.get("ai_target_mode") or "top1_safe")
+        mode_scores[target_mode] += max(0.04, outcome) * recency_weight
+        mode_bucket = mode_adjustments.setdefault(target_mode, Counter())
+        window_bucket_key = "recent" if idx < 24 else "mid" if idx < 72 else "long"
+        window_bucket = mode_window_adjustments.setdefault(target_mode, {}).setdefault(window_bucket_key, Counter())
+
+        if top1_hit:
+            adjustment_scores["base_special"] += 0.18 * recency_weight
+            adjustment_scores["special_vote"] += 0.14 * recency_weight
+            adjustment_scores["shortlist_bonus"] += 0.08 * recency_weight
+            adjustment_scores["confidence_bonus"] += 0.07 * recency_weight
+            adjustment_scores["appearance_vote"] += 0.05 * recency_weight
+            mode_bucket["base_special"] += 0.16 * recency_weight
+            mode_bucket["special_vote"] += 0.12 * recency_weight
+            window_bucket["base_special"] += 0.14 * recency_weight
+            window_bucket["special_vote"] += 0.1 * recency_weight
+            if target_mode == "top1_strict":
+                adjustment_scores["base_special"] += 0.06 * recency_weight
+                mode_bucket["base_special"] += 0.06 * recency_weight
+                window_bucket["base_special"] += 0.05 * recency_weight
+        elif top6_hit:
+            adjustment_scores["avg_normal"] += 0.16 * recency_weight
+            adjustment_scores["diversity_bonus"] += 0.1 * recency_weight
+            adjustment_scores["shape_score"] += 0.08 * recency_weight
+            adjustment_scores["structure_bonus"] += 0.08 * recency_weight
+            mode_bucket["avg_normal"] += 0.14 * recency_weight
+            mode_bucket["structure_bonus"] += 0.08 * recency_weight
+            window_bucket["avg_normal"] += 0.12 * recency_weight
+            window_bucket["structure_bonus"] += 0.08 * recency_weight
+            if target_mode == "top6_cover":
+                adjustment_scores["avg_normal"] += 0.05 * recency_weight
+                mode_bucket["avg_normal"] += 0.05 * recency_weight
+                window_bucket["avg_normal"] += 0.05 * recency_weight
+
+        if zodiac_hit and not top1_hit:
+            adjustment_scores["attr_bonus"] += 0.08 * recency_weight
+            adjustment_scores["special_vote"] += 0.04 * recency_weight
+            mode_bucket["attr_bonus"] += 0.06 * recency_weight
+            window_bucket["attr_bonus"] += 0.05 * recency_weight
+
+        if outcome < 0.3:
+            adjustment_scores["overheat_penalty"] += 0.08 * recency_weight
+            adjustment_scores["repeat_penalty"] += 0.07 * recency_weight
+            adjustment_scores["confidence_bonus"] -= 0.06 * recency_weight
+            adjustment_scores["appearance_vote"] -= 0.04 * recency_weight
+            mode_bucket["overheat_penalty"] += 0.06 * recency_weight
+            mode_bucket["repeat_penalty"] += 0.05 * recency_weight
+            mode_bucket["confidence_bonus"] -= 0.05 * recency_weight
+            window_bucket["overheat_penalty"] += 0.05 * recency_weight
+            window_bucket["repeat_penalty"] += 0.04 * recency_weight
+            window_bucket["confidence_bonus"] -= 0.04 * recency_weight
+            if not top6_hit:
+                adjustment_scores["avg_normal"] -= 0.06 * recency_weight
+                adjustment_scores["diversity_bonus"] -= 0.03 * recency_weight
+                adjustment_scores["shape_score"] -= 0.03 * recency_weight
+                mode_bucket["avg_normal"] -= 0.05 * recency_weight
+                window_bucket["avg_normal"] -= 0.04 * recency_weight
+            if not top1_hit:
+                adjustment_scores["base_special"] -= 0.07 * recency_weight
+                adjustment_scores["special_vote"] -= 0.05 * recency_weight
+                mode_bucket["base_special"] -= 0.05 * recency_weight
+                window_bucket["base_special"] -= 0.04 * recency_weight
+            if target_mode == "top1_strict":
+                adjustment_scores["base_special"] -= 0.04 * recency_weight
+                mode_bucket["base_special"] -= 0.03 * recency_weight
+                window_bucket["base_special"] -= 0.03 * recency_weight
+            elif target_mode == "top6_cover":
+                adjustment_scores["structure_bonus"] -= 0.03 * recency_weight
+                mode_bucket["structure_bonus"] -= 0.03 * recency_weight
+                window_bucket["structure_bonus"] -= 0.03 * recency_weight
+
+        ranking = list(metadata.get("ai_candidate_ranking") or [])
+        if actual_special and ranking:
+            matched_candidate = None
+            for candidate in ranking:
+                candidate_special = _normalize_draw_number(candidate.get("special"))
+                candidate_normals = {
+                    _normalize_draw_number(item)
+                    for item in (candidate.get("normal") or [])
+                    if _normalize_draw_number(item)
+                }
+                if candidate_special == actual_special or actual_special in candidate_normals:
+                    matched_candidate = candidate
+                    break
+            if matched_candidate:
+                diagnostics = dict(matched_candidate.get("score_diagnostics") or {})
+                ranking_weight = recency_weight * (0.8 if matched_candidate.get("special") == actual_special else 0.52)
+                if _safe_float(diagnostics.get("base_special"), 0.0) > 0:
+                    ranking_signal_scores["base_special"] += ranking_weight * 0.08
+                if _safe_float(diagnostics.get("avg_normal"), 0.0) > 0:
+                    ranking_signal_scores["avg_normal"] += ranking_weight * 0.08
+                if _safe_float(diagnostics.get("attr_bonus"), 0.0) > 0:
+                    ranking_signal_scores["attr_bonus"] += ranking_weight * 0.05
+                if _safe_float(diagnostics.get("shape_score"), 0.0) > 0:
+                    ranking_signal_scores["shape_score"] += ranking_weight * 0.05
+                if _safe_float(diagnostics.get("structure_bonus"), 0.0) > 0:
+                    ranking_signal_scores["structure_bonus"] += ranking_weight * 0.06
+                if _safe_float(diagnostics.get("overheat_penalty"), 0.0) < 0:
+                    ranking_signal_scores["overheat_penalty"] -= ranking_weight * 0.04
+            elif outcome < 0.3 and ranking:
+                top_diag = dict((ranking[0] or {}).get("score_diagnostics") or {})
+                if _safe_float(top_diag.get("base_special"), 0.0) > 0:
+                    ranking_signal_scores["base_special"] -= recency_weight * 0.04
+                if _safe_float(top_diag.get("avg_normal"), 0.0) > 0:
+                    ranking_signal_scores["avg_normal"] -= recency_weight * 0.04
+                if _safe_float(top_diag.get("structure_bonus"), 0.0) > 0:
+                    ranking_signal_scores["structure_bonus"] -= recency_weight * 0.03
+
+    confidence = _clamp(len(predictions) / 28.0, 0.2, 1.0) * _clamp(total_quality / 10.0, 0.25, 1.0)
+    normalized = {
+        key: round(_clamp(value * max(0.35, confidence), -0.22, 0.22), 4)
+        for key, value in adjustment_scores.items()
+    }
+    for key, value in ranking_signal_scores.items():
+        normalized[key] = round(
+            _clamp(_safe_float(normalized.get(key), 0.0) + (value * max(0.25, confidence)), -0.24, 0.24),
+            4,
+        )
+    normalized_mode_adjustments = {
+        mode: {
+            key: round(_clamp(value * max(0.3, confidence), -0.2, 0.2), 4)
+            for key, value in counter.items()
+        }
+        for mode, counter in mode_adjustments.items()
+        if counter
+    }
+    normalized_mode_window_adjustments = {}
+    for mode, windows in mode_window_adjustments.items():
+        normalized_mode_window_adjustments[mode] = {}
+        for window_key, counter in windows.items():
+            normalized_mode_window_adjustments[mode][window_key] = {
+                key: round(_clamp(value * max(0.28, confidence), -0.18, 0.18), 4)
+                for key, value in counter.items()
+            }
+    return {
+        "samples": len(predictions),
+        "confidence": round(confidence, 4),
+        "weight_adjustments": normalized,
+        "mode_scores": dict(mode_scores),
+        "mode_adjustments": normalized_mode_adjustments,
+        "mode_window_adjustments": normalized_mode_window_adjustments,
+        "ranking_signal_scores": {
+            key: round(value, 4) for key, value in ranking_signal_scores.items()
+        },
+    }
+
+
+def _resolve_ai_feedback_mix_weights(region, windows=(20, 50, 100)):
+    ai_windows = _calculate_strategy_hit_rate_windows(region, "ai", windows=windows)
+    ml_windows = _calculate_strategy_hit_rate_windows(region, "ml", windows=windows)
+    ai_stats = dict(ai_windows.get("aggregate") or {})
+    ml_stats = dict(ml_windows.get("aggregate") or {})
+
+    ai_top1 = _safe_float(ai_stats.get("top1"), 0.0)
+    ai_top6 = _safe_float(ai_stats.get("top6"), 0.0)
+    ml_top1 = _safe_float(ml_stats.get("top1"), 0.0)
+    ml_top6 = _safe_float(ml_stats.get("top6"), 0.0)
+    ai_total = int(ai_stats.get("total", 0) or 0)
+    ml_total = int(ml_stats.get("total", 0) or 0)
+
+    ai_score = (ai_top1 * 0.62) + (ai_top6 * 0.28) + (_safe_float(ai_stats.get("zodiac"), 0.0) * 0.1)
+    ml_score = (ml_top1 * 0.48) + (ml_top6 * 0.42) + (_safe_float(ml_stats.get("zodiac"), 0.0) * 0.1)
+
+    ai_confidence = _clamp(ai_total / 18.0, 0.25, 1.0)
+    ml_confidence = _clamp(ml_total / 18.0, 0.25, 1.0)
+    ai_weight = max(0.25, ai_score * ai_confidence)
+    ml_weight = max(0.25, ml_score * ml_confidence)
+    total_weight = ai_weight + ml_weight
+
+    return {
+        "ai": round(ai_weight / total_weight, 4),
+        "ml": round(ml_weight / total_weight, 4),
+        "ai_stats": ai_windows,
+        "ml_stats": ml_windows,
+    }
+
+
+def _resolve_ai_quality_threshold(context):
+    gate_profile = dict(context.get("gate_profile") or {})
+    status = str(gate_profile.get("status") or "active")
+    target_mode = str(context.get("target_mode") or "top1_safe")
+    structure_profile = dict(context.get("structure_profile") or {})
+    confidence = _clamp(_safe_float(structure_profile.get("confidence"), 0.0), 0.0, 1.0)
+
+    threshold = -0.12
+    if status == "guarded":
+        threshold += 0.03
+    elif status == "fallback":
+        threshold += 0.06
+
+    if target_mode == "top1_strict":
+        threshold += 0.03
+    elif target_mode == "top6_cover":
+        threshold -= 0.02
+
+    if confidence >= 0.7:
+        threshold -= 0.015
+    elif confidence <= 0.35:
+        threshold += 0.02
+
+    return round(_clamp(threshold, -0.22, -0.04), 4)
+
+
+def _format_ai_structure_guidance(profile):
+    preferred = list((profile or {}).get("preferred_structures") or [])
+    failed = list(_rank_weighted_preferences((profile or {}).get("failure_scores") or {}, limit=5))
+    lines = []
+    if preferred:
+        lines.append("优先结构：" + "、".join(preferred[:5]))
+    if failed:
+        lines.append("避免结构：" + "、".join(failed[:4]))
+    return "\n".join(lines)
+
+
+def _build_ai_layered_shortlists(
+    special_ranked,
+    normal_ranked,
+    feedback_special_rank,
+    feedback_normal_rank,
+    special_votes,
+    normal_votes,
+    special_limit,
+    normal_limit,
+):
+    special_recent = _dedupe_keep_order(
+        list(feedback_special_rank[:max(3, special_limit // 2)]) +
+        [int(number) for number, _ in special_votes.most_common(max(3, special_limit // 2))]
+    )[:max(3, special_limit // 2)]
+    special_stable = _dedupe_keep_order(list(special_ranked[:special_limit]))[:special_limit]
+    special_explore = _dedupe_keep_order(
+        list(special_ranked[special_limit:special_limit * 2]) +
+        list(feedback_special_rank[max(3, special_limit // 2):special_limit])
+    )[:max(2, special_limit // 3)]
+
+    normal_recent = _dedupe_keep_order(
+        list(feedback_normal_rank[:max(6, normal_limit // 3)]) +
+        [int(number) for number, _ in normal_votes.most_common(max(6, normal_limit // 3))]
+    )[:max(6, normal_limit // 3)]
+    normal_stable = _dedupe_keep_order(list(normal_ranked[:normal_limit]))[:normal_limit]
+    normal_explore = _dedupe_keep_order(
+        list(normal_ranked[normal_limit:normal_limit * 2]) +
+        list(feedback_normal_rank[max(6, normal_limit // 3):normal_limit])
+    )[:max(4, normal_limit // 4)]
+
+    return {
+        "special": {
+            "recent": special_recent,
+            "stable": special_stable,
+            "explore": special_explore,
+        },
+        "normal": {
+            "recent": normal_recent,
+            "stable": normal_stable,
+            "explore": normal_explore,
+        },
+    }
+
+
+def _select_ml_ensemble_strategies(region, slots=3, persist=True):
+    eligible = [strategy for strategy in LOCAL_STRATEGY_KEYS if strategy != "ml"]
+    if not eligible:
+        return []
+
+    config = _load_strategy_config("ml", region)
+    scored = _score_ml_ensemble_candidates(region, strategies=eligible)
+    score_map = {item["strategy"]: item for item in scored}
+    default_core = ["hybrid", "balanced", "trend"]
+    configured_core = [
+        strategy for strategy in (config.get("ensemble_core_strategies") or default_core)
+        if strategy in eligible
+    ]
+    current_core = []
+    for strategy in configured_core + default_core:
+        if strategy in eligible and strategy not in current_core:
+            current_core.append(strategy)
+        if len(current_core) >= slots:
+            break
+    for item in scored:
+        strategy = item["strategy"]
+        if strategy not in current_core:
+            current_core.append(strategy)
+        if len(current_core) >= slots:
+            break
+
+    replace_margin = float(config.get("ensemble_replace_margin") or 4.0)
+    min_replace_samples = int(config.get("ensemble_replace_min_samples") or 8)
+    challengers = [item for item in scored if item["strategy"] not in current_core]
+    incumbents = [
+        score_map.get(strategy, {"strategy": strategy, "score": 8.0, "samples": 0})
+        for strategy in current_core[:slots]
+    ]
+
+    replacement = None
+    if challengers and incumbents:
+        best_challenger = challengers[0]
+        weakest_incumbent = min(incumbents, key=lambda item: (item.get("score", 0.0), item.get("samples", 0)))
+        if (
+            best_challenger.get("samples", 0) >= min_replace_samples and
+            best_challenger.get("score", 0.0) >= weakest_incumbent.get("score", 0.0) + replace_margin
+        ):
+            current_core = [
+                best_challenger["strategy"] if strategy == weakest_incumbent["strategy"] else strategy
+                for strategy in current_core[:slots]
+            ]
+            replacement = {
+                "in": best_challenger["strategy"],
+                "out": weakest_incumbent["strategy"],
+                "score_margin": round(
+                    best_challenger.get("score", 0.0) - weakest_incumbent.get("score", 0.0),
+                    2,
+                ),
+            }
+
+    final_core = [strategy for strategy in current_core[:slots] if strategy in eligible]
+    final_core.sort(
+        key=lambda strategy: (
+            score_map.get(strategy, {}).get("score", 0.0),
+            score_map.get(strategy, {}).get("samples", 0),
+        ),
+        reverse=True,
+    )
+
+    if persist:
+        previous_core = list(config.get("ensemble_core_strategies") or [])
+        if previous_core != final_core or replacement:
+            config["ensemble_core_strategies"] = final_core
+            config["ensemble_last_selected_at"] = datetime.now().isoformat()
+            if replacement:
+                config["ensemble_last_replacement"] = {
+                    **replacement,
+                    "at": datetime.now().isoformat(),
+                }
+            _save_strategy_config("ml", region, config)
+
+    return final_core
+
+def _tune_strategy_config(strategy, region):
+    accuracy, total = _calculate_strategy_accuracy(region, strategy)
+    config = _load_strategy_config(strategy, region)
+    previous_accuracy = float(config.get("last_accuracy") or 0.0)
+    previous_total = int(config.get("last_total") or 0)
+
+    if previous_total > 0:
+        config["prev_accuracy"] = round(previous_accuracy, 4)
+        config["prev_total"] = previous_total
+        config["prev_updated_at"] = config.get("updated_at", "")
+
+    config["last_accuracy"] = round(accuracy, 4)
+    config["last_total"] = total
+    config["accuracy_delta"] = round(accuracy - previous_accuracy, 4) if previous_total > 0 else 0.0
+    config["updated_at"] = datetime.now().isoformat()
+
+    if total <= 0:
+        _save_strategy_config(strategy, region, config)
+        return
+
+    learning_strength = _clamp(total / 80.0, 0.25, 1.0)
+    weights = dict(config.get("weights") or {})
+    if strategy in LOCAL_STRATEGY_KEYS:
+        layered_stats = _calculate_strategy_hit_rate_windows(region, strategy, windows=(12, 36, 72))
+        config["layered_hit_rates"] = layered_stats
+        phase_hit_rates = _calculate_strategy_phase_hit_rates(region, strategy, limit=180)
+        config["phase_hit_rates"] = phase_hit_rates
+        local_top1 = _safe_float((layered_stats.get("aggregate") or {}).get("top1"), accuracy)
+        local_top6 = _safe_float((layered_stats.get("aggregate") or {}).get("top6"), 0.0)
+    else:
+        phase_hit_rates = {}
+        local_top1 = accuracy
+        local_top6 = 0.0
+
+    if strategy in ("hot", "cold"):
+        config["window"] = _clamp(int(26 + local_top1 * 42 + local_top6 * 18), 18, 82)
+        config["pool"] = _clamp(int(11 + local_top1 * 9 + local_top6 * 5), 10, 24)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
+    elif strategy == "trend":
+        config["window"] = _clamp(int(8 + local_top1 * 18 + local_top6 * 8), 8, 32)
+        config["pool"] = _clamp(int(10 + local_top1 * 7 + local_top6 * 5), 8, 21)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
+    elif strategy == "balanced":
+        high_count = _clamp(int(2 + local_top1 * 2), 1, 4)
+        low_count = _clamp(int(2 + max(0.0, 1 - local_top1) * 2), 1, 4)
+        mid_count = 6 - high_count - low_count
+        if mid_count < 1:
+            mid_count = 1
+            if high_count >= low_count:
+                high_count = 6 - low_count - mid_count
+            else:
+                low_count = 6 - high_count - mid_count
+        config["bucket_counts"] = [low_count, mid_count, high_count]
+        config["window"] = _clamp(int(36 + local_top6 * 42 + local_top1 * 18), 28, 92)
+        config["pool"] = _clamp(int(12 + local_top6 * 9 + local_top1 * 4), 10, 24)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 6), 6, 14)
+    elif strategy == "hybrid":
+        hot_count = _clamp(int(2 + local_top1 * 2), 1, 4)
+        cold_count = _clamp(int(2 + max(0.0, 1 - local_top1) * 2), 1, 4)
+        trend_count = 6 - hot_count - cold_count
+        if trend_count < 1:
+            trend_count = 1
+            if hot_count >= cold_count:
+                hot_count = 6 - cold_count - trend_count
+            else:
+                cold_count = 6 - hot_count - trend_count
+        config["mix"] = {"hot": hot_count, "cold": cold_count, "trend": trend_count}
+        config["window"] = _clamp(int(34 + local_top6 * 40 + local_top1 * 16), 28, 90)
+        config["pool"] = _clamp(int(12 + local_top6 * 8 + local_top1 * 5), 10, 24)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 6), 6, 14)
+        config["trend_window"] = _clamp(int(8 + local_top1 * 16 + local_top6 * 6), 8, 30)
+    elif strategy == "ai":
+        config["temperature"] = round(_clamp(0.42 - accuracy * 0.18, 0.18, 0.45), 2)
+        config["history_window"] = _clamp(int(12 + (0.5 - accuracy) * 6), 8, 18)
+        config["sample_count"] = _clamp(int(4 - accuracy * 2), 2, 5)
+        config["candidate_count"] = _clamp(int(4 - accuracy), 2, 4)
+        config["special_shortlist"] = _clamp(int(10 - accuracy * 4), 6, 10)
+        config["normal_shortlist"] = _clamp(int(20 - accuracy * 6), 14, 22)
+        target_mode, target_stats = _resolve_ai_target_mode(region, limit=140)
+        config["target_mode"] = target_mode
+        config["target_mode_stats"] = target_stats
+        layered_stats = _calculate_strategy_hit_rate_windows(region, "ai", windows=(12, 36, 72))
+        config["layered_hit_rates"] = layered_stats
+        gate_profile = _build_ai_gate_profile(region)
+        score_gap = max(0.0, float(gate_profile.get("score_gap") or 0.0))
+        score_pressure = _clamp(score_gap / 8.0, 0.0, 1.0)
+        feedback = _build_prediction_feedback(region, "ai", limit=160)
+        feedback_confidence = _safe_float(feedback.get("confidence"), 0.0)
+        ai_profile = _learn_ai_region_profile(region)
+        offline_profile = _learn_ai_offline_rerank_profile(region)
+        mix_weights = _resolve_ai_feedback_mix_weights(region)
+        structure_confidence = _safe_float(ai_profile.get("confidence"), 0.0)
+        rerank_weights = _default_ai_rerank_weights()
+        rerank_weights["base_special"] = round(_clamp(0.72 + accuracy * 0.42 + feedback_confidence * 0.12 + structure_confidence * 0.08, 0.65, 1.3), 4)
+        rerank_weights["avg_normal"] = round(_clamp(0.42 + accuracy * 0.28 + learning_strength * 0.08 + structure_confidence * 0.06, 0.35, 1.0), 4)
+        rerank_weights["special_vote"] = round(_clamp(0.1 + learning_strength * 0.12 + score_pressure * 0.08, 0.08, 0.42), 4)
+        rerank_weights["normal_vote_avg"] = round(_clamp(0.06 + learning_strength * 0.08 + score_pressure * 0.06, 0.04, 0.28), 4)
+        rerank_weights["shortlist_bonus"] = round(_clamp(0.82 + learning_strength * 0.22 + score_pressure * 0.28 + structure_confidence * 0.08, 0.75, 1.5), 4)
+        rerank_weights["attr_bonus"] = round(_clamp(0.72 + accuracy * 0.44 + feedback_confidence * 0.1, 0.65, 1.35), 4)
+        rerank_weights["diversity_bonus"] = round(_clamp(0.74 + (1 - accuracy) * 0.32 + score_pressure * 0.18 + structure_confidence * 0.14, 0.7, 1.45), 4)
+        rerank_weights["repeat_penalty"] = round(_clamp(1.0 + (1 - accuracy) * 0.55 + score_pressure * 0.35, 0.9, 1.95), 4)
+        rerank_weights["overheat_penalty"] = round(_clamp(0.88 + (1 - accuracy) * 0.44 + score_pressure * 0.24, 0.78, 1.65), 4)
+        rerank_weights["confidence_bonus"] = round(_clamp(0.5 + accuracy * 0.55 - score_pressure * 0.12, 0.38, 1.2), 4)
+        rerank_weights["shape_score"] = round(_clamp(0.82 + accuracy * 0.36 + score_pressure * 0.14 + structure_confidence * 0.18, 0.78, 1.45), 4)
+        rerank_weights["structure_bonus"] = round(_clamp(0.7 + structure_confidence * 0.55 + learning_strength * 0.12, 0.6, 1.4), 4)
+        rerank_weights["gate_adjustment"] = round(_clamp(1.0 + score_pressure * 0.4, 1.0, 1.6), 4)
+        rerank_weights["appearance_vote"] = round(_clamp(0.18 + accuracy * 0.1 + learning_strength * 0.04, 0.16, 0.38), 4)
+        if target_mode == "top6_cover":
+            rerank_weights["avg_normal"] = round(_clamp(rerank_weights["avg_normal"] + 0.18, 0.35, 1.1), 4)
+            rerank_weights["diversity_bonus"] = round(_clamp(rerank_weights["diversity_bonus"] + 0.16, 0.7, 1.5), 4)
+            rerank_weights["shortlist_bonus"] = round(_clamp(rerank_weights["shortlist_bonus"] + 0.08, 0.75, 1.55), 4)
+            rerank_weights["base_special"] = round(_clamp(rerank_weights["base_special"] - 0.12, 0.55, 1.25), 4)
+            rerank_weights["structure_bonus"] = round(_clamp(rerank_weights["structure_bonus"] + 0.12, 0.6, 1.5), 4)
+        else:
+            rerank_weights["base_special"] = round(_clamp(rerank_weights["base_special"] + 0.12, 0.65, 1.35), 4)
+            rerank_weights["special_vote"] = round(_clamp(rerank_weights["special_vote"] + 0.05, 0.08, 0.48), 4)
+            rerank_weights["appearance_vote"] = round(_clamp(rerank_weights["appearance_vote"] - 0.03, 0.14, 0.38), 4)
+        offline_adjustments = dict(offline_profile.get("weight_adjustments") or {})
+        mode_adjustments = dict((offline_profile.get("mode_adjustments") or {}).get(target_mode) or {})
+        mode_window_adjustments = dict((offline_profile.get("mode_window_adjustments") or {}).get(target_mode) or {})
+        offline_confidence = _safe_float(offline_profile.get("confidence"), 0.0)
+        for key, delta in offline_adjustments.items():
+            if key not in rerank_weights:
+                continue
+            rerank_weights[key] = round(
+                _clamp(rerank_weights[key] + (_safe_float(delta, 0.0) * max(0.35, offline_confidence)), 0.04, 1.8),
+                4,
+            )
+        for key, delta in mode_adjustments.items():
+            if key not in rerank_weights:
+                continue
+            rerank_weights[key] = round(
+                _clamp(rerank_weights[key] + (_safe_float(delta, 0.0) * max(0.25, offline_confidence) * 0.9), 0.04, 1.8),
+                4,
+            )
+        window_blend = {"recent": 1.0, "mid": 0.62, "long": 0.35}
+        for window_key, blend_weight in window_blend.items():
+            for key, delta in dict(mode_window_adjustments.get(window_key) or {}).items():
+                if key not in rerank_weights:
+                    continue
+                rerank_weights[key] = round(
+                    _clamp(
+                        rerank_weights[key] + (_safe_float(delta, 0.0) * max(0.22, offline_confidence) * blend_weight * 0.8),
+                        0.04,
+                        1.8,
+                    ),
+                    4,
+                )
+        config["rerank_weights"] = _normalize_ai_rerank_weights(rerank_weights)
+        config["rerank_learning_confidence"] = round(
+            _clamp((learning_strength * 0.55) + (feedback_confidence * 0.45), 0.2, 1.0),
+            4,
+        )
+        config["rerank_gate_profile"] = {
+            "status": gate_profile.get("status"),
+            "score_gap": round(score_gap, 2),
+            "anchor_strategy": gate_profile.get("anchor_strategy", ""),
+        }
+        config["feedback_mix_weights"] = {
+            "ai": _safe_float(mix_weights.get("ai"), 0.5),
+            "ml": _safe_float(mix_weights.get("ml"), 0.5),
+        }
+        config["feedback_mix_stats"] = {
+            "ai": mix_weights.get("ai_stats", {}),
+            "ml": mix_weights.get("ml_stats", {}),
+        }
+        config["structure_profile"] = {
+            "confidence": round(structure_confidence, 4),
+            "samples": int(ai_profile.get("samples", 0) or 0),
+            "preferred_structures": list(ai_profile.get("preferred_structures") or []),
+            "target_scores": dict(ai_profile.get("target_scores") or {}),
+        }
+        config["offline_rerank_profile"] = {
+            "confidence": round(offline_confidence, 4),
+            "samples": int(offline_profile.get("samples", 0) or 0),
+            "weight_adjustments": offline_adjustments,
+            "mode_scores": dict(offline_profile.get("mode_scores") or {}),
+            "mode_adjustments": dict(offline_profile.get("mode_adjustments") or {}),
+            "mode_window_adjustments": dict(offline_profile.get("mode_window_adjustments") or {}),
+            "ranking_signal_scores": dict(offline_profile.get("ranking_signal_scores") or {}),
+        }
+    elif strategy == "ml":
+        config["history_window"] = _clamp(int(90 + accuracy * 120), 80, 220)
+        config["feature_window"] = _clamp(int(40 + accuracy * 40), 30, 80)
+        config["evaluation_window"] = _clamp(int(18 + accuracy * 24), 12, 48)
+        config["pool"] = _clamp(int(14 + accuracy * 8), 12, 24)
+        config["special_pool"] = _clamp(int(6 + accuracy * 4), 6, 12)
+        config["epochs"] = _clamp(int(15 + accuracy * 15), 15, 30)
+        config["learning_rate"] = round(_clamp(0.02 + (1 - accuracy) * 0.08, 0.01, 0.08), 3)
+        config["l2"] = round(_clamp(0.001 + (1 - accuracy) * 0.004, 0.001, 0.005), 4)
+        learned_profile = _learn_ml_region_profile(region)
+        config["preferred_feature_profiles"] = learned_profile.get("feature_profiles", [])
+        config["preferred_runtime_profiles"] = learned_profile.get("runtime_profiles", [])
+        config["profile_learning_confidence"] = learned_profile.get("confidence", 0.0)
+        config["profile_learning_samples"] = learned_profile.get("samples", 0)
+        config["ensemble_bias"] = learned_profile.get("ensemble_bias", {})
+
+        learned_blends = [
+            float(item)
+            for item in (learned_profile.get("blend_candidates") or [])
+            if 0.0 < float(item) <= 1.0
+        ]
+        default_blends = [0.55, 0.7, 0.82]
+        merged_blends = []
+        for candidate in learned_blends + default_blends:
+            rounded = round(float(candidate), 2)
+            if rounded not in merged_blends:
+                merged_blends.append(rounded)
+            if len(merged_blends) >= 4:
+                break
+        config["blend_candidates"] = merged_blends or default_blends
+        config["primary_feature_profile"] = (
+            (learned_profile.get("feature_profiles") or [config.get("primary_feature_profile") or "full"])[0]
+        )
+        config["primary_runtime_profile"] = (
+            (learned_profile.get("runtime_profiles") or [config.get("primary_runtime_profile") or "base"])[0]
+        )
+
+    if weights:
+        weights["feedback"] = round(_clamp(0.45 + learning_strength * 0.7 + accuracy * 0.3, 0.45, 1.35), 2)
+        weights["color"] = round(_clamp(0.10 + accuracy * 0.20, 0.08, 0.35), 2)
+        weights["zodiac"] = round(_clamp(0.10 + accuracy * 0.18, 0.08, 0.32), 2)
+        weights["parity"] = round(_clamp(0.12 + accuracy * 0.18, 0.10, 0.30), 2)
+        if strategy == "cold":
+            weights["overdue"] = round(_clamp(0.70 + (1 - accuracy) * 0.35, 0.65, 1.20), 2)
+        elif strategy == "trend":
+            weights["trend"] = round(_clamp(1.00 + learning_strength * 0.25 + accuracy * 0.20, 1.0, 1.5), 2)
+        elif strategy == "hot":
+            weights["hot"] = round(_clamp(1.00 + learning_strength * 0.20 + accuracy * 0.20, 1.0, 1.5), 2)
+        elif strategy == "balanced":
+            weights["cold"] = round(_clamp(0.30 + (1 - accuracy) * 0.20, 0.25, 0.60), 2)
+        elif strategy == "hybrid":
+            weights["feedback"] = round(_clamp(weights["feedback"] + 0.10, 0.5, 1.45), 2)
+            weights["parity"] = round(_clamp(weights["parity"] + 0.04, 0.12, 0.32), 2)
+        config["weights"] = weights
+        if strategy in ("hot", "cold", "trend", "balanced", "hybrid"):
+            config["phase_weight_learning"] = _build_local_phase_learning_map(strategy, weights, phase_hit_rates)
+            config["phase_runtime_templates"] = _build_local_phase_runtime_templates(strategy, config, phase_hit_rates)
+
+    if strategy in LOCAL_STRATEGY_KEYS:
+        config["local_tuning_profile"] = {
+            "top1_rate": round(local_top1 * 100, 2),
+            "top6_rate": round(local_top6 * 100, 2),
+            "window_bias": int(config.get("window") or 0),
+            "pool_bias": int(config.get("pool") or 0),
+        }
+
+    _save_strategy_config(strategy, region, config)
+
+def update_strategy_configs(region):
+    strategies = ["hot", "cold", "trend", "balanced", "hybrid", "ml", "ai"]
+    for strategy in strategies:
+        try:
+            _tune_strategy_config(strategy, region)
+        except Exception as e:
+            print(f"Strategy tuning failed for {strategy} ({region}): {e}")
+    try:
+        _promote_ml_region_profile(region, persist=True)
+    except Exception as e:
+        print(f"ML profile promotion failed for {region}: {e}")
+
+def _get_number_to_zodiac_map(year):
+    number_to_zodiac = {}
+    try:
+        from models import ZodiacSetting
+        mapping = ZodiacSetting.get_mapping_for_macau_year(year)
+        if mapping:
+            number_to_zodiac = {str(number): zodiac for number, zodiac in mapping.items()}
+    except Exception as e:
+        print(f"Failed to build zodiac mapping: {e}")
+
+    if not number_to_zodiac:
+        macau_data = get_macau_data(str(year))
+        for record in macau_data:
+            all_numbers = record.get('no', []) + [record.get('sno')]
+            zodiacs = record.get('raw_zodiac', '').split(',')
+            if len(all_numbers) == len(zodiacs):
+                for i, num in enumerate(all_numbers):
+                    if num:
+                        number_to_zodiac[num] = zodiacs[i]
+
+    return number_to_zodiac
+
+def _get_next_period(region, latest_period):
+    if region == 'hk':
+        if latest_period and '/' in latest_period:
+            parts = latest_period.split('/')
+            if len(parts) == 2:
+                year_part, num_part = parts
+                try:
+                    next_num = int(num_part) + 1
+                    year_num = int(year_part)
+                    year_width = max(2, len(year_part))
+                    if next_num > 120:
+                        next_year = year_num + 1
+                        return f"{str(next_year).zfill(year_width)}/001"
+                    return f"{year_part}/{next_num:03d}"
+                except (ValueError, TypeError):
+                    pass
+        if latest_period and latest_period.isdigit():
+            if len(latest_period) >= 7 and latest_period[:4].isdigit():
+                year_part = latest_period[:4]
+                seq_part = latest_period[4:]
+                if seq_part.isdigit():
+                    seq = int(seq_part)
+                    next_seq = seq + 1
+                    if len(seq_part) == 3 and next_seq > 999:
+                        next_year = int(year_part) + 1
+                        return f"{next_year}001"
+                    return f"{year_part}{str(next_seq).zfill(len(seq_part))}"
+            return str(int(latest_period) + 1)
+        return _default_period(region)
+
+    if latest_period and latest_period.isdigit():
+        if len(latest_period) >= 7 and latest_period[:4].isdigit():
+            year_part = latest_period[:4]
+            seq_part = latest_period[4:]
+            if seq_part.isdigit():
+                seq = int(seq_part)
+                next_seq = seq + 1
+                if len(seq_part) == 3 and next_seq > 999:
+                    next_year = int(year_part) + 1
+                    return f"{next_year}001"
+                return f"{year_part}{str(next_seq).zfill(len(seq_part))}"
+        return str(int(latest_period) + 1)
+    return datetime.now().strftime('%Y%m%d')
+
+def _default_period(region):
+    if region == 'hk':
+        current_year = datetime.now().strftime('%Y')
+        return f"{current_year}001"
+    current_year = datetime.now().strftime('%y')
+    return f"{current_year}/001"
+
+def analyze_special_zodiac_frequency(data, region, year=None):
     zodiacs = []
+    if year is None:
+        year = datetime.now().year
+
+    number_to_zodiac = {}
+    if region == 'hk':
+        number_to_zodiac = _get_number_to_zodiac_map(year)
     for r in data:
         sno = r.get('sno')
         if not sno: continue
         if region == 'hk':
-            zodiacs.append(_get_hk_number_zodiac(sno))
+            zodiacs.append(number_to_zodiac.get(str(sno), r.get('sno_zodiac')))
         else:
             zodiacs.append(r.get('sno_zodiac'))
     return Counter(z for z in zodiacs if z)
+
+
+def _build_repeat_transition_profile(data, region, year=None, recent_window=36):
+    records = list(data or [])
+    if len(records) < 2:
+        return {
+            "latest_special": None,
+            "latest_zodiac": "",
+            "latest_special_streak": 0,
+            "latest_zodiac_streak": 0,
+            "latest_special_repeat_probability": 0.0,
+            "latest_zodiac_repeat_probability": 0.0,
+            "overall_special_repeat_rate": 0.0,
+            "overall_zodiac_repeat_rate": 0.0,
+        }
+
+    if year is None:
+        year = _infer_draw_year(records)
+    number_to_zodiac = _get_number_to_zodiac_map(year) if region == "hk" else {}
+
+    normalized = []
+    for record in records:
+        try:
+            special = int(str(record.get("sno") or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= special <= 49):
+            continue
+        zodiac = number_to_zodiac.get(str(special), "") if number_to_zodiac else ""
+        if not zodiac:
+            zodiac = str(record.get("sno_zodiac") or "").strip()
+        normalized.append({
+            "special": special,
+            "zodiac": zodiac,
+        })
+
+    if len(normalized) < 2:
+        return {
+            "latest_special": None,
+            "latest_zodiac": "",
+            "latest_special_streak": 0,
+            "latest_zodiac_streak": 0,
+            "latest_special_repeat_probability": 0.0,
+            "latest_zodiac_repeat_probability": 0.0,
+            "overall_special_repeat_rate": 0.0,
+            "overall_zodiac_repeat_rate": 0.0,
+        }
+
+    latest_special = normalized[0]["special"]
+    latest_zodiac = normalized[0]["zodiac"]
+
+    latest_special_streak = 1
+    for item in normalized[1:]:
+        if item["special"] != latest_special:
+            break
+        latest_special_streak += 1
+
+    latest_zodiac_streak = 1 if latest_zodiac else 0
+    if latest_zodiac:
+        for item in normalized[1:]:
+            if item["zodiac"] != latest_zodiac:
+                break
+            latest_zodiac_streak += 1
+
+    chronological = list(reversed(normalized))
+    total_transitions = 0
+    special_repeat_hits = 0
+    zodiac_transition_total = 0
+    zodiac_repeat_hits = 0
+    latest_special_prev_total = 0
+    latest_special_prev_hits = 0
+    latest_zodiac_prev_total = 0
+    latest_zodiac_prev_hits = 0
+
+    recent_slice = chronological[-max(6, int(recent_window or 36)):]
+    recent_total_transitions = 0
+    recent_special_repeat_hits = 0
+    recent_zodiac_total = 0
+    recent_zodiac_repeat_hits = 0
+    recent_latest_special_prev_total = 0
+    recent_latest_special_prev_hits = 0
+    recent_latest_zodiac_prev_total = 0
+    recent_latest_zodiac_prev_hits = 0
+
+    for idx in range(1, len(chronological)):
+        prev_item = chronological[idx - 1]
+        curr_item = chronological[idx]
+        total_transitions += 1
+        if curr_item["special"] == prev_item["special"]:
+            special_repeat_hits += 1
+        if prev_item["special"] == latest_special:
+            latest_special_prev_total += 1
+            if curr_item["special"] == latest_special:
+                latest_special_prev_hits += 1
+        prev_zodiac = prev_item["zodiac"]
+        curr_zodiac = curr_item["zodiac"]
+        if prev_zodiac:
+            zodiac_transition_total += 1
+            if curr_zodiac == prev_zodiac:
+                zodiac_repeat_hits += 1
+            if prev_zodiac == latest_zodiac:
+                latest_zodiac_prev_total += 1
+                if curr_zodiac == latest_zodiac:
+                    latest_zodiac_prev_hits += 1
+
+    for idx in range(1, len(recent_slice)):
+        prev_item = recent_slice[idx - 1]
+        curr_item = recent_slice[idx]
+        recent_total_transitions += 1
+        if curr_item["special"] == prev_item["special"]:
+            recent_special_repeat_hits += 1
+        if prev_item["special"] == latest_special:
+            recent_latest_special_prev_total += 1
+            if curr_item["special"] == latest_special:
+                recent_latest_special_prev_hits += 1
+        prev_zodiac = prev_item["zodiac"]
+        curr_zodiac = curr_item["zodiac"]
+        if prev_zodiac:
+            recent_zodiac_total += 1
+            if curr_zodiac == prev_zodiac:
+                recent_zodiac_repeat_hits += 1
+            if prev_zodiac == latest_zodiac:
+                recent_latest_zodiac_prev_total += 1
+                if curr_zodiac == latest_zodiac:
+                    recent_latest_zodiac_prev_hits += 1
+
+    overall_special_repeat_rate = special_repeat_hits / max(total_transitions, 1)
+    overall_zodiac_repeat_rate = zodiac_repeat_hits / max(zodiac_transition_total, 1) if zodiac_transition_total else 0.0
+    recent_special_repeat_rate = recent_special_repeat_hits / max(recent_total_transitions, 1) if recent_total_transitions else overall_special_repeat_rate
+    recent_zodiac_repeat_rate = recent_zodiac_repeat_hits / max(recent_zodiac_total, 1) if recent_zodiac_total else overall_zodiac_repeat_rate
+
+    latest_special_conditional = latest_special_prev_hits / max(latest_special_prev_total, 1) if latest_special_prev_total else overall_special_repeat_rate
+    latest_zodiac_conditional = latest_zodiac_prev_hits / max(latest_zodiac_prev_total, 1) if latest_zodiac_prev_total else overall_zodiac_repeat_rate
+    recent_latest_special_conditional = (
+        recent_latest_special_prev_hits / max(recent_latest_special_prev_total, 1)
+        if recent_latest_special_prev_total else latest_special_conditional
+    )
+    recent_latest_zodiac_conditional = (
+        recent_latest_zodiac_prev_hits / max(recent_latest_zodiac_prev_total, 1)
+        if recent_latest_zodiac_prev_total else latest_zodiac_conditional
+    )
+
+    latest_special_repeat_probability = (
+        overall_special_repeat_rate * 0.20 +
+        recent_special_repeat_rate * 0.25 +
+        latest_special_conditional * 0.30 +
+        recent_latest_special_conditional * 0.25
+    )
+    latest_zodiac_repeat_probability = (
+        overall_zodiac_repeat_rate * 0.20 +
+        recent_zodiac_repeat_rate * 0.25 +
+        latest_zodiac_conditional * 0.30 +
+        recent_latest_zodiac_conditional * 0.25
+    )
+
+    latest_special_repeat_probability *= (0.72 ** max(0, latest_special_streak - 1))
+    latest_zodiac_repeat_probability *= (0.78 ** max(0, latest_zodiac_streak - 1))
+
+    return {
+        "latest_special": latest_special,
+        "latest_zodiac": latest_zodiac,
+        "latest_special_streak": latest_special_streak,
+        "latest_zodiac_streak": latest_zodiac_streak,
+        "latest_special_repeat_probability": round(_clamp(latest_special_repeat_probability, 0.0, 1.0), 6),
+        "latest_zodiac_repeat_probability": round(_clamp(latest_zodiac_repeat_probability, 0.0, 1.0), 6),
+        "overall_special_repeat_rate": round(_clamp(overall_special_repeat_rate, 0.0, 1.0), 6),
+        "overall_zodiac_repeat_rate": round(_clamp(overall_zodiac_repeat_rate, 0.0, 1.0), 6),
+    }
 
 def analyze_special_color_frequency(data, region):
     colors = []
@@ -229,130 +3796,4013 @@ def analyze_special_color_frequency(data, region):
                 continue
     return Counter(c for c in colors if c)
 
-def get_local_recommendations(strategy, data, region):
+def _get_parity_zh(number):
+    try:
+        return '双' if int(number) % 2 == 0 else '单'
+    except (TypeError, ValueError):
+        return ''
+
+def analyze_special_parity_frequency(data):
+    parities = []
+    for r in data:
+        sno = r.get('sno')
+        if not sno:
+            continue
+        parity = _get_parity_zh(sno)
+        if parity:
+            parities.append(parity)
+    return Counter(parities)
+
+def _infer_draw_year(data):
+    for record in data or []:
+        raw_date = str(record.get("date", "")).strip()
+        if len(raw_date) >= 4 and raw_date[:4].isdigit():
+            return int(raw_date[:4])
+        draw_id = str(record.get("id", "")).strip()
+        if len(draw_id) >= 4 and draw_id[:4].isdigit():
+            return int(draw_id[:4])
+    return datetime.now().year
+
+def _build_number_frequency(data):
+    counts = Counter()
+    for record in data or []:
+        for number in record.get("no", []):
+            if number:
+                counts[str(number)] += 1
+        sno = record.get("sno")
+        if sno:
+            counts[str(sno)] += 1
+    return {str(i): counts.get(str(i), 0) for i in range(1, 50)}
+
+def _build_overdue_scores(data):
+    scores = {}
+    for number in range(1, 50):
+        gap = len(data or [])
+        target = str(number)
+        for idx, record in enumerate(data or []):
+            if record.get("sno") == target:
+                gap = idx
+                break
+        scores[str(number)] = gap
+    return scores
+
+def _normalize_metric_map(metric_map):
+    if not metric_map:
+        return {}
+    values = list(metric_map.values())
+    min_value = min(values)
+    max_value = max(values)
+    if max_value == min_value:
+        fallback = 0.5 if max_value > 0 else 0.0
+        return {key: fallback for key in metric_map}
+    return {
+        key: (value - min_value) / (max_value - min_value)
+        for key, value in metric_map.items()
+    }
+
+
+def _normalize_signed_metric_map(metric_map):
+    if not metric_map:
+        return {}
+    max_abs = max(abs(float(value)) for value in metric_map.values())
+    if max_abs <= 0:
+        return {key: 0.5 for key in metric_map}
+    return {
+        key: round(_clamp(0.5 + (float(value) / (2 * max_abs)), 0.0, 1.0), 4)
+        for key, value in metric_map.items()
+    }
+
+
+def _feedback_confidence(sample_count, full_confidence=80):
+    if sample_count <= 0:
+        return 0.0
+    return round(_clamp(sample_count / float(full_confidence), 0.15, 1.0), 4)
+
+
+def _default_ai_rerank_weights():
+    return dict(_default_strategy_config("ai").get("rerank_weights") or {})
+
+
+def _normalize_ai_rerank_weights(weights):
+    defaults = _default_ai_rerank_weights()
+    incoming = dict(weights or {})
+    normalized = {}
+    for key, default_value in defaults.items():
+        normalized[key] = round(
+            _clamp(_safe_float(incoming.get(key), default_value), -2.5, 2.5),
+            4,
+        )
+    return normalized
+
+
+def _resolve_ai_target_mode(region, limit=120):
+    layered = _calculate_strategy_hit_rate_windows(region, "ai", windows=(12, 36, 72))
+    stats = dict(layered.get("aggregate") or {})
+    stats["windows"] = layered.get("windows") or []
+    total = int(stats.get("total", 0) or 0)
+    if total < 12:
+        return "top1_safe", stats
+
+    top1 = _safe_float(stats.get("top1"), 0.0)
+    top6 = _safe_float(stats.get("top6"), 0.0)
+    if top6 >= max(top1 * 2.2, top1 + 0.16):
+        return "top6_cover", stats
+    if top1 >= max(0.14, top6 * 0.72):
+        return "top1_strict", stats
+    return "top1_safe", stats
+
+
+def _blend_prediction_feedback_items(*weighted_feedbacks):
+    sections = ("special", "normal", "color", "zodiac", "parity")
+    weighted_items = []
+
+    for item in weighted_feedbacks:
+        if not item:
+            continue
+        if isinstance(item, tuple):
+            feedback, explicit_weight = item
+        else:
+            feedback, explicit_weight = item, None
+        if not feedback:
+            continue
+
+        confidence = _safe_float(feedback.get("confidence", 0.0))
+        samples = max(0, int(feedback.get("samples", 0) or 0))
+        sample_weight = _clamp(samples / 60.0, 0.2, 1.0) if samples > 0 else 0.2
+        base_weight = _safe_float(explicit_weight, 1.0) if explicit_weight is not None else 1.0
+        effective_weight = max(0.05, base_weight * max(0.15, confidence) * sample_weight)
+        weighted_items.append((feedback, effective_weight, confidence, samples))
+
+    if not weighted_items:
+        return {
+            "special": {},
+            "normal": {},
+            "color": {},
+            "zodiac": {},
+            "parity": {},
+            "samples": 0,
+            "confidence": 0.0,
+        }
+
+    total_weight = sum(item[1] for item in weighted_items) or 1.0
+    merged = {}
+    for section in sections:
+        keys = set()
+        for feedback, _, _, _ in weighted_items:
+            keys.update((feedback.get(section) or {}).keys())
+        merged[section] = {
+            key: round(
+                sum(
+                    _safe_float((feedback.get(section) or {}).get(key, 0.5)) * weight
+                    for feedback, weight, _, _ in weighted_items
+                ) / total_weight,
+                4,
+            )
+            for key in keys
+        }
+
+    merged["samples"] = sum(item[3] for item in weighted_items)
+    merged["confidence"] = round(
+        sum(confidence * weight for _, weight, confidence, _ in weighted_items) / total_weight,
+        4,
+    )
+    return merged
+
+def _personalized_predictions_enabled():
+    raw = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower()
+    return raw in {'true', '1', 'yes', 'on'}
+
+def _build_prediction_feedback(region, strategy, limit=240, cutoff_period=None):
+    predictions = _load_learning_scope_predictions(region, strategy)
+    if cutoff_period:
+        predictions = [
+            pred for pred in predictions
+            if _is_period_before(pred.period, cutoff_period)
+        ]
+    if limit:
+        predictions = predictions[:limit]
+
+    special_scores = Counter()
+    normal_scores = Counter()
+    color_scores = Counter()
+    zodiac_scores = Counter()
+    parity_scores = Counter()
+
+    for idx, pred in enumerate(predictions):
+        recency_weight = max(0.2, 1.0 - (idx / max(limit, 1)) * 0.75)
+        actual = str(pred.actual_special_number or "").strip()
+        special = str(pred.special_number or "").strip()
+        predicted_zodiac = str(pred.special_zodiac or "").strip()
+        normal_numbers = [n for n in _parse_csv_list(pred.normal_numbers) if n]
+
+        actual_color = _get_color_zh(actual)
+        actual_zodiac = str(pred.actual_special_zodiac or "").strip()
+        actual_parity = _get_parity_zh(actual)
+        predicted_parity = _get_parity_zh(special)
+        zodiac_hit = bool(
+            predicted_zodiac and actual_zodiac and predicted_zodiac == actual_zodiac
+        )
+        parity_hit = bool(
+            predicted_parity and actual_parity and predicted_parity == actual_parity
+        )
+
+        if special and actual and special == actual:
+            special_scores[special] += 2.4 * recency_weight
+            normal_scores[special] += 0.6 * recency_weight
+            if actual_color:
+                color_scores[actual_color] += 1.6 * recency_weight
+            if actual_zodiac:
+                zodiac_scores[actual_zodiac] += 1.6 * recency_weight
+            if actual_parity:
+                parity_scores[actual_parity] += 1.35 * recency_weight
+        elif actual and actual in normal_numbers:
+            normal_scores[actual] += 1.4 * recency_weight
+            if special:
+                special_scores[special] -= 0.75 * recency_weight
+            if actual_color:
+                color_scores[actual_color] += 1.0 * recency_weight
+            if actual_zodiac:
+                zodiac_scores[actual_zodiac] += 1.0 * recency_weight
+            if zodiac_hit:
+                zodiac_scores[actual_zodiac] += 0.55 * recency_weight
+            if actual_parity:
+                parity_scores[actual_parity] += 0.9 * recency_weight
+            if parity_hit:
+                parity_scores[actual_parity] += 0.45 * recency_weight
+        elif zodiac_hit:
+            if special:
+                special_scores[special] += 0.25 * recency_weight
+            if actual_zodiac:
+                zodiac_scores[actual_zodiac] += 1.25 * recency_weight
+            if actual_color:
+                color_scores[actual_color] += 0.35 * recency_weight
+            if actual_parity:
+                parity_scores[actual_parity] += 0.35 * recency_weight
+        elif parity_hit:
+            if special:
+                special_scores[special] += 0.12 * recency_weight
+            if actual_parity:
+                parity_scores[actual_parity] += 1.0 * recency_weight
+            if actual_color:
+                color_scores[actual_color] += 0.18 * recency_weight
+        else:
+            if special:
+                special_scores[special] -= 0.95 * recency_weight
+                special_scores[special] -= 0.65 * recency_weight
+            for number in normal_numbers:
+                normal_scores[number] -= 0.18 * recency_weight
+            if predicted_zodiac:
+                zodiac_scores[predicted_zodiac] -= 0.4 * recency_weight
+            if predicted_parity:
+                parity_scores[predicted_parity] -= 0.28 * recency_weight
+
+    confidence = _feedback_confidence(len(predictions))
+
+    return {
+        "special": _normalize_signed_metric_map({str(i): special_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "normal": _normalize_signed_metric_map({str(i): normal_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "color": _normalize_signed_metric_map({color: color_scores.get(color, 0.0) for color in ("红", "蓝", "绿")}),
+        "zodiac": _normalize_signed_metric_map(dict(zodiac_scores)),
+        "parity": _normalize_signed_metric_map({parity: parity_scores.get(parity, 0.0) for parity in ("单", "双")}),
+        "samples": len(predictions),
+        "confidence": confidence,
+    }
+
+def _build_attribute_preferences(data, region, feedback, year, apply_recent_zodiac_cooldown=True):
+    color_counter = analyze_special_color_frequency(data, region)
+    zodiac_counter = analyze_special_zodiac_frequency(data, region, year)
+    parity_counter = analyze_special_parity_frequency(data)
+    color_scores = _normalize_metric_map({color: color_counter.get(color, 0) for color in ("红", "蓝", "绿")})
+    zodiac_scores = _normalize_metric_map(dict(zodiac_counter))
+    parity_scores = _normalize_metric_map({parity: parity_counter.get(parity, 0) for parity in ("单", "双")})
+
+    feedback_color = feedback.get("color") or {}
+    feedback_zodiac = feedback.get("zodiac") or {}
+    feedback_parity = feedback.get("parity") or {}
+    feedback_confidence = float(feedback.get("confidence") or 0.0)
+    feedback_weight = round(0.15 + 0.35 * feedback_confidence, 4)
+    history_weight = round(1.0 - feedback_weight, 4)
+    merged_color = {
+        color: round(
+            color_scores.get(color, 0.0) * history_weight +
+            max(0.0, (feedback_color.get(color, 0.5) - 0.5) * 2) * feedback_weight,
+            4
+        )
+        for color in ("红", "蓝", "绿")
+    }
+    zodiac_keys = set(zodiac_scores) | set(feedback_zodiac)
+    merged_zodiac = {
+        zodiac: round(
+            zodiac_scores.get(zodiac, 0.0) * history_weight +
+            max(0.0, (feedback_zodiac.get(zodiac, 0.5) - 0.5) * 2) * feedback_weight,
+            4
+        )
+        for zodiac in zodiac_keys
+    }
+    if apply_recent_zodiac_cooldown:
+        recent_records = list(data or [])[:6]
+        recent_zodiacs = []
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+        for record in recent_records:
+            sno = str(record.get("sno") or "").strip()
+            if not sno:
+                continue
+            zodiac = number_to_zodiac.get(sno, "") if number_to_zodiac else ""
+            if not zodiac:
+                zodiac = str(record.get("sno_zodiac") or "").strip()
+            if zodiac:
+                recent_zodiacs.append(zodiac)
+        recent_zodiac_counter = Counter(recent_zodiacs)
+        if recent_zodiacs:
+            latest_zodiac = recent_zodiacs[0]
+            recent_pair = set(recent_zodiacs[:2])
+            for zodiac in list(merged_zodiac.keys()):
+                cooled = merged_zodiac.get(zodiac, 0.0)
+                if zodiac == latest_zodiac:
+                    cooled *= 0.38
+                elif zodiac in recent_pair:
+                    cooled *= 0.62
+                heat = int(recent_zodiac_counter.get(zodiac, 0) or 0)
+                if heat >= 2:
+                    cooled *= 0.58
+                elif heat == 1:
+                    cooled *= 0.9
+                merged_zodiac[zodiac] = round(max(0.0, cooled), 4)
+    parity_keys = set(parity_scores) | set(feedback_parity)
+    merged_parity = {
+        parity: round(
+            parity_scores.get(parity, 0.0) * history_weight +
+            max(0.0, (feedback_parity.get(parity, 0.5) - 0.5) * 2) * feedback_weight,
+            4
+        )
+        for parity in parity_keys
+    }
+    return merged_color, merged_zodiac, merged_parity
+
+def _rank_numbers(number_scores, candidates=None, exclude=None):
+    exclude_set = {int(num) for num in (exclude or [])}
+    if candidates is None:
+        candidates = range(1, 50)
+    ranked = []
+    for number in candidates:
+        if number in exclude_set:
+            continue
+        ranked.append((number, number_scores.get(number, 0.0)))
+    ranked.sort(key=lambda item: (item[1], -abs(item[0] - 25), -item[0]), reverse=True)
+    return [number for number, _ in ranked]
+
+
+def _build_parity_target_counts(parity_pref, total=6):
+    total = max(1, int(total or 0))
+    odd_pref = float((parity_pref or {}).get("单", 0.5) or 0.5)
+    even_pref = float((parity_pref or {}).get("双", 0.5) or 0.5)
+    pref_sum = odd_pref + even_pref
+    if pref_sum <= 0:
+        odd_target = total // 2
+    else:
+        odd_target = int(round(total * (odd_pref / pref_sum)))
+    odd_target = _clamp(odd_target, max(1, total // 3), min(total - 1, total - (total // 3)))
+    return {"单": odd_target, "双": total - odd_target}
+
+
+def _rebalance_selected_numbers_by_parity(selected_numbers, ranked_numbers, score_map, parity_pref, count=6):
+    selected = [int(number) for number in (selected_numbers or []) if str(number).isdigit()]
+    ranked = [int(number) for number in (ranked_numbers or []) if str(number).isdigit()]
+    if not selected:
+        return selected
+
+    targets = _build_parity_target_counts(parity_pref, total=count)
+    parity_counts = Counter(_get_parity_zh(number) for number in selected if _get_parity_zh(number))
+
+    for overflow_parity in ("单", "双"):
+        under_parity = "双" if overflow_parity == "单" else "单"
+        while parity_counts.get(overflow_parity, 0) > targets.get(overflow_parity, 0):
+            replacement = next(
+                (
+                    number for number in ranked
+                    if number not in selected and _get_parity_zh(number) == under_parity
+                ),
+                None,
+            )
+            if replacement is None:
+                break
+            removable = sorted(
+                [number for number in selected if _get_parity_zh(number) == overflow_parity],
+                key=lambda number: (float(score_map.get(number, 0.0)), number),
+            )
+            if not removable:
+                break
+            removed = removable[0]
+            selected[selected.index(removed)] = replacement
+            parity_counts[overflow_parity] -= 1
+            parity_counts[under_parity] += 1
+
+    return sorted(selected[:count])
+
+def _take_ranked(ranked_numbers, count, exclude=None):
+    exclude_set = {int(num) for num in (exclude or [])}
+    chosen = []
+    for number in ranked_numbers:
+        if number in exclude_set or number in chosen:
+            continue
+        chosen.append(number)
+        if len(chosen) >= count:
+            break
+    return chosen
+
+def _stable_hash_int(*parts):
+    raw = "||".join(str(part) for part in parts)
+    return int(hashlib.sha256(raw.encode("utf-8")).hexdigest(), 16)
+
+def _take_personalized_ranked(ranked_numbers, count, variation_key=None, exclude=None, chunk_size=3, window_size=None):
+    if not variation_key:
+        return _take_ranked(ranked_numbers, count, exclude=exclude)
+
+    exclude_set = {int(num) for num in (exclude or [])}
+    filtered = [number for number in ranked_numbers if number not in exclude_set]
+    if not filtered or count <= 0:
+        return []
+
+    window_size = min(len(filtered), int(window_size or max(count * 3, chunk_size)))
+    head = filtered[:window_size]
+    tail = filtered[window_size:]
+
+    personalized = []
+    for index in range(0, len(head), chunk_size):
+        chunk = head[index:index + chunk_size]
+        if not chunk:
+            continue
+        shift = _stable_hash_int(variation_key, index, len(chunk)) % len(chunk)
+        personalized.extend(chunk[shift:] + chunk[:shift])
+
+    chosen = []
+    for number in personalized + tail:
+        if number in chosen:
+            continue
+        chosen.append(number)
+        if len(chosen) >= count:
+            break
+    return chosen
+
+def _build_local_recommendation_text(strategy, config, normal, special, feedback):
+    strategy_name = _get_strategy_label(strategy)
+    accuracy = round(float(config.get("last_accuracy") or 0.0) * 100, 1)
+    samples = int(feedback.get("samples") or 0)
+    confidence = round(float(feedback.get("confidence") or 0.0) * 100, 1)
+    return _build_special_focus_text(
+        special,
+        normal,
+        strategy_name=strategy_name,
+        accuracy=accuracy,
+        samples=samples,
+        confidence=confidence,
+    )
+
+
+def _resolve_local_strategy_phase_profile(data, config=None):
+    profile = _classify_ai_market_phase(
+        data,
+        window=max(8, int((config or {}).get("window") or 12)),
+    )
+    return profile if isinstance(profile, dict) else {"label": "neutral", "confidence": 0.0, "adjustments": {}}
+
+
+def _resolve_local_bucket_counts(base_counts, phase_label, top6_rate=0.0):
+    low_count, mid_count, high_count = list(base_counts or [2, 2, 2])[:3]
+    if phase_label == "concentrated":
+        mid_count = min(3, mid_count + 1)
+        if low_count >= high_count:
+            low_count = max(1, low_count - 1)
+        else:
+            high_count = max(1, high_count - 1)
+    elif phase_label == "dispersed":
+        low_count = min(3, low_count + 1) if low_count <= high_count else low_count
+        high_count = min(3, high_count + 1) if high_count <= low_count else high_count
+        mid_count = max(1, 6 - low_count - high_count)
+    elif phase_label == "hot" and top6_rate >= 0.12:
+        mid_count = min(3, mid_count + 1)
+        high_count = max(1, 6 - low_count - mid_count)
+    total = low_count + mid_count + high_count
+    if total != 6:
+        high_count = max(1, 6 - low_count - mid_count)
+    return [low_count, mid_count, high_count]
+
+
+def _resolve_local_hybrid_mix(config, region, phase_label):
+    base_mix = dict(config.get("mix") or {"hot": 2, "cold": 2, "trend": 2})
+    template_mix = dict(((config.get("phase_runtime_templates") or {}).get(phase_label) or {}).get("mix") or {})
+    if template_mix:
+        base_mix.update(template_mix)
+    hot_stats = _calculate_strategy_hit_rates(region, "hot", limit=36)
+    cold_stats = _calculate_strategy_hit_rates(region, "cold", limit=36)
+    trend_stats = _calculate_strategy_hit_rates(region, "trend", limit=36)
+    scores = {
+        "hot": (_safe_float(hot_stats.get("top1"), 0.0) * 1.2) + (_safe_float(hot_stats.get("top6"), 0.0) * 0.4),
+        "cold": (_safe_float(cold_stats.get("top1"), 0.0) * 1.0) + (_safe_float(cold_stats.get("top6"), 0.0) * 0.5),
+        "trend": (_safe_float(trend_stats.get("top1"), 0.0) * 1.1) + (_safe_float(trend_stats.get("top6"), 0.0) * 0.45),
+    }
+    if phase_label == "hot":
+        scores["hot"] += 0.08
+        scores["trend"] += 0.03
+    elif phase_label == "cold":
+        scores["cold"] += 0.08
+    elif phase_label == "concentrated":
+        scores["trend"] += 0.06
+    elif phase_label == "dispersed":
+        scores["cold"] += 0.04
+        scores["hot"] += 0.03
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    mix = {key: 1 for key in base_mix.keys()}
+    remaining = 3
+    mix[ranked[0][0]] += 1
+    mix[ranked[1][0]] += 1
+    remaining -= 2
+    if remaining > 0:
+        mix[ranked[0][0]] += remaining
+    return mix
+
+
+def _resolve_local_phase_runtime(config, strategy, phase_profile):
+    resolved = {
+        "window": _clamp(int((config or {}).get("window") or 0), 8, 96),
+        "pool": _clamp(int((config or {}).get("pool") or 16), 8, 24),
+        "special_pool": _clamp(int((config or {}).get("special_pool") or 8), 6, 14),
+        "trend_window": _clamp(int((config or {}).get("trend_window") or 15), 6, 30),
+        "bucket_counts": list((config or {}).get("bucket_counts") or [2, 2, 2])[:3],
+        "mix": dict((config or {}).get("mix") or {"hot": 2, "cold": 2, "trend": 2}),
+    }
+    phase_label = str((phase_profile or {}).get("label") or "neutral")
+    template = dict((((config or {}).get("phase_runtime_templates") or {}).get(phase_label)) or {})
+    if not template:
+        return resolved
+    samples = int(template.get("samples", 0) or 0)
+    if samples < 6:
+        apply_ratio = 0.35
+    elif samples < 12:
+        apply_ratio = 0.65
+    else:
+        apply_ratio = 1.0
+    for key in ("window", "pool", "special_pool", "trend_window"):
+        template_value = template.get(key)
+        if template_value in (None, ""):
+            continue
+        base_value = int(resolved.get(key) or 0)
+        blended_value = int(round((base_value * (1.0 - apply_ratio)) + (int(template_value) * apply_ratio)))
+        if key == "window":
+            resolved[key] = _clamp(blended_value, 8, 96)
+        elif key == "pool":
+            resolved[key] = _clamp(blended_value, 8, 24)
+        elif key == "special_pool":
+            resolved[key] = _clamp(blended_value, 6, 14)
+        elif key == "trend_window":
+            resolved[key] = _clamp(blended_value, 6, 30)
+    if strategy == "balanced" and template.get("bucket_counts"):
+        resolved["bucket_counts"] = list(template.get("bucket_counts") or resolved["bucket_counts"])[:3]
+    if strategy == "hybrid" and template.get("mix"):
+        resolved["mix"] = dict(template.get("mix") or resolved["mix"])
+    resolved["phase_template_samples"] = samples
+    resolved["phase_template_apply_ratio"] = round(apply_ratio, 4)
+    return resolved
+
+
+def _resolve_local_phase_weights(config, phase_profile):
+    base_weights = dict((config or {}).get("weights") or {})
+    phase_label = str((phase_profile or {}).get("label") or "neutral")
+    learned = dict(((config or {}).get("phase_weight_learning") or {}).get(phase_label) or {})
+    learned_weights = dict(learned.get("weights") or {})
+    if not learned_weights:
+        return base_weights
+    resolved = dict(base_weights)
+    resolved.update(learned_weights)
+    return resolved
+
+
+def _resolve_local_phase_strategy_handoff(strategy, region, phase_profile):
+    phase_label = str((phase_profile or {}).get("label") or "neutral")
+    if phase_label not in ("hot", "cold", "concentrated", "dispersed"):
+        return {
+            "requested_strategy": strategy,
+            "delegate_strategy": strategy,
+            "boost_map": {},
+            "phase_label": phase_label,
+            "active": False,
+        }
+
+    candidate_pool = {
+        "hot": ("hot", "trend", "hybrid"),
+        "cold": ("cold", "balanced", "hybrid"),
+        "trend": ("trend", "hot", "hybrid"),
+        "balanced": ("balanced", "hybrid", "trend"),
+        "hybrid": ("hybrid", "trend", "balanced", "hot", "cold"),
+    }.get(strategy, (strategy,))
+    scored = []
+    for candidate in candidate_pool:
+        candidate_config = _load_strategy_config(candidate, region)
+        phase_score, samples = _score_local_strategy_phase_strength(candidate_config, phase_label)
+        scored.append({
+            "strategy": candidate,
+            "score": phase_score,
+            "samples": samples,
+        })
+    scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
+    requested_entry = next((item for item in scored if item["strategy"] == strategy), {"score": 0.0, "samples": 0})
+    best_entry = scored[0] if scored else requested_entry
+    handoff_active = (
+        best_entry.get("strategy") != strategy and
+        best_entry.get("samples", 0) >= 6 and
+        best_entry.get("score", 0.0) >= requested_entry.get("score", 0.0) + 0.08
+    )
+    boost_map = {}
+    if handoff_active:
+        if best_entry["strategy"] == "hot":
+            boost_map = {"hot": 0.08, "feedback": 0.05}
+        elif best_entry["strategy"] == "cold":
+            boost_map = {"cold": 0.08, "overdue": 0.06}
+        elif best_entry["strategy"] == "trend":
+            boost_map = {"trend": 0.09, "feedback": 0.04}
+        elif best_entry["strategy"] == "balanced":
+            boost_map = {"normal": 0.05, "parity": 0.05, "color": 0.04}
+        elif best_entry["strategy"] == "hybrid":
+            boost_map = {"hot": 0.04, "cold": 0.04, "trend": 0.05, "feedback": 0.04}
+    return {
+        "requested_strategy": strategy,
+        "delegate_strategy": best_entry.get("strategy") or strategy,
+        "delegate_score": round(_safe_float(best_entry.get("score"), 0.0), 4),
+        "requested_score": round(_safe_float(requested_entry.get("score"), 0.0), 4),
+        "boost_map": boost_map,
+        "phase_label": phase_label,
+        "active": handoff_active,
+        "samples": int(best_entry.get("samples", 0) or 0),
+    }
+
+
+def _build_local_strategy_signal_profile(strategy, phase_profile, config=None):
+    label = str((phase_profile or {}).get("label") or "neutral")
+    confidence = _clamp(_safe_float((phase_profile or {}).get("confidence"), 0.0), 0.0, 1.0)
+    profile = {
+        "feedback_multiplier": 1.0,
+        "attribute_multiplier": 1.0,
+        "overheat_multiplier": 1.0,
+        "special_focus_multiplier": 1.0,
+        "trend_multiplier": 1.0,
+        "cold_multiplier": 1.0,
+        "hot_multiplier": 1.0,
+    }
+    if strategy == "hot":
+        profile.update({"hot_multiplier": 1.18, "feedback_multiplier": 1.08, "special_focus_multiplier": 1.08})
+        if label == "hot":
+            profile["hot_multiplier"] += 0.12 * confidence
+            profile["overheat_multiplier"] += 0.22 * confidence
+        elif label == "cold":
+            profile["hot_multiplier"] -= 0.08 * confidence
+    elif strategy == "cold":
+        profile.update({"cold_multiplier": 1.22, "attribute_multiplier": 0.94, "special_focus_multiplier": 0.96})
+        if label == "cold":
+            profile["cold_multiplier"] += 0.12 * confidence
+            profile["overheat_multiplier"] -= 0.18 * confidence
+        elif label == "hot":
+            profile["overheat_multiplier"] += 0.08 * confidence
+    elif strategy == "trend":
+        profile.update({"trend_multiplier": 1.24, "feedback_multiplier": 1.06})
+        if label in ("hot", "concentrated"):
+            profile["trend_multiplier"] += 0.1 * confidence
+    elif strategy == "hybrid":
+        profile.update({"feedback_multiplier": 1.1, "attribute_multiplier": 1.02})
+    elif strategy == "balanced":
+        profile.update({"attribute_multiplier": 1.08, "special_focus_multiplier": 0.94})
+        if label == "concentrated":
+            profile["attribute_multiplier"] += 0.1 * confidence
+    learned_profile = dict((((config or {}).get("phase_weight_learning") or {}).get(label) or {}).get("profile_adjustments") or {})
+    for key, delta in learned_profile.items():
+        if key not in profile:
+            continue
+        profile[key] = round(_clamp(profile[key] + _safe_float(delta, 0.0), 0.75, 1.45), 4)
+    return profile
+
+
+def _compute_local_special_score(
+    strategy,
+    number,
+    feedback,
+    feedback_confidence,
+    weights,
+    hot_norm,
+    trend_norm,
+    overdue_norm,
+    attribute_score_fn,
+    overheat_penalty_fn,
+    preferred_parity,
+    strategy_profile,
+):
+    key = str(number)
+    base_special_feedback = (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence
+    base_normal_feedback = (feedback.get("normal", {}).get(key, 0.5) - 0.5) * feedback_confidence
+    attr = attribute_score_fn(number) * float(strategy_profile.get("attribute_multiplier", 1.0))
+    penalty = overheat_penalty_fn(number) * float(strategy_profile.get("overheat_multiplier", 1.0))
+    parity_bonus = 0.12 if preferred_parity and _get_parity_zh(number) == preferred_parity else -0.05
+
+    if strategy == "hot":
+        base = (
+            hot_norm.get(key, 0.0) * 0.52 * float(strategy_profile.get("hot_multiplier", 1.0)) +
+            trend_norm.get(key, 0.0) * 0.22 * float(strategy_profile.get("trend_multiplier", 1.0)) +
+            overdue_norm.get(key, 0.0) * 0.05
+        )
+        feedback_term = (base_special_feedback * 1.28 + base_normal_feedback * 0.12) * float(strategy_profile.get("feedback_multiplier", 1.0))
+    elif strategy == "cold":
+        base = (
+            (1.0 - hot_norm.get(key, 0.0)) * 0.42 * float(strategy_profile.get("cold_multiplier", 1.0)) +
+            overdue_norm.get(key, 0.0) * 0.42 * float(strategy_profile.get("cold_multiplier", 1.0)) +
+            trend_norm.get(key, 0.0) * 0.08
+        )
+        feedback_term = (base_special_feedback * 0.72 + base_normal_feedback * 0.08) * float(strategy_profile.get("feedback_multiplier", 1.0))
+    elif strategy == "trend":
+        base = (
+            trend_norm.get(key, 0.0) * 0.58 * float(strategy_profile.get("trend_multiplier", 1.0)) +
+            hot_norm.get(key, 0.0) * 0.16 +
+            overdue_norm.get(key, 0.0) * 0.08
+        )
+        feedback_term = (base_special_feedback * 1.08 + base_normal_feedback * 0.18) * float(strategy_profile.get("feedback_multiplier", 1.0))
+    elif strategy == "hybrid":
+        base = (
+            hot_norm.get(key, 0.0) * 0.28 +
+            trend_norm.get(key, 0.0) * 0.24 +
+            overdue_norm.get(key, 0.0) * 0.14 +
+            (1.0 - hot_norm.get(key, 0.0)) * 0.12
+        )
+        feedback_term = (base_special_feedback * 1.12 + base_normal_feedback * 0.2) * float(strategy_profile.get("feedback_multiplier", 1.0))
+    else:
+        base = (
+            hot_norm.get(key, 0.0) * 0.2 +
+            trend_norm.get(key, 0.0) * 0.18 +
+            overdue_norm.get(key, 0.0) * 0.12
+        )
+        feedback_term = (base_special_feedback * 0.96 + base_normal_feedback * 0.2) * float(strategy_profile.get("feedback_multiplier", 1.0))
+
+    total = (
+        base +
+        feedback_term * float(weights.get("feedback", 1.0)) +
+        attr +
+        penalty +
+        parity_bonus
+    ) * float(strategy_profile.get("special_focus_multiplier", 1.0))
+
+    if base_special_feedback > 0.1 and attr > 0.35 and penalty >= -0.05:
+        total *= 1.18 if strategy in ("hot", "trend") else 1.1
+    if strategy == "cold" and overdue_norm.get(key, 0.0) > 0.55 and hot_norm.get(key, 0.0) < 0.35:
+        total *= 1.12
+    if strategy == "balanced" and attr > 0.4 and penalty >= -0.05:
+        total *= 1.08
+    return round(total, 6)
+
+
+def _build_default_baseline_prediction():
+    normal = [4, 12, 19, 28, 35, 44]
+    special_num = 49
+    return {
+        "normal": normal,
+        "special": {"number": str(special_num), "sno_zodiac": ""},
+        "recommendation_text": _build_special_focus_text(
+            str(special_num),
+            normal,
+            extra_reason="当前历史数据不足，已返回基础保底组合。",
+        ),
+    }
+
+def _build_ai_system_prompt():
+    return (
+        "你是一个严格遵守格式的彩票数据分析助手。"
+        "你的目标不是泛泛分析，而是在给定历史数据、反馈和候选池中做克制的最终选择。"
+        "你必须优先参考系统提供的近期回测表现、历史命中反馈、号码属性偏好和本地策略共识。"
+        "不要输出免责声明。不要输出 1-49 以外的数字。不要重复数字。"
+        "最终必须输出固定格式："
+        "本期主推特码：[s]\\n参考平码：[n1, n2, n3, n4, n5, n6]\\n理由：..."
+        "如果你愿意，也可以先额外输出一行 JSON："
+        "{\"normal\":[n1,n2,n3,n4,n5,n6],\"special\":s}"
+    )
+
+
+def _build_ai_candidate_context(data, region):
+    special_support = Counter()
+    normal_support = Counter()
+    strategy_lines = []
+    for strategy in ("ml", "hybrid", "balanced", "trend"):
+        try:
+            result = get_local_recommendations(strategy, data, region)
+        except Exception:
+            continue
+        special = str((result.get("special") or {}).get("number") or "").strip()
+        normal = [int(n) for n in (result.get("normal") or []) if str(n).isdigit()]
+        if special:
+            special_support[special] += 1
+        for number in normal:
+            normal_support[str(number)] += 1
+        if special or normal:
+            strategy_lines.append(
+                f"- {_get_strategy_label(strategy)}：平码 {', '.join(map(str, normal[:6])) if normal else '暂无'}；特码 {special or '暂无'}"
+            )
+
+    top_special = [
+        number for number, _ in sorted(
+            special_support.items(),
+            key=lambda item: (item[1], -abs(int(item[0]) - 25), -int(item[0])),
+            reverse=True
+        )
+    ][:8]
+    top_normal = [int(number) for number, _ in normal_support.most_common(12)]
+
+    lines = ["本地策略候选池："]
+    if strategy_lines:
+        lines.extend(strategy_lines)
+    lines.append(f"- 共识特码候选：{', '.join(top_special) if top_special else '暂无'}")
+    lines.append(f"- 共识平码候选：{', '.join(map(str, top_normal)) if top_normal else '暂无'}")
+    lines.append("决策要求：优先从共识候选中挑选；若偏离共识，必须在理由中简短说明。")
+    return "\n".join(lines)
+
+
+def _build_ai_learning_context(data, region, history_window=10):
+    recent_data = data[:history_window]
+    year = _infer_draw_year(recent_data or data)
+    feedback = _build_prediction_feedback(region, "ai")
+    color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(recent_data or data, region, feedback, year)
+    recommended_strategy = _get_recommended_strategy(region)
+    backtest_lines = []
+    for strategy in ("hot", "cold", "trend", "hybrid", "balanced", "ml"):
+        window20_accuracy, window20_total = _calculate_strategy_accuracy(region, strategy, limit=20)
+        window50_accuracy, window50_total = _calculate_strategy_accuracy(region, strategy, limit=50)
+        backtest_lines.append(
+            f"- {_get_strategy_label(strategy)}：近20期 {round(window20_accuracy * 100, 1)}% ({window20_total}期)，"
+            f"近50期 {round(window50_accuracy * 100, 1)}% ({window50_total}期)"
+        )
+
+    special_scores = feedback.get("special") or {}
+    normal_scores = feedback.get("normal") or {}
+
+    top_special_numbers = _rank_numbers(
+        {number: special_scores.get(str(number), 0.0) for number in range(1, 50)}
+    )[:6]
+    top_normal_numbers = _rank_numbers(
+        {number: normal_scores.get(str(number), 0.0) for number in range(1, 50)}
+    )[:8]
+    top_colors = sorted(color_pref.items(), key=lambda item: item[1], reverse=True)[:3]
+    top_zodiacs = sorted(zodiac_pref.items(), key=lambda item: item[1], reverse=True)[:4]
+    top_parities = sorted(parity_pref.items(), key=lambda item: item[1], reverse=True)[:2]
+
+    lines = [
+        "历史学习反馈摘要：",
+        f"- 当前系统推荐优先参考：{recommended_strategy.get('label')}（综合评分 {recommended_strategy.get('score')}）",
+        f"- AI历史学习样本：{feedback.get('samples', 0)} 期",
+        f"- 历史反馈更偏好的特码候选：{', '.join(map(str, top_special_numbers)) if top_special_numbers else '暂无'}",
+        f"- 历史反馈更偏好的平码候选：{', '.join(map(str, top_normal_numbers)) if top_normal_numbers else '暂无'}",
+        f"- 历史反馈更偏好的波色：{'、'.join([f'{name}({round(score * 100, 1)}%)' for name, score in top_colors]) if top_colors else '暂无'}",
+        f"- 历史反馈更偏好的单双：{'、'.join([f'{name}({round(score * 100, 1)}%)' for name, score in top_parities]) if top_parities else '暂无'}",
+        f"- 历史反馈更偏好的生肖：{'、'.join([f'{name}({round(score * 100, 1)}%)' for name, score in top_zodiacs]) if top_zodiacs else '暂无'}",
+        "各策略近期回测表现：",
+        *backtest_lines,
+        "请将以上学习反馈纳入分析，优先考虑历史反馈更强的号码、波色和生肖组合，但不要机械重复同一组号码。"
+    ]
+    return "\n".join(lines)
+
+
+def _sigmoid(value):
+    value = _clamp(value, -30.0, 30.0)
+    return 1.0 / (1.0 + math.exp(-value))
+
+
+def _build_ml_feature_table(history_data, region, feature_window=60, feedback=None):
+    history = list(history_data or [])[:max(int(feature_window or 0), 10)]
+    short_data = history[:min(len(history), 12)]
+    medium_data = history[:min(len(history), 24)]
+    long_data = history[:min(len(history), max(int(feature_window or 60), 30))]
+
+    short_special = _normalize_metric_map(analyze_special_number_frequency(short_data))
+    medium_special = _normalize_metric_map(analyze_special_number_frequency(medium_data))
+    long_special = _normalize_metric_map(analyze_special_number_frequency(long_data))
+    long_all = _normalize_metric_map(_build_number_frequency(long_data))
+    overdue = _normalize_metric_map(_build_overdue_scores(long_data))
+    recent_all = _normalize_metric_map(_build_number_frequency(short_data))
+    year = _infer_draw_year(history)
+    number_to_zodiac = _get_number_to_zodiac_map(year)
+    feedback = feedback or _build_prediction_feedback(region, "ml")
+    color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
+        long_data, region, feedback, year, apply_recent_zodiac_cooldown=True
+    )
+    recent_specials = [str(item.get("sno")) for item in short_data[:5] if item.get("sno")]
+    recent_numbers = set()
+    recent_number_hits = Counter()
+    for item in short_data[:8]:
+        for number in item.get("no", []):
+            if number:
+                recent_numbers.add(str(number))
+                recent_number_hits[str(number)] += 1
+        special = item.get("sno")
+        if special:
+            recent_numbers.add(str(special))
+            recent_number_hits[str(special)] += 1
+
+    recent_special_gap = _build_overdue_scores(short_data[:8] or short_data)
+    recent_gap_norm = _normalize_metric_map(recent_special_gap)
+
+    features = {}
+    for number in range(1, 50):
+        key = str(number)
+        distance_sum = 0.0
+        for recent_special in recent_specials:
+            try:
+                distance_sum += 1.0 / (1.0 + abs(number - int(recent_special)))
+            except (TypeError, ValueError):
+                continue
+        bucket_low = 1.0 if number <= 16 else 0.0
+        bucket_mid = 1.0 if 17 <= number <= 33 else 0.0
+        bucket_high = 1.0 if number >= 34 else 0.0
+        short_momentum = short_special.get(key, 0.0) - medium_special.get(key, 0.0)
+        medium_momentum = medium_special.get(key, 0.0) - long_special.get(key, 0.0)
+        neighbor_density = (
+            recent_all.get(str(max(1, number - 1)), 0.0) * 0.25 +
+            recent_all.get(key, 0.0) * 0.5 +
+            recent_all.get(str(min(49, number + 1)), 0.0) * 0.25
+        )
+        repeat_pressure = min(1.0, recent_number_hits.get(key, 0) / 3.0)
+        normal_support = max(0.0, recent_all.get(key, 0.0) - short_special.get(key, 0.0))
+        recent_gap_score = recent_gap_norm.get(key, 0.0)
+        interval_balance = 1.0 - min(1.0, abs(number - 25) / 24.0)
+        features[key] = [
+            short_special.get(key, 0.0),
+            medium_special.get(key, 0.0),
+            long_special.get(key, 0.0),
+            long_all.get(key, 0.0),
+            overdue.get(key, 0.0),
+            1.0 - medium_special.get(key, 0.0),
+            1.0 if key in recent_specials else 0.0,
+            1.0 if key in recent_numbers else 0.0,
+            round(distance_sum, 6),
+            color_pref.get(_get_color_zh(number), 0.0),
+            zodiac_pref.get(number_to_zodiac.get(key, ""), 0.0),
+            parity_pref.get(_get_parity_zh(number), 0.0),
+            bucket_low,
+            bucket_mid,
+            bucket_high,
+            round(short_momentum, 6),
+            round(medium_momentum, 6),
+            recent_all.get(key, 0.0),
+            round(neighbor_density, 6),
+            round(repeat_pressure, 6),
+            round(normal_support, 6),
+            round(recent_gap_score, 6),
+            round(interval_balance, 6),
+        ]
+    return features
+
+
+ML_FEATURE_PROFILES = {
+    "full": set(),
+    "compact_attributes": {9, 10, 11},
+    "compact_structure": {18, 19, 20, 21, 22},
+    "compact_recency": {6, 7, 8, 15, 16},
+}
+
+
+def _apply_ml_feature_profile(feature_table, profile_name=None):
+    profile_key = str(profile_name or "full").strip() or "full"
+    disabled_indices = ML_FEATURE_PROFILES.get(profile_key, set())
+    if not disabled_indices:
+        return feature_table
+
+    transformed = {}
+    for key, features in (feature_table or {}).items():
+        row = list(features)
+        for idx in disabled_indices:
+            if 0 <= idx < len(row):
+                row[idx] = 0.0
+        transformed[key] = row
+    return transformed
+
+
+def _build_ml_score_pairs(feature_table, weights=None, bias=0.0):
+    score_pairs = []
+    weights = weights or []
+    for number in range(1, 50):
+        key = str(number)
+        features = feature_table.get(key)
+        if not features:
+            continue
+        score = float(bias) + sum(
+            weight * value for weight, value in zip(weights, features)
+        )
+        score_pairs.append((key, features, score))
+    return score_pairs
+
+
+def _ensure_ml_weight_vector(weights, feature_table):
+    if weights is not None:
+        return list(weights)
+    first_features = next(iter(feature_table.values()), [])
+    return [0.0] * len(first_features)
+
+
+def _update_ml_weights(score_pairs, target_special, weights, bias, step, l2):
+    probabilities = _softmax([item[2] for item in score_pairs])
+    target_probability = 0.0
+    for row_idx, (key, features, _) in enumerate(score_pairs):
+        probability = probabilities[row_idx]
+        label = 1.0 if key == target_special else 0.0
+        error = label - probability
+        if label > 0:
+            target_probability = probability
+        bias += step * error
+        for feature_idx, feature_value in enumerate(features):
+            weights[feature_idx] += step * (
+                error * feature_value - (l2 * weights[feature_idx])
+            )
+    return weights, bias, probabilities, target_probability
+
+
+def _build_ml_probability_map(score_pairs):
+    probabilities = _softmax([item[2] for item in score_pairs])
+    return {
+        int(key): probabilities[row_idx]
+        for row_idx, (key, _, _) in enumerate(score_pairs)
+    }
+
+
+def _get_ml_bucket_name(number):
+    if number <= 16:
+        return "low"
+    if number <= 33:
+        return "mid"
+    return "high"
+
+
+def _select_ml_normal_numbers(
+    ranked_numbers,
+    score_map,
+    bucket_counts,
+    variation_key=None,
+    pool_size=18,
+    parity_pref=None,
+    recent_draw_number_counter=None,
+    latest_draw_numbers=None,
+):
+    desired_counts = {
+        "low": max(0, int(bucket_counts[0] if len(bucket_counts) > 0 else 2)),
+        "mid": max(0, int(bucket_counts[1] if len(bucket_counts) > 1 else 2)),
+        "high": max(0, int(bucket_counts[2] if len(bucket_counts) > 2 else 2)),
+    }
+    candidate_limit = max(int(pool_size) * 2, 18)
+    base_candidates = list(ranked_numbers[:candidate_limit]) or list(ranked_numbers)
+    candidates = _take_personalized_ranked(
+        base_candidates,
+        len(base_candidates),
+        variation_key=variation_key,
+        chunk_size=4,
+        window_size=len(base_candidates),
+    )
+    bucket_usage = {"low": 0, "mid": 0, "high": 0}
+    chosen = []
+
+    while len(chosen) < 6:
+        best_number = None
+        best_score = None
+        parity_targets = _build_parity_target_counts(parity_pref, total=6)
+        parity_usage = Counter(_get_parity_zh(number) for number in chosen if _get_parity_zh(number))
+        for number in candidates:
+            if number in chosen:
+                continue
+            bucket = _get_ml_bucket_name(number)
+            bucket_overflow = max(0, bucket_usage[bucket] - desired_counts.get(bucket, 0))
+            bucket_gap = max(0, desired_counts.get(bucket, 0) - bucket_usage[bucket])
+            adjusted_score = float(score_map.get(number, 0.0))
+            adjusted_score += bucket_gap * 0.045
+            adjusted_score -= bucket_overflow * 0.09
+            adjusted_score -= bucket_usage[bucket] * 0.015
+            number_parity = _get_parity_zh(number)
+            parity_gap = max(0, parity_targets.get(number_parity, 0) - parity_usage.get(number_parity, 0))
+            parity_overflow = max(0, parity_usage.get(number_parity, 0) - parity_targets.get(number_parity, 0))
+            adjusted_score += parity_gap * 0.06
+            adjusted_score -= parity_overflow * 0.08
+            if latest_draw_numbers and number in latest_draw_numbers:
+                adjusted_score -= 0.22
+            draw_heat = int((recent_draw_number_counter or {}).get(number, 0) or 0)
+            if draw_heat >= 2:
+                adjusted_score -= 0.14
+            elif draw_heat == 1:
+                adjusted_score -= 0.05
+            if (
+                best_score is None or
+                adjusted_score > best_score or
+                (adjusted_score == best_score and (best_number is None or number > best_number))
+            ):
+                best_number = number
+                best_score = adjusted_score
+
+        if best_number is None:
+            break
+
+        chosen.append(best_number)
+        bucket_usage[_get_ml_bucket_name(best_number)] += 1
+
+    return _rebalance_selected_numbers_by_parity(chosen[:6], ranked_numbers, score_map, parity_pref, count=6)
+
+
+def _estimate_ml_confidence(probability_map, blended_scores, special_num, model):
+    ranked = sorted(blended_scores.items(), key=lambda item: item[1], reverse=True)
+    top_score = float(blended_scores.get(special_num, 0.0))
+    next_score = float(ranked[1][1]) if len(ranked) > 1 else 0.0
+    margin = max(0.0, top_score - next_score)
+    top1_rate = float(model.get("top1_hit_rate", 0.0))
+    top6_rate = float(model.get("top6_hit_rate", 0.0))
+    raw_probability = float(probability_map.get(special_num, 0.0))
+    confidence = (
+        28.0 +
+        min(top_score, 1.0) * 32.0 +
+        min(margin, 1.0) * 140.0 +
+        top1_rate * 18.0 +
+        top6_rate * 10.0 +
+        min(raw_probability * 100.0, 8.0)
+    )
+    return round(_clamp(confidence, 18.0, 92.0), 2)
+
+
+def _get_ml_ensemble_weights(region, strategies=None):
+    strategies = tuple(strategies or _select_ml_ensemble_strategies(region))
+    windows = (20, 50, 100)
+    raw_scores = {}
+    diagnostics = {}
+    confidence_values = []
+    scored = _score_ml_ensemble_candidates(region, strategies=strategies)
+
+    for idx, item in enumerate(scored):
+        strategy = item["strategy"]
+        base_score = max(0.08, float(item.get("score", 0.0)) / 100.0)
+        # 按准确率排名拉开权重，避免归一化后长期显示为近似平均分配。
+        rank_multiplier = max(0.72, 1.18 - idx * 0.16)
+        recent_accuracy = max(0.0, float(item.get("recent_accuracy", 0.0)) / 100.0)
+        accuracy_multiplier = 1.0 + (recent_accuracy * 0.35)
+        raw_score = base_score * rank_multiplier * accuracy_multiplier
+        raw_scores[strategy] = raw_score
+        diagnostics[strategy] = {
+            "score": round(float(item.get("score", 0.0)), 2),
+            "samples": int(item.get("samples", 0) or 0),
+            "bias": round(float(item.get("bias", 0.0)), 2),
+            "recent_accuracy": round(float(item.get("recent_accuracy", 0.0)), 2),
+            "overall_accuracy": round(float(item.get("overall_accuracy", 0.0)), 2),
+            "overall_total": int(item.get("overall_total", 0) or 0),
+            "rank_multiplier": round(rank_multiplier, 4),
+            "accuracy_multiplier": round(accuracy_multiplier, 4),
+            "weighted_score": round(raw_score * 100, 2),
+        }
+        for idx, window in enumerate(windows):
+            _, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            if total > 0:
+                confidence_values.append(_clamp(total / 10.0, 0.25, 1.0) * max(0.45, 1.0 - idx * 0.22))
+
+    score_total = sum(raw_scores.values())
+    if score_total <= 0:
+        equal_weight = round(1.0 / max(len(strategies), 1), 4)
+        return {
+            "weights": {strategy: equal_weight for strategy in strategies},
+            "diagnostics": diagnostics,
+            "confidence": 0.0,
+        }
+
+    weights = {
+        strategy: round(raw_scores[strategy] / score_total, 4)
+        for strategy in strategies
+    }
+    return {
+        "weights": weights,
+        "diagnostics": diagnostics,
+        "confidence": round(
+            (sum(confidence_values) / len(confidence_values)) if confidence_values else 0.0,
+            4,
+        ),
+    }
+
+
+def _build_ml_ensemble_signals(data, region):
+    strategies = tuple(_select_ml_ensemble_strategies(region, persist=False))
+    if not strategies:
+        strategies = ("hybrid", "balanced", "trend")
+    normal_votes = Counter()
+    special_votes = Counter()
+    strategy_results = {}
+    weight_info = _get_ml_ensemble_weights(region, strategies)
+    strategy_weights = weight_info.get("weights") or {}
+    selected_strategies = tuple(strategy_weights.keys()) or strategies
+    weight_scale = max(len(selected_strategies), 1)
+
+    for strategy in selected_strategies:
+        try:
+            result = get_local_recommendations(strategy, data, region)
+        except Exception:
+            continue
+        strategy_results[strategy] = result
+        strategy_weight = float(strategy_weights.get(strategy, 0.0)) * weight_scale
+        for number in result.get("normal", []) or []:
+            try:
+                normal_votes[int(number)] += strategy_weight
+            except (TypeError, ValueError):
+                continue
+        special_number = ((result.get("special") or {}).get("number") or "").strip()
+        if special_number.isdigit():
+            special_votes[int(special_number)] += strategy_weight
+
+    return {
+        "normal_votes": normal_votes,
+        "special_votes": special_votes,
+        "strategy_results": strategy_results,
+        "strategy_weights": strategy_weights,
+        "selected_strategies": list(selected_strategies),
+        "weight_diagnostics": weight_info.get("diagnostics") or {},
+        "weight_confidence": weight_info.get("confidence", 0.0),
+    }
+
+
+def _build_ml_dual_score_maps(ranked_numbers, probability_map, heuristic_map, ensemble_signals):
+    normal_votes = ensemble_signals.get("normal_votes") or Counter()
+    special_votes = ensemble_signals.get("special_votes") or Counter()
+    special_scores = {}
+    normal_scores = {}
+
+    for rank_idx, number in enumerate(ranked_numbers):
+        prob_score = float(probability_map.get(number, 0.0))
+        heuristic_score = float(heuristic_map.get(number, 0.0))
+        special_vote = float(special_votes.get(number, 0))
+        normal_vote = float(normal_votes.get(number, 0))
+        rank_bonus = max(0.0, 1.0 - (rank_idx / 18.0))
+
+        special_scores[number] = round(
+            prob_score * 0.60 +
+            heuristic_score * 0.22 +
+            special_vote * 0.14 +
+            normal_vote * 0.03 +
+            rank_bonus * 0.05,
+            6,
+        )
+        normal_scores[number] = round(
+            heuristic_score * 0.36 +
+            prob_score * 0.24 +
+            normal_vote * 0.24 +
+            special_vote * 0.04 +
+            rank_bonus * 0.12,
+            6,
+        )
+
+    return special_scores, normal_scores
+
+
+def _score_ml_model(model):
+    top1 = float(model.get("top1_hit_rate", 0.0))
+    top6 = float(model.get("top6_hit_rate", 0.0))
+    avg_target_probability = float(model.get("avg_target_probability", 0.0))
+    evaluation_draws = int(model.get("evaluation_draws", 0) or 0)
+    confidence = min(1.0, evaluation_draws / 20.0) if evaluation_draws > 0 else 0.0
+    return round(
+        ((top1 * 1.85) + (top6 * 1.0) + (avg_target_probability * 0.35)) * max(confidence, 0.35),
+        6,
+    )
+
+
+def _optimize_ml_runtime_config(data, region, config):
+    data_size = len(data or [])
+    base_config = dict(config or {})
+    if data_size < 80:
+        model = _train_ml_number_model(data, region, base_config)
+        model["runtime_config"] = base_config
+        model["runtime_search"] = []
+        model["runtime_profile"] = "base"
+        model["runtime_score"] = _score_ml_model(model)
+        return base_config, model
+
+    base_history = _clamp(int(base_config.get("history_window") or 120), 80, 240)
+    base_feature = _clamp(int(base_config.get("feature_window") or 60), 30, 90)
+    base_eval = _clamp(int(base_config.get("evaluation_window") or 30), 12, 60)
+    primary_feature_profile = str(base_config.get("primary_feature_profile") or "full").strip() or "full"
+    primary_runtime_profile = str(base_config.get("primary_runtime_profile") or "base").strip() or "base"
+    preferred_feature_profiles = [
+        str(item).strip()
+        for item in (base_config.get("preferred_feature_profiles") or [])
+        if str(item).strip()
+    ]
+    preferred_runtime_profiles = [
+        str(item).strip()
+        for item in (base_config.get("preferred_runtime_profiles") or [])
+        if str(item).strip()
+    ]
+    learning_confidence = float(base_config.get("profile_learning_confidence") or 0.0)
+
+    candidate_specs = [
+        (primary_runtime_profile if primary_runtime_profile else "base", {"feature_profile": primary_feature_profile}),
+        ("recent_bias", {
+            "history_window": _clamp(base_history - 20, 80, 220),
+            "feature_window": _clamp(base_feature - 8, 30, 80),
+            "evaluation_window": _clamp(base_eval - 4, 12, 48),
+            "learning_rate": round(_clamp(float(base_config.get("learning_rate") or 0.035) + 0.008, 0.01, 0.08), 3),
+            "feature_profile": "compact_structure",
+        }),
+        ("context_bias", {
+            "history_window": _clamp(base_history + 25, 100, 240),
+            "feature_window": _clamp(base_feature + 8, 36, 90),
+            "evaluation_window": _clamp(base_eval + 4, 18, 60),
+            "l2": round(_clamp(float(base_config.get("l2") or 0.0025) + 0.0008, 0.001, 0.005), 4),
+            "feature_profile": "compact_attributes",
+        }),
+        ("recency_trim", {
+            "history_window": _clamp(base_history, 80, 240),
+            "feature_window": _clamp(base_feature - 4, 30, 84),
+            "evaluation_window": _clamp(base_eval, 12, 60),
+            "feature_profile": "compact_recency",
+        }),
+    ]
+    normalized_specs = []
+    seen_profiles = set()
+    for profile_name, overrides in candidate_specs:
+        normalized_name = str(profile_name or "base").strip() or "base"
+        candidate_feature = str(overrides.get("feature_profile") or "full").strip() or "full"
+        dedupe_key = (normalized_name, candidate_feature)
+        if dedupe_key in seen_profiles:
+            continue
+        seen_profiles.add(dedupe_key)
+        normalized_specs.append((normalized_name, overrides))
+    candidate_specs = normalized_specs
+    top_feature_profile = preferred_feature_profiles[0] if preferred_feature_profiles else ""
+    if top_feature_profile and top_feature_profile not in {item[1].get("feature_profile") for item in candidate_specs}:
+        candidate_specs.append((
+            "learned_feature_bias",
+            {
+                "history_window": _clamp(base_history + 8, 80, 240),
+                "feature_window": _clamp(base_feature, 30, 90),
+                "evaluation_window": _clamp(base_eval, 12, 60),
+                "feature_profile": top_feature_profile,
+            },
+        ))
+
+    evaluations = []
+    best = None
+    best_model = None
+    best_config = base_config
+    for profile_name, overrides in candidate_specs:
+        candidate_config = {**base_config, **overrides}
+        model = _train_ml_number_model(data, region, candidate_config)
+        runtime_score = _score_ml_model(model)
+        preference_bonus = 0.0
+        candidate_feature_profile = str(candidate_config.get("feature_profile") or "full").strip() or "full"
+        if candidate_feature_profile in preferred_feature_profiles:
+            rank_idx = preferred_feature_profiles.index(candidate_feature_profile)
+            preference_bonus += max(0.0, 0.07 - rank_idx * 0.025) * learning_confidence
+        if profile_name in preferred_runtime_profiles:
+            rank_idx = preferred_runtime_profiles.index(profile_name)
+            preference_bonus += max(0.0, 0.05 - rank_idx * 0.02) * learning_confidence
+
+        adjusted_runtime_score = runtime_score + preference_bonus
+        model["runtime_score"] = adjusted_runtime_score
+        model["runtime_profile"] = profile_name
+        model["runtime_config"] = candidate_config
+        evaluations.append({
+            "profile": profile_name,
+            "score": adjusted_runtime_score,
+            "raw_score": runtime_score,
+            "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
+            "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
+            "history_window": candidate_config.get("history_window"),
+            "feature_window": candidate_config.get("feature_window"),
+            "evaluation_window": candidate_config.get("evaluation_window"),
+            "feature_profile": candidate_config.get("feature_profile", "full"),
+        })
+        if best is None or adjusted_runtime_score > best:
+            best = adjusted_runtime_score
+            best_model = model
+            best_config = candidate_config
+
+    best_model["runtime_search"] = evaluations
+    return best_config, best_model
+
+
+def _train_ml_number_model(data, region, config):
+    history_window = _clamp(int(config.get("history_window") or 120), 80, 240)
+    feature_window = _clamp(int(config.get("feature_window") or 60), 30, 90)
+    epochs = _clamp(int(config.get("epochs") or 15), 15, 30)
+    learning_rate = float(config.get("learning_rate") or 0.035)
+    l2 = float(config.get("l2") or 0.0025)
+    evaluation_window = _clamp(int(config.get("evaluation_window") or 30), 12, 60)
+    feature_profile = str(config.get("feature_profile") or "full").strip() or "full"
+
+    recent_desc = list(data or [])[:history_window + feature_window + evaluation_window]
+    chronological = list(reversed(recent_desc))
+    configured_min_history = min(24, max(12, feature_window // 2))
+    available_history = max(0, len(chronological) - 1)
+    min_history = min(configured_min_history, max(1, available_history))
+    feature_cache = {}
+    blend_candidates = [
+        float(candidate)
+        for candidate in (config.get("blend_candidates") or [0.55, 0.7, 0.82])
+        if 0.0 <= float(candidate) <= 1.0
+    ]
+    if not blend_candidates:
+        blend_candidates = [0.7]
+    blend_stats = {
+        round(candidate, 4): {"top1": 0, "top6": 0}
+        for candidate in blend_candidates
+    }
+
+    if len(chronological) <= 1:
+        return {
+            "weights": [],
+            "bias": 0.0,
+            "samples": 0,
+            "draw_samples": 0,
+            "evaluation_draws": 0,
+            "gradient_updates": 0,
+        }
+
+    def get_feature_table(idx):
+        target_draw = chronological[idx]
+        cutoff_period = target_draw.get("id")
+        cache_key = _normalize_period_value(cutoff_period)
+        feature_table = feature_cache.get(cache_key)
+        if feature_table is None:
+            history_desc = list(reversed(chronological[:idx]))
+            feedback = _build_prediction_feedback(
+                region,
+                "ml",
+                cutoff_period=cutoff_period,
+            )
+            feature_table = _build_ml_feature_table(
+                history_desc,
+                region,
+                feature_window=feature_window,
+                feedback=feedback,
+            )
+            feature_table = _apply_ml_feature_profile(feature_table, feature_profile)
+            feature_cache[cache_key] = feature_table
+        return feature_table
+
+    eval_start = max(min_history, len(chronological) - evaluation_window)
+    eval_weights = None
+    eval_bias = 0.0
+    evaluation_steps = 0
+    top1_hits = 0
+    top6_hits = 0
+    target_probability_sum = 0.0
+
+    for idx in range(min_history, len(chronological)):
+        target_draw = chronological[idx]
+        target_special = str(target_draw.get("sno") or "").strip()
+        if not target_special:
+            continue
+
+        feature_table = get_feature_table(idx)
+        eval_weights = _ensure_ml_weight_vector(eval_weights, feature_table)
+        score_pairs = _build_ml_score_pairs(feature_table, eval_weights, eval_bias)
+        if not score_pairs:
+            continue
+
+        if idx >= eval_start:
+            target_number = int(target_special)
+            probabilities = _softmax([item[2] for item in score_pairs])
+            ranked_numbers = [
+                int(item[0])
+                for item in sorted(score_pairs, key=lambda item: item[2], reverse=True)
+            ]
+            if ranked_numbers and ranked_numbers[0] == target_number:
+                top1_hits += 1
+            if target_number in ranked_numbers[:6]:
+                top6_hits += 1
+            target_probability_sum += next(
+                (
+                    probabilities[row_idx]
+                    for row_idx, (key, _, _) in enumerate(score_pairs)
+                    if key == target_special
+                ),
+                0.0,
+            )
+
+            heuristic_map = _build_ml_heuristic_score_map(feature_table)
+            probability_map = {
+                int(key): probabilities[row_idx]
+                for row_idx, (key, _, _) in enumerate(score_pairs)
+            }
+            for candidate in blend_candidates:
+                blended_scores = _blend_ml_rankings(probability_map, heuristic_map, candidate)
+                blended_rank = _rank_numbers(blended_scores)
+                stats = blend_stats[round(candidate, 4)]
+                if blended_rank and blended_rank[0] == target_number:
+                    stats["top1"] += 1
+                if target_number in blended_rank[:6]:
+                    stats["top6"] += 1
+            evaluation_steps += 1
+
+        eval_weights, eval_bias, _, _ = _update_ml_weights(
+            score_pairs,
+            target_special,
+            eval_weights,
+            eval_bias,
+            learning_rate,
+            l2,
+        )
+
+    fit_weights = None
+    fit_bias = 0.0
+    fit_steps = 0
+    gradient_updates = 0
+    train_start = max(min_history, 1)
+
+    for epoch in range(epochs):
+        step = learning_rate * (0.94 ** epoch)
+        for idx in range(train_start, len(chronological)):
+            target_draw = chronological[idx]
+            target_special = str(target_draw.get("sno") or "").strip()
+            if not target_special:
+                continue
+
+            feature_table = get_feature_table(idx)
+            fit_weights = _ensure_ml_weight_vector(fit_weights, feature_table)
+            score_pairs = _build_ml_score_pairs(feature_table, fit_weights, fit_bias)
+            if not score_pairs:
+                continue
+
+            fit_weights, fit_bias, _, _ = _update_ml_weights(
+                score_pairs,
+                target_special,
+                fit_weights,
+                fit_bias,
+                step,
+                l2,
+            )
+            fit_steps += 1
+            gradient_updates += len(score_pairs)
+
+    selected_blend = blend_candidates[0]
+    best_score = -1.0
+    for candidate in blend_candidates:
+        stats = blend_stats[round(candidate, 4)]
+        candidate_score = (stats["top6"] * 1.0) + (stats["top1"] * 1.8)
+        if candidate_score > best_score:
+            best_score = candidate_score
+            selected_blend = candidate
+
+    return {
+        "weights": [round(weight, 6) for weight in (fit_weights or [])],
+        "bias": round(fit_bias, 6),
+        "samples": fit_steps,
+        "draw_samples": fit_steps,
+        "evaluation_draws": evaluation_steps,
+        "gradient_updates": gradient_updates,
+        "history_window": history_window,
+        "feature_window": feature_window,
+        "evaluation_window": evaluation_window,
+        "feature_profile": feature_profile,
+        "avg_target_probability": round((target_probability_sum / evaluation_steps), 6) if evaluation_steps else 0.0,
+        "top1_hit_rate": round((top1_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
+        "top6_hit_rate": round((top6_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
+        "selected_blend": round(selected_blend, 4),
+        "blend_stats": {
+            str(candidate): {
+                "top1_hit_rate": round((blend_stats[round(candidate, 4)]["top1"] / evaluation_steps), 6) if evaluation_steps else 0.0,
+                "top6_hit_rate": round((blend_stats[round(candidate, 4)]["top6"] / evaluation_steps), 6) if evaluation_steps else 0.0,
+            }
+            for candidate in blend_candidates
+        },
+    }
+
+
+def _build_ml_prediction_cache_key(region, data, config):
+    normalized_region = str(region or "").strip().lower()
+    head_periods = [
+        str(item.get("id") or "").strip()
+        for item in list(data or [])[:16]
+    ]
+    accuracy_signature = {}
+    for strategy in ("hybrid", "balanced", "trend", "hot", "cold"):
+        accuracy, total = _calculate_strategy_accuracy(normalized_region, strategy, limit=None)
+        accuracy_signature[strategy] = {
+            "accuracy": round(float(accuracy or 0.0), 6),
+            "total": int(total or 0),
+        }
+    payload = {
+        "cache_version": 2,
+        "region": normalized_region,
+        "periods": head_periods,
+        "draw_count": len(data or []),
+        "updated_at": str(config.get("updated_at") or ""),
+        "primary_runtime_profile": str(config.get("primary_runtime_profile") or ""),
+        "primary_feature_profile": str(config.get("primary_feature_profile") or ""),
+        "preferred_runtime_profiles": list(config.get("preferred_runtime_profiles") or []),
+        "preferred_feature_profiles": list(config.get("preferred_feature_profiles") or []),
+        "blend_candidates": list(config.get("blend_candidates") or []),
+        "profile_learning_confidence": float(config.get("profile_learning_confidence") or 0.0),
+        "history_window": int(config.get("history_window") or 0),
+        "feature_window": int(config.get("feature_window") or 0),
+        "evaluation_window": int(config.get("evaluation_window") or 0),
+        "epochs": int(config.get("epochs") or 0),
+        "learning_rate": float(config.get("learning_rate") or 0.0),
+        "l2": float(config.get("l2") or 0.0),
+        "pool": int(config.get("pool") or 0),
+        "special_pool": int(config.get("special_pool") or 0),
+        "bucket_counts": list(config.get("bucket_counts") or []),
+        "ensemble_core_strategies": list(config.get("ensemble_core_strategies") or []),
+        "ensemble_replace_margin": float(config.get("ensemble_replace_margin") or 0.0),
+        "ensemble_replace_min_samples": int(config.get("ensemble_replace_min_samples") or 0),
+        "accuracy_signature": accuracy_signature,
+    }
+    fingerprint = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.md5(fingerprint.encode("utf-8")).hexdigest()
+
+
+def _get_cached_ml_prediction_artifacts(cache_key):
+    now = time.time()
+    with _ml_prediction_cache_lock:
+        cached = _ml_prediction_cache.get(cache_key)
+        if not cached:
+            return None
+        cached_at = float(cached.get("cached_at") or 0.0)
+        if now - cached_at > _ML_PREDICTION_CACHE_TTL_SECONDS:
+            _ml_prediction_cache.pop(cache_key, None)
+            return None
+        cached["cached_at"] = now
+        return copy.deepcopy(cached.get("artifacts"))
+
+
+def _store_cached_ml_prediction_artifacts(cache_key, artifacts):
+    now = time.time()
+    with _ml_prediction_cache_lock:
+        expired_keys = [
+            key
+            for key, item in _ml_prediction_cache.items()
+            if now - float(item.get("cached_at") or 0.0) > _ML_PREDICTION_CACHE_TTL_SECONDS
+        ]
+        for key in expired_keys:
+            _ml_prediction_cache.pop(key, None)
+        _ml_prediction_cache[cache_key] = {
+            "cached_at": now,
+            "artifacts": copy.deepcopy(artifacts),
+        }
+
+
+def _build_ml_prediction_artifacts(data, region):
+    enriched_data, supplemental_draws = _ensure_ml_prediction_history(data, region)
+    config = _load_strategy_config("ml", region)
+    cache_key = _build_ml_prediction_cache_key(region, enriched_data, config)
+    cached_artifacts = _get_cached_ml_prediction_artifacts(cache_key)
+    if cached_artifacts is not None:
+        return cached_artifacts
+
+    runtime_config, model = _optimize_ml_runtime_config(enriched_data, region, config)
+    feature_window = _clamp(int(runtime_config.get("feature_window") or 60), 30, 90)
+    year = _infer_draw_year(enriched_data)
+    feedback = _build_prediction_feedback(region, "ml")
+    color_pref, _, parity_pref = _build_attribute_preferences(
+        enriched_data[:feature_window], region, feedback, year, apply_recent_zodiac_cooldown=True
+    )
+    feature_table = _build_ml_feature_table(enriched_data, region, feature_window=feature_window)
+    feature_table = _apply_ml_feature_profile(
+        feature_table,
+        runtime_config.get("feature_profile") or model.get("feature_profile"),
+    )
+    score_pairs = _build_ml_score_pairs(
+        feature_table,
+        model.get("weights", []),
+        model.get("bias", 0.0),
+    )
+    probability_map = _build_ml_probability_map(score_pairs)
+    heuristic_map = _build_ml_heuristic_score_map(feature_table)
+    blend_weight = float(model.get("selected_blend", 0.7) or 0.7)
+    blended_scores = _blend_ml_rankings(probability_map, heuristic_map, blend_weight)
+    ranked_numbers = _rank_numbers(blended_scores)
+    ensemble_signals = _build_ml_ensemble_signals(enriched_data, region)
+    special_score_map, normal_score_map = _build_ml_dual_score_maps(
+        ranked_numbers,
+        probability_map,
+        heuristic_map,
+        ensemble_signals,
+    )
+
+    artifacts = {
+        "enriched_data": enriched_data,
+        "supplemental_draws": supplemental_draws,
+        "runtime_config": runtime_config,
+        "model": model,
+        "year": year,
+        "color_pref": color_pref,
+        "parity_pref": parity_pref,
+        "probability_map": probability_map,
+        "blend_weight": blend_weight,
+        "ensemble_signals": ensemble_signals,
+        "special_score_map": special_score_map,
+        "normal_score_map": normal_score_map,
+        "special_ranked_numbers": _rank_numbers(special_score_map),
+        "normal_ranked_numbers": _rank_numbers(normal_score_map),
+    }
+    _store_cached_ml_prediction_artifacts(cache_key, artifacts)
+    return artifacts
+
+
+def _predict_with_ml(data, region, variation_key=None):
+    artifacts = _build_ml_prediction_artifacts(data, region)
+    enriched_data = artifacts["enriched_data"]
+    supplemental_draws = artifacts["supplemental_draws"]
+    runtime_config = artifacts["runtime_config"]
+    model = artifacts["model"]
+    year = artifacts["year"]
+    color_pref = artifacts.get("color_pref") or {}
+    parity_pref = artifacts.get("parity_pref") or {}
+    probability_map = artifacts.get("probability_map") or {}
+    blend_weight = float(artifacts.get("blend_weight", 0.7) or 0.7)
+    ensemble_signals = artifacts.get("ensemble_signals") or {}
+    special_score_map = artifacts.get("special_score_map") or {}
+    normal_score_map = artifacts.get("normal_score_map") or {}
+    special_ranked_numbers = list(artifacts.get("special_ranked_numbers") or [])
+    normal_ranked_numbers = list(artifacts.get("normal_ranked_numbers") or [])
+    repeat_transition_profile = _build_repeat_transition_profile(enriched_data, region, year=year)
+    recent_draw_number_counter = Counter()
+    recent_draw_sets = []
+    for item in enriched_data[:6]:
+        draw_numbers = []
+        for raw_number in list(item.get("no") or []) + [item.get("sno")]:
+            try:
+                parsed = int(str(raw_number).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1 <= parsed <= 49:
+                draw_numbers.append(parsed)
+        deduped_draw = _dedupe_keep_order(draw_numbers)
+        if deduped_draw:
+            recent_draw_sets.append(set(deduped_draw))
+            for parsed in deduped_draw:
+                recent_draw_number_counter[parsed] += 1
+    latest_draw_numbers = recent_draw_sets[0] if recent_draw_sets else set()
+    latest_special_repeat_probability = float(repeat_transition_profile.get("latest_special_repeat_probability") or 0.0)
+    latest_zodiac_repeat_probability = float(repeat_transition_profile.get("latest_zodiac_repeat_probability") or 0.0)
+    latest_special = repeat_transition_profile.get("latest_special")
+    latest_zodiac = str(repeat_transition_profile.get("latest_zodiac") or "").strip()
+    number_to_zodiac = _get_number_to_zodiac_map(year)
+
+    pool_size = _clamp(int(runtime_config.get("pool") or 18), 12, 24)
+    special_pool_size = _clamp(int(runtime_config.get("special_pool") or 8), 6, 12)
+    bucket_counts = runtime_config.get("bucket_counts") or [2, 2, 2]
+    normal = _select_ml_normal_numbers(
+        normal_ranked_numbers,
+        normal_score_map,
+        bucket_counts,
+        variation_key=variation_key,
+        pool_size=pool_size,
+        parity_pref=parity_pref,
+        recent_draw_number_counter=recent_draw_number_counter,
+        latest_draw_numbers=latest_draw_numbers,
+    )
+
+    preferred_special_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
+    preferred_special_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
+    special_candidates = [
+        number for number in special_ranked_numbers[:special_pool_size * 2]
+        if number not in normal
+    ]
+    if not special_candidates:
+        special_candidates = [number for number in special_ranked_numbers if number not in normal]
+    special_candidates = sorted(
+        special_candidates,
+        key=lambda number: (
+            special_score_map.get(number, 0.0) +
+            (0.08 if preferred_special_parity and _get_parity_zh(number) == preferred_special_parity else 0.0) -
+            ((0.16 + max(0.0, 0.24 - latest_special_repeat_probability)) if number == latest_special else 0.0) -
+            ((0.12 + max(0.0, 0.20 - latest_zodiac_repeat_probability)) if latest_zodiac and number_to_zodiac.get(str(number), "") == latest_zodiac else 0.0) -
+            (0.24 if number in latest_draw_numbers else 0.0) -
+            (0.16 if int(recent_draw_number_counter.get(number, 0) or 0) >= 2 else 0.0) -
+            (0.06 if int(recent_draw_number_counter.get(number, 0) or 0) == 1 else 0.0)
+        ),
+        reverse=True,
+    )
+    special_pick = _take_personalized_ranked(
+        special_candidates,
+        1,
+        variation_key=variation_key,
+        window_size=max(special_pool_size // 2, 2)
+    )
+    special_num = special_pick[0] if special_pick else special_candidates[0]
+    special_probability = _estimate_ml_confidence(
+        probability_map,
+        special_score_map,
+        special_num,
+        model,
+    )
+    samples = int(model.get("samples", 0) or 0)
+    history_window = int(model.get("history_window", 0) or 0)
+    if samples > 0:
+        extra_reason = f"基于最近{history_window}期历史样本训练生成。"
+        if supplemental_draws > 0:
+            extra_reason += f" 当前年度样本不足，已自动补入{supplemental_draws}期跨年历史。"
+    else:
+        extra_reason = "当前年度历史样本不足，机器学习训练未完成，已回退为统计特征融合推荐。"
+        if supplemental_draws > 0:
+            extra_reason += f" 已额外补入{supplemental_draws}期历史记录。"
+    recommendation_text = _build_special_focus_text(
+        str(special_num),
+        normal,
+        strategy_name="机器学习预测",
+        samples=samples,
+        confidence=special_probability,
+        extra_reason=extra_reason,
+    )
+    model_meta = {
+        "samples": samples,
+        "draw_samples": model.get("draw_samples", 0),
+        "evaluation_draws": model.get("evaluation_draws", 0),
+        "gradient_updates": model.get("gradient_updates", 0),
+        "history_window": history_window,
+        "feature_window": model.get("feature_window", 0),
+        "evaluation_window": model.get("evaluation_window", 0),
+        "feature_profile": model.get("feature_profile", runtime_config.get("feature_profile", "full")),
+        "runtime_profile": model.get("runtime_profile", "base"),
+        "runtime_score": round(float(model.get("runtime_score", 0.0)) * 100, 2),
+        "runtime_search": model.get("runtime_search", []),
+        "special_probability": special_probability,
+        "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
+        "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
+        "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
+        "selected_blend": round(blend_weight * 100, 2),
+        "normal_numbers": list(normal),
+        "preferred_feature_profiles": runtime_config.get("preferred_feature_profiles", []),
+        "preferred_runtime_profiles": runtime_config.get("preferred_runtime_profiles", []),
+        "profile_learning_confidence": round(
+            float(runtime_config.get("profile_learning_confidence", 0.0)) * 100,
+            2,
+        ),
+        "primary_feature_profile": runtime_config.get("primary_feature_profile", "full"),
+        "primary_runtime_profile": runtime_config.get("primary_runtime_profile", "base"),
+        "promotion_strength": runtime_config.get("promotion_strength", "hold"),
+        "blended_special_score": round(float(special_score_map.get(special_num, 0.0)) * 100, 2),
+        "ensemble_strategy_weights": {
+            key: round(float(value) * 100, 2)
+            for key, value in (ensemble_signals.get("strategy_weights") or {}).items()
+        },
+        "ensemble_selected_strategies": list(ensemble_signals.get("selected_strategies") or []),
+        "ensemble_weight_diagnostics": ensemble_signals.get("weight_diagnostics", {}),
+        "ensemble_weight_confidence": round(
+            float(ensemble_signals.get("weight_confidence", 0.0)) * 100,
+            2,
+        ),
+        "ensemble_normal_votes": dict(sorted((ensemble_signals.get("normal_votes") or Counter()).items())),
+        "ensemble_special_votes": dict(sorted((ensemble_signals.get("special_votes") or Counter()).items())),
+        "special_candidates": list(special_candidates[:max(special_pool_size, 6)]),
+        "supplemental_draws": supplemental_draws,
+        "training_draws": len(enriched_data),
+        "preferred_special_color": preferred_special_color,
+        "color_preferences": {
+            key: round(float(value) * 100, 2)
+            for key, value in sorted((color_pref or {}).items())
+        },
+        "preferred_special_parity": preferred_special_parity,
+        "parity_preferences": {
+            key: round(float(value) * 100, 2)
+            for key, value in sorted((parity_pref or {}).items())
+        },
+    }
+    model_meta["display_copy"] = _build_ml_display_copy(model_meta)
+
+    return {
+        "normal": normal,
+        "special": {"number": str(special_num), "sno_zodiac": number_to_zodiac.get(str(special_num), "")},
+        "recommendation_text": recommendation_text,
+        "model_meta": model_meta,
+    }
+
+def get_local_recommendations(strategy, data, region, variation_key=None):
     all_numbers = list(range(1, 50))
-    if strategy == 'random':
-        normal = sorted(random.sample(all_numbers, 6))
+    if not data:
+        return _build_default_baseline_prediction()
+    elif strategy == 'ml':
+        return _predict_with_ml(data, region, variation_key=variation_key)
     else:
         try:
-            freq = analyze_special_number_frequency(data)
-            if not any(v > 0 for v in freq.values()): raise ValueError("No frequency data")
-            sorted_freq = sorted(freq.items(), key=lambda item: item[1])
-            low_freq, mid_freq, high_freq = [int(k) for k, v in sorted_freq[:16]], [int(k) for k, v in sorted_freq[16:33]], [int(k) for k, v in sorted_freq[33:]]
-            normal = sorted(random.sample(low_freq, 2) + random.sample(mid_freq, 2) + random.sample(high_freq, 2))
-        except Exception as e:
-            print(f"Balanced recommendation failed, falling back to random. Reason: {e}")
-            return get_local_recommendations('random', data, region)
-    special_num = random.choice([n for n in all_numbers if n not in normal])
-    sno_zodiac_info = ""
-    if region == 'hk':
-        sno_zodiac_info = _get_hk_number_zodiac(special_num)
-    else:
-        # 为澳门预测也添加特码生肖
-        sno_zodiac_info = _get_hk_number_zodiac(special_num)
-    return {"normal": normal, "special": {"number": str(special_num), "sno_zodiac": sno_zodiac_info}}
+            config = _load_strategy_config(strategy, region)
+            bootstrap_window = int(config.get("window") or 0)
+            recent_data = data[:bootstrap_window] if bootstrap_window > 0 else data
+            phase_profile = _resolve_local_strategy_phase_profile(recent_data, config)
+            runtime_profile = _resolve_local_phase_runtime(config, strategy, phase_profile)
+            window = int(runtime_profile.get("window") or bootstrap_window or len(data))
+            pool_size = _clamp(int(runtime_profile.get("pool") or config.get("pool") or 16), 8, 24)
+            special_pool_size = _clamp(int(runtime_profile.get("special_pool") or config.get("special_pool") or max(8, pool_size // 2)), 6, 14)
+            recent_data = data[:window] if window > 0 else data
+            trend_window = int(runtime_profile.get("trend_window") or config.get("trend_window") or min(15, len(data)))
+            trend_data = data[:trend_window] if trend_window > 0 else recent_data
+            phase_profile = _resolve_local_strategy_phase_profile(recent_data, config)
+            strategy_profile = _build_local_strategy_signal_profile(strategy, phase_profile, config=config)
+            strategy_handoff = _resolve_local_phase_strategy_handoff(strategy, region, phase_profile)
+            layered_stats = dict(config.get("layered_hit_rates") or {})
+            layered_aggregate = dict(layered_stats.get("aggregate") or {})
+            local_top6 = _safe_float(layered_aggregate.get("top6"), 0.0)
 
-def predict_with_ai(data, region):
-    ai_config = get_ai_config()
-    if not ai_config['api_key'] or "你的" in ai_config['api_key']: 
-        return {"error": "AI API Key 未配置"}
-    history_lines, prompt = [], ""
-    recent_data = data[:10]
+            special_freq = analyze_special_number_frequency(recent_data)
+            trend_freq = analyze_special_number_frequency(trend_data)
+            short_freq = analyze_special_number_frequency(recent_data[:10] if len(recent_data) >= 10 else recent_data)
+            all_freq = _build_number_frequency(recent_data)
+            overdue = _build_overdue_scores(recent_data)
+
+            if not any(v > 0 for v in special_freq.values()):
+                raise ValueError("No frequency data")
+
+            hot_norm = _normalize_metric_map(special_freq)
+            trend_norm = _normalize_metric_map(trend_freq)
+            normal_norm = _normalize_metric_map(all_freq)
+            overdue_norm = _normalize_metric_map(overdue)
+            cold_norm = {str(i): round(1.0 - hot_norm.get(str(i), 0.0), 4) for i in range(1, 50)}
+
+            year = _infer_draw_year(recent_data)
+            number_to_zodiac = _get_number_to_zodiac_map(year)
+            feedback = _build_prediction_feedback(region, strategy)
+            repeat_transition_profile = _build_repeat_transition_profile(recent_data, region, year=year)
+            color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
+                recent_data,
+                region,
+                feedback,
+                year,
+                apply_recent_zodiac_cooldown=(strategy != "cold"),
+            )
+            feedback_confidence = float(feedback.get("confidence") or 0.0)
+            recent_draw_number_hits = Counter()
+            recent_draw_sets = []
+            for item in recent_data[:6]:
+                draw_numbers = []
+                for raw_number in list(item.get("no") or []) + [item.get("sno")]:
+                    try:
+                        parsed = int(str(raw_number).strip())
+                    except (TypeError, ValueError):
+                        continue
+                    if 1 <= parsed <= 49:
+                        draw_numbers.append(parsed)
+                deduped_draw = _dedupe_keep_order(draw_numbers)
+                if deduped_draw:
+                    recent_draw_sets.append(set(deduped_draw))
+                    for parsed in deduped_draw:
+                        recent_draw_number_hits[parsed] += 1
+            latest_draw_numbers = recent_draw_sets[0] if recent_draw_sets else set()
+            latest_special = repeat_transition_profile.get("latest_special")
+            latest_zodiac = str(repeat_transition_profile.get("latest_zodiac") or "").strip()
+            latest_special_repeat_probability = float(repeat_transition_profile.get("latest_special_repeat_probability") or 0.0)
+            latest_zodiac_repeat_probability = float(repeat_transition_profile.get("latest_zodiac_repeat_probability") or 0.0)
+
+            weights = _resolve_local_phase_weights(config, phase_profile)
+            for key, delta in dict(strategy_handoff.get("boost_map") or {}).items():
+                weights[key] = round(_clamp(_safe_float(weights.get(key), 0.0) + _safe_float(delta, 0.0), 0.0, 1.8), 4)
+            feedback_multiplier = float(strategy_profile.get("feedback_multiplier", 1.0))
+            attribute_multiplier = float(strategy_profile.get("attribute_multiplier", 1.0))
+            overheat_multiplier = float(strategy_profile.get("overheat_multiplier", 1.0))
+            hot_multiplier = float(strategy_profile.get("hot_multiplier", 1.0))
+            cold_multiplier = float(strategy_profile.get("cold_multiplier", 1.0))
+            trend_multiplier = float(strategy_profile.get("trend_multiplier", 1.0))
+            
+            def overheat_penalty(number):
+                if strategy != "cold":
+                    number_zodiac = number_to_zodiac.get(str(number), "")
+                    if latest_special is not None and int(number) == int(latest_special):
+                        return -(0.18 + max(0.0, 0.24 - latest_special_repeat_probability))
+                    if latest_zodiac and number_zodiac == latest_zodiac:
+                        return -(0.12 + max(0.0, 0.20 - latest_zodiac_repeat_probability))
+                    if number in latest_draw_numbers:
+                        return -0.3
+                    draw_heat = int(recent_draw_number_hits.get(int(number), 0) or 0)
+                    if draw_heat >= 2:
+                        return -0.22
+                    if draw_heat == 1:
+                        return -0.08
+                count = short_freq.get(str(number), 0)
+                if count >= 3: return -0.40
+                if count == 2: return -0.15
+                return 0.0
+
+            def attribute_score(number):
+                color_score = color_pref.get(_get_color_zh(number), 0.0)
+                zodiac_score = zodiac_pref.get(number_to_zodiac.get(str(number), ""), 0.0)
+                parity_score = parity_pref.get(_get_parity_zh(number), 0.0)
+                
+                base_score = (
+                    float(weights.get("color", 0.0)) * color_score +
+                    float(weights.get("zodiac", 0.0)) * zodiac_score +
+                    float(weights.get("parity", 0.0)) * parity_score
+                )
+                
+                # 共振加成：如果波色、生肖、单双均具有较高偏好度，给予 1.2 倍爆分乘数
+                if color_score > 0.6 and zodiac_score > 0.6 and parity_score > 0.6:
+                    base_score *= 1.2
+                return base_score
+
+            number_scores = {}
+            for number in all_numbers:
+                key = str(number)
+                feedback_score = (
+                    (feedback.get("special", {}).get(key, 0.5) - 0.5) * 0.72 +
+                    (feedback.get("normal", {}).get(key, 0.5) - 0.5) * 0.28
+                ) * feedback_confidence
+                
+                attr_score = attribute_score(number)
+                penalty = overheat_penalty(number)
+                
+                score = (
+                    float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) * hot_multiplier +
+                    float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) * trend_multiplier +
+                    float(weights.get("cold", 0.0)) * cold_norm.get(key, 0.0) * cold_multiplier +
+                    float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
+                    float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
+                    float(weights.get("feedback", 0.0)) * feedback_score * feedback_multiplier +
+                    (attr_score * attribute_multiplier) + (penalty * overheat_multiplier)
+                )
+                
+                # 趋势共振：反馈好且属性契合且未过热时，指数级放大其基础权重
+                if feedback_score > 0.15 and attr_score > 0.4 and penalty == 0:
+                    score *= 1.25
+                number_scores[number] = round(score, 6)
+
+            hot_rank = _rank_numbers({
+                number: (
+                    hot_norm.get(str(number), 0.0) +
+                    trend_norm.get(str(number), 0.0) * 0.35 +
+                    ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.75) +
+                    attribute_score(number) + overheat_penalty(number)
+                )
+                for number in all_numbers
+            })
+            cold_rank = _rank_numbers({
+                number: (
+                    cold_norm.get(str(number), 0.0) +
+                    overdue_norm.get(str(number), 0.0) * 0.8 +
+                    ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.45) +
+                    attribute_score(number) + (overheat_penalty(number) * 0.5)
+                )
+                for number in all_numbers
+            })
+            trend_rank = _rank_numbers({
+                number: (
+                    trend_norm.get(str(number), 0.0) * 1.1 +
+                    hot_norm.get(str(number), 0.0) * 0.35 +
+                    ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.70) +
+                    attribute_score(number) + overheat_penalty(number)
+                )
+                for number in all_numbers
+            })
+            overall_rank = _rank_numbers(number_scores)
+
+            if strategy == 'hot':
+                normal = sorted(_take_personalized_ranked(
+                    hot_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
+                ))
+            elif strategy == 'cold':
+                normal = sorted(_take_personalized_ranked(
+                    cold_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
+                ))
+            elif strategy == 'trend':
+                normal = sorted(_take_personalized_ranked(
+                    trend_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
+                ))
+            elif strategy == 'hybrid':
+                mix = _resolve_local_hybrid_mix(config, region, str(phase_profile.get("label") or "neutral"))
+                template_mix = dict(runtime_profile.get("mix") or {})
+                if template_mix:
+                    mix.update(template_mix)
+                normal = []
+                normal += _take_personalized_ranked(hot_rank[:pool_size], int(mix.get("hot", 2)), variation_key=variation_key, window_size=max(pool_size, 9))
+                normal += _take_personalized_ranked(cold_rank[:pool_size], int(mix.get("cold", 2)), variation_key=variation_key, exclude=normal, window_size=max(pool_size, 9))
+                normal += _take_personalized_ranked(trend_rank[:pool_size], int(mix.get("trend", 2)), variation_key=variation_key, exclude=normal, window_size=max(pool_size, 9))
+                if len(normal) < 6:
+                    normal += _take_personalized_ranked(
+                        overall_rank[:pool_size * 2],
+                        6 - len(normal),
+                        variation_key=variation_key,
+                        exclude=normal,
+                        window_size=max(pool_size * 2, 12)
+                    )
+                normal = sorted(normal)
+            else:
+                bucket_counts = _resolve_local_bucket_counts(
+                    runtime_profile.get("bucket_counts") or config.get("bucket_counts") or [2, 2, 2],
+                    str(phase_profile.get("label") or "neutral"),
+                    top6_rate=local_top6,
+                )
+                low_count, mid_count, high_count = bucket_counts
+                low_bucket = [n for n in overall_rank if n <= 16]
+                mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
+                high_bucket = [n for n in overall_rank if n >= 34]
+                normal = []
+                normal += _take_personalized_ranked(low_bucket, int(low_count), variation_key=variation_key)
+                normal += _take_personalized_ranked(mid_bucket, int(mid_count), variation_key=variation_key, exclude=normal)
+                normal += _take_personalized_ranked(high_bucket, int(high_count), variation_key=variation_key, exclude=normal)
+                if len(normal) < 6:
+                    normal += _take_personalized_ranked(
+                        overall_rank[:pool_size * 2],
+                        6 - len(normal),
+                        variation_key=variation_key,
+                        exclude=normal,
+                        window_size=max(pool_size * 2, 12)
+                    )
+                normal = sorted(normal)
+
+            normal = _rebalance_selected_numbers_by_parity(
+                normal,
+                overall_rank,
+                number_scores,
+                parity_pref,
+                count=6,
+            )
+            remaining_numbers = [number for number in all_numbers if number not in normal]
+            
+            preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
+
+            def compute_special_score(number):
+                return _compute_local_special_score(
+                    strategy,
+                    number,
+                    feedback,
+                    feedback_confidence,
+                    weights,
+                    hot_norm,
+                    trend_norm,
+                    overdue_norm,
+                    attribute_score,
+                    overheat_penalty,
+                    preferred_parity,
+                    strategy_profile,
+                )
+
+            special_rank = _rank_numbers(
+                {
+                    number: compute_special_score(number) for number in remaining_numbers
+                },
+                candidates=remaining_numbers
+            )
+            special_candidates = special_rank[:special_pool_size] or [n for n in overall_rank if n not in normal]
+            special_pick = _take_personalized_ranked(
+                special_candidates,
+                1,
+                variation_key=variation_key,
+                window_size=max(special_pool_size // 2, 2)
+            )
+            special_num = special_pick[0] if special_pick else special_candidates[0]
+            special_zodiac = number_to_zodiac.get(str(special_num), "")
+            recommendation_text = _build_local_recommendation_text(strategy, config, normal, special_num, feedback)
+            return {
+                "normal": normal,
+                "special": {"number": str(special_num), "sno_zodiac": special_zodiac},
+                "recommendation_text": recommendation_text,
+                "model_meta": {
+                    "special_candidates": list(special_candidates[:max(special_pool_size, 6)]),
+                    "local_phase_profile": phase_profile,
+                    "local_runtime_profile": runtime_profile,
+                    "local_strategy_profile": strategy_profile,
+                    "local_phase_weight_profile": dict((((config or {}).get("phase_weight_learning") or {}).get(str(phase_profile.get("label") or "neutral")) or {})),
+                    "local_strategy_handoff": strategy_handoff,
+                },
+            }
+        except Exception as e:
+            print(f"{strategy} recommendation failed, falling back to balanced. Reason: {e}")
+            if strategy == 'balanced':
+                return _build_default_baseline_prediction()
+            return get_local_recommendations('balanced', data, region, variation_key=variation_key)
+
+def _build_ai_prompt(data, region, history_window=10):
+    history_lines = []
+    recent_data = data[:history_window]
+    learning_context = _build_ai_learning_context(data, region, history_window=history_window)
     if region == 'hk':
+        year = datetime.now().year
+        if recent_data:
+            try:
+                year = int(str(recent_data[0].get('date', ''))[:4])
+            except (TypeError, ValueError):
+                pass
+        number_to_zodiac = _get_number_to_zodiac_map(year)
         for d in recent_data:
-            zodiac = _get_hk_number_zodiac(d.get('sno'))
-            history_lines.append(f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特别号码: {d.get('sno')}({zodiac})")
+            zodiac = number_to_zodiac.get(str(d.get('sno')), '')
+            history_lines.append(
+                f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特别号码: {d.get('sno')}({zodiac})"
+            )
         recent_history = "\n".join(history_lines)
-        prompt = f"""你是一位精通香港六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含号码和生肖），为下一期提供一份详细的分析和号码推荐。
+        prompt = f"""你是一位精通香港六合彩数据分析的专家。请基于以下最近 {history_window} 期的开奖历史数据（包含号码和生肖）以及系统自动学习得到的历史命中反馈，为下一期提供一份详细的分析和号码推荐。
 
 历史数据:
 {recent_history}
+
+{learning_context}
 
 你的任务是：
 1. 写一段详细的分析说明，解释你的推荐依据和分析过程。
 2. 明确推荐一组号码（6平码1特码），格式为：
    推荐号码：[平码1, 平码2, 平码3, 平码4, 平码5, 平码6] 特码: [特码]
 3. 请以友好、自然的语言风格进行回复。
-4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
+ 4. 确保你的回复中包含明确的号码推荐，便于系统提取。
+ 5. 请显式参考历史学习反馈，避免只做泛泛分析。"""
     else:
         for d in recent_data:
             all_numbers = d.get('no', []) + ([d.get('sno')] if d.get('sno') else [])
-            history_lines.append(f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}")
+            history_lines.append(
+                f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}"
+            )
         recent_history = "\n".join(history_lines)
-        prompt = f"""你是一位精通澳门六合彩数据分析的专家。请基于以下最近10期的开奖历史数据（包含开奖号码、波色和生肖），为下一期提供一份详细的分析和号码推荐。
+        prompt = f"""你是一位精通澳门六合彩数据分析的专家。请基于以下最近 {history_window} 期的开奖历史数据（包含开奖号码、波色和生肖）以及系统自动学习得到的历史命中反馈，为下一期提供一份详细的分析和号码推荐。
 
 历史数据:
 {recent_history}
+
+{learning_context}
 
 你的任务是：
 1. 写一段详细的分析说明，解释你的推荐依据和分析过程。
 2. 明确推荐一组号码（6平码1特码），格式为：
    推荐号码：[平码1, 平码2, 平码3, 平码4, 平码5, 平码6] 特码: [特码]
 3. 请以友好、自然的语言风格进行回复。
-4. 确保你的回复中包含明确的号码推荐，便于系统提取。"""
-    
-    payload = {"model": ai_config['model'], "messages": [{"role": "user", "content": prompt}], "temperature": 0.8}
+ 4. 确保你的回复中包含明确的号码推荐，便于系统提取。
+ 5. 请显式参考历史学习反馈，避免只做泛泛分析。"""
+    return prompt
+
+def _build_ai_prompt_v2(data, region, history_window=10):
+    history_lines = []
+    recent_data = data[:history_window]
+    learning_context = _build_ai_learning_context(data, region, history_window=history_window)
+    candidate_context = _build_ai_candidate_context(data, region)
+
+    if region == 'hk':
+        year = datetime.now().year
+        if recent_data:
+            try:
+                year = int(str(recent_data[0].get('date', ''))[:4])
+            except (TypeError, ValueError):
+                pass
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+        for d in recent_data:
+            zodiac = number_to_zodiac.get(str(d.get('sno')), '')
+            history_lines.append(
+                f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特码: {d.get('sno')}({zodiac})"
+            )
+        recent_history = "\n".join(history_lines)
+        return f"""请基于以下信息，为下一期香港六合彩给出一次更偏保守、优先参考候选池共识的预测。
+
+历史数据：
+{recent_history}
+
+{learning_context}
+
+{candidate_context}
+
+你的任务：
+1. 综合历史反馈、候选池共识、波色/生肖/单双偏好，再做最终选择。
+2. 平码 6 个必须互不重复，且不能与特码重复。
+3. 若多个候选接近，优先选择同时被多个本地策略支持的号码。
+4. 回复结尾必须严格使用下面格式，方便系统提取：
+推荐号码：[n1, n2, n3, n4, n5, n6]
+特码：[s]
+理由：用 2-4 句简要说明，重点说为什么选这个特码和这组平码。
+5. 不要输出多组方案，不要输出候补方案。"""
+
+    for d in recent_data:
+        all_numbers = d.get('no', []) + ([d.get('sno')] if d.get('sno') else [])
+        history_lines.append(
+            f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}"
+        )
+    recent_history = "\n".join(history_lines)
+    return f"""请基于以下信息，为下一期澳门六合彩给出一次更偏保守、优先参考候选池共识的预测。
+
+历史数据：
+{recent_history}
+
+{learning_context}
+
+{candidate_context}
+
+你的任务：
+1. 综合历史反馈、候选池共识、波色/生肖/单双偏好，再做最终选择。
+2. 平码 6 个必须互不重复，且不能与特码重复。
+3. 若多个候选接近，优先选择同时被多个本地策略支持的号码。
+4. 回复结尾必须严格使用下面格式，方便系统提取：
+推荐号码：[n1, n2, n3, n4, n5, n6]
+特码：[s]
+理由：用 2-4 句简要说明，重点说为什么选这个特码和这组平码。
+5. 不要输出多组方案，不要输出候补方案。"""
+
+
+def _build_ai_prompt_v3(data, region, history_window=10):
+    history_lines = []
+    recent_data = data[:history_window]
+    learning_context = _build_ai_learning_context(data, region, history_window=history_window)
+    candidate_context = _build_ai_candidate_context(data, region)
+
+    if region == 'hk':
+        year = datetime.now().year
+        if recent_data:
+            try:
+                year = int(str(recent_data[0].get('date', ''))[:4])
+            except (TypeError, ValueError):
+                pass
+        number_to_zodiac = _get_number_to_zodiac_map(year)
+        for d in recent_data:
+            zodiac = number_to_zodiac.get(str(d.get('sno')), '')
+            history_lines.append(
+                f"日期: {d['date']}, 开奖号码: {', '.join(d['no'])}, 特码: {d.get('sno')}({zodiac})"
+            )
+        recent_history = "\n".join(history_lines)
+        return f"""请基于以下信息，为下一期香港六合彩给出一次更偏保守、优先参考候选池共识的预测。
+
+历史数据：
+{recent_history}
+
+{learning_context}
+
+{candidate_context}
+
+香港专用决策要求：
+1. 特码优先参考近期回测更优策略的共识、历史反馈更强的特码候选，以及生肖匹配强度。
+2. 如果近期 5 期内某个特码或同生肖号码过热，不要机械追热，除非它同时得到多个本地策略支持。
+3. 平码尽量保持分散，避免 6 个号码过度集中在同一区间。
+4. 若两个特码候选接近，优先选择生肖反馈更强、且未在最近 2 期直接开出的号码。
+5. 回复结尾必须严格使用下面格式：
+推荐号码：[n1, n2, n3, n4, n5, n6]
+特码：[s]
+理由：用 2-4 句简要说明，重点说为什么选这个特码、为什么没有追某个热门候选。"""
+
+    for d in recent_data:
+        all_numbers = d.get('no', []) + ([d.get('sno')] if d.get('sno') else [])
+        history_lines.append(
+            f"期号: {d['id']}, 开奖号码: {','.join(all_numbers)}, 波色: {d['raw_wave']}, 生肖: {d['raw_zodiac']}"
+        )
+    recent_history = "\n".join(history_lines)
+    return f"""请基于以下信息，为下一期澳门六合彩给出一次更偏保守、优先参考候选池共识的预测。
+
+历史数据：
+{recent_history}
+
+{learning_context}
+
+{candidate_context}
+
+澳门专用决策要求：
+1. 特码优先参考波色、生肖、单双三类属性是否同时得到历史反馈支持，而不是只看单个热门号码。
+2. 如果某个特码候选与当前更强的波色/生肖/单双结构明显冲突，降低它的优先级。
+3. 平码 6 个尽量保持波色和单双分布均衡，不要过度扎堆。
+4. 若两个特码候选接近，优先选择同时满足候选池共识和属性结构一致性的号码。
+5. 回复结尾必须严格使用下面格式：
+推荐号码：[n1, n2, n3, n4, n5, n6]
+特码：[s]
+理由：用 2-4 句简要说明，重点说为什么选这个特码，以及它和波色/生肖/单双结构如何匹配。"""
+
+
+def _build_ai_sampling_temperatures(base_temperature, sample_count):
+    count = max(1, int(sample_count or 1))
+    base = float(base_temperature or 0.35)
+    offsets = [0.0, 0.06, -0.05, 0.1, -0.09]
+    values = []
+    for index in range(count):
+        offset = offsets[index] if index < len(offsets) else ((index % 2) * 0.08 - 0.04)
+        values.append(round(_clamp(base + offset, 0.16, 0.52), 2))
+    return values
+
+
+def _call_ai_completion(ai_config, prompt, temperature=0.35):
+    payload = {
+        "model": ai_config['model'],
+        "messages": [
+            {"role": "system", "content": _build_ai_system_prompt()},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": temperature
+    }
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
+    response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120)
+    response.raise_for_status()
+    if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+        response.encoding = "utf-8"
+    return response.json()['choices'][0]['message']['content']
+
+
+def _safe_float(value, default=0.0):
     try:
-        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-        ai_response = response.json()['choices'][0]['message']['content']
-        
-        # 从AI回复中提取号码
-        import re
-        normal_numbers = []
-        special_number = ""
-        
-        # 尝试匹配格式化的推荐号码
-        number_pattern = r'推荐号码：\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]\s*特码:\s*\[(\d+)\]'
-        match = re.search(number_pattern, ai_response)
-        
-        if match:
-            normal_numbers = [int(match.group(i)) for i in range(1, 7)]
-            special_number = match.group(7)
-        else:
-            # 如果没有找到格式化的推荐，尝试从文本中提取数字
-            all_numbers = re.findall(r'\b\d{1,2}\b', ai_response)
-            valid_numbers = [int(n) for n in all_numbers if 1 <= int(n) <= 49]
-            
-            if len(valid_numbers) >= 7:
-                normal_numbers = sorted(valid_numbers[:6])
-                special_number = str(valid_numbers[6])
-            else:
-                # 如果无法从AI回复中提取有效号码，使用本地推荐
-                local_rec = get_local_recommendations('balanced', data, region)
-                normal_numbers = local_rec['normal']
-                special_number = local_rec['special']['number']
-        
-        # 确保所有号码都是有效的
-        normal_numbers = [n for n in normal_numbers if 1 <= n <= 49]
-        while len(normal_numbers) < 6:
-            new_num = random.randint(1, 49)
-            if new_num not in normal_numbers:
-                normal_numbers.append(new_num)
-        normal_numbers = sorted(normal_numbers)
-        
-        if not special_number or not (1 <= int(special_number) <= 49):
-            special_number = str(random.randint(1, 49))
-        
-        # 获取特码生肖
-        sno_zodiac = ""
-        if region == 'hk':
-            sno_zodiac = _get_hk_number_zodiac(special_number)
-        else:
-            # 澳门也使用相同的生肖计算方法
-            sno_zodiac = _get_hk_number_zodiac(special_number)
-        
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _build_ai_shortlist_context(data, region, config=None):
+    config = config or {}
+    special_limit = _clamp(int(config.get("special_shortlist") or 8), 6, 12)
+    normal_limit = _clamp(int(config.get("normal_shortlist") or 18), 12, 24)
+    artifacts = _build_ml_prediction_artifacts(data, region)
+    year = int(artifacts.get("year") or _infer_draw_year(data))
+    number_to_zodiac = _get_number_to_zodiac_map(year)
+    ensemble_signals = artifacts.get("ensemble_signals") or {}
+    special_votes = Counter(ensemble_signals.get("special_votes") or {})
+    normal_votes = Counter(ensemble_signals.get("normal_votes") or {})
+
+    special_ranked = [int(number) for number in (artifacts.get("special_ranked_numbers") or [])]
+    normal_ranked = [int(number) for number in (artifacts.get("normal_ranked_numbers") or [])]
+    special_score_map = {int(key): _safe_float(value) for key, value in (artifacts.get("special_score_map") or {}).items()}
+    normal_score_map = {int(key): _safe_float(value) for key, value in (artifacts.get("normal_score_map") or {}).items()}
+    probability_map = {int(key): _safe_float(value) for key, value in (artifacts.get("probability_map") or {}).items()}
+    parity_pref = dict(artifacts.get("parity_pref") or {})
+    color_pref = dict(artifacts.get("color_pref") or {})
+
+    ai_feedback = _build_prediction_feedback(region, "ai")
+    ml_feedback = _build_prediction_feedback(region, "ml")
+    mix_weights = dict(config.get("feedback_mix_weights") or _resolve_ai_feedback_mix_weights(region))
+    feedback = _blend_prediction_feedback_items(
+        (ai_feedback, _safe_float(mix_weights.get("ai"), 0.58)),
+        (ml_feedback, _safe_float(mix_weights.get("ml"), 0.42)),
+    )
+    ai_profile = _learn_ai_region_profile(region)
+    _, zodiac_pref, _ = _build_attribute_preferences(
+        data[:min(len(data), 24)], region, feedback, year, apply_recent_zodiac_cooldown=True
+    )
+    preferred_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
+    preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
+    preferred_zodiac = max(zodiac_pref.items(), key=lambda item: item[1])[0] if zodiac_pref else ""
+
+    feedback_special_rank = _rank_numbers({
+        number: (_safe_float((feedback.get("special") or {}).get(str(number), 0.5)) - 0.5) * 2
+        for number in range(1, 50)
+    })
+    feedback_normal_rank = _rank_numbers({
+        number: (_safe_float((feedback.get("normal") or {}).get(str(number), 0.5)) - 0.5) * 2
+        for number in range(1, 50)
+    })
+
+    strategy_results = dict(ensemble_signals.get("strategy_results") or {})
+    try:
+        ml_result = _predict_with_ml(data, region)
+        strategy_results["ml"] = ml_result
+        ml_special = ((ml_result.get("special") or {}).get("number") or "").strip()
+        if ml_special.isdigit():
+            special_votes[int(ml_special)] += 1.35
+        for number in ml_result.get("normal", []) or []:
+            try:
+                normal_votes[int(number)] += 1.0
+            except (TypeError, ValueError):
+                continue
+    except Exception:
+        pass
+
+    heat_profile = _build_ai_recent_heat_profile(data, region, window=8)
+    recent_specials = list(heat_profile.get("recent_specials") or [])
+    phase_profile = _classify_ai_market_phase(data, window=max(8, int(config.get("history_window") or 12)))
+    layered_shortlists = _build_ai_layered_shortlists(
+        special_ranked,
+        normal_ranked,
+        feedback_special_rank,
+        feedback_normal_rank,
+        special_votes,
+        normal_votes,
+        special_limit,
+        normal_limit,
+    )
+    special_shortlist = _dedupe_keep_order(
+        layered_shortlists["special"]["recent"] +
+        layered_shortlists["special"]["stable"] +
+        layered_shortlists["special"]["explore"]
+    )[:special_limit]
+    normal_shortlist = _dedupe_keep_order(
+        layered_shortlists["normal"]["recent"] +
+        layered_shortlists["normal"]["stable"] +
+        layered_shortlists["normal"]["explore"]
+    )[:normal_limit]
+
+    special_rows = []
+    for number in special_shortlist:
+        special_rows.append({
+            "number": number,
+            "score": round(special_score_map.get(number, 0.0), 6),
+            "probability": round(probability_map.get(number, 0.0), 6),
+            "votes": round(_safe_float(special_votes.get(number, 0.0)), 4),
+            "color": _get_color_zh(number),
+            "zodiac": number_to_zodiac.get(str(number), ""),
+            "parity": _get_parity_zh(number),
+        })
+
+    normal_rows = []
+    for number in normal_shortlist:
+        normal_rows.append({
+            "number": number,
+            "score": round(normal_score_map.get(number, 0.0), 6),
+            "votes": round(_safe_float(normal_votes.get(number, 0.0)), 4),
+            "color": _get_color_zh(number),
+            "zodiac": number_to_zodiac.get(str(number), ""),
+            "parity": _get_parity_zh(number),
+        })
+
+    strategy_summary = []
+    for strategy, result in strategy_results.items():
+        special_number = ((result.get("special") or {}).get("number") or "").strip()
+        strategy_summary.append({
+            "strategy": strategy,
+            "label": _get_strategy_label(strategy),
+            "special": special_number,
+            "normal": [int(item) for item in (result.get("normal") or []) if str(item).isdigit()][:6],
+        })
+
+    structured_payload = {
+        "region": region,
+        "special_shortlist": special_rows,
+        "normal_shortlist": normal_rows,
+        "special_layers": layered_shortlists["special"],
+        "normal_layers": layered_shortlists["normal"],
+        "preferred": {
+            "color": preferred_color,
+            "parity": preferred_parity,
+            "zodiac": preferred_zodiac,
+        },
+        "recent_specials": recent_specials,
+        "strategy_summary": strategy_summary,
+        "feedback_sources": {
+            "ai_samples": int(ai_feedback.get("samples", 0) or 0),
+            "ml_samples": int(ml_feedback.get("samples", 0) or 0),
+            "blended_confidence": round(float(feedback.get("confidence", 0.0)) * 100, 2),
+            "ai_mix_weight": round(_safe_float(mix_weights.get("ai"), 0.0) * 100, 2),
+            "ml_mix_weight": round(_safe_float(mix_weights.get("ml"), 0.0) * 100, 2),
+        },
+        "phase_profile": {
+            "label": str(phase_profile.get("label") or "neutral"),
+            "confidence": round(_safe_float(phase_profile.get("confidence"), 0.0) * 100, 2),
+            "guidance": str(phase_profile.get("guidance") or ""),
+        },
+    }
+    structure_guidance = _format_ai_structure_guidance(ai_profile)
+
+    shortlist_prompt = (
+        "候选约束(JSON)：\n"
+        f"{json.dumps(structured_payload, ensure_ascii=False, separators=(',', ':'))}\n"
+        "你必须优先从 special_shortlist 中选择 1 个特码，并从 normal_shortlist 中选择 6 个不重复平码；"
+        "若偏离 shortlist，必须在理由中明确说明。\n"
+        f"{structure_guidance}\n"
+        "special_layers/normal_layers 分别代表近期强势池、稳定池、补充池，优先从 recent 与 stable 中选号。"
+    )
+
+    return {
+        "year": year,
+        "number_to_zodiac": number_to_zodiac,
+        "special_score_map": special_score_map,
+        "normal_score_map": normal_score_map,
+        "probability_map": probability_map,
+        "special_votes": special_votes,
+        "normal_votes": normal_votes,
+        "special_shortlist": special_shortlist,
+        "normal_shortlist": normal_shortlist,
+        "preferred_color": preferred_color,
+        "preferred_parity": preferred_parity,
+        "preferred_zodiac": preferred_zodiac,
+        "recent_specials": recent_specials,
+        "recent_special_counter": dict(heat_profile.get("special_counter") or {}),
+        "recent_tail_counter": dict(heat_profile.get("tail_counter") or {}),
+        "recent_color_counter": dict(heat_profile.get("color_counter") or {}),
+        "recent_zodiacs": list(heat_profile.get("recent_zodiacs") or []),
+        "recent_zodiac_counter": dict(heat_profile.get("zodiac_counter") or {}),
+        "recent_draw_numbers": list(heat_profile.get("recent_draw_numbers") or []),
+        "recent_draw_number_counter": dict(heat_profile.get("draw_number_counter") or {}),
+        "recent_draw_sets": list(heat_profile.get("recent_draw_sets") or []),
+        "repeat_transition_profile": dict(heat_profile.get("repeat_transition_profile") or {}),
+        "layered_shortlists": layered_shortlists,
+        "target_mode": str(config.get("target_mode") or "top1_safe"),
+        "target_mode_stats": dict(config.get("target_mode_stats") or {}),
+        "rerank_weights": _normalize_ai_rerank_weights(config.get("rerank_weights")),
+        "rerank_learning_confidence": round(_safe_float(config.get("rerank_learning_confidence"), 0.0) * 100, 2),
+        "quality_threshold": _resolve_ai_quality_threshold({
+            "gate_profile": _build_ai_gate_profile(region),
+            "target_mode": str(config.get("target_mode") or "top1_safe"),
+            "structure_profile": {
+                "confidence": round(_safe_float(ai_profile.get("confidence"), 0.0), 4),
+            },
+        }),
+        "phase_profile": phase_profile,
+        "feedback_mix_weights": mix_weights,
+        "feedback_mix_stats": dict(config.get("feedback_mix_stats") or {}),
+        "structure_profile": {
+            "confidence": round(_safe_float(ai_profile.get("confidence"), 0.0), 4),
+            "samples": int(ai_profile.get("samples", 0) or 0),
+            "preferred_structures": list(ai_profile.get("preferred_structures") or []),
+            "target_scores": dict(ai_profile.get("target_scores") or {}),
+            "structure_scores": dict(ai_profile.get("structure_scores") or {}),
+            "failure_scores": dict(ai_profile.get("failure_scores") or {}),
+        },
+        "shortlist_prompt": shortlist_prompt,
+        "structure_guidance": structure_guidance,
+        "structured_payload": structured_payload,
+        "gate_profile": _build_ai_gate_profile(region),
+    }
+
+
+def _build_ai_prompt_v4(data, region, shortlist_context, history_window=10, candidate_count=3):
+    base_prompt = _build_ai_prompt_v3(data, region, history_window=history_window)
+    candidate_count = _clamp(int(candidate_count or 3), 2, 5)
+    target_mode = str(shortlist_context.get("target_mode") or "top1_safe")
+    target_hint = {
+        "top1_strict": "本期更强调特码直接命中，普通号码只做必要配合。",
+        "top1_safe": "本期优先选择更稳的特码，同时保证平码结构不要太激进。",
+        "top6_cover": "本期更重视六码覆盖的整体稳定性，特码仍需和结构一致。",
+    }.get(target_mode, "本期优先保持特码与平码结构的整体一致性。")
+    structure_guidance = str(shortlist_context.get("structure_guidance") or "").strip()
+    phase_profile = dict(shortlist_context.get("phase_profile") or {})
+    phase_text = f"当前开奖阶段：{phase_profile.get('label', 'neutral')}，{phase_profile.get('guidance', '保持中性判断。')}"
+    return (
+        f"{base_prompt}\n\n"
+        f"{shortlist_context.get('shortlist_prompt', '')}\n\n"
+        f"当前目标模式：{target_mode}。{target_hint}\n"
+        f"{phase_text}\n"
+        f"{structure_guidance}\n\n"
+        "请先输出一段严格 JSON，格式如下：\n"
+        "{\"candidates\":[{\"special\":12,\"normal\":[1,2,3,4,5,6],\"confidence\":0.72,\"why\":\"...\"}]}\n"
+        f"其中 candidates 数量必须为 {candidate_count} 组，按优先级从高到低排序。\n"
+        "然后再输出简短分析。不要输出 shortlist 之外的大量号码。"
+    )
+
+
+def _extract_json_objects_from_text(text):
+    content = str(text or "")
+    objects = []
+    for start in range(len(content)):
+        if content[start] != "{":
+            continue
+        depth = 0
+        in_string = False
+        escape = False
+        for end in range(start, len(content)):
+            char = content[end]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    snippet = content[start:end + 1]
+                    try:
+                        objects.append(json.loads(snippet))
+                    except Exception:
+                        pass
+                    break
+    return objects
+
+
+def _normalize_ai_candidate_entry(entry, region=None, source_text=""):
+    if not isinstance(entry, dict):
+        return None
+    normal = entry.get("normal")
+    special = entry.get("special")
+    if isinstance(special, dict):
+        special = special.get("number") or special.get("value")
+    if isinstance(normal, str):
+        normal = [int(item) for item in re.findall(r"\d{1,2}", normal)]
+    elif isinstance(normal, (list, tuple)):
+        parsed = []
+        for item in normal:
+            try:
+                parsed.append(int(str(item).strip()))
+            except (TypeError, ValueError):
+                continue
+        normal = parsed
+    else:
+        normal = []
+
+    try:
+        special_value = int(str(special).strip())
+    except (TypeError, ValueError):
+        return None
+
+    normal = [number for number in normal if 1 <= int(number) <= 49 and int(number) != special_value]
+    normal = _dedupe_keep_order([int(number) for number in normal])[:6]
+    if len(normal) < 6 or not (1 <= special_value <= 49):
+        return None
+
+    return {
+        "special": special_value,
+        "normal": normal,
+        "confidence": _safe_float(entry.get("confidence"), 0.0),
+        "why": str(entry.get("why") or entry.get("reason") or "").strip(),
+        "source_text": str(source_text or "").strip(),
+    }
+
+
+def _build_ai_recent_heat_profile(data, region, window=8):
+    recent_specials = []
+    special_counter = Counter()
+    tail_counter = Counter()
+    color_counter = Counter()
+    zodiac_counter = Counter()
+    recent_zodiacs = []
+    recent_draw_numbers = []
+    draw_number_counter = Counter()
+    recent_draw_sets = []
+    year = _infer_draw_year(data)
+    number_to_zodiac = _get_number_to_zodiac_map(year)
+    repeat_transition_profile = _build_repeat_transition_profile(data, region, year=year)
+
+    for record in list(data or [])[:max(1, int(window or 8))]:
+        draw_numbers = []
+        for raw_number in list(record.get("no") or []) + [record.get("sno")]:
+            try:
+                parsed = int(str(raw_number).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1 <= parsed <= 49:
+                draw_numbers.append(parsed)
+        deduped_draw_numbers = _dedupe_keep_order(draw_numbers)
+        if deduped_draw_numbers:
+            recent_draw_sets.append(deduped_draw_numbers)
+            recent_draw_numbers.extend(deduped_draw_numbers)
+            for parsed in deduped_draw_numbers:
+                draw_number_counter[parsed] += 1
+        try:
+            number = int(str(record.get("sno") or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= number <= 49):
+            continue
+        recent_specials.append(number)
+        special_counter[number] += 1
+        tail_counter[number % 10] += 1
+        color = _get_color_zh(number)
+        if color:
+            color_counter[color] += 1
+        zodiac = number_to_zodiac.get(str(number), "") if number_to_zodiac else ""
+        if not zodiac:
+            zodiac = str(record.get("sno_zodiac") or "").strip()
+        if zodiac:
+            recent_zodiacs.append(zodiac)
+            zodiac_counter[zodiac] += 1
+
+    return {
+        "recent_specials": recent_specials,
+        "special_counter": special_counter,
+        "tail_counter": tail_counter,
+        "color_counter": color_counter,
+        "recent_zodiacs": recent_zodiacs,
+        "zodiac_counter": zodiac_counter,
+        "recent_draw_numbers": recent_draw_numbers,
+        "draw_number_counter": draw_number_counter,
+        "recent_draw_sets": recent_draw_sets,
+        "repeat_transition_profile": repeat_transition_profile,
+    }
+
+
+def _classify_ai_market_phase(data, window=12):
+    recent = list(data or [])[:max(4, int(window or 12))]
+    specials = []
+    for record in recent:
+        try:
+            number = int(str(record.get("sno") or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= 49:
+            specials.append(number)
+
+    if not specials:
         return {
-            "recommendation_text": ai_response,
-            "normal": normal_numbers,
-            "special": {
-                "number": special_number,
-                "sno_zodiac": sno_zodiac
-            }
+            "label": "neutral",
+            "confidence": 0.0,
+            "metrics": {},
+            "adjustments": {},
+            "guidance": "当前阶段信号不足，保持中性判断。",
         }
+
+    special_counter = Counter(specials)
+    tail_counter = Counter(number % 10 for number in specials)
+    color_counter = Counter(_get_color_zh(number) for number in specials if _get_color_zh(number))
+    zones = [1 if number <= 16 else 2 if number <= 33 else 3 for number in specials]
+    zone_counter = Counter(zones)
+
+    repeat_ratio = max(special_counter.values()) / max(len(specials), 1)
+    tail_focus = max(tail_counter.values()) / max(len(specials), 1)
+    color_focus = max(color_counter.values()) / max(len(specials), 1) if color_counter else 0.0
+    zone_focus = max(zone_counter.values()) / max(len(zones), 1)
+    unique_ratio = len(set(specials)) / max(len(specials), 1)
+
+    label = "neutral"
+    confidence = 0.4
+    adjustments = {}
+    guidance = "当前阶段较中性，保持特码与结构平衡。"
+
+    if repeat_ratio >= 0.28 or tail_focus >= 0.34 or color_focus >= 0.56:
+        label = "hot"
+        confidence = max(repeat_ratio, tail_focus, color_focus)
+        adjustments = {
+            "overheat_penalty": 0.12,
+            "repeat_penalty": 0.08,
+            "base_special": -0.04,
+            "diversity_bonus": 0.05,
+        }
+        guidance = "当前更像热号阶段，谨慎追逐近期重复信号，优先规避过热特码与尾数。"
+    elif unique_ratio >= 0.92 and repeat_ratio <= 0.12 and tail_focus <= 0.22:
+        label = "cold"
+        confidence = unique_ratio
+        adjustments = {
+            "overheat_penalty": -0.05,
+            "base_special": 0.04,
+            "special_vote": -0.03,
+            "structure_bonus": 0.04,
+        }
+        guidance = "当前更像冷号阶段，允许更分散的特码尝试，不必过度依赖近期热度。"
+    elif zone_focus >= 0.62 or color_focus >= 0.62:
+        label = "concentrated"
+        confidence = max(zone_focus, color_focus)
+        adjustments = {
+            "shape_score": 0.08,
+            "structure_bonus": 0.07,
+            "diversity_bonus": 0.06,
+            "avg_normal": 0.04,
+        }
+        guidance = "当前更像结构集中阶段，优先修正区间、波色和单双失衡。"
+    elif len(set(zones)) == 3 and unique_ratio >= 0.8 and color_focus <= 0.45:
+        label = "dispersed"
+        confidence = max(0.45, unique_ratio)
+        adjustments = {
+            "base_special": 0.05,
+            "special_vote": 0.04,
+            "overheat_penalty": -0.03,
+            "shape_score": -0.03,
+        }
+        guidance = "当前更像结构分散阶段，可适度提高特码主导性，少做过强约束。"
+
+    return {
+        "label": label,
+        "confidence": round(_clamp(confidence, 0.2, 1.0), 4),
+        "metrics": {
+            "repeat_ratio": round(repeat_ratio, 4),
+            "tail_focus": round(tail_focus, 4),
+            "color_focus": round(color_focus, 4),
+            "zone_focus": round(zone_focus, 4),
+            "unique_ratio": round(unique_ratio, 4),
+        },
+        "adjustments": adjustments,
+        "guidance": guidance,
+    }
+
+
+def _candidate_signature(candidate):
+    if not candidate:
+        return ""
+    special = int(candidate.get("special") or 0)
+    normal = [int(number) for number in (candidate.get("normal") or []) if str(number).isdigit()]
+    return f"{special}|{','.join(map(str, normal))}"
+
+
+def _count_ai_unique_candidates(ai_responses, region=None):
+    signatures = set()
+    for response_text in ai_responses or []:
+        for candidate in _extract_ai_candidate_entries(response_text, region=region):
+            signature = _candidate_signature(candidate)
+            if signature:
+                signatures.add(signature)
+    return len(signatures)
+
+
+def _repair_ai_response_text(response_text, region=None):
+    text = str(response_text or "").strip()
+    if not text:
+        return text
+
+    normalized = _normalize_ai_response_v2(text)
+    if _extract_ai_candidate_entries(normalized, region=region):
+        return normalized
+
+    special_match = re.search(r'"special"\s*:\s*\{[^{}]*?"number"\s*:\s*"?(?P<num>\d{1,2})"?', normalized, flags=re.IGNORECASE | re.DOTALL)
+    normal_match = re.search(r'"normal"\s*:\s*\[(?P<nums>[^\]]+)\]', normalized, flags=re.IGNORECASE | re.DOTALL)
+    if special_match and normal_match:
+        fixed = json.dumps({
+            "candidates": [{
+                "special": int(special_match.group("num")),
+                "normal": [int(n) for n in re.findall(r'\d{1,2}', normal_match.group("nums"))[:6]],
+                "confidence": 0.45,
+                "why": text[:280],
+            }]
+        }, ensure_ascii=False)
+        if _extract_ai_candidate_entries(fixed, region=region):
+            return fixed
+
+    normal_numbers, special_number = _extract_ai_numbers_v2(normalized, region=region)
+    if normal_numbers and special_number:
+        fixed = json.dumps({
+            "candidates": [{
+                "special": int(special_number),
+                "normal": [int(n) for n in normal_numbers[:6]],
+                "confidence": 0.4,
+                "why": text[:280],
+            }]
+        }, ensure_ascii=False)
+        if _extract_ai_candidate_entries(fixed, region=region):
+            return fixed
+
+    return normalized
+
+
+def _call_ai_completion_with_retries(ai_config, prompt, temperature=0.35, max_attempts=2, region=None):
+    last_error = None
+    for attempt in range(max(1, int(max_attempts or 1))):
+        try:
+            response_text = _call_ai_completion(ai_config, prompt, temperature=temperature)
+            repaired = _repair_ai_response_text(response_text, region=region)
+            if str(repaired or "").strip():
+                return repaired
+        except Exception as exc:
+            last_error = exc
+        temperature = round(_clamp(float(temperature or 0.35) + 0.05, 0.16, 0.58), 2)
+
+    if last_error:
+        raise last_error
+    return ""
+
+
+def _resolve_ai_latency_budget_seconds(tuned=None, stream_mode=False):
+    config = dict(tuned or {})
+    default_budget = 14.0 if stream_mode else 18.0
+    raw_budget = config.get("latency_budget_seconds")
+    if raw_budget in (None, ""):
+        raw_budget = config.get("time_budget_seconds")
+    try:
+        budget = float(raw_budget)
+    except (TypeError, ValueError):
+        budget = default_budget
+    return float(_clamp(budget, 6.0, 45.0))
+
+
+def _ai_budget_remaining(started_at, budget_seconds):
+    elapsed = max(0.0, time.perf_counter() - float(started_at or 0.0))
+    return max(0.0, float(budget_seconds or 0.0) - elapsed)
+
+
+def _ai_budget_exhausted(started_at, budget_seconds):
+    return _ai_budget_remaining(started_at, budget_seconds) <= 0.0
+
+
+def _build_ai_local_fallback_candidates(context, desired_count=3):
+    desired = max(1, int(desired_count or 1))
+    special_shortlist = [int(number) for number in (context.get("special_shortlist") or []) if str(number).isdigit()]
+    normal_shortlist = [int(number) for number in (context.get("normal_shortlist") or []) if str(number).isdigit()]
+    if len(normal_shortlist) < 6:
+        return []
+
+    candidates = []
+    for idx, special in enumerate(special_shortlist[:max(desired * 2, desired)]):
+        normal = []
+        preferred_tail = special % 10
+        for number in normal_shortlist:
+            if number == special or number in normal:
+                continue
+            if len(normal) < 2 and number % 10 == preferred_tail:
+                continue
+            normal.append(number)
+            if len(normal) >= 6:
+                break
+        if len(normal) < 6:
+            for number in normal_shortlist:
+                if number == special or number in normal:
+                    continue
+                normal.append(number)
+                if len(normal) >= 6:
+                    break
+        candidate = _normalize_ai_candidate_entry(
+            {
+                "special": special,
+                "normal": normal[:6],
+                "confidence": max(0.22, 0.38 - idx * 0.03),
+                "why": "local shortlist fallback",
+            },
+            source_text="local shortlist fallback",
+        )
+        if candidate:
+            candidates.append(candidate)
+        if len(candidates) >= desired:
+            break
+    return candidates
+
+
+def _assess_ai_candidate_quality(candidate, context):
+    if not candidate:
+        return -999.0, {"quality_score": -999.0}
+
+    special = int(candidate.get("special") or 0)
+    normal = [int(number) for number in (candidate.get("normal") or []) if str(number).isdigit()]
+    if not (1 <= special <= 49) or len(normal) < 6:
+        return -999.0, {"quality_score": -999.0}
+
+    numbers = normal + [special]
+    zones = Counter(1 if number <= 16 else 2 if number <= 33 else 3 for number in numbers)
+    tails = Counter(number % 10 for number in numbers)
+    colors = Counter(_get_color_zh(number) for number in numbers if _get_color_zh(number))
+    parities = Counter(_get_parity_zh(number) for number in numbers if _get_parity_zh(number))
+    special_shortlist = set(context.get("special_shortlist") or [])
+    normal_shortlist = set(context.get("normal_shortlist") or [])
+
+    shortlist_hits = sum(1 for number in normal if number in normal_shortlist) + (1 if special in special_shortlist else 0)
+    shortlist_component = max(-0.18, (shortlist_hits - 4) * 0.05)
+    zone_component = 0.08 if len(zones) == 3 else -0.1 if max(zones.values()) >= 5 else -0.04 if max(zones.values()) >= 4 else 0.0
+    tail_component = -0.14 if max(tails.values()) >= 3 else 0.03 if len(tails) >= 6 else 0.0
+    color_component = -0.12 if colors and max(colors.values()) >= 5 else 0.04 if len(colors) == 3 else 0.0
+    parity_component = -0.08 if parities and max(parities.values()) >= 6 else 0.03 if len(parities) == 2 else 0.0
+    confidence_component = _clamp(float(candidate.get("confidence") or 0.0), 0.0, 1.0) * 0.08
+    duplicate_penalty = -0.16 if len(set(numbers)) < 7 else 0.0
+
+    total = round(
+        shortlist_component +
+        zone_component +
+        tail_component +
+        color_component +
+        parity_component +
+        confidence_component +
+        duplicate_penalty,
+        6,
+    )
+    return total, {
+        "shortlist_component": round(shortlist_component, 4),
+        "zone_component": round(zone_component, 4),
+        "tail_component": round(tail_component, 4),
+        "color_component": round(color_component, 4),
+        "parity_component": round(parity_component, 4),
+        "confidence_component": round(confidence_component, 4),
+        "duplicate_penalty": round(duplicate_penalty, 4),
+        "quality_score": total,
+    }
+
+
+def _filter_ai_candidate_entries(candidates, context, minimum_quality=None):
+    if minimum_quality is None:
+        minimum_quality = _safe_float((context or {}).get("quality_threshold"), -0.12)
+    filtered = []
+    for candidate in candidates or []:
+        quality_score, diagnostics = _assess_ai_candidate_quality(candidate, context)
+        enriched = dict(candidate)
+        enriched["quality_score"] = round(quality_score, 6)
+        enriched["quality_diagnostics"] = diagnostics
+        if quality_score < float(minimum_quality):
+            continue
+        filtered.append(enriched)
+    return filtered
+
+
+def _ensure_ai_candidate_coverage(ai_responses, region, context, desired_count=3):
+    responses = list(ai_responses or [])
+    signatures = {
+        _candidate_signature(item): item
+        for item in _filter_ai_candidate_entries(
+            _build_ai_local_fallback_candidates(context, desired_count=desired_count),
+            context,
+            minimum_quality=-0.24,
+        )
+    }
+    existing = {}
+    for response_text in responses:
+        for candidate in _filter_ai_candidate_entries(
+            _extract_ai_candidate_entries(response_text, region=region),
+            context,
+        ):
+            signature = _candidate_signature(candidate)
+            if signature:
+                existing[signature] = candidate
+
+    missing = max(0, int(desired_count or 0) - len(existing))
+    if missing <= 0:
+        return responses
+
+    fallback_candidates = []
+    for signature, candidate in signatures.items():
+        if signature in existing:
+            continue
+        fallback_candidates.append(candidate)
+        if len(fallback_candidates) >= missing:
+            break
+
+    if fallback_candidates:
+        responses.append(json.dumps({"candidates": fallback_candidates}, ensure_ascii=False))
+    return responses
+
+
+def _extend_ai_responses_for_coverage(ai_config, prompt, responses, region, target_candidates, base_temperature=0.35, max_extra_calls=2):
+    responses = list(responses or [])
+    target = max(2, int(target_candidates or 2))
+    for extra_index in range(max(0, int(max_extra_calls or 0))):
+        if _count_ai_unique_candidates(responses, region=region) >= target:
+            break
+        extra_temp = round(_clamp(float(base_temperature or 0.35) + 0.12 + extra_index * 0.05, 0.18, 0.58), 2)
+        try:
+            responses.append(
+                _call_ai_completion_with_retries(
+                    ai_config,
+                    prompt,
+                    temperature=extra_temp,
+                    max_attempts=2,
+                    region=region,
+                )
+            )
+        except Exception:
+            continue
+    return responses
+
+
+def _attach_ai_prediction_metadata(result, tuned, region, elapsed_seconds=None, budget_seconds=None, budget_exhausted=False):
+    if not isinstance(result, dict):
+        return result
+
+    feedback = _build_prediction_feedback(region, "ai")
+    model_meta = dict(result.get("model_meta") or {})
+    model_meta["ai_tuned_accuracy"] = round(float((tuned or {}).get("last_accuracy") or 0.0) * 100, 2)
+    model_meta["ai_feedback_samples"] = int(feedback.get("samples", 0) or 0)
+    model_meta["ai_feedback_confidence"] = round(float(feedback.get("confidence") or 0.0) * 100, 2)
+    offline_profile = dict((tuned or {}).get("offline_rerank_profile") or {})
+    if offline_profile:
+        model_meta["ai_offline_rerank_profile"] = {
+            "confidence": round(_safe_float(offline_profile.get("confidence"), 0.0), 4),
+            "samples": int(offline_profile.get("samples", 0) or 0),
+            "weight_adjustments": dict(offline_profile.get("weight_adjustments") or {}),
+            "mode_adjustments": dict(offline_profile.get("mode_adjustments") or {}),
+            "mode_window_adjustments": dict(offline_profile.get("mode_window_adjustments") or {}),
+            "ranking_signal_scores": dict(offline_profile.get("ranking_signal_scores") or {}),
+        }
+
+    if elapsed_seconds is not None:
+        model_meta["ai_elapsed_ms"] = int(max(0.0, float(elapsed_seconds)) * 1000)
+    if budget_seconds is not None:
+        model_meta["ai_latency_budget_ms"] = int(max(0.0, float(budget_seconds)) * 1000)
+        model_meta["ai_budget_exhausted"] = bool(budget_exhausted)
+
+    result["model_meta"] = model_meta
+    return result
+
+
+def _run_ai_prediction_pipeline(
+    data,
+    region,
+    tuned,
+    ai_config,
+    shortlist_context,
+    prompt,
+    temperature=0.35,
+    sample_count=3,
+    candidate_count=3,
+    initial_response_text="",
+    stream_mode=False,
+):
+    started_at = time.perf_counter()
+    budget_seconds = _resolve_ai_latency_budget_seconds(tuned, stream_mode=stream_mode)
+    responses = []
+
+    initial_text = str(initial_response_text or "").strip()
+    if initial_text:
+        repaired = _repair_ai_response_text(initial_text, region=region)
+        if repaired:
+            responses.append(repaired)
+
+    temperatures = list(_build_ai_sampling_temperatures(temperature, sample_count))
+    if stream_mode and responses:
+        temperatures = []
+    elif responses and temperatures:
+        temperatures = temperatures[1:]
+
+    for temp in temperatures:
+        if _ai_budget_exhausted(started_at, budget_seconds):
+            break
+        try:
+            responses.append(
+                _call_ai_completion_with_retries(
+                    ai_config,
+                    prompt,
+                    temperature=temp,
+                    max_attempts=2,
+                    region=region,
+                )
+            )
+        except Exception:
+            continue
+
+    budget_exhausted = _ai_budget_exhausted(started_at, budget_seconds)
+    if not budget_exhausted:
+        remaining_seconds = _ai_budget_remaining(started_at, budget_seconds)
+        extra_calls = 0
+        if stream_mode and responses:
+            extra_calls = 0
+        elif remaining_seconds >= 8:
+            extra_calls = 2
+        elif remaining_seconds >= 4:
+            extra_calls = 1
+        if extra_calls > 0:
+            responses = _extend_ai_responses_for_coverage(
+                ai_config,
+                prompt,
+                responses,
+                region,
+                candidate_count,
+                base_temperature=temperature,
+                max_extra_calls=extra_calls,
+            )
+        budget_exhausted = _ai_budget_exhausted(started_at, budget_seconds)
+
+    responses = _ensure_ai_candidate_coverage(
+        responses,
+        region,
+        shortlist_context,
+        desired_count=candidate_count,
+    )
+    result, error = _finalize_ai_multi_sample_result(responses, region, shortlist_context)
+    elapsed_seconds = time.perf_counter() - started_at
+    if error:
+        return {"error": error}
+
+    result = _blend_ai_with_anchor_strategy(
+        result,
+        data,
+        region,
+        shortlist_context=shortlist_context,
+    )
+    result = _attach_ai_prediction_metadata(
+        result,
+        tuned,
+        region,
+        elapsed_seconds=elapsed_seconds,
+        budget_seconds=budget_seconds,
+        budget_exhausted=budget_exhausted,
+    )
+    return result
+
+
+def _candidate_similarity_penalty(candidate, selected_candidates):
+    if not selected_candidates:
+        return 0.0
+
+    normal = {int(number) for number in (candidate.get("normal") or []) if str(number).isdigit()}
+    if not normal:
+        return 0.0
+
+    candidate_special = int(candidate.get("special") or 0)
+    candidate_tail = candidate_special % 10 if candidate_special else None
+    candidate_color = _get_color_zh(candidate_special) if candidate_special else ""
+    max_penalty = 0.0
+
+    for selected in selected_candidates:
+        selected_normal = {int(number) for number in (selected.get("normal") or []) if str(number).isdigit()}
+        overlap = len(normal & selected_normal)
+        penalty = 0.0
+        if overlap >= 5:
+            penalty += 0.18
+        elif overlap >= 4:
+            penalty += 0.1
+        elif overlap >= 3:
+            penalty += 0.05
+
+        selected_special = int(selected.get("special") or 0)
+        if candidate_special and selected_special:
+            if candidate_special == selected_special:
+                penalty += 0.28
+            elif candidate_tail is not None and candidate_tail == (selected_special % 10):
+                penalty += 0.05
+            if candidate_color and candidate_color == _get_color_zh(selected_special):
+                penalty += 0.03
+
+        max_penalty = max(max_penalty, penalty)
+
+    return round(max_penalty, 6)
+
+
+def _diversify_ai_ranked_candidates(ranked):
+    pool = [dict(item) for item in (ranked or [])]
+    diversified = []
+    while pool:
+        best_index = 0
+        best_score = None
+        for idx, item in enumerate(pool):
+            penalty = _candidate_similarity_penalty(item, diversified)
+            adjusted = round(float(item.get("aggregate_score", 0.0)) - penalty, 6)
+            if best_score is None or adjusted > best_score:
+                best_score = adjusted
+                best_index = idx
+        chosen = pool.pop(best_index)
+        chosen["diversity_penalty"] = round(
+            _candidate_similarity_penalty(chosen, diversified),
+            6,
+        )
+        chosen["diversified_score"] = round(
+            float(chosen.get("aggregate_score", 0.0)) - float(chosen.get("diversity_penalty", 0.0)),
+            6,
+        )
+        diversified.append(chosen)
+    return diversified
+
+
+def _extract_ai_candidate_entries(ai_response, region=None):
+    candidates = []
+    for obj in _extract_json_objects_from_text(ai_response):
+        if isinstance(obj, dict) and isinstance(obj.get("candidates"), list):
+            for item in obj.get("candidates") or []:
+                normalized = _normalize_ai_candidate_entry(item, region=region, source_text=ai_response)
+                if normalized:
+                    candidates.append(normalized)
+        else:
+            normalized = _normalize_ai_candidate_entry(obj, region=region, source_text=ai_response)
+            if normalized:
+                candidates.append(normalized)
+
+    if candidates:
+        return candidates
+
+    normal_numbers, special_number = _extract_ai_numbers_v2(ai_response, region=region)
+    if not normal_numbers or not special_number:
+        return []
+    normalized = _normalize_ai_candidate_entry(
+        {
+            "special": special_number,
+            "normal": normal_numbers,
+            "why": str(ai_response or "").strip(),
+        },
+        region=region,
+        source_text=ai_response,
+    )
+    return [normalized] if normalized else []
+
+
+def _score_ai_combination_shape(normal, special, context):
+    numbers = [int(number) for number in (normal or []) if str(number).isdigit()]
+    if special is not None:
+        try:
+            numbers.append(int(special))
+        except (TypeError, ValueError):
+            pass
+    if len(numbers) < 7:
+        return -0.2, {"shape_score": -0.2}
+
+    zone_counts = Counter(1 if number <= 16 else 2 if number <= 33 else 3 for number in numbers)
+    zone_penalty = 0.0
+    for count in zone_counts.values():
+        if count >= 5:
+            zone_penalty -= 0.18
+        elif count == 4:
+            zone_penalty -= 0.08
+    covered_zones = len(zone_counts)
+    zone_bonus = 0.06 if covered_zones == 3 else -0.05
+
+    tails = [number % 10 for number in numbers]
+    tail_counts = Counter(tails)
+    tail_penalty = 0.0
+    for count in tail_counts.values():
+        if count >= 3:
+            tail_penalty -= 0.12
+
+    colors = [_get_color_zh(number) for number in numbers if _get_color_zh(number)]
+    color_counts = Counter(colors)
+    color_penalty = 0.0
+    if color_counts and max(color_counts.values()) >= 5:
+        color_penalty -= 0.12
+    elif len(color_counts) == 3:
+        color_penalty += 0.05
+
+    parities = [_get_parity_zh(number) for number in numbers if _get_parity_zh(number)]
+    parity_counts = Counter(parities)
+    parity_penalty = -0.06 if parity_counts and max(parity_counts.values()) >= 6 else 0.03 if len(parity_counts) == 2 else 0.0
+
+    special_shortlist = set(context.get("special_shortlist") or [])
+    normal_shortlist = set(context.get("normal_shortlist") or [])
+    shortlist_coverage = sum(1 for number in normal if int(number) in normal_shortlist)
+    if special in special_shortlist:
+        shortlist_coverage += 1
+    shortlist_bonus = max(0.0, (shortlist_coverage - 4) * 0.03)
+
+    total = round(zone_penalty + zone_bonus + tail_penalty + color_penalty + parity_penalty + shortlist_bonus, 6)
+    return total, {
+        "zone_penalty": round(zone_penalty, 4),
+        "zone_bonus": round(zone_bonus, 4),
+        "tail_penalty": round(tail_penalty, 4),
+        "color_penalty": round(color_penalty, 4),
+        "parity_penalty": round(parity_penalty, 4),
+        "shortlist_coverage_bonus": round(shortlist_bonus, 4),
+        "shape_score": total,
+    }
+
+
+def _score_ai_structure_alignment(normal, special, context):
+    profile = dict(context.get("structure_profile") or {})
+    structure_scores = dict(profile.get("structure_scores") or {})
+    confidence = _clamp(_safe_float(profile.get("confidence"), 0.0), 0.0, 1.0)
+    if confidence <= 0.0:
+        return 0.0, {"structure_bonus": 0.0, "structure_confidence": 0.0}
+
+    numbers = [int(number) for number in (normal or []) if str(number).isdigit()]
+    if not numbers:
+        return 0.0, {"structure_bonus": 0.0, "structure_confidence": round(confidence, 4)}
+
+    zone_spread = len(set(1 if n <= 16 else 2 if n <= 33 else 3 for n in numbers))
+    tail_spread = len(set(n % 10 for n in numbers))
+    all_numbers = numbers + ([int(special)] if special is not None else [])
+    color_spread = len(set(_get_color_zh(n) for n in all_numbers if _get_color_zh(n)))
+    odd_count = sum(1 for n in all_numbers if n % 2 == 1)
+    even_count = len(all_numbers) - odd_count
+    parity_key = "parity:balanced" if abs(odd_count - even_count) <= 1 else "parity:skewed"
+    special_zone = "small" if int(special) <= 16 else "mid" if int(special) <= 33 else "large"
+    special_color = _get_color_zh(int(special)) or "unknown"
+
+    total = 0.0
+    total += _safe_float(structure_scores.get(f"zone_spread:{zone_spread}"), 0.0) * 0.18
+    total += _safe_float(structure_scores.get(f"color_spread:{color_spread}"), 0.0) * 0.14
+    total += _safe_float(structure_scores.get(parity_key), 0.0) * 0.12
+    total += _safe_float(structure_scores.get(f"special_zone:{special_zone}"), 0.0) * 0.18
+    total += _safe_float(structure_scores.get(f"special_color:{special_color}"), 0.0) * 0.12
+    if tail_spread >= 5:
+        total += _safe_float(structure_scores.get("tail_spread:wide"), 0.0) * 0.16
+    elif tail_spread >= 4:
+        total += _safe_float(structure_scores.get("tail_spread:balanced"), 0.0) * 0.16
+    else:
+        total += _safe_float(structure_scores.get("tail_spread:tight"), 0.0) * 0.16
+
+    structure_bonus = round((total - 0.45) * max(0.35, confidence), 6)
+    return structure_bonus, {
+        "structure_bonus": structure_bonus,
+        "structure_confidence": round(confidence, 4),
+        "zone_spread": zone_spread,
+        "tail_spread": tail_spread,
+        "color_spread": color_spread,
+        "parity_key": parity_key,
+        "special_zone": special_zone,
+        "special_color": special_color,
+    }
+
+
+def _score_ai_candidate(candidate, context):
+    special = int(candidate.get("special"))
+    normal = [int(number) for number in candidate.get("normal") or []]
+    if len(normal) < 6:
+        return -999.0, {}
+
+    special_score_map = context.get("special_score_map") or {}
+    normal_score_map = context.get("normal_score_map") or {}
+    special_votes = context.get("special_votes") or Counter()
+    normal_votes = context.get("normal_votes") or Counter()
+    number_to_zodiac = context.get("number_to_zodiac") or {}
+    special_shortlist = set(context.get("special_shortlist") or [])
+    normal_shortlist = set(context.get("normal_shortlist") or [])
+    recent_specials = list(context.get("recent_specials") or [])
+    recent_special_counter = Counter(context.get("recent_special_counter") or {})
+    recent_tail_counter = Counter(context.get("recent_tail_counter") or {})
+    recent_color_counter = Counter(context.get("recent_color_counter") or {})
+    recent_zodiacs = list(context.get("recent_zodiacs") or [])
+    recent_zodiac_counter = Counter(context.get("recent_zodiac_counter") or {})
+    recent_draw_numbers = list(context.get("recent_draw_numbers") or [])
+    recent_draw_number_counter = Counter(context.get("recent_draw_number_counter") or {})
+    recent_draw_sets = list(context.get("recent_draw_sets") or [])
+    repeat_transition_profile = dict(context.get("repeat_transition_profile") or {})
+    target_mode = str(context.get("target_mode") or "top1_safe")
+
+    base_special = special_score_map.get(special, 0.0)
+    avg_normal = sum(normal_score_map.get(number, 0.0) for number in normal) / max(len(normal), 1)
+    special_vote = _safe_float(special_votes.get(special, 0.0))
+    normal_vote_avg = sum(_safe_float(normal_votes.get(number, 0.0)) for number in normal) / max(len(normal), 1)
+    shortlist_bonus = (0.16 if special in special_shortlist else -0.18)
+    shortlist_bonus += sum(0.028 if number in normal_shortlist else -0.04 for number in normal)
+    rerank_weights = _normalize_ai_rerank_weights(context.get("rerank_weights"))
+
+    special_color = _get_color_zh(special)
+    special_parity = _get_parity_zh(special)
+    special_zodiac = number_to_zodiac.get(str(special), "")
+    attr_bonus = 0.0
+    if context.get("preferred_color") and special_color == context.get("preferred_color"):
+        attr_bonus += 0.08
+    if context.get("preferred_parity") and special_parity == context.get("preferred_parity"):
+        attr_bonus += 0.06
+    if context.get("preferred_zodiac") and special_zodiac == context.get("preferred_zodiac"):
+        attr_bonus += 0.08
+
+    zones = set(1 if number <= 16 else 2 if number <= 33 else 3 for number in normal)
+    diversity_bonus = len(zones) * 0.04
+    parity_mix = len(set(_get_parity_zh(number) for number in normal if _get_parity_zh(number)))
+    diversity_bonus += 0.04 if parity_mix >= 2 else -0.03
+
+    repeat_penalty = 0.0
+    latest_special_repeat_probability = float(repeat_transition_profile.get("latest_special_repeat_probability") or 0.0)
+    latest_zodiac_repeat_probability = float(repeat_transition_profile.get("latest_zodiac_repeat_probability") or 0.0)
+    latest_special = repeat_transition_profile.get("latest_special")
+    latest_zodiac = str(repeat_transition_profile.get("latest_zodiac") or "").strip()
+    if latest_special is not None and special == int(latest_special):
+        repeat_penalty -= 0.18 + max(0.0, 0.24 - latest_special_repeat_probability)
+    if latest_zodiac and special_zodiac == latest_zodiac:
+        repeat_penalty -= 0.14 + max(0.0, 0.20 - latest_zodiac_repeat_probability)
+    if recent_specials[:2] and special in recent_specials[:2]:
+        repeat_penalty -= 0.2
+    elif special in recent_specials:
+        repeat_penalty -= 0.08
+    if recent_zodiacs[:1] and special_zodiac == recent_zodiacs[0]:
+        repeat_penalty -= 0.22
+    elif recent_zodiacs[:2] and special_zodiac in recent_zodiacs[:2]:
+        repeat_penalty -= 0.1
+    if recent_draw_sets:
+        latest_draw_set = {int(number) for number in (recent_draw_sets[0] or [])}
+        if special in latest_draw_set:
+            repeat_penalty -= 0.26
+        elif any(special in {int(number) for number in (draw_set or [])} for draw_set in recent_draw_sets[:3]):
+            repeat_penalty -= 0.12
+
+    overheat_penalty = 0.0
+    special_heat = int(recent_special_counter.get(special, 0) or 0)
+    if special_heat >= 2:
+        overheat_penalty -= 0.18
+    elif special_heat == 1:
+        overheat_penalty -= 0.05
+
+    special_tail = special % 10
+    tail_heat = int(recent_tail_counter.get(special_tail, 0) or 0)
+    if tail_heat >= 3:
+        overheat_penalty -= 0.1
+    elif tail_heat == 2:
+        overheat_penalty -= 0.04
+
+    special_color_heat = int(recent_color_counter.get(special_color, 0) or 0) if special_color else 0
+    if special_color_heat >= 4:
+        overheat_penalty -= 0.08
+    elif special_color_heat == 3:
+        overheat_penalty -= 0.03
+    zodiac_heat = int(recent_zodiac_counter.get(special_zodiac, 0) or 0) if special_zodiac else 0
+    if zodiac_heat >= 2:
+        overheat_penalty -= 0.14
+    elif zodiac_heat == 1:
+        overheat_penalty -= 0.05
+    draw_heat = int(recent_draw_number_counter.get(special, 0) or 0)
+    if draw_heat >= 2:
+        overheat_penalty -= 0.18
+    elif draw_heat == 1:
+        overheat_penalty -= 0.07
+
+    normal_repeat_penalty = 0.0
+    if recent_draw_sets:
+        latest_draw_set = {int(number) for number in (recent_draw_sets[0] or [])}
+        latest_repeat_count = sum(1 for number in normal if number in latest_draw_set)
+        normal_repeat_penalty -= latest_repeat_count * 0.06
+        recent_three_sets = [
+            {int(number) for number in (draw_set or [])}
+            for draw_set in recent_draw_sets[:3]
+        ]
+        for number in normal:
+            appearances = int(recent_draw_number_counter.get(number, 0) or 0)
+            if appearances >= 2:
+                normal_repeat_penalty -= 0.035
+            elif appearances == 1:
+                normal_repeat_penalty -= 0.012
+            if any(number in draw_set for draw_set in recent_three_sets):
+                normal_repeat_penalty -= 0.01
+
+    confidence_bonus = _clamp(candidate.get("confidence", 0.0), 0.0, 1.0) * 0.08
+    shape_score, shape_diagnostics = _score_ai_combination_shape(normal, special, context)
+    structure_bonus, structure_diagnostics = _score_ai_structure_alignment(normal, special, context)
+    phase_profile = dict(context.get("phase_profile") or {})
+    phase_adjustments = dict(phase_profile.get("adjustments") or {})
+    gate_profile = dict(context.get("gate_profile") or {})
+    gate_adjustment = 0.0
+    if gate_profile.get("status") == "guarded":
+        gate_adjustment -= 0.08
+    elif gate_profile.get("status") == "fallback":
+        gate_adjustment -= 0.2
+    phase_confidence = _clamp(_safe_float(phase_profile.get("confidence"), 0.0), 0.0, 1.0)
+    base_special += _safe_float(phase_adjustments.get("base_special"), 0.0) * phase_confidence
+    avg_normal += _safe_float(phase_adjustments.get("avg_normal"), 0.0) * phase_confidence
+    special_vote += _safe_float(phase_adjustments.get("special_vote"), 0.0) * phase_confidence
+    diversity_bonus += _safe_float(phase_adjustments.get("diversity_bonus"), 0.0) * phase_confidence
+    repeat_penalty -= _safe_float(phase_adjustments.get("repeat_penalty"), 0.0) * phase_confidence
+    overheat_penalty -= _safe_float(phase_adjustments.get("overheat_penalty"), 0.0) * phase_confidence
+    shape_score += _safe_float(phase_adjustments.get("shape_score"), 0.0) * phase_confidence
+    structure_bonus += _safe_float(phase_adjustments.get("structure_bonus"), 0.0) * phase_confidence
+    total = (
+        base_special * rerank_weights.get("base_special", 0.9) +
+        avg_normal * rerank_weights.get("avg_normal", 0.55) +
+        special_vote * rerank_weights.get("special_vote", 0.18) +
+        normal_vote_avg * rerank_weights.get("normal_vote_avg", 0.1) +
+        shortlist_bonus * rerank_weights.get("shortlist_bonus", 1.0) +
+        attr_bonus * rerank_weights.get("attr_bonus", 1.0) +
+        diversity_bonus * rerank_weights.get("diversity_bonus", 1.0) +
+        repeat_penalty * rerank_weights.get("repeat_penalty", 1.0) +
+        normal_repeat_penalty * 0.8 +
+        overheat_penalty * rerank_weights.get("overheat_penalty", 1.0) +
+        confidence_bonus * rerank_weights.get("confidence_bonus", 1.0) +
+        shape_score * rerank_weights.get("shape_score", 1.0) +
+        structure_bonus * rerank_weights.get("structure_bonus", 1.0) +
+        gate_adjustment * rerank_weights.get("gate_adjustment", 1.0)
+    )
+    structure_profile = dict(context.get("structure_profile") or {})
+    failure_scores = dict(structure_profile.get("failure_scores") or {})
+    if target_mode == "top6_cover":
+        cover_bonus = 0.0
+        if len(set(1 if number <= 16 else 2 if number <= 33 else 3 for number in normal)) == 3:
+            cover_bonus += 0.05
+        if len(set(number % 10 for number in normal)) >= 5:
+            cover_bonus += 0.04
+        total += cover_bonus
+    else:
+        special_focus_bonus = 0.0
+        if special in special_shortlist:
+            special_focus_bonus += 0.05
+        if special_vote > 0:
+            special_focus_bonus += min(0.05, special_vote * 0.04)
+        if target_mode == "top1_strict":
+            special_focus_bonus += 0.04
+        elif target_mode == "top1_safe":
+            special_focus_bonus += 0.015
+        total += special_focus_bonus
+
+    failure_penalty = 0.0
+    zone_spread = len(set(1 if number <= 16 else 2 if number <= 33 else 3 for number in normal))
+    tail_spread = len(set(number % 10 for number in normal))
+    all_numbers = normal + [special]
+    color_spread = len(set(_get_color_zh(number) for number in all_numbers if _get_color_zh(number)))
+    odd_count = sum(1 for number in all_numbers if number % 2 == 1)
+    even_count = len(all_numbers) - odd_count
+    parity_key = "parity:balanced" if abs(odd_count - even_count) <= 1 else "parity:skewed"
+    special_zone = "small" if special <= 16 else "mid" if special <= 33 else "large"
+    failure_penalty -= _safe_float(failure_scores.get(f"zone_spread:{zone_spread}"), 0.0) * 0.045
+    failure_penalty -= _safe_float(failure_scores.get(f"color_spread:{color_spread}"), 0.0) * 0.035
+    failure_penalty -= _safe_float(failure_scores.get(parity_key), 0.0) * 0.03
+    failure_penalty -= _safe_float(failure_scores.get(f"special_zone:{special_zone}"), 0.0) * 0.04
+    if tail_spread >= 5:
+        failure_penalty -= _safe_float(failure_scores.get("tail_spread:wide"), 0.0) * 0.04
+    elif tail_spread >= 4:
+        failure_penalty -= _safe_float(failure_scores.get("tail_spread:balanced"), 0.0) * 0.04
+    else:
+        failure_penalty -= _safe_float(failure_scores.get("tail_spread:tight"), 0.0) * 0.04
+    total += failure_penalty
+    diagnostics = {
+        "rerank_weights": rerank_weights,
+        "target_mode": target_mode,
+        "base_special": round(base_special, 6),
+        "avg_normal": round(avg_normal, 6),
+        "special_vote": round(special_vote, 4),
+        "normal_vote_avg": round(normal_vote_avg, 4),
+        "shortlist_bonus": round(shortlist_bonus, 4),
+        "attr_bonus": round(attr_bonus, 4),
+        "diversity_bonus": round(diversity_bonus, 4),
+        "repeat_penalty": round(repeat_penalty, 4),
+        "normal_repeat_penalty": round(normal_repeat_penalty, 4),
+        "overheat_penalty": round(overheat_penalty, 4),
+        "confidence_bonus": round(confidence_bonus, 4),
+        "shape_score": round(shape_score, 4),
+        "structure_bonus": round(structure_bonus, 4),
+        "failure_penalty": round(failure_penalty, 4),
+        "phase_label": str(phase_profile.get("label") or "neutral"),
+        "phase_confidence": round(phase_confidence, 4),
+        "gate_adjustment": round(gate_adjustment, 4),
+        "total": round(total, 6),
+    }
+    diagnostics.update(shape_diagnostics)
+    diagnostics.update(structure_diagnostics)
+    return round(total, 6), diagnostics
+
+
+def _build_ai_selection_recommendation(best_candidate, context, ranked_candidates):
+    special = best_candidate.get("special")
+    normal = best_candidate.get("normal") or []
+    special_votes = context.get("special_votes") or Counter()
+    normal_votes = context.get("normal_votes") or Counter()
+    rationale = str(best_candidate.get("why") or "").strip()
+    consensus_text = (
+        f"系统重排得分：{best_candidate.get('rerank_score', 0.0):.4f}；"
+        f"特码票数：{round(_safe_float(special_votes.get(int(special), 0.0)), 2)}；"
+        f"六码平均票数："
+        f"{round(sum(_safe_float(normal_votes.get(int(number), 0.0)) for number in normal) / max(len(normal), 1), 2)}。"
+    )
+    top_alternatives = "、".join(
+        f"{item['special']}({item['aggregate_score']:.3f})"
+        for item in ranked_candidates[:3]
+    )
+    raw_text = "\n".join(
+        part for part in (
+            rationale,
+            f"补充说明：{consensus_text}" if consensus_text else "",
+            f"候选排序：{top_alternatives}" if top_alternatives else "",
+        ) if part
+    )
+    return _compose_ai_recommendation_text(raw_text, str(special), normal, region=context.get("structured_payload", {}).get("region"))
+
+
+def _finalize_ai_multi_sample_result(ai_responses, region, context):
+    rerank_weights = _normalize_ai_rerank_weights(context.get("rerank_weights"))
+    appearance_vote_weight = rerank_weights.get("appearance_vote", 0.24)
+    signature_votes = Counter()
+    best_by_signature = {}
+
+    for sample_index, response_text in enumerate(ai_responses or []):
+        entries = _filter_ai_candidate_entries(
+            _extract_ai_candidate_entries(response_text, region=region),
+            context,
+        )
+        for rank_index, candidate in enumerate(entries):
+            signature = f"{candidate['special']}|{','.join(map(str, candidate['normal']))}"
+            appearance_weight = max(0.35, 1.0 - rank_index * 0.18) * max(0.6, 1.0 - sample_index * 0.08)
+            signature_votes[signature] += appearance_weight
+            score, diagnostics = _score_ai_candidate(candidate, context)
+            enriched = {
+                **candidate,
+                "signature": signature,
+                "rerank_score": score,
+                "score_diagnostics": diagnostics,
+            }
+            previous = best_by_signature.get(signature)
+            if previous is None or enriched["rerank_score"] > previous["rerank_score"]:
+                best_by_signature[signature] = enriched
+
+    if not best_by_signature:
+        return None, "无法从AI回复中生成有效候选组合"
+
+    ranked = sorted(
+        [
+            {
+                **candidate,
+                "appearance_votes": round(signature_votes[candidate["signature"]], 4),
+                "aggregate_score": round(candidate["rerank_score"] + signature_votes[candidate["signature"]] * appearance_vote_weight, 6),
+            }
+            for candidate in best_by_signature.values()
+        ],
+        key=lambda item: (item["aggregate_score"], item["rerank_score"], item["appearance_votes"]),
+        reverse=True,
+    )
+    ranked = _diversify_ai_ranked_candidates(ranked)
+    best = ranked[0]
+
+    result = {
+        "normal": [int(number) for number in best.get("normal") or []],
+        "special": {
+            "number": str(best.get("special")),
+            "sno_zodiac": "",
+        },
+        "recommendation_text": _build_ai_selection_recommendation(best, context, ranked),
+        "model_meta": {
+            "ai_sampling_count": len(ai_responses or []),
+            "ai_unique_candidates": len(ranked),
+            "ai_selected_score": round(best.get("aggregate_score", 0.0), 6),
+            "ai_gate_profile": dict(context.get("gate_profile") or {}),
+        "ai_target_mode": str(context.get("target_mode") or "top1_safe"),
+            "ai_target_mode_stats": dict(context.get("target_mode_stats") or {}),
+            "ai_rerank_weights": rerank_weights,
+            "ai_rerank_learning_confidence": round(_safe_float(context.get("rerank_learning_confidence"), 0.0), 2),
+            "ai_feedback_mix_weights": dict(context.get("feedback_mix_weights") or {}),
+            "ai_phase_profile": dict(context.get("phase_profile") or {}),
+            "ai_structure_profile": {
+                "confidence": round(_safe_float(((context.get("structure_profile") or {}).get("confidence")), 0.0), 4),
+                "samples": int(((context.get("structure_profile") or {}).get("samples")) or 0),
+                "preferred_structures": list(((context.get("structure_profile") or {}).get("preferred_structures")) or []),
+            },
+            "ai_candidate_ranking": [
+                {
+                    "special": item["special"],
+                    "normal": item["normal"],
+                    "score": round(item["aggregate_score"], 6),
+                    "diversified_score": round(item.get("diversified_score", item.get("aggregate_score", 0.0)), 6),
+                    "diversity_penalty": round(item.get("diversity_penalty", 0.0), 6),
+                    "quality_score": round(item.get("quality_score", 0.0), 6),
+                    "votes": round(item["appearance_votes"], 4),
+                    "score_diagnostics": dict(item.get("score_diagnostics") or {}),
+                }
+                for item in ranked[:5]
+            ],
+            "special_candidates": _normalize_special_candidate_numbers(
+                [item.get("special") for item in ranked]
+            ),
+        },
+    }
+    return result, None
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _estimate_ai_decision_confidence(ai_result):
+    meta = dict((ai_result or {}).get("model_meta") or {})
+    ranking = list(meta.get("ai_candidate_ranking") or [])
+    selected_score = _safe_float(meta.get("ai_selected_score"), 0.0)
+    first_quality = _safe_float((ranking[0] or {}).get("quality_score"), -0.5) if ranking else -0.5
+    candidate_count = max(1, len(ranking))
+    unique_candidates = max(candidate_count, int(meta.get("ai_unique_candidates") or 0))
+    quality_component = _clamp((first_quality + 0.12) / 0.3, 0.0, 1.0)
+    score_component = _clamp(selected_score / 2.2, 0.0, 1.0)
+    variety_component = _clamp(unique_candidates / 4.0, 0.35, 1.0)
+    confidence = round(
+        (quality_component * 0.45) +
+        (score_component * 0.4) +
+        (variety_component * 0.15),
+        4,
+    )
+    return confidence, {
+        "quality_component": round(quality_component, 4),
+        "score_component": round(score_component, 4),
+        "variety_component": round(variety_component, 4),
+    }
+
+
+def _blend_ai_with_anchor_strategy(ai_result, data, region, shortlist_context=None):
+    if not ai_result or ai_result.get("error"):
+        return ai_result
+
+    shortlist_context = shortlist_context or {}
+    gate_profile = dict((ai_result.get("model_meta") or {}).get("ai_gate_profile") or shortlist_context.get("gate_profile") or {})
+    anchor_strategy = str(gate_profile.get("anchor_strategy") or "hybrid")
+    if anchor_strategy == "ai":
+        anchor_strategy = "hybrid"
+
+    try:
+        anchor_result = get_local_recommendations(anchor_strategy, data, region)
+    except Exception:
+        anchor_result = None
+    if not anchor_result or anchor_result.get("error"):
+        return ai_result
+
+    ai_meta = dict(ai_result.get("model_meta") or {})
+    anchor_meta = dict(anchor_result.get("model_meta") or {})
+    ai_confidence, confidence_parts = _estimate_ai_decision_confidence(ai_result)
+    ai_special = _safe_int((ai_result.get("special") or {}).get("number"), 0)
+    anchor_special = _safe_int((anchor_result.get("special") or {}).get("number"), 0)
+    special_score_map = dict(shortlist_context.get("special_score_map") or {})
+    ai_special_score = _safe_float(special_score_map.get(ai_special), 0.0)
+    anchor_special_score = _safe_float(special_score_map.get(anchor_special), 0.0)
+    score_gap = _safe_float(gate_profile.get("score_gap"), 0.0)
+    gate_status = str(gate_profile.get("status") or "active")
+    ai_selected_score = _safe_float(ai_meta.get("ai_selected_score"), 0.0)
+    ranking = list(ai_meta.get("ai_candidate_ranking") or [])
+    ai_top_quality = _safe_float((ranking[0] or {}).get("quality_score"), -0.5) if ranking else -0.5
+    anchor_bonus = 0.1 if anchor_special in [ _safe_int(item.get("special"), 0) for item in ranking[:3] ] else 0.0
+    target_mode = str(ai_meta.get("ai_target_mode") or shortlist_context.get("target_mode") or "top1_safe")
+
+    ai_decision_score = (
+        ai_confidence * 0.48 +
+        _clamp(ai_selected_score / 2.2, 0.0, 1.0) * 0.22 +
+        _clamp((ai_top_quality + 0.15) / 0.35, 0.0, 1.0) * 0.18 +
+        _clamp(ai_special_score, 0.0, 1.0) * 0.12
+    )
+    anchor_decision_score = (
+        _clamp(anchor_special_score, 0.0, 1.0) * 0.44 +
+        _clamp(score_gap / 6.0, 0.0, 1.0) * 0.26 +
+        anchor_bonus +
+        (0.16 if gate_status == "guarded" else 0.0)
+    )
+    if target_mode == "top6_cover":
+        anchor_normal = [int(number) for number in (anchor_result.get("normal") or []) if str(number).isdigit()][:6]
+        ai_normal = [int(number) for number in (ai_result.get("normal") or []) if str(number).isdigit()][:6]
+        ai_zone_spread = len(set(1 if number <= 16 else 2 if number <= 33 else 3 for number in ai_normal))
+        anchor_zone_spread = len(set(1 if number <= 16 else 2 if number <= 33 else 3 for number in anchor_normal))
+        ai_decision_score += ai_zone_spread * 0.03
+        anchor_decision_score += anchor_zone_spread * 0.035
+    else:
+        if ai_special == anchor_special and ai_special:
+            ai_decision_score += 0.05
+
+    decision_mode = "ai_primary"
+    if gate_status == "guarded" or ai_confidence < 0.72 or anchor_bonus > 0:
+        decision_mode = "blended"
+    if ai_confidence < 0.52 or ai_top_quality < -0.08:
+        decision_mode = "ai_low_confidence"
+
+    selected = ai_result
+    selected_meta = dict((selected.get("model_meta") or {}))
+    selected_meta["ai_soft_fusion"] = {
+        "decision_mode": decision_mode,
+        "target_mode": target_mode,
+        "anchor_strategy": anchor_strategy,
+        "gate_status": gate_status,
+        "ai_confidence": round(ai_confidence * 100, 2),
+        "ai_decision_score": round(ai_decision_score, 4),
+        "anchor_decision_score": round(anchor_decision_score, 4),
+        "ai_special": str(ai_special) if ai_special else "",
+        "anchor_special": str(anchor_special) if anchor_special else "",
+        "confidence_parts": confidence_parts,
+    }
+    selected_meta["ai_gate_profile"] = gate_profile
+    if decision_mode != "ai_primary":
+        selected_meta["ai_anchor_reference"] = {
+            "strategy": anchor_strategy,
+            "special": str(anchor_special) if anchor_special else "",
+            "normal": [int(number) for number in (anchor_result.get("normal") or [])[:6]],
+            "special_score": round(anchor_special_score, 4),
+        }
+    selected["model_meta"] = selected_meta
+    note_lines = []
+    if decision_mode == "ai_low_confidence":
+        note_lines.append("提示：本期 AI 置信度偏低，当前结果更偏保守，建议作为重点参考而非强结论。")
+    elif decision_mode == "blended":
+        note_lines.append(f"提示：本期 AI 处于联合判断模式，已参考 { _get_strategy_label(anchor_strategy) } 的结构信号来校正风险。")
+    elif gate_status == "guarded":
+        note_lines.append("提示：本期 AI 处于谨慎状态，已优先选择波动更小的候选组合。")
+
+    ai_confidence_text = f"本期 AI 置信度：{round(ai_confidence * 100, 1)}%"
+    if note_lines:
+        note_lines.append(ai_confidence_text)
+        existing_text = str(selected.get("recommendation_text") or "").strip()
+        selected["recommendation_text"] = "\n".join(note_lines + ([existing_text] if existing_text else []))
+    elif not str(selected.get("recommendation_text") or "").strip():
+        selected["recommendation_text"] = ai_confidence_text
+    return selected
+
+
+def _finalize_ai_prediction_result(
+    data,
+    region,
+    full_text="",
+    ai_config=None,
+    prompt="",
+    temperature=0.35,
+    sample_count=3,
+    candidate_count=3,
+    shortlist_context=None,
+    tuned=None,
+    stream_mode=True,
+):
+    tuned = dict(tuned or _load_strategy_config("ai", region))
+    shortlist_context = shortlist_context or _build_ai_shortlist_context(data, region, config=tuned)
+    ai_config = ai_config or get_ai_config()
+    if not prompt:
+        prompt = _build_ai_prompt_v4(
+            data,
+            region,
+            shortlist_context,
+            history_window=int(tuned.get("history_window") or 12),
+            candidate_count=candidate_count,
+        )
+    return _run_ai_prediction_pipeline(
+        data,
+        region,
+        tuned,
+        ai_config,
+        shortlist_context,
+        prompt,
+        temperature=temperature,
+        sample_count=sample_count,
+        candidate_count=candidate_count,
+        initial_response_text=full_text,
+        stream_mode=stream_mode,
+    )
+
+
+def predict_with_ai(data, region, config_override=None):
+    ai_config = get_ai_config()
+    if not ai_config['api_key'] or "你的" in ai_config['api_key']:
+        return {"error": "AI API Key 未配置"}
+    tuned = _load_strategy_config("ai", region)
+    if config_override:
+        tuned = {**tuned, **dict(config_override)}
+    history_window = int(tuned.get("history_window") or 12)
+    temperature = float(tuned.get("temperature") or 0.35)
+    sample_count = _clamp(int(tuned.get("sample_count") or 3), 1, 5)
+    candidate_count = _clamp(int(tuned.get("candidate_count") or 3), 2, 5)
+    try:
+        shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
+        prompt = _build_ai_prompt_v4(
+            data,
+            region,
+            shortlist_context,
+            history_window=history_window,
+            candidate_count=candidate_count,
+        )
+        return _run_ai_prediction_pipeline(
+            data,
+            region,
+            tuned,
+            ai_config,
+            shortlist_context,
+            prompt,
+            temperature=temperature,
+            sample_count=sample_count,
+            candidate_count=candidate_count,
+            stream_mode=False,
+        )
     except Exception as e:
         return {"error": f"调用AI API时出错: {e}"}
+
+def _iter_ai_stream(ai_config, prompt, temperature=0.8):
+    payload = {
+        "model": ai_config["model"],
+        "messages": [
+            {"role": "system", "content": _build_ai_system_prompt()},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": temperature,
+        "stream": True
+    }
+    headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
+    response = requests.post(ai_config["api_url"], json=payload, headers=headers, stream=True, timeout=120)
+    response.raise_for_status()
+    if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+        response.encoding = "utf-8"
+    for line in response.iter_lines(decode_unicode=True):
+        if not line:
+            continue
+        if line.startswith("data:"):
+            line = line[5:].strip()
+        if line == "[DONE]":
+            break
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        choices = data.get("choices") or []
+        if not choices:
+            continue
+        delta = choices[0].get("delta") or {}
+        content = delta.get("content")
+        if content is None:
+            content = choices[0].get("message", {}).get("content")
+        if content is None:
+            content = choices[0].get("text")
+        if content:
+            yield content
 
 # --- Flask 路由 ---
 @app.route('/')
@@ -374,32 +7824,998 @@ def index():
     if not user.is_active:
         flash('您的账号尚未激活，部分功能受限。请先激活账号。', 'warning')
     
-    return render_template('index.html', user=user)
+    return render_template('index.html', user=user, show_normal_numbers=bool(user.show_normal_numbers))
 
 def get_yearly_data(region, year):
+    print(f"获取年度数据: 地区={region}, 年份={year}")
+    
+    # 处理"全部"年份的情况
+    if year == 'all':
+        year = str(datetime.now().year)
+        print(f"年份为'全部'，使用当前年份: {year}")
+    
+    # 首先尝试从数据库获取数据
+    try:
+        # 查询数据库中的开奖记录
+        query = LotteryDraw.query.filter_by(region=region)
+        if year != 'all':
+            query = query.filter(LotteryDraw.draw_date.like(f"{year}%"))
+        
+        db_records = query.order_by(LotteryDraw.draw_date.desc()).all()
+        
+        if db_records:
+            print(f"从数据库获取到{len(db_records)}条{region}地区{year}年的数据")
+            # 将数据库记录转换为API格式
+            return [record.to_dict() for record in db_records]
+    except Exception as e:
+        print(f"从数据库获取数据失败: {e}")
+    
+    # 如果数据库中没有数据，则从API获取
     if region == 'hk':
-        all_data = load_hk_data()
-        return [rec for rec in all_data if rec.get('date', '').startswith(str(year))]
+        filtered_data = sync_draws_from_api('hk', year, force=True)
+        print(f"从API获取香港数据: 过滤后={len(filtered_data)}")
+        return filtered_data
     if region == 'macau':
-        return get_macau_data(year)
+        macau_data = sync_draws_from_api('macau', year, force=True)
+        print(f"从API获取澳门数据: 总数={len(macau_data)}")
+        return macau_data
+    print(f"未知地区: {region}")
     return []
+
+def _filter_draws_by_zodiac_year(draws, zodiac_year):
+    try:
+        from models import ZodiacSetting
+    except Exception:
+        return list(draws or [])
+
+    filtered = []
+    for draw in draws or []:
+        if hasattr(draw, "to_dict"):
+            normalized = draw.to_dict()
+        elif isinstance(draw, dict):
+            normalized = dict(draw)
+        else:
+            continue
+
+        draw_date = normalized.get("date", "")
+        if ZodiacSetting.get_zodiac_year_for_date(draw_date) == zodiac_year:
+            filtered.append(normalized)
+
+    filtered.sort(
+        key=lambda item: (str(item.get("date") or ""), _period_sort_key(item.get("id"))),
+        reverse=True,
+    )
+    return filtered
+
+
+def _resolve_prediction_zodiac_year(year):
+    from models import ZodiacSetting
+
+    current_zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    current_gregorian_year = datetime.now().year
+    raw_year = str(year or "").strip().lower()
+
+    if not raw_year or raw_year == "all":
+        return current_zodiac_year
+
+    try:
+        parsed_year = int(raw_year)
+    except (TypeError, ValueError):
+        return current_zodiac_year
+
+    # 前端当前传的是公历年份；当它等于当前公历年时，预测应切换到当前农历生肖年。
+    if parsed_year == current_gregorian_year:
+        return current_zodiac_year
+    return parsed_year
+
+
+def _get_prediction_data(region, year):
+    target_zodiac_year = _resolve_prediction_zodiac_year(year)
+    candidate_years = [str(target_zodiac_year), str(target_zodiac_year + 1)]
+
+    draw_groups = []
+    for candidate_year in candidate_years:
+        year_records = []
+        try:
+            year_records = (
+                LotteryDraw.query.filter_by(region=region)
+                .filter(LotteryDraw.draw_date.like(f"{candidate_year}%"))
+                .all()
+            )
+        except Exception as e:
+            print(f"从数据库获取 {region} 地区 {candidate_year} 年数据失败: {e}")
+
+        if year_records:
+            draw_groups.append(year_records)
+            continue
+
+        try:
+            remote_records = sync_draws_from_api(region, candidate_year, force=True)
+            if remote_records:
+                draw_groups.append(remote_records)
+        except Exception as e:
+            print(f"同步 {region} 地区 {candidate_year} 年数据失败: {e}")
+
+    merged = _merge_draw_history_desc(*draw_groups)
+    filtered = _filter_draws_by_zodiac_year(merged, target_zodiac_year)
+    return filtered, target_zodiac_year
+
+
+def save_draws_to_database(draws, region):
+    """保存开奖记录到数据库"""
+    try:
+        count = 0
+        for draw in draws:
+            # 调用LotteryDraw模型的save_draw方法保存记录
+            if LotteryDraw.save_draw(region, draw):
+                count += 1
+                settled = settle_pending_manual_bets(region, draw.get('id'))
+                if settled:
+                    print(f"已自动结算{settled}条手动下注记录，期号: {draw.get('id')}")
+        
+        print(f"成功保存{count}条{region}地区的开奖记录到数据库")
+    except Exception as e:
+        print(f"保存开奖记录到数据库失败: {e}")
+        db.session.rollback()
+
+AUTO_BACKTEST_STRATEGIES = ("ai", "ml", "hybrid", "balanced", "trend", "hot", "cold")
+AUTO_BACKTEST_MIN_HISTORY = 10
+AUTO_BACKTEST_LIMIT = 240
+AI_BACKTEST_MAX_PERIODS = 24
+
+
+def _ai_backtest_enabled():
+    ai_config = get_ai_config()
+    api_key = str(ai_config.get("api_key") or "").strip()
+    return bool(api_key and "你的" not in api_key)
+
+
+def _backtest_draw_sort_key(draw):
+    return (str(draw.get("date") or ""), _period_sort_key(draw.get("id")))
+
+
+def _normalize_backtest_draws(draws, limit=None):
+    normalized = []
+    for draw in draws or []:
+        if hasattr(draw, "to_dict"):
+            normalized.append(draw.to_dict())
+        elif isinstance(draw, dict):
+            normalized.append(draw)
+    normalized.sort(key=_backtest_draw_sort_key)
+    if limit and limit > 0 and len(normalized) > limit:
+        normalized = normalized[-limit:]
+    return normalized
+
+
+def _merge_draw_history_desc(*draw_groups, limit=None):
+    merged = []
+    seen_periods = set()
+    for group in draw_groups:
+        for draw in group or []:
+            if hasattr(draw, "to_dict"):
+                normalized = draw.to_dict()
+            elif isinstance(draw, dict):
+                normalized = dict(draw)
+            else:
+                continue
+            period = _normalize_period_value(normalized.get("id"))
+            if not period or period in seen_periods:
+                continue
+            seen_periods.add(period)
+            merged.append(normalized)
+    merged.sort(
+        key=lambda item: (str(item.get("date") or ""), _period_sort_key(item.get("id"))),
+        reverse=True,
+    )
+    if limit and limit > 0:
+        return merged[:limit]
+    return merged
+
+
+LEARNING_SCOPE_MIN_SAMPLES = 36
+LEARNING_SCOPE_DRAW_LIMIT = 720
+
+
+def _load_learning_scope_predictions(region, strategy, limit=None, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy=strategy,
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).all()
+    if not predictions:
+        return []
+
+    scoped = _apply_lunar_learning_scope_to_predictions(
+        predictions,
+        region,
+        minimum_samples=minimum_samples,
+    )
+    if limit:
+        return scoped[:limit]
+    return scoped
+
+
+def _apply_lunar_learning_scope_to_predictions(predictions, region, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES):
+    try:
+        from models import ZodiacSetting
+        current_zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    except Exception:
+        return list(predictions or [])
+
+    try:
+        draw_records = (
+            LotteryDraw.query.filter_by(region=region)
+            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+            .limit(LEARNING_SCOPE_DRAW_LIMIT)
+            .all()
+        )
+    except Exception as e:
+        print(f"加载{region}学习样本开奖范围失败: {e}")
+        return list(predictions or [])
+
+    draw_year_map = {}
+    for draw in draw_records:
+        if hasattr(draw, "to_dict"):
+            normalized = draw.to_dict()
+        elif isinstance(draw, dict):
+            normalized = dict(draw)
+        else:
+            continue
+        period = _normalize_period_value(normalized.get("id"))
+        draw_date = normalized.get("date", "")
+        if not period or not draw_date:
+            continue
+        try:
+            zodiac_year = ZodiacSetting.get_zodiac_year_for_date(draw_date)
+        except Exception:
+            continue
+        draw_year_map[period] = zodiac_year
+
+    current_year_predictions = []
+    previous_year_predictions = []
+    fallback_predictions = []
+
+    for pred in predictions or []:
+        period = _normalize_period_value(getattr(pred, "period", ""))
+        zodiac_year = draw_year_map.get(period)
+        if zodiac_year is None:
+            created_at = getattr(pred, "created_at", None)
+            if created_at:
+                try:
+                    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(created_at)
+                except Exception:
+                    zodiac_year = None
+
+        if zodiac_year == current_zodiac_year:
+            current_year_predictions.append(pred)
+        elif zodiac_year == current_zodiac_year - 1:
+            previous_year_predictions.append(pred)
+        else:
+            fallback_predictions.append(pred)
+
+    scoped = list(current_year_predictions)
+    if len(scoped) < minimum_samples:
+        scoped.extend(previous_year_predictions)
+
+    return scoped or fallback_predictions or list(predictions or [])
+
+
+def _ensure_ml_prediction_history(data, region, minimum_draws=36, target_draws=240):
+    try:
+        from models import ZodiacSetting
+        current_zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    except Exception:
+        current_zodiac_year = datetime.now().year
+
+    current_year_data = _filter_draws_by_zodiac_year(data, current_zodiac_year)
+    primary = _merge_draw_history_desc(current_year_data, limit=target_draws)
+    if len(primary) >= minimum_draws:
+        return primary, 0
+
+    try:
+        db_records = (
+            LotteryDraw.query.filter_by(region=region)
+            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+            .limit(max(target_draws * 3, 720))
+            .all()
+        )
+    except Exception as e:
+        print(f"补充{region}机器学习历史样本失败: {e}")
+        return primary, 0
+
+    current_year_db_records = _filter_draws_by_zodiac_year(db_records, current_zodiac_year)
+    merged = _merge_draw_history_desc(primary, current_year_db_records, limit=target_draws)
+
+    if len(merged) < minimum_draws:
+        previous_year_db_records = _filter_draws_by_zodiac_year(db_records, current_zodiac_year - 1)
+        merged = _merge_draw_history_desc(merged, previous_year_db_records, limit=target_draws)
+
+    supplemental = max(0, len(merged) - len(primary))
+    return merged, supplemental
+
+
+def _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT):
+    records = (
+        LotteryDraw.query.filter_by(region=region)
+        .order_by(LotteryDraw.draw_date.asc(), LotteryDraw.draw_id.asc())
+        .all()
+    )
+    return _normalize_backtest_draws(records, limit=limit)
+
+
+def _evaluate_backtest_prediction(result, draw):
+    actual_special = str(draw.get("sno") or "").strip()
+    actual_zodiac = str(draw.get("sno_zodiac") or "").strip()
+    predicted_special = str((result.get("special") or {}).get("number") or "").strip()
+    predicted_zodiac = str((result.get("special") or {}).get("sno_zodiac") or "").strip()
+    normal_numbers = [str(number) for number in (result.get("normal") or [])]
+    return {
+        "exact_hit": bool(actual_special and predicted_special == actual_special),
+        "top6_hit": bool(actual_special and actual_special in normal_numbers),
+        "zodiac_hit": bool(actual_zodiac and predicted_zodiac and actual_zodiac == predicted_zodiac),
+        "predicted_special": predicted_special,
+        "actual_special": actual_special,
+    }
+
+
+def _summarize_backtest_window(entries, window):
+    sample = entries[-window:] if window and len(entries) > window else list(entries)
+    total = len(sample)
+    if total <= 0:
+        return {"window": window, "total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0}
+    top1 = sum(1 for item in sample if item.get("exact_hit"))
+    top6 = sum(1 for item in sample if item.get("top6_hit"))
+    zodiac = sum(1 for item in sample if item.get("zodiac_hit"))
+    return {
+        "window": window,
+        "total": total,
+        "top1_hit_rate": round(top1 / total * 100, 2),
+        "top6_hit_rate": round(top6 / total * 100, 2),
+        "zodiac_hit_rate": round(zodiac / total * 100, 2),
+    }
+
+
+def _summarize_backtest_entries(entries):
+    total = len(entries)
+    if total <= 0:
+        return {"total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0, "windows": []}
+    top1 = sum(1 for item in entries if item.get("exact_hit"))
+    top6 = sum(1 for item in entries if item.get("top6_hit"))
+    zodiac = sum(1 for item in entries if item.get("zodiac_hit"))
+    return {
+        "total": total,
+        "top1_hit_rate": round(top1 / total * 100, 2),
+        "top6_hit_rate": round(top6 / total * 100, 2),
+        "zodiac_hit_rate": round(zodiac / total * 100, 2),
+        "windows": [
+            _summarize_backtest_window(entries, 20),
+            _summarize_backtest_window(entries, 50),
+            _summarize_backtest_window(entries, 100),
+        ],
+    }
+
+
+def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history=AUTO_BACKTEST_MIN_HISTORY):
+    strategies = list(strategies or AUTO_BACKTEST_STRATEGIES)
+    if "ai" in strategies and not _ai_backtest_enabled():
+        strategies = [strategy for strategy in strategies if strategy != "ai"]
+    chronological = _normalize_backtest_draws(draws, limit=AUTO_BACKTEST_LIMIT)
+    strategy_logs = {strategy: [] for strategy in strategies}
+    detail_rows = []
+    effective_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
+    ai_start_idx = max(effective_min_history, len(chronological) - AI_BACKTEST_MAX_PERIODS)
+    if len(chronological) <= 1:
+        return {
+            "region": region,
+            "strategies": strategies,
+            "periods_evaluated": 0,
+            "latest_period": chronological[-1].get("id") if chronological else "",
+            "strategy_results": {},
+            "ranking": [],
+            "details": [],
+        }
+
+    for idx in range(effective_min_history, len(chronological)):
+        target_draw = chronological[idx]
+        history_desc = list(reversed(chronological[:idx]))
+        for strategy in strategies:
+            if strategy == "ai" and idx < ai_start_idx:
+                continue
+            resolved_strategy = strategy
+            try:
+                if strategy == "ai":
+                    result = predict_with_ai(
+                        history_desc,
+                        region,
+                        config_override={
+                            "sample_count": 1,
+                            "candidate_count": 2,
+                            "history_window": 10,
+                            "special_shortlist": 6,
+                            "normal_shortlist": 14,
+                        },
+                    )
+                else:
+                    result = get_local_recommendations(resolved_strategy, history_desc, region)
+                if result.get("error"):
+                    raise ValueError(result.get("error"))
+            except Exception as e:
+                strategy_logs[strategy].append({
+                    "period": target_draw.get("id"),
+                    "error": str(e),
+                    "exact_hit": False,
+                    "top6_hit": False,
+                    "zodiac_hit": False,
+                })
+                continue
+
+            evaluation = _evaluate_backtest_prediction(result, target_draw)
+            row = {
+                "period": target_draw.get("id"),
+                "strategy": strategy,
+                "resolved_strategy": resolved_strategy,
+                **evaluation,
+            }
+            strategy_logs[strategy].append(row)
+            detail_rows.append(row)
+
+    strategy_results = {
+        strategy: _summarize_backtest_entries(entries)
+        for strategy, entries in strategy_logs.items()
+    }
+    ranking = sorted(
+        [
+            {
+                "strategy": strategy,
+                "top1_hit_rate": summary.get("top1_hit_rate", 0.0),
+                "top6_hit_rate": summary.get("top6_hit_rate", 0.0),
+                "total": summary.get("total", 0),
+            }
+            for strategy, summary in strategy_results.items()
+        ],
+        key=lambda item: (item["top1_hit_rate"], item["top6_hit_rate"], item["total"]),
+        reverse=True,
+    )
+    return {
+        "region": region,
+        "strategies": strategies,
+        "periods_evaluated": max(0, len(chronological) - effective_min_history),
+        "latest_period": chronological[-1].get("id") if chronological else "",
+        "strategy_results": strategy_results,
+        "ranking": ranking,
+        "details": detail_rows,
+    }
+
+
+def _persist_backtest_snapshot(region, payload):
+    latest_period = str(payload.get("latest_period") or "").strip() or "unknown"
+    name = f"auto-{region}-{latest_period}"
+    existing = BacktestRun.query.filter_by(region=region, name=name).first()
+    if existing:
+        existing.strategies = ",".join(payload.get("strategies") or [])
+        existing.periods_evaluated = int(payload.get("periods_evaluated") or 0)
+        existing.payload = json.dumps(payload, ensure_ascii=False)
+        existing.created_at = datetime.now()
+        db.session.commit()
+        return existing
+
+    record = BacktestRun(
+        name=name,
+        region=region,
+        strategies=",".join(payload.get("strategies") or []),
+        periods_evaluated=int(payload.get("periods_evaluated") or 0),
+        payload=json.dumps(payload, ensure_ascii=False),
+    )
+    db.session.add(record)
+    db.session.commit()
+    return record
+
+
+def refresh_auto_backtest_snapshot(region, draws=None, force=False):
+    region = (region or "").strip().lower()
+    if region not in ("hk", "macau"):
+        return None
+    source_draws = _normalize_backtest_draws(
+        draws if draws is not None else _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT),
+        limit=AUTO_BACKTEST_LIMIT,
+    )
+    if not source_draws:
+        return None
+
+    latest_period = str(source_draws[-1].get("id") or "").strip()
+    name = f"auto-{region}-{latest_period}"
+    existing = BacktestRun.query.filter_by(region=region, name=name).first()
+    if existing and not force:
+        return existing
+
+    payload = _build_backtest_snapshot_payload(region, source_draws)
+    payload["generated_at"] = datetime.now().isoformat(timespec="seconds")
+    record = _persist_backtest_snapshot(region, payload)
+    try:
+        _promote_ml_region_profile(region, persist=True)
+    except Exception as e:
+        print(f"ML auto-promotion after backtest failed for {region}: {e}")
+    return record
+
+
+def refresh_auto_backtest_snapshots(regions=None, force=False):
+    refreshed = []
+    for region in (regions or ("hk", "macau")):
+        try:
+            record = refresh_auto_backtest_snapshot(region, force=force)
+            if record:
+                refreshed.append(record)
+        except Exception as e:
+            print(f"Auto backtest snapshot failed for {region}: {e}")
+            db.session.rollback()
+    return refreshed
+
+
+AUTO_OPTIMIZE_STRATEGIES = ("hot", "cold", "trend", "balanced", "hybrid", "ml", "ai")
+AUTO_OPTIMIZE_BACKTEST_PERIODS = 72
+
+
+def _auto_optimize_enabled():
+    raw = str(SystemConfig.get_config("auto_optimize_enabled", "false")).strip().lower()
+    return raw in {"true", "1", "yes", "on"}
+
+
+def _auto_optimize_level():
+    level = str(SystemConfig.get_config("auto_optimize_level", "balanced")).strip().lower()
+    return level if level in {"mild", "balanced", "aggressive"} else "balanced"
+
+
+def _auto_optimize_min_gain():
+    try:
+        value = float(SystemConfig.get_config("auto_optimize_min_gain", "0.6"))
+    except (TypeError, ValueError):
+        value = 0.6
+    return round(_clamp(value, 0.1, 8.0), 2)
+
+
+def _score_auto_optimize_summary(summary):
+    summary = dict(summary or {})
+    windows = list(summary.get("windows") or [])
+    base_score = (
+        _safe_float(summary.get("top1_hit_rate"), 0.0) * 1.0 +
+        _safe_float(summary.get("top6_hit_rate"), 0.0) * 0.35 +
+        _safe_float(summary.get("zodiac_hit_rate"), 0.0) * 0.15
+    )
+    recency_bonus = 0.0
+    for idx, window in enumerate(windows[:3]):
+        weight = max(0.2, 0.55 - idx * 0.15)
+        recency_bonus += (
+            _safe_float(window.get("top1_hit_rate"), 0.0) * 0.22 +
+            _safe_float(window.get("top6_hit_rate"), 0.0) * 0.08
+        ) * weight
+    return round(base_score + recency_bonus, 4)
+
+
+def _dedupe_auto_optimize_candidates(candidates):
+    deduped = []
+    seen = set()
+    for candidate in candidates or []:
+        normalized = json.dumps(candidate, sort_keys=True, ensure_ascii=True)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(candidate)
+    return deduped
+
+
+def _build_auto_optimize_candidates(strategy, config, level="balanced"):
+    level_map = {
+        "mild": {"window": 4, "pool": 1, "special_pool": 1, "trend_window": 2, "history": 12, "feature": 6, "eval": 4, "lr": 0.006, "l2": 0.0006},
+        "balanced": {"window": 8, "pool": 2, "special_pool": 1, "trend_window": 3, "history": 20, "feature": 10, "eval": 6, "lr": 0.01, "l2": 0.001},
+        "aggressive": {"window": 12, "pool": 3, "special_pool": 2, "trend_window": 4, "history": 28, "feature": 14, "eval": 8, "lr": 0.014, "l2": 0.0014},
+    }
+    delta = level_map.get(level, level_map["balanced"])
+    candidates = []
+
+    if strategy in {"hot", "cold", "trend", "balanced", "hybrid"}:
+        base_window = int(config.get("window") or _default_strategy_config(strategy).get("window") or 12)
+        base_pool = int(config.get("pool") or _default_strategy_config(strategy).get("pool") or 16)
+        base_special = int(config.get("special_pool") or _default_strategy_config(strategy).get("special_pool") or 8)
+        candidates.extend([
+            {
+                "window": _clamp(base_window - delta["window"], 8, 96),
+                "pool": _clamp(base_pool + delta["pool"], 8, 24),
+                "special_pool": _clamp(base_special, 6, 14),
+            },
+            {
+                "window": _clamp(base_window + delta["window"], 8, 96),
+                "pool": _clamp(base_pool - delta["pool"], 8, 24),
+                "special_pool": _clamp(base_special + delta["special_pool"], 6, 14),
+            },
+            {
+                "window": _clamp(base_window, 8, 96),
+                "pool": _clamp(base_pool, 8, 24),
+                "special_pool": _clamp(base_special - delta["special_pool"], 6, 14),
+            },
+        ])
+        if strategy == "trend":
+            candidates.append({
+                "window": _clamp(base_window - max(2, delta["window"] // 2), 8, 48),
+                "pool": _clamp(base_pool + 1, 8, 22),
+                "special_pool": _clamp(base_special, 6, 14),
+            })
+        if strategy == "balanced":
+            base_bucket = list(config.get("bucket_counts") or [2, 2, 2])
+            candidates.extend([
+                {"bucket_counts": [1, 2, 3], "window": _clamp(base_window + 4, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"bucket_counts": [3, 2, 1], "window": _clamp(base_window + 4, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"bucket_counts": base_bucket, "window": _clamp(base_window - 4, 24, 96), "pool": _clamp(base_pool + 1, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+            ])
+        if strategy == "hybrid":
+            base_trend = int(config.get("trend_window") or 15)
+            candidates.extend([
+                {"trend_window": _clamp(base_trend - delta["trend_window"], 8, 30), "window": _clamp(base_window, 24, 96), "pool": _clamp(base_pool + 1, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"trend_window": _clamp(base_trend + delta["trend_window"], 8, 30), "window": _clamp(base_window + 4, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special + 1, 6, 14)},
+                {"mix": {"hot": 3, "cold": 1, "trend": 2}, "window": _clamp(base_window, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"mix": {"hot": 1, "cold": 2, "trend": 3}, "window": _clamp(base_window, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+            ])
+    elif strategy == "ml":
+        base_history = int(config.get("history_window") or 120)
+        base_feature = int(config.get("feature_window") or 60)
+        base_eval = int(config.get("evaluation_window") or 30)
+        base_pool = int(config.get("pool") or 18)
+        base_special = int(config.get("special_pool") or 8)
+        base_epochs = int(config.get("epochs") or 18)
+        base_lr = float(config.get("learning_rate") or 0.035)
+        base_l2 = float(config.get("l2") or 0.0025)
+        candidates.extend([
+            {
+                "history_window": _clamp(base_history - delta["history"], 80, 240),
+                "feature_window": _clamp(base_feature - delta["feature"], 30, 90),
+                "evaluation_window": _clamp(base_eval - delta["eval"], 12, 60),
+                "pool": _clamp(base_pool + 1, 12, 24),
+                "special_pool": _clamp(base_special, 6, 12),
+                "epochs": _clamp(base_epochs - 2, 12, 30),
+                "learning_rate": round(_clamp(base_lr + delta["lr"], 0.01, 0.08), 3),
+                "l2": round(_clamp(base_l2 - delta["l2"], 0.001, 0.005), 4),
+            },
+            {
+                "history_window": _clamp(base_history + delta["history"], 80, 240),
+                "feature_window": _clamp(base_feature + delta["feature"], 30, 90),
+                "evaluation_window": _clamp(base_eval + delta["eval"], 12, 60),
+                "pool": _clamp(base_pool, 12, 24),
+                "special_pool": _clamp(base_special + 1, 6, 12),
+                "epochs": _clamp(base_epochs + 3, 12, 30),
+                "learning_rate": round(_clamp(base_lr - delta["lr"], 0.01, 0.08), 3),
+                "l2": round(_clamp(base_l2 + delta["l2"], 0.001, 0.005), 4),
+            },
+            {
+                "history_window": _clamp(base_history, 80, 240),
+                "feature_window": _clamp(base_feature, 30, 90),
+                "evaluation_window": _clamp(base_eval, 12, 60),
+                "pool": _clamp(base_pool + 2, 12, 24),
+                "special_pool": _clamp(base_special - 1, 6, 12),
+                "epochs": _clamp(base_epochs, 12, 30),
+                "learning_rate": round(_clamp(base_lr, 0.01, 0.08), 3),
+                "l2": round(_clamp(base_l2, 0.001, 0.005), 4),
+            },
+        ])
+    elif strategy == "ai":
+        base_history = int(config.get("history_window") or 12)
+        base_temperature = float(config.get("temperature") or 0.35)
+        base_sample_count = int(config.get("sample_count") or 3)
+        base_candidate_count = int(config.get("candidate_count") or 3)
+        base_special_shortlist = int(config.get("special_shortlist") or 8)
+        base_normal_shortlist = int(config.get("normal_shortlist") or 18)
+        candidates.extend([
+            {
+                "history_window": _clamp(base_history - max(1, delta["eval"] // 2), 8, 18),
+                "temperature": round(_clamp(base_temperature - 0.05, 0.18, 0.45), 2),
+                "sample_count": _clamp(base_sample_count + 1, 1, 5),
+                "candidate_count": _clamp(base_candidate_count, 2, 5),
+                "special_shortlist": _clamp(base_special_shortlist - 1, 6, 10),
+                "normal_shortlist": _clamp(base_normal_shortlist - 2, 12, 22),
+            },
+            {
+                "history_window": _clamp(base_history + max(1, delta["eval"] // 2), 8, 18),
+                "temperature": round(_clamp(base_temperature + 0.04, 0.18, 0.45), 2),
+                "sample_count": _clamp(base_sample_count, 1, 5),
+                "candidate_count": _clamp(base_candidate_count + 1, 2, 5),
+                "special_shortlist": _clamp(base_special_shortlist + 1, 6, 10),
+                "normal_shortlist": _clamp(base_normal_shortlist + 2, 12, 22),
+            },
+            {
+                "history_window": _clamp(base_history, 8, 18),
+                "temperature": round(_clamp(base_temperature - 0.02, 0.18, 0.45), 2),
+                "sample_count": _clamp(base_sample_count + 1, 1, 5),
+                "candidate_count": _clamp(base_candidate_count + 1, 2, 5),
+                "special_shortlist": _clamp(base_special_shortlist, 6, 10),
+                "normal_shortlist": _clamp(base_normal_shortlist, 12, 22),
+            },
+        ])
+
+    return _dedupe_auto_optimize_candidates(candidates)
+
+
+def _build_strategy_backtest_summary(region, strategy, draws=None, config_override=None, min_history=AUTO_BACKTEST_MIN_HISTORY, max_periods=AUTO_OPTIMIZE_BACKTEST_PERIODS):
+    if strategy == "ai" and not _ai_backtest_enabled():
+        return {"total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0, "windows": [], "periods_evaluated": 0}
+
+    source_draws = _normalize_backtest_draws(
+        draws if draws is not None else _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT),
+        limit=AUTO_BACKTEST_LIMIT,
+    )
+    chronological = list(source_draws or [])
+    if len(chronological) <= 1:
+        return {"total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0, "windows": []}
+
+    effective_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
+    start_idx = effective_min_history
+    if max_periods:
+        start_idx = max(effective_min_history, len(chronological) - int(max_periods))
+
+    entries = []
+    with _temporary_strategy_config_override(region, strategy, config_override):
+        for idx in range(start_idx, len(chronological)):
+            target_draw = chronological[idx]
+            history_desc = list(reversed(chronological[:idx]))
+            try:
+                if strategy == "ai":
+                    result = predict_with_ai(history_desc, region, config_override=config_override)
+                else:
+                    result = get_local_recommendations(strategy, history_desc, region)
+                if result.get("error"):
+                    continue
+            except Exception:
+                continue
+            entries.append(_evaluate_backtest_prediction(result, target_draw))
+    summary = _summarize_backtest_entries(entries)
+    summary["periods_evaluated"] = len(entries)
+    return summary
+
+
+def _apply_auto_optimized_config(region, strategy, base_config, override, baseline_summary, best_summary, baseline_score, best_score, source="manual"):
+    updated = dict(base_config or {})
+    changed_fields = {}
+    for key, value in dict(override or {}).items():
+        if updated.get(key) == value:
+            continue
+        changed_fields[key] = {"from": updated.get(key), "to": value}
+        updated[key] = value
+
+    if not changed_fields:
+        return False, updated
+
+    now_text = datetime.now().isoformat(timespec="seconds")
+    gain = round(best_score - baseline_score, 4)
+    updated["auto_optimize_last_run_at"] = now_text
+    updated["auto_optimize_last_source"] = source
+    updated["auto_optimize_last_applied"] = True
+    updated["auto_optimize_last_score"] = round(best_score, 4)
+    updated["auto_optimize_last_baseline_score"] = round(baseline_score, 4)
+    updated["auto_optimize_last_gain"] = gain
+    updated["auto_optimize_last_periods"] = int(best_summary.get("periods_evaluated", 0) or 0)
+    history = list(updated.get("auto_optimize_history") or [])
+    history.insert(0, {
+        "timestamp": now_text,
+        "region": region,
+        "strategy": strategy,
+        "source": source,
+        "gain": gain,
+        "baseline_score": round(baseline_score, 4),
+        "best_score": round(best_score, 4),
+        "baseline_top1": round(_safe_float(baseline_summary.get("top1_hit_rate"), 0.0), 2),
+        "best_top1": round(_safe_float(best_summary.get("top1_hit_rate"), 0.0), 2),
+        "changed_fields": changed_fields,
+    })
+    updated["auto_optimize_history"] = history[:8]
+    _save_strategy_config(strategy, region, updated)
+    return True, updated
+
+
+def auto_optimize_strategy(region, strategy, draws=None, source="manual"):
+    if strategy not in AUTO_OPTIMIZE_STRATEGIES:
+        return {"strategy": strategy, "region": region, "updated": False, "reason": "unsupported"}
+
+    config = _load_strategy_config(strategy, region)
+    level = _auto_optimize_level()
+    min_gain = _auto_optimize_min_gain()
+    baseline_summary = _build_strategy_backtest_summary(region, strategy, draws=draws)
+    baseline_score = _score_auto_optimize_summary(baseline_summary)
+    best_score = baseline_score
+    best_summary = baseline_summary
+    best_override = None
+
+    for candidate in _build_auto_optimize_candidates(strategy, config, level=level):
+        summary = _build_strategy_backtest_summary(region, strategy, draws=draws, config_override=candidate)
+        score = _score_auto_optimize_summary(summary)
+        if score > best_score:
+            best_score = score
+            best_summary = summary
+            best_override = candidate
+
+    gain = round(best_score - baseline_score, 4)
+    if not best_override or gain < min_gain:
+        config["auto_optimize_last_run_at"] = datetime.now().isoformat(timespec="seconds")
+        config["auto_optimize_last_source"] = source
+        config["auto_optimize_last_applied"] = False
+        config["auto_optimize_last_score"] = round(best_score, 4)
+        config["auto_optimize_last_baseline_score"] = round(baseline_score, 4)
+        config["auto_optimize_last_gain"] = gain
+        _save_strategy_config(strategy, region, config)
+        return {
+            "strategy": strategy,
+            "region": region,
+            "updated": False,
+            "gain": gain,
+            "baseline_score": round(baseline_score, 4),
+            "best_score": round(best_score, 4),
+        }
+
+    updated, final_config = _apply_auto_optimized_config(
+        region,
+        strategy,
+        config,
+        best_override,
+        baseline_summary,
+        best_summary,
+        baseline_score,
+        best_score,
+        source=source,
+    )
+    return {
+        "strategy": strategy,
+        "region": region,
+        "updated": updated,
+        "gain": gain,
+        "baseline_score": round(baseline_score, 4),
+        "best_score": round(best_score, 4),
+        "config": final_config,
+    }
+
+
+def auto_optimize_strategy_configs(regions=None, source="manual"):
+    if not _auto_optimize_enabled():
+        return []
+
+    optimized = []
+    for region in (regions or ("hk", "macau")):
+        try:
+            draws = _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT)
+        except Exception as e:
+            print(f"Auto optimize skipped for {region}: {e}")
+            db.session.rollback()
+            continue
+        if not draws:
+            continue
+        for strategy in AUTO_OPTIMIZE_STRATEGIES:
+            try:
+                optimized.append(auto_optimize_strategy(region, strategy, draws=draws, source=source))
+            except Exception as e:
+                print(f"Auto optimize failed for {strategy} ({region}): {e}")
+                db.session.rollback()
+    return optimized
+
+
+def run_auto_strategy_optimization_job(regions=None, source="scheduler"):
+    with app.app_context():
+        try:
+            results = auto_optimize_strategy_configs(regions=regions, source=source)
+            applied = [item for item in results if item.get("updated")]
+            print(f"Auto strategy optimization finished: total={len(results)} applied={len(applied)} source={source}")
+            return results
+        except Exception as e:
+            print(f"Auto strategy optimization failed: {e}")
+            db.session.rollback()
+            return []
+
+
+def sync_draws_from_api(region, year=None, force=False):
+    """从远程接口同步开奖记录并保存到数据库"""
+    now = datetime.now()
+    if not _is_within_sync_window(now):
+        global _last_sync_window_skip_date
+        today = now.date()
+        if _last_sync_window_skip_date != today:
+            print("当前不在开奖同步时间窗内，跳过同步。")
+            _last_sync_window_skip_date = today
+        return []
+    last_sync = _last_draw_sync_times.get(region)
+    if not force and last_sync and now - last_sync < _DRAW_SYNC_INTERVAL:
+        return []
+
+    if year is None or str(year).lower() == 'all':
+        year_str = str(now.year)
+    else:
+        year_str = str(year).strip()
+
+    remote_draws = []
+    if region == 'hk':
+        remote_data = load_hk_data(force_refresh=True)
+        remote_draws = [rec for rec in remote_data if rec.get('date', '').startswith(year_str)]
+    elif region == 'macau':
+        remote_draws = get_macau_data(year_str, force_api=True)
+    else:
+        return []
+
+    _last_draw_sync_times[region] = now
+
+    if not remote_draws:
+        print(f"{region}地区未获取到{year_str}年记录，跳过同步。")
+        return []
+
+    print(f"同步{region}地区{year_str}年开奖数据：{len(remote_draws)}条")
+    save_draws_to_database(remote_draws, region)
+    return remote_draws
 
 @app.route('/api/draws')
 def draws_api():
-    region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
+    region = request.args.get('region', 'hk')
+    year = request.args.get('year', str(datetime.now().year))
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('pageSize', 20))
+    
+    print(f"API请求: 地区={region}, 年份={year}, 页码={page}, 每页数量={page_size}")
+    
+    # 处理"全部"年份的情况
+    if year == 'all':
+        year = str(datetime.now().year)
+        print(f"年份为'全部'，使用当前年份: {year}")
+    
     data = get_yearly_data(region, year)
+    print(f"获取到{len(data)}条数据")
+    
+    # 获取澳门数据，用于提取生肖信息（优先数据库）
+    macau_data = get_yearly_data('macau', year)
+    print(f"获取到{len(macau_data)}条澳门数据用于生肖映射")
+    
+    # 创建号码到生肖的映射（澳门数据作为兜底）
+    fallback_number_to_zodiac = {}
+    try:
+        for record in macau_data:
+            all_numbers = record.get('no', []) + [record.get('sno')]
+            zodiacs = record.get('raw_zodiac', '').split(',')
+            if len(all_numbers) == len(zodiacs):
+                for i, num in enumerate(all_numbers):
+                    if num:
+                        fallback_number_to_zodiac[num] = zodiacs[i]
+    except Exception as e:
+        print(f"获取澳门生肖映射失败: {e}")
+
+    zodiac_map_cache = {}
+    try:
+        from models import ZodiacSetting
+    except Exception:
+        ZodiacSetting = None
+    
     if region == 'hk':
         for record in data:
-            record['sno_zodiac'] = _get_hk_number_zodiac(record.get('sno'))
+            mapping = fallback_number_to_zodiac
+            if ZodiacSetting:
+                zodiac_year = ZodiacSetting.get_zodiac_year_for_date(record.get('date'))
+                mapping = zodiac_map_cache.get(zodiac_year)
+                if mapping is None:
+                    mapping = ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+                    zodiac_map_cache[zodiac_year] = mapping
+                if not mapping:
+                    mapping = fallback_number_to_zodiac
+
+            normalized_mapping = {str(key): value for key, value in mapping.items()}
+            sno = record.get('sno')
+            record['sno_zodiac'] = normalized_mapping.get(str(sno), '')
+            
+            normal_numbers = record.get('no', [])
+            normal_zodiacs = []
+            for num in normal_numbers:
+                normal_zodiacs.append(normalized_mapping.get(str(num), ''))
+            record['raw_zodiac'] = ','.join(normal_zodiacs + [normalized_mapping.get(str(sno), '')])
+            
             details_breakdown = []
             all_numbers = record.get('no', []) + [record.get('sno')]
             for i, num_str in enumerate(all_numbers):
-                if not num_str: continue
+                if not num_str: 
+                    continue
                 color_en = _get_hk_number_color(num_str)
                 details_breakdown.append({
                     "position": f"平码 {i + 1}" if i < 6 else "特码", "number": num_str,
                     "color_en": color_en, "color_zh": COLOR_MAP_EN_TO_ZH.get(color_en, ''),
-                    "zodiac": _get_hk_number_zodiac(num_str)
+                    "zodiac": mapping.get(num_str, '')
                 })
             record['details_breakdown'] = details_breakdown
         data = sorted(data, key=lambda x: x.get('date', ''), reverse=True)
@@ -409,8 +8825,16 @@ def draws_api():
     else:
         # 更新澳门预测准确率
         update_prediction_accuracy(data, 'macau')
-        
-    return jsonify(data[:20])
+    
+    # 分页处理
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # 如果是第一页，返回前50条数据，否则返回分页数据
+    if page == 1:
+        return jsonify(data[:50])
+    else:
+        return jsonify(data[start_idx:end_idx])
 
 def update_prediction_accuracy(data, region):
     """更新预测准确率 - 只比较特码和生肖"""
@@ -426,18 +8850,16 @@ def update_prediction_accuracy(data, region):
                 continue
             
             special_number = str(draw.get('sno', ''))
-            # 获取特码生肖
-            special_zodiac = ""
-            if region == 'hk':
-                special_zodiac = _get_hk_number_zodiac(special_number)
-            else:
-                special_zodiac = draw.get('sno_zodiac', '') or _get_hk_number_zodiac(special_number)
+            # 获取特码生肖 - 所有地区都使用澳门API返回的生肖数据
+            special_zodiac = draw.get('sno_zodiac', '')
             
             if special_number:
                 draw_results[period] = {
                     'special': special_number,
                     'special_zodiac': special_zodiac
                 }
+        
+        user_hits = {}
         
         # 更新每条预测记录的准确率
         for pred in predictions:
@@ -456,12 +8878,9 @@ def update_prediction_accuracy(data, region):
             
             # 特码号码是否命中
             special_hit = 1 if pred_special == result['special'] else 0
-            
-            # 特码生肖是否命中
-            zodiac_hit = 1 if pred_zodiac and pred_zodiac == result['special_zodiac'] else 0
-            
-            # 计算总准确率 (特码命中 * 0.7 + 生肖命中 * 0.3)
-            accuracy = (special_hit * 0.7) + (zodiac_hit * 0.3)
+
+            # 准确率只按特码是否命中计算
+            accuracy = 1.0 if special_hit == 1 else 0.0
             
             # 更新预测记录
             pred.actual_normal_numbers = ''  # 不再需要保存正码
@@ -469,19 +8888,189 @@ def update_prediction_accuracy(data, region):
             pred.actual_special_zodiac = result['special_zodiac']
             pred.accuracy_score = accuracy
             pred.is_result_updated = True
+            
+            # 如果预测成功（特码命中），收集到待发送列表以便发送合并通知邮件
+            if special_hit == 1:
+                if pred.user_id not in user_hits:
+                    user_hits[pred.user_id] = []
+                user_hits[pred.user_id].append(pred)
         
         # 提交更改
         db.session.commit()
+
+        # 统一发送合并后的中奖邮件
+        for user_id, hit_preds in user_hits.items():
+            try:
+                user = User.query.get(user_id)
+                if user and user.email:
+                    draw_data = next((d for d in data if d.get('id') == hit_preds[0].period), None)
+                    send_combined_winning_email(user, hit_preds, region, draw_data)
+            except Exception as e:
+                print(f"发送合并中奖邮件失败: {e}")
+
+        # 根据最新准确率调整策略参数
+        update_strategy_configs(region)
+
+        # 触发自动预测（排除 AI 策略）
+        if data and len(data) > 0:
+            generate_auto_predictions(data, region)
         
     except Exception as e:
         print(f"更新预测准确率时出错: {e}")
         db.session.rollback()
 
+def generate_auto_predictions(data, region):
+    """为每期自动生成预测（排除 AI 策略）"""
+    try:
+        latest_draw = data[0] if data else None
+        if not latest_draw:
+            return
+
+        latest_period = latest_draw.get('id', '')
+        next_period = _get_next_period(region, latest_period)
+
+        if not next_period:
+            print("自动预测失败：无法确定下一期期数")
+            return
+
+        raw_users = User.query.filter(
+            User.is_active == True,
+            User.auto_prediction_enabled == True
+        ).all()
+
+        auto_predict_users = []
+        changed = False
+        for u in raw_users:
+            if u.is_activation_expired():
+                u.is_active = False
+                u.auto_prediction_enabled = False
+                changed = True
+            else:
+                auto_predict_users.append(u)
+        
+        if changed:
+            db.session.commit()
+
+        for user in auto_predict_users:
+            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+            strategies = [strategy for strategy in strategies if strategy in LOCAL_STRATEGY_KEYS]
+            if not strategies:
+                strategies = list(LOCAL_STRATEGY_KEYS)
+            regions = user.auto_prediction_regions.split(',') if hasattr(user, 'auto_prediction_regions') and user.auto_prediction_regions else ['hk', 'macau']
+
+            if region not in regions:
+                continue
+
+            user_predictions = []
+            has_new_predictions = False
+            seen_strategies = set()
+
+            for strategy in strategies:
+                if strategy == 'ai':
+                    continue
+                resolved_strategy = strategy
+
+                if resolved_strategy in seen_strategies:
+                    continue
+                seen_strategies.add(resolved_strategy)
+
+                existing = PredictionRecord.query.filter_by(
+                    user_id=user.id,
+                    region=region,
+                    period=next_period,
+                    strategy=resolved_strategy
+                ).first()
+
+                if not existing:
+                    pred = generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
+                    if pred:
+                        user_predictions.append(pred)
+                        has_new_predictions = True
+                else:
+                    user_predictions.append(existing)
+            
+            # 如果生成了全新的预测，合并发送一封汇总邮件
+            if has_new_predictions and user.email:
+                try:
+                    send_combined_prediction_email(user, user_predictions, region, next_period, latest_draw)
+                except Exception as e:
+                    print(f"自动发送合并预测邮件给 {user.username} 失败：{e}")
+    except Exception as e:
+        print(f"自动预测出错：{e}")
+        db.session.rollback()
+
+def generate_prediction_for_user(user, region, period, strategy, data):
+    """为指定用户生成预测（排除 AI 策略）"""
+    try:
+        if strategy == 'ai':
+            print(f"已跳过用户 {user.username} 的AI自动预测")
+            return None
+
+        variation_key = None
+        if _personalized_predictions_enabled():
+            variation_key = f"user:{user.id}|region:{region}|period:{period}|strategy:{strategy}"
+        result = get_local_recommendations(strategy, data, region, variation_key=variation_key)
+        result = _ensure_period_unique_special(
+            result,
+            strategy,
+            region,
+            period,
+            user_id=user.id,
+            prediction_zodiac_year=_infer_draw_year(data),
+        )
+
+        if result.get('error'):
+            print(f"用户 {user.username} 的自动预测失败：{result.get('error')}")
+            return None
+
+        prediction = PredictionRecord(
+            user_id=user.id,
+            region=region,
+            strategy=strategy,
+            period=period,
+            normal_numbers=','.join(map(str, result.get('normal', []))),
+            special_number=str(result.get('special', {}).get('number', '')),
+            special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+            prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
+            prediction_text=result.get('recommendation_text', '')
+        )
+        db.session.add(prediction)
+        db.session.commit()
+        print(f"自动预测成功：为用户 {user.username} 的{region}地区第{period}期生成了{strategy}策略的预测")
+        return prediction
+    except Exception as e:
+        duplicate_hint = str(e).lower()
+        if 'unique' in duplicate_hint or 'duplicate' in duplicate_hint:
+            db.session.rollback()
+            existing = (
+                PredictionRecord.query.filter_by(
+                    user_id=user.id,
+                    region=region,
+                    period=period,
+                    strategy=strategy
+                )
+                .order_by(PredictionRecord.id.desc())
+                .first()
+            )
+            if existing:
+                print(f"检测到自动预测重复记录，已复用现有记录：user={user.username}, region={region}, period={period}, strategy={strategy}")
+                return existing
+        print(f"为用户 {user.username} 生成预测时出错：{e}")
+        db.session.rollback()
+        return None
+
 @app.route('/api/predict')
 def unified_predict_api():
+    # 预测按当前农历生肖年取数；生肖映射仍由 /api/get_zodiacs 单独处理。
     region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
-    data = get_yearly_data(region, year)
+    stream_response = request.args.get('stream') == '1'
+
+    def _sse_event(payload):
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    data, prediction_zodiac_year = _get_prediction_data(region, year)
     if not data: return jsonify({"error": f"无法加载{year}年的数据"}), 404
+    resolved_strategy = strategy
     
     # 检查用户是否登录和激活（对于需要保存记录的功能）
     user_id = session.get('user_id')
@@ -490,37 +9079,13 @@ def unified_predict_api():
     # 获取下一期期数（使用最近一期的下一期）
     if data:
         try:
-            if region == 'hk':
-                # 香港六合彩期数格式为"年份/期数"，如"25/075"
-                latest_period = data[0].get('id', '')
-                if latest_period and '/' in latest_period:
-                    year_part, num_part = latest_period.split('/')
-                    next_num = int(num_part) + 1
-                    # 如果期数超过120，年份加1，期数重置为1
-                    if next_num > 120:
-                        next_year = int(year_part) + 1
-                        next_period = f"{next_year:02d}/001"
-                    else:
-                        next_period = f"{year_part}/{next_num:03d}"
-                    current_period = next_period
-                else:
-                    current_year = datetime.now().strftime('%y')
-                    current_period = f"{current_year}/001"
-            else:
-                # 澳门六合彩期数格式
-                latest_period = data[0].get('id', '')
-                if latest_period and latest_period.isdigit():
-                    next_period = str(int(latest_period) + 1)
-                    current_period = next_period
-                else:
-                    current_period = datetime.now().strftime('%Y%m%d')
+            latest_period = data[0].get('id', '')
+            current_period = _get_next_period(region, latest_period)
         except (IndexError, ValueError) as e:
             print(f"计算下一期期数时出错: {e}")
-            current_year = datetime.now().strftime('%y')
-            current_period = f"{current_year}/001"
+            current_period = _default_period(region)
     else:
-        current_year = datetime.now().strftime('%y')
-        current_period = f"{current_year}/001"
+        current_period = _default_period(region)
     
     # 检查用户是否已经为当前期和当前策略生成过预测
     if user_id and is_active:
@@ -528,22 +9093,13 @@ def unified_predict_api():
             user_id=user_id,
             region=region,
             period=current_period,
-            strategy=strategy  # 添加策略作为过滤条件
+            strategy=resolved_strategy  # 添加策略作为过滤条件
         ).first()
         
         if existing:
             # 返回已存在的预测结果
             sno_zodiac = existing.special_zodiac
-            # 如果数据库中的生肖为空，重新计算
-            if not sno_zodiac and existing.special_number:
-                sno_zodiac = _get_hk_number_zodiac(existing.special_number)
-                # 更新数据库中的生肖信息
-                existing.special_zodiac = sno_zodiac
-                try:
-                    db.session.commit()
-                except Exception as e:
-                    print(f"更新生肖信息失败: {e}")
-                    db.session.rollback()
+            # 不再在本地计算生肖，所有地区都使用澳门API返回的生肖数据
             
             result = {
                 "normal": existing.normal_numbers.split(','),
@@ -552,15 +9108,254 @@ def unified_predict_api():
                     "sno_zodiac": sno_zodiac
                 }
             }
-            if existing.prediction_text:
-                result["recommendation_text"] = existing.prediction_text
+            existing_meta = _deserialize_prediction_metadata(
+                getattr(existing, "prediction_metadata", "")
+            )
+            refreshed_text = _hydrate_prediction_recommendation_text(
+                resolved_strategy,
+                existing.prediction_text,
+                data,
+                region,
+                special_number=existing.special_number,
+                normal_numbers=existing.normal_numbers,
+                existing_meta=existing_meta,
+            )
+            if refreshed_text:
+                result["recommendation_text"] = refreshed_text
+            result["model_meta"] = _hydrate_prediction_model_meta(
+                resolved_strategy,
+                existing_meta,
+                data,
+                region,
+            )
+            result = _ensure_period_unique_special(
+                result,
+                resolved_strategy,
+                region,
+                current_period,
+                user_id=user_id,
+                prediction_zodiac_year=prediction_zodiac_year,
+            )
+            adjusted_special = str((result.get("special") or {}).get("number") or "").strip()
+            original_special = str(existing.special_number or "").strip()
+            if adjusted_special and adjusted_special != original_special:
+                refreshed_text = _refresh_special_recommendation_text(
+                    resolved_strategy,
+                    result.get("recommendation_text", ""),
+                    adjusted_special,
+                    result.get("normal", []),
+                    region=region,
+                )
+                if refreshed_text:
+                    result["recommendation_text"] = refreshed_text
+                result["model_meta"] = dict(result.get("model_meta") or {})
+                existing.special_number = adjusted_special
+                existing.special_zodiac = (result.get("special") or {}).get("sno_zodiac", "")
+                existing.prediction_metadata = _serialize_prediction_metadata(result.get("model_meta"))
+                existing.prediction_text = _decorate_recommendation_text(
+                    strategy,
+                    resolved_strategy,
+                    result.get("recommendation_text", ""),
+                )
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+            result["strategy"] = resolved_strategy
+            result["requested_strategy"] = strategy
+            result["prediction_zodiac_year"] = prediction_zodiac_year
+            if stream_response and resolved_strategy == 'ai':
+                payload = {
+                    "type": "done",
+                    "region": region,
+                    "strategy": resolved_strategy,
+                    "requested_strategy": strategy,
+                    "period": current_period,
+                    "saved": True,
+                    **result
+                }
+                def generate_existing():
+                    yield _sse_event(payload)
+                return Response(
+                    stream_with_context(generate_existing()),
+                    mimetype='text/event-stream',
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+                )
             return jsonify(result)
     
     # 生成新的预测
-    if strategy == 'ai': 
+    if resolved_strategy == 'ai':
+        if stream_response:
+            def generate_stream():
+                ai_config = get_ai_config()
+                if not ai_config['api_key'] or "你的" in ai_config['api_key']:
+                    yield _sse_event({"type": "error", "error": "AI API Key 未配置"})
+                    return
+                tuned = _load_strategy_config("ai", region)
+                history_window = int(tuned.get("history_window") or 12)
+                temperature = float(tuned.get("temperature") or 0.35)
+                sample_count = _clamp(int(tuned.get("sample_count") or 3), 1, 5)
+                candidate_count = _clamp(int(tuned.get("candidate_count") or 3), 2, 5)
+                shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
+                gate_profile = dict(shortlist_context.get("gate_profile") or {})
+                prompt = _build_ai_prompt_v4(
+                    data,
+                    region,
+                    shortlist_context,
+                    history_window=history_window,
+                    candidate_count=candidate_count,
+                )
+                full_text = ""
+                try:
+                    for chunk in _iter_ai_stream(ai_config, prompt, temperature=temperature):
+                        full_text += chunk
+                        yield _sse_event({
+                            "type": "content",
+                            "content": chunk,
+                            "full_text": full_text
+                        })
+                except Exception as e:
+                    yield _sse_event({"type": "error", "error": f"调用AI API时出错: {e}"})
+                    return
+
+                yield _sse_event({
+                    "type": "status",
+                    "stage": "postprocess",
+                    "message": "模型输出完成，正在整理最终候选..."
+                })
+
+                try:
+                    result = _finalize_ai_prediction_result(
+                        data,
+                        region,
+                        full_text=full_text,
+                        ai_config=ai_config,
+                        prompt=prompt,
+                        temperature=temperature,
+                        sample_count=sample_count,
+                        candidate_count=candidate_count,
+                        shortlist_context=shortlist_context,
+                        tuned=tuned,
+                        stream_mode=True,
+                    )
+                except Exception as e:
+                    yield _sse_event({"type": "error", "error": f"AI预测处理失败: {e}"})
+                    return
+                if result.get("error"):
+                    yield _sse_event({"type": "error", "error": result.get("error")})
+                    return
+
+                yield _sse_event({
+                    "type": "status",
+                    "stage": "finalize",
+                    "message": "候选已整理完成，正在生成最终结果..."
+                })
+
+                try:
+                    if user_id and is_active:
+                        result = _ensure_period_unique_special(
+                            result,
+                            resolved_strategy,
+                            region,
+                            current_period,
+                            user_id=user_id,
+                            prediction_zodiac_year=prediction_zodiac_year,
+                        )
+
+                    result.update({
+                        "type": "done",
+                        "region": region,
+                        "strategy": resolved_strategy,
+                        "requested_strategy": strategy,
+                        "period": current_period,
+                        "prediction_zodiac_year": prediction_zodiac_year,
+                    })
+
+                    if user_id and is_active:
+                        try:
+                            yield _sse_event({
+                                "type": "status",
+                                "stage": "save",
+                                "message": "正在保存预测记录..."
+                            })
+                            prediction = PredictionRecord(
+                                user_id=user_id,
+                                region=region,
+                                strategy=resolved_strategy,
+                                period=current_period,
+                                normal_numbers=','.join(map(str, result.get('normal', []))),
+                                special_number=str(result.get('special', {}).get('number', '')),
+                                special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+                                prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
+                                prediction_text=_decorate_recommendation_text(
+                                    strategy,
+                                    resolved_strategy,
+                                    result.get('recommendation_text', '')
+                                )
+                            )
+                            db.session.add(prediction)
+                            db.session.commit()
+                            result["saved"] = True
+                        except Exception as e:
+                            db.session.rollback()
+                            result["saved"] = False
+                            result["save_error"] = str(e)
+
+                    yield _sse_event(result)
+                except Exception as e:
+                    try:
+                        db.session.rollback()
+                    except Exception:
+                        pass
+                    yield _sse_event({"type": "error", "error": f"AI结果收尾失败: {e}"})
+                    return
+
+            return Response(
+                stream_with_context(generate_stream()),
+                mimetype='text/event-stream',
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+            )
+
         result = predict_with_ai(data, region)
+        # 检查AI预测是否失败
+        if result.get('error'):
+            # 返回详细的错误信息
+            error_message = result.get('error')
+            return jsonify({
+                "error": error_message,
+                "error_type": "ai_prediction_failed",
+                "message": f"AI预测失败：{error_message}，请稍后再试或联系管理员检查AI API配置。"
+            }), 400
+        if user_id and is_active:
+            result = _ensure_period_unique_special(
+                result,
+                resolved_strategy,
+                region,
+                current_period,
+                user_id=user_id,
+                prediction_zodiac_year=prediction_zodiac_year,
+            )
     else:
-        result = get_local_recommendations(strategy, data, region)
+        variation_key = None
+        if user_id and is_active and _personalized_predictions_enabled():
+            variation_key = f"user:{user_id}|region:{region}|period:{current_period}|strategy:{resolved_strategy}"
+        try:
+            result = get_local_recommendations(resolved_strategy, data, region, variation_key=variation_key)
+            if user_id and is_active:
+                result = _ensure_period_unique_special(
+                    result,
+                    resolved_strategy,
+                    region,
+                    current_period,
+                    user_id=user_id,
+                    prediction_zodiac_year=prediction_zodiac_year,
+                )
+        except Exception as e:
+            print(f"Prediction failed for region={region}, strategy={resolved_strategy}, year={year}: {e}")
+            return jsonify({
+                "error": f"预测失败：{str(e)}",
+                "error_type": "prediction_failed",
+            }), 500
     
     # 保存预测记录（仅对已激活用户）
     if user_id and is_active and not result.get('error'):
@@ -568,47 +9363,232 @@ def unified_predict_api():
             prediction = PredictionRecord(
                 user_id=user_id,
                 region=region,
-                strategy=strategy,
+                strategy=resolved_strategy,
                 period=current_period,
                 normal_numbers=','.join(map(str, result.get('normal', []))),
                 special_number=str(result.get('special', {}).get('number', '')),
                 special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
-                prediction_text=result.get('recommendation_text', '')
+                prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
+                prediction_text=_decorate_recommendation_text(
+                    strategy,
+                    resolved_strategy,
+                    result.get('recommendation_text', '')
+                )
             )
             db.session.add(prediction)
             db.session.commit()
         except Exception as e:
+            duplicate_hint = str(e).lower()
+            if 'unique' in duplicate_hint or 'duplicate' in duplicate_hint:
+                db.session.rollback()
+                existing = (
+                    PredictionRecord.query.filter_by(
+                        user_id=user_id,
+                        region=region,
+                        period=current_period,
+                        strategy=resolved_strategy
+                    )
+                    .order_by(PredictionRecord.id.desc())
+                    .first()
+                )
+                if existing:
+                    result["saved"] = True
+                    result["duplicate_ignored"] = True
+                    result["normal"] = existing.normal_numbers.split(',')
+                    result["special"] = {
+                        "number": existing.special_number,
+                        "sno_zodiac": existing.special_zodiac,
+                    }
+                    existing_meta = _deserialize_prediction_metadata(
+                        getattr(existing, "prediction_metadata", "")
+                    )
+                    result["model_meta"] = _hydrate_prediction_model_meta(
+                        resolved_strategy,
+                        existing_meta,
+                        data,
+                        region,
+                    )
+                    refreshed_text = _hydrate_prediction_recommendation_text(
+                        resolved_strategy,
+                        existing.prediction_text,
+                        data,
+                        region,
+                        special_number=existing.special_number,
+                        normal_numbers=existing.normal_numbers,
+                        existing_meta=existing_meta,
+                    )
+                    if refreshed_text:
+                        result["recommendation_text"] = refreshed_text
+                    print(f"检测到接口重复预测记录，已返回现有记录：user={user_id}, region={region}, period={current_period}, strategy={resolved_strategy}")
+                    return jsonify(result)
+            db.session.rollback()
             print(f"保存预测记录失败: {e}")
+            return jsonify({
+                "error": str(e),
+                "error_type": "database_error",
+                "message": "保存预测记录失败，请稍后再试。"
+            }), 500
     
+    result["strategy"] = resolved_strategy
+    result["requested_strategy"] = strategy
+    result["prediction_zodiac_year"] = prediction_zodiac_year
     return jsonify(result)
 
-# 移除更新数据API
+def _normalize_update_regions(region):
+    value = str(region or "all").strip().lower()
+    if value in {"", "all"}:
+        return ("hk", "macau")
+    if value == "hk":
+        return ("hk",)
+    if value == "macau":
+        return ("macau",)
+    return ("hk", "macau")
+
+
+def _run_lottery_update_job(regions=None, source="scheduler"):
+    normalized_regions = tuple(_normalize_update_regions(",".join(regions) if isinstance(regions, (list, tuple, set)) else regions))
+    print(f"开始执行开奖更新任务 source={source} regions={normalized_regions} time={datetime.now()}")
+    with app.app_context():
+        current_year = str(datetime.now().year)
+        if "hk" in normalized_regions:
+            print("正在同步香港数据...")
+            hk_data = sync_draws_from_api('hk', current_year, force=True)
+            print(f"香港数据更新完成：{len(hk_data)}条")
+            update_hk_next_draw_time_cache(force=True)
+            prediction_hk_data, _ = _get_prediction_data('hk', current_year)
+            if prediction_hk_data:
+                generate_auto_predictions(prediction_hk_data, 'hk')
+                refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
+        if "macau" in normalized_regions:
+            print("正在同步澳门数据...")
+            macau_data = sync_draws_from_api('macau', current_year, force=True)
+            print(f"澳门数据更新完成：{len(macau_data)}条")
+            prediction_macau_data, _ = _get_prediction_data('macau', current_year)
+            if prediction_macau_data:
+                generate_auto_predictions(prediction_macau_data, 'macau')
+                refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
+    print(f"开奖更新任务执行完成 source={source} regions={normalized_regions}")
+
+
+def _start_lottery_update_async(regions=None, source="scheduler"):
+    global _lottery_update_thread, _lottery_update_running, _lottery_update_started_at
+    normalized_regions = tuple(_normalize_update_regions(",".join(regions) if isinstance(regions, (list, tuple, set)) else regions))
+    with _lottery_update_lock:
+        if _lottery_update_running:
+            return False, tuple(normalized_regions)
+        _lottery_update_running = True
+        _lottery_update_started_at = datetime.now().isoformat(timespec="seconds")
+
+        def _runner():
+            global _lottery_update_running, _lottery_update_started_at
+            try:
+                _run_lottery_update_job(normalized_regions, source=source)
+            except Exception as e:
+                print(f"开奖更新后台任务失败 source={source}: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                with _lottery_update_state_lock:
+                    _lottery_update_running = False
+                    _lottery_update_started_at = None
+
+        _lottery_update_thread = threading.Thread(
+            target=_runner,
+            name=f"lottery-update-{source}",
+            daemon=True,
+        )
+        _lottery_update_thread.start()
+        return True, tuple(normalized_regions)
+
+
+# 手动更新数据API
+@app.route('/api/update_data', methods=['POST'])
+def update_data_api():
+    payload = request.get_json(silent=True) or {}
+    started, regions = _start_lottery_update_async(payload.get('region', 'all'), source="manual")
+    if started:
+        return jsonify({
+            "success": True,
+            "queued": True,
+            "message": f"更新任务已开始，地区：{','.join(regions)}"
+        }), 202
+    return jsonify({
+        "success": True,
+        "queued": False,
+        "message": "已有更新任务正在执行，请稍后刷新页面查看最新结果"
+    }), 202
 
 @app.route('/api/number_frequency')
 def number_frequency_api():
     region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
-    data = get_yearly_data(region, year)
+    data, _ = _get_prediction_data(region, year)
     return jsonify(analyze_special_number_frequency(data))
 
 @app.route('/api/special_zodiac_frequency')
 def special_zodiac_frequency_api():
     region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
-    data = get_yearly_data(region, year)
-    return jsonify(analyze_special_zodiac_frequency(data, region))
+    data, prediction_zodiac_year = _get_prediction_data(region, year)
+    return jsonify(analyze_special_zodiac_frequency(data, region, prediction_zodiac_year))
 
 @app.route('/api/special_color_frequency')
 def special_color_frequency_api():
     region, year = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year))
-    data = get_yearly_data(region, year)
+    data, _ = _get_prediction_data(region, year)
     return jsonify(analyze_special_color_frequency(data, region))
+
+@app.route('/api/get_zodiacs')
+def get_zodiacs_api():
+    numbers = request.args.get('numbers', '').split(',')
+    if not numbers or not numbers[0]:
+        return jsonify({'normal_zodiacs': [], 'special_zodiac': ''})
+    
+    # 获取生肖年份（按农历新年切换）
+    from models import ZodiacSetting
+    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    number_to_zodiac = {}
+    
+    try:
+        # 使用ZodiacSetting模型获取生肖设置
+        for number in range(1, 50):
+            zodiac = ZodiacSetting.get_zodiac_for_number(zodiac_year, number)
+            if zodiac:
+                number_to_zodiac[str(number)] = zodiac
+    except Exception as e:
+        print(f"获取生肖设置失败: {e}")
+        # 如果出错，使用澳门API返回的生肖数据
+        macau_data = get_macau_data(str(zodiac_year))
+        for record in macau_data:
+            all_numbers = record.get('no', []) + [record.get('sno')]
+            zodiacs = record.get('raw_zodiac', '').split(',')
+            if len(all_numbers) == len(zodiacs):
+                for i, num in enumerate(all_numbers):
+                    if num:
+                        number_to_zodiac[num] = zodiacs[i]
+    
+    # 获取每个号码对应的生肖
+    normal_zodiacs = []
+    for num in numbers[:-1]:  # 除了最后一个数字（特码）
+        normal_zodiacs.append(number_to_zodiac.get(num, ''))
+    
+    # 获取特码生肖
+    special_zodiac = number_to_zodiac.get(numbers[-1], '') if len(numbers) > 0 else ''
+    
+    return jsonify({
+        'normal_zodiacs': normal_zodiacs,
+        'special_zodiac': special_zodiac
+    })
 
 @app.route('/api/search_draws')
 def search_draws_api():
     region, year, term = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year)), request.args.get('term', '').strip().lower()
     if not term: return jsonify([])
     data, results = get_yearly_data(region, year), []
+    number_to_zodiac = _get_number_to_zodiac_map(year) if region == 'hk' else {}
     for record in data:
-        sno_zodiac_display = _get_hk_number_zodiac(record.get('sno', '')) if region == 'hk' else record.get('sno_zodiac', '')
+        if region == 'hk':
+            sno_zodiac_display = number_to_zodiac.get(str(record.get('sno', '')), record.get('sno_zodiac', ''))
+        else:
+            sno_zodiac_display = record.get('sno_zodiac', '')
         if term == record.get('sno', '') or term in sno_zodiac_display.lower():
             if 'details_breakdown' not in record and region == 'hk':
                  record['sno_zodiac'] = sno_zodiac_display
@@ -620,13 +9600,49 @@ def chat_page():
     # 检查用户登录状态
     if 'user_id' not in session:
         return redirect(url_for('auth.login'))
-    current_year = str(datetime.now().year)
+    from models import ZodiacSetting
+    current_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    
+    # 创建号码到生肖的映射
+    number_to_zodiac = {}
+    
+    # 首先尝试从ZodiacSetting获取当前年份的生肖设置
+    try:
+        zodiac_settings = ZodiacSetting.get_all_settings_for_year(current_year)
+        
+        if zodiac_settings:
+            # 使用数据库中的生肖设置
+            for number, zodiac in zodiac_settings.items():
+                number_to_zodiac[str(number)] = zodiac
+        else:
+            # 如果数据库中没有设置，则使用澳门API返回的生肖数据
+            macau_data = get_macau_data(str(current_year))
+            for record in macau_data:
+                all_numbers = record.get('no', []) + [record.get('sno')]
+                zodiacs = record.get('raw_zodiac', '').split(',')
+                if len(all_numbers) == len(zodiacs):
+                    for i, num in enumerate(all_numbers):
+                        if num:
+                            number_to_zodiac[num] = zodiacs[i]
+    except Exception as e:
+        print(f"获取生肖设置失败，使用澳门API数据: {e}")
+        # 如果出错，使用澳门API返回的生肖数据
+        macau_data = get_macau_data(str(current_year))
+        for record in macau_data:
+            all_numbers = record.get('no', []) + [record.get('sno')]
+            zodiacs = record.get('raw_zodiac', '').split(',')
+            if len(all_numbers) == len(zodiacs):
+                for i, num in enumerate(all_numbers):
+                    if num:
+                        number_to_zodiac[num] = zodiacs[i]
     
     hk_all_yearly_data = get_yearly_data('hk', current_year)
     hk_data_sorted = sorted(hk_all_yearly_data, key=lambda x: x.get('date', ''), reverse=True)
     hk_latest_10 = hk_data_sorted[:10]
     for record in hk_latest_10:
-        record['sno_zodiac'] = _get_hk_number_zodiac(record.get('sno'))
+        # 使用澳门的生肖对应关系
+        sno = record.get('sno')
+        record['sno_zodiac'] = number_to_zodiac.get(sno, '')
 
     macau_latest_10 = get_yearly_data('macau', current_year)[:10]
 
@@ -653,13 +9669,275 @@ def handle_chat():
     payload = {"model": ai_config['model'], "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "temperature": 0.7}
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
     try:
-        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=30)
+        response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=60)
         response.raise_for_status()
+        if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+            response.encoding = "utf-8"
         ai_reply = response.json()['choices'][0]['message']['content']
         return jsonify({"reply": ai_reply})
     except Exception as e:
         print(f"Error calling AI chat API: {e}")
         return jsonify({"reply": f"抱歉，调用AI时遇到错误，请稍后再试。"}), 500
+
+def send_winning_notification_email(user, prediction, region):
+    """发送预测命中通知邮件"""
+    # 获取SMTP配置
+    smtp_server = SystemConfig.get_config('smtp_server')
+    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
+    smtp_username = SystemConfig.get_config('smtp_username')
+    smtp_password = SystemConfig.get_config('smtp_password')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
+    
+    # 检查SMTP配置是否完整
+    if not all([smtp_server, smtp_username, smtp_password]):
+        raise Exception('邮件服务未配置，请联系管理员')
+    
+    # 准备邮件内容
+    region_name = '香港' if region == 'hk' else '澳门'
+    strategy_name = _get_email_strategy_display(prediction)
+    
+    subject = f"恭喜您！{region_name}第{prediction.period}期特码预测命中"
+    
+    # 构建HTML邮件内容
+    html_content = f"""
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+            .header {{ background-color: #4CAF50; color: white; padding: 10px; text-align: center; }}
+            .content {{ padding: 20px; background-color: #f9f9f9; }}
+            .footer {{ text-align: center; margin-top: 20px; font-size: 12px; color: #777; }}
+            .highlight {{ color: #e53935; font-weight: bold; }}
+            .info-row {{ margin-bottom: 10px; }}
+            .btn {{ display: inline-block; background-color: #4CAF50; color: white; padding: 10px 20px; 
+                   text-decoration: none; border-radius: 4px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h2>恭喜您！预测命中通知</h2>
+            </div>
+            <div class="content">
+                <p>尊敬的 <strong>{user.username}</strong>：</p>
+                <p>恭喜您！您使用<strong>{strategy_name}</strong>对{region_name}六合彩第{prediction.period}期的特码预测已经<span class="highlight">命中</span>！</p>
+                
+                <div class="info-row"><strong>预测期数：</strong> {prediction.period}</div>
+                <div class="info-row"><strong>预测策略：</strong> {strategy_name}</div>
+                <div class="info-row"><strong>预测特码：</strong> <span class="highlight">{prediction.special_number}</span></div>
+                <div class="info-row"><strong>开奖特码：</strong> <span class="highlight">{prediction.actual_special_number}</span></div>
+                <div class="info-row"><strong>预测时间：</strong> {prediction.created_at.strftime('%Y-%m-%d %H:%M:%S')}</div>
+                
+                <p>您可以登录系统查看更多预测详情和历史记录。</p>
+                <p style="text-align: center; margin-top: 20px;">
+                    <a href="#" class="btn">查看详情</a>
+                </p>
+            </div>
+            <div class="footer">
+                <p>此邮件由系统自动发送，请勿回复。</p>
+                <p>© {datetime.now().year} {site_name} - 所有权利保留</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    # 创建邮件对象
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = smtp_username
+    msg['To'] = user.email
+    
+    # 添加HTML内容
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    # 发送邮件
+    try:
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_username, smtp_password)
+        server.send_message(msg)
+        server.quit()
+        print(f"成功发送预测命中通知邮件给用户 {user.username} ({user.email})")
+    except Exception as e:
+        print(f"发送邮件失败: {e}")
+        raise
+
+def send_combined_prediction_email(user, predictions, region, period, latest_draw=None):
+    """发送新一期多策略预测合并的汇总推送邮件"""
+    smtp_server = SystemConfig.get_config('smtp_server')
+    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
+    smtp_username = SystemConfig.get_config('smtp_username')
+    smtp_password = SystemConfig.get_config('smtp_password')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
+    
+    if not all([smtp_server, smtp_username, smtp_password]):
+        return
+    
+    region_name = '香港' if region == 'hk' else '澳门'
+    subject = f"{site_name} - {region_name}六合彩第{period}期预测汇总已生成"
+    
+    rows_html = ""
+    for pred in predictions:
+        strategy_name = _get_email_strategy_display(pred)
+        rows_html += f"""
+        <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #eee;"><strong>{strategy_name}</strong></td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; color: #555; word-break: break-all;">{pred.normal_numbers}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #eee; color: #e53935; font-weight: bold; text-align: center;">{pred.special_number} <br><span style="font-size: 12px; color: #888;">({pred.special_zodiac})</span></td>
+        </tr>
+        """
+        
+    latest_draw_html = ""
+    if latest_draw:
+        draw_period = latest_draw.get('id', '')
+        normal_nums = ', '.join(latest_draw.get('no', []))
+        special_num = latest_draw.get('sno', '')
+        special_zodiac = latest_draw.get('sno_zodiac', '')
+        latest_draw_html = f'''
+        <div style="background-color: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
+            <h3 style="margin-top: 0; color: #0d47a1; font-size: 16px; margin-bottom: 8px;">上期 ({draw_period}期) 开奖结果</h3>
+            <p style="margin: 0; font-size: 14px; color: #555;">
+                <strong>平码：</strong>{normal_nums} <br>
+                <strong style="display: inline-block; margin-top: 5px;">特码：</strong><span style="color: #e53935; font-weight: bold; font-size: 16px;">{special_num}</span> ({special_zodiac})
+            </p>
+        </div>
+        '''
+
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="background: linear-gradient(135deg, #1e88e5 0%, #1565c0 100%); color: white; padding: 20px; text-align: center;">
+                <h2 style="margin: 0; font-size: 20px;">第 {period} 期 预测汇总</h2>
+                <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">{region_name}六合彩最新推荐</p>
+            </div>
+            <div style="padding: 25px;">
+                <p style="font-size: 16px;">尊敬的 <strong>{user.username}</strong>：</p>
+                {latest_draw_html}
+                <p style="color: #666;">系统已为您自动生成了本期的最新预测，以下是您开启的各策略推荐号码：</p>
+                
+                <table style="width: 100%; border-collapse: collapse; margin-top: 20px; border-radius: 8px; overflow: hidden;">
+                    <thead>
+                        <tr style="background-color: #f8f9fa; text-align: left;">
+                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef;">策略</th>
+                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef;">平码推荐</th>
+                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef; text-align: center;">特码推荐</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows_html}
+                    </tbody>
+                </table>
+                
+                <div style="margin-top: 30px; text-align: center;">
+                    <a href="#" style="display: inline-block; background-color: #1e88e5; color: white; text-decoration: none; padding: 12px 30px; border-radius: 25px; font-weight: bold;">登录系统查看详情</a>
+                </div>
+                <div style="margin-top: 15px; text-align: center;">
+                    <span style="font-size: 12px; color: #999;">不想再收到预测邮件？请登录系统并在 <strong>个人中心</strong> 中关闭自动预测。</span>
+                </div>
+            </div>
+            <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #aaa;">
+                <p style="margin: 0;">此邮件由 {site_name} 自动生成并发送，请勿回复。</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = smtp_username
+    msg['To'] = user.email
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    server = smtplib.SMTP(smtp_server, smtp_port)
+    server.starttls()
+    server.login(smtp_username, smtp_password)
+    server.send_message(msg)
+    server.quit()
+
+def send_combined_winning_email(user, predictions, region, draw_data=None):
+    """发送合并后的特码命中通知邮件（如果有多个策略同时命中）"""
+    smtp_server = SystemConfig.get_config('smtp_server')
+    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
+    smtp_username = SystemConfig.get_config('smtp_username')
+    smtp_password = SystemConfig.get_config('smtp_password')
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
+    
+    if not all([smtp_server, smtp_username, smtp_password]):
+        return
+    
+    region_name = '香港' if region == 'hk' else '澳门'
+    period = predictions[0].period
+    subject = f"恭喜您！{region_name}第{period}期特码预测命中"
+    
+    rows_html = ""
+    for pred in predictions:
+        strategy_name = _get_email_strategy_display(pred)
+        rows_html += f"""
+        <div style="margin-bottom: 10px; padding: 12px; background-color: #f1f8e9; border-left: 4px solid #4CAF50; border-radius: 4px;">
+            <strong style="color: #2e7d32;">{strategy_name}</strong> 命中特码：<span style="color: #e53935; font-weight: bold; font-size: 16px;">{pred.special_number} ({pred.special_zodiac})</span>
+        </div>
+        """
+        
+    draw_html = ""
+    if draw_data:
+        normal_nums = ', '.join(draw_data.get('no', []))
+        draw_html = f'''
+        <div style="background-color: #fff9c4; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #fbc02d;">
+            <h3 style="margin-top: 0; color: #f57f17; font-size: 16px; margin-bottom: 8px;">第 {period} 期 完整开奖结果</h3>
+            <p style="margin: 0; font-size: 14px; color: #555;">
+                <strong>平码：</strong>{normal_nums} <br>
+                <strong style="display: inline-block; margin-top: 5px;">特码：</strong><span style="color: #e53935; font-weight: bold; font-size: 16px;">{draw_data.get('sno', '')}</span> ({draw_data.get('sno_zodiac', '')})
+            </p>
+        </div>
+        '''
+
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="background: linear-gradient(135deg, #4CAF50 0%, #2e7d32 100%); color: white; padding: 20px; text-align: center;">
+                <h2 style="margin: 0; font-size: 24px;">🎉 预测命中通知 🎉</h2>
+            </div>
+            <div style="padding: 25px;">
+                <p style="font-size: 16px;">尊敬的 <strong>{user.username}</strong>：</p>
+                <p style="color: #666;">恭喜您！您定制的 {region_name}六合彩 <strong>第 {period} 期</strong> 预测有多项策略成功命中了特码 <strong>{predictions[0].actual_special_number} ({predictions[0].actual_special_zodiac})</strong>：</p>
+                
+                {draw_html}
+
+                <div style="margin: 25px 0;">
+                    {rows_html}
+                </div>
+                
+                <p style="text-align: center; margin-top: 35px;">
+                    <a href="#" style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block;">登录系统查看详情</a>
+                </p>
+                <div style="margin-top: 15px; text-align: center;">
+                    <span style="font-size: 12px; color: #999;">不想再收到报喜提醒？请登录系统并在 <strong>个人中心</strong> 中关闭自动预测。</span>
+                </div>
+            </div>
+            <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #aaa;">
+                <p style="margin: 0;">此邮件由 {site_name} 自动生成并发送，请勿回复。</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = smtp_username
+    msg['To'] = user.email
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    server = smtplib.SMTP(smtp_server, smtp_port)
+    server.starttls()
+    server.login(smtp_username, smtp_password)
+    server.send_message(msg)
+    server.quit()
 
 # 全局请求前处理器，检查用户激活状态
 @app.before_request
@@ -674,8 +9952,9 @@ def check_user_activation():
         try:
             user = User.query.get(session['user_id'])
             if user:
+                session['is_active'] = bool(user.is_active)
                 # 检查用户激活状态是否过期
-                if user.activation_expires_at and datetime.utcnow() > user.activation_expires_at:
+                if user.activation_expires_at and datetime.now() > user.activation_expires_at:
                     # 激活已过期，更新状态
                     user.is_active = False
                     db.session.commit()
@@ -699,19 +9978,7 @@ def init_database():
         except Exception as e:
             print(f"自动更新数据库结构时出错: {e}")
         
-        # 检查是否存在管理员账号，如果不存在则创建默认管理员
         admin = User.query.filter_by(is_admin=True).first()
-        if not admin:
-            admin = User(
-                username='admin',
-                email='admin@example.com',
-                is_active=True,
-                is_admin=True
-            )
-            admin.set_password('admin123')  # 默认密码，请在首次登录后修改
-            db.session.add(admin)
-            db.session.commit()
-            print("已创建默认管理员账号: admin / admin123")
         
         # 初始化系统配置
         configs = [
@@ -733,24 +10000,192 @@ def init_database():
         
         # 为管理员创建示例邀请码
         try:
-            existing_codes = InviteCode.query.filter_by(created_by='admin').count()
-            if existing_codes == 0:
+            if admin:
+                existing_codes = InviteCode.query.filter_by(created_by=admin.username).count()
+            else:
+                existing_codes = 0
+            if admin and existing_codes == 0:
                 from datetime import timedelta
                 for i in range(3):
                     invite_code = InviteCode()
                     invite_code.code = InviteCode.generate_code()
-                    invite_code.created_by = 'admin'
-                    invite_code.expires_at = datetime.utcnow() + timedelta(days=30)
+                    invite_code.created_by = admin.username
+                    invite_code.expires_at = datetime.now() + timedelta(days=30)
                     db.session.add(invite_code)
                 db.session.commit()
-                print("✅ 为管理员创建了3个示例邀请码")
+                if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+                    print("✅ 已为首个管理员预置示例邀请码")
         except Exception as e:
             print(f"创建示例邀请码时出错: {e}")
+
+_scheduler = None
+_scheduler_lock_path = None
+_scheduler_lock_acquired = False
+
+def _try_acquire_scheduler_lock():
+    import tempfile
+    global _scheduler_lock_path, _scheduler_lock_acquired
+    if _scheduler_lock_acquired:
+        return True
+    lock_path = os.path.join(tempfile.gettempdir(), "mark-six-scheduler.lock")
+    pid = os.getpid()
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w") as f:
+            f.write(str(pid))
+        _scheduler_lock_path = lock_path
+        _scheduler_lock_acquired = True
+        return True
+    except FileExistsError:
+        try:
+            with open(lock_path, "r") as f:
+                existing_pid = int((f.read() or "").strip() or "0")
+        except Exception:
+            existing_pid = 0
+        if existing_pid and _pid_is_running(existing_pid):
+            return False
+        try:
+            os.remove(lock_path)
+        except OSError:
+            return False
+        return _try_acquire_scheduler_lock()
+
+def _release_scheduler_lock():
+    global _scheduler_lock_path, _scheduler_lock_acquired
+    if not _scheduler_lock_acquired or not _scheduler_lock_path:
+        return
+    try:
+        os.remove(_scheduler_lock_path)
+    except OSError:
+        pass
+    _scheduler_lock_path = None
+    _scheduler_lock_acquired = False
+
+# 定时任务：每天21:40自动更新数据库中的开奖记录
+def update_lottery_data():
+    """定时任务：异步触发开奖记录更新，避免阻塞前台请求。"""
+    started, regions = _start_lottery_update_async(("hk", "macau"), source="scheduler")
+    if started:
+        print(f"定时任务已触发后台更新 regions={regions}")
+    else:
+        print("定时任务跳过：已有开奖更新任务正在执行")
+
+def warmup_auto_backtest_snapshots():
+    """Ensure current backtest snapshots exist after app startup."""
+    with app.app_context():
+        try:
+            refresh_auto_backtest_snapshots(force=False)
+        except Exception as e:
+            print(f"Auto backtest warmup failed: {e}")
+
+
+_warmup_thread = None
+_warmup_started = False
+
+
+def start_async_backtest_warmup():
+    """Run backtest warmup in a background thread so startup is non-blocking."""
+    global _warmup_thread, _warmup_started
+    enabled = os.environ.get("ENABLE_STARTUP_BACKTEST_WARMUP", "0").lower() in ("1", "true", "yes", "on")
+    if not enabled or _warmup_started:
+        return None
+
+    def _runner():
+        try:
+            warmup_auto_backtest_snapshots()
+        except Exception as e:
+            print(f"Async backtest warmup failed: {e}")
+
+    _warmup_thread = threading.Thread(
+        target=_runner,
+        name="mark-six-backtest-warmup",
+        daemon=True,
+    )
+    _warmup_thread.start()
+    _warmup_started = True
+    return _warmup_thread
+
+
+def start_scheduler(force=False):
+    """Start the APScheduler job if enabled and not already running."""
+    global _scheduler
+    if _scheduler and _scheduler.running:
+        return _scheduler
+
+    enabled = os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on")
+    if not enabled:
+        if _should_log_startup():
+            print("定时任务未启动：ENABLE_SCHEDULER=0")
+        return None
+
+    # Avoid double-start when Flask debug reloader spawns a parent process.
+    if not force and app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return None
+
+    if not _try_acquire_scheduler_lock():
+        if _should_log_startup():
+            print("定时任务未启动：已有实例在运行")
+        return None
+
+    import atexit
+    atexit.register(_release_scheduler_lock)
+
+    _scheduler = BackgroundScheduler()
+
+    def _log_scheduler_event(event):
+        if event.code == EVENT_JOB_MISSED:
+            print(f"定时任务补跑触发：{event.job_id} 原定时间已错过")
+        elif event.code == EVENT_JOB_EXECUTED:
+            if event.exception:
+                print(f"定时任务执行失败：{event.job_id} {event.exception}")
+            else:
+                print(f"定时任务执行完成：{event.job_id}")
+
+    _scheduler.add_listener(_log_scheduler_event, EVENT_JOB_MISSED | EVENT_JOB_EXECUTED)
+    _scheduler.add_job(
+        update_lottery_data,
+        'cron',
+        hour=21,
+        minute=40,
+        misfire_grace_time=300,
+        coalesce=True
+    )
+    _scheduler.add_job(
+        run_auto_strategy_optimization_job,
+        'cron',
+        hour=22,
+        minute=5,
+        kwargs={"regions": ("hk", "macau"), "source": "scheduler"},
+        misfire_grace_time=600,
+        coalesce=True
+    )
+    _scheduler.start()
+    if _should_log_startup():
+        print("定时任务已启动：每天21:40自动更新数据库中的开奖记录")
+    return _scheduler
+
+if os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on"):
+    try:
+        start_scheduler()
+    except Exception as e:
+        print(f"定时任务启动失败: {e}")
+
+try:
+    start_async_backtest_warmup()
+except Exception as e:
+    print(f"离线回测快照预热失败: {e}")
 
 if __name__ == '__main__':
     # 初始化数据库
     init_database()
     
-    # 不再需要检查本地数据文件
+    # 设置定时任务
+    scheduler = start_scheduler()
     
-    app.run(debug=True, port=5000)
+    try:
+        # 启动Flask应用
+        app.run(debug=True, port=5000)
+    except (KeyboardInterrupt, SystemExit):
+        # 关闭定时任务
+        if scheduler and scheduler.running:
+            scheduler.shutdown()

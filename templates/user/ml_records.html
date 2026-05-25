@@ -1,0 +1,703 @@
+{% extends "user/base.html" %}
+
+{% block page_title %}机器学习{% endblock %}
+
+{% block content %}
+{% macro result_badge(prediction) -%}
+    {% if prediction.is_result_updated and prediction.actual_special_number %}
+        {% if prediction.special_number == prediction.actual_special_number %}
+            <span class="result-pill result-success">🎯 一码命中</span>
+        {% elif prediction.is_normal_number_hit %}
+            <span class="result-pill result-partial">✅ 六码命中</span>
+        {% else %}
+            <span class="result-pill result-failed">❌ 未命中</span>
+        {% endif %}
+    {% else %}
+        <span class="result-pill result-pending">⏳ 待开奖</span>
+    {% endif %}
+{%- endmacro %}
+
+<div class="stats-grid ml-stats">
+    <div class="stat-card">
+        <div class="stat-icon">🧪</div>
+        <div class="stat-number">{{ total_ml_predictions }}</div>
+        <div class="stat-label">机器学习</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🎯</div>
+        <div class="stat-number">{{ special_hit_count }}</div>
+        <div class="stat-label">一码命中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-number">{{ normal_hit_count }}</div>
+        <div class="stat-label">六码命中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">⏳</div>
+        <div class="stat-number">{{ pending_predictions }}</div>
+        <div class="stat-label">待开奖</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">📈</div>
+        <div class="stat-number">{{ special_hit_rate }}%</div>
+        <div class="stat-label">一码命中率</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">📊</div>
+        <div class="stat-number">{{ normal_hit_rate }}%</div>
+        <div class="stat-label">六码命中率</div>
+    </div>
+</div>
+
+<div class="region-stats-grid">
+    {% for region_stat in region_ml_stats %}
+    <div class="region-stat-card">
+        <div class="region-stat-head">
+            <div class="region-stat-title">{{ region_stat.label }}机器学习</div>
+            <div class="region-stat-total">{{ region_stat.total }} 条</div>
+        </div>
+        <div class="region-stat-body">
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ region_stat.special_hit_rate }}%</div>
+                <div class="region-stat-label">一码命中率</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ region_stat.normal_hit_rate }}%</div>
+                <div class="region-stat-label">六码命中率</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ region_stat.special_hits }}</div>
+                <div class="region-stat-label">一码命中</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ region_stat.normal_hits }}</div>
+                <div class="region-stat-label">六码命中</div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🧪 机器学习</h2>
+        <form method="GET" class="inline-search-form">
+            <div class="search-controls">
+                <select name="region" class="compact-select" title="地区">
+                    <option value="">全部地区</option>
+                    <option value="hk" {% if region == 'hk' %}selected{% endif %}>香港</option>
+                    <option value="macau" {% if region == 'macau' %}selected{% endif %}>澳门</option>
+                </select>
+                <input type="text" name="period" value="{{ period }}" class="compact-input" placeholder="期号">
+                <select name="result" class="compact-select" title="结果">
+                    <option value="">全部结果</option>
+                    <option value="special_hit" {% if result == 'special_hit' %}selected{% endif %}>一码命中</option>
+                    <option value="normal_hit" {% if result == 'normal_hit' %}selected{% endif %}>六码命中</option>
+                    <option value="wrong" {% if result == 'wrong' %}selected{% endif %}>未命中</option>
+                    <option value="pending" {% if result == 'pending' %}selected{% endif %}>待开奖</option>
+                </select>
+                <input type="date" name="start_date" value="{{ start_date }}" class="compact-input">
+                <input type="date" name="end_date" value="{{ end_date }}" class="compact-input">
+                <button type="submit" class="compact-btn btn-search" title="查询">🔍</button>
+                <a href="{{ url_for('user.ml_records') }}" class="compact-btn btn-reset" title="重置">↺</a>
+            </div>
+        </form>
+    </div>
+
+    <div id="mlRecordsLoading" class="ml-loading-state">
+        <div class="ml-loading-spinner"></div>
+        <div class="ml-loading-text">正在加载机器学习记录...</div>
+    </div>
+    <div id="mlRecordsError" class="empty-state" style="display:none;"></div>
+    <div id="mlRecordsContainer" data-initial-page="{{ initial_page or 1 }}"></div>
+    {# legacy server-rendered block kept below temporarily disabled #}
+    {% if false %}
+    <div class="ml-record-list">
+        {% for prediction in predictions.items %}
+        <div class="ml-record-card">
+            <div class="ml-record-top">
+                <div>
+                    <div class="ml-record-title">
+                        {{ '香港' if prediction.region == 'hk' else '澳门' }}数据 - 第{{ prediction.period }}期
+                    </div>
+                    <div class="ml-record-time">🕒 {{ prediction.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+                </div>
+                {{ result_badge(prediction) }}
+            </div>
+
+            <div class="ml-record-grid">
+                <div class="ml-panel">
+                    <div class="panel-title">六码参考</div>
+                    <div class="balls-row">
+                        {% for num in prediction.normal_numbers.split(',')[:6] if prediction.normal_numbers %}
+                        {% set color = get_number_color(num) %}
+                        <div class="ball-column">
+                            <div class="number-ball-compact ball-{{ color }}">{{ num }}</div>
+                            <div class="ball-zodiac">{{ get_number_zodiac(num) }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="ml-panel">
+                    <div class="panel-title">一码推荐</div>
+                    {% set special_color = get_number_color(prediction.special_number) %}
+                    <div class="draw-result-container-centered">
+                        <div class="special-stack">
+                            <div class="number-ball-large ball-{{ special_color }} actual-special-ball-large">
+                                {{ prediction.special_number }}
+                            </div>
+                            <div class="special-zodiac">{{ get_number_zodiac(prediction.special_number) }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ml-panel">
+                    <div class="panel-title">开奖结果</div>
+                    {% if prediction.is_result_updated and prediction.actual_special_number %}
+                        {% set actual_special_color = get_number_color(prediction.actual_special_number) %}
+                        <div class="draw-result-container-centered">
+                            <div class="special-stack">
+                                <div class="number-ball-large ball-{{ actual_special_color }} actual-special-ball-large">
+                                    {{ prediction.actual_special_number }}
+                                </div>
+                                <div class="special-zodiac">
+                                    {{ prediction.actual_special_zodiac or get_number_zodiac(prediction.actual_special_number) }}
+                                </div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="pending-state">待开奖</div>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if predictions.pages > 1 %}
+    <div class="pagination-wrap">
+        {% if predictions.has_prev %}
+        <a class="page-btn" href="{{ url_for('user.ml_records', page=predictions.prev_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}">上一页</a>
+        {% endif %}
+        <span class="page-info">第 {{ predictions.page }} / {{ predictions.pages }} 页</span>
+        {% if predictions.has_next %}
+        <a class="page-btn" href="{{ url_for('user.ml_records', page=predictions.next_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}">下一页</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% elif false %}
+    <div class="empty-state">
+        <div class="empty-icon">🧪</div>
+        <h3>暂无机器学习记录</h3>
+        <p>先去首页生成一次机器学习预测，这里就会自动保存。</p>
+        <a href="{{ url_for('index') }}" class="btn btn-primary">🎯 开始预测</a>
+    </div>
+    <div id="mlRecordsLoading" class="ml-loading-state">
+        <div class="ml-loading-spinner"></div>
+        <div class="ml-loading-text">正在加载机器学习记录...</div>
+    </div>
+    <div id="mlRecordsError" class="empty-state" style="display:none;"></div>
+    <div id="mlRecordsContainer" data-initial-page="{{ initial_page or 1 }}"></div>
+    {% endif %}
+</div>
+
+<style>
+.ml-stats {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(20, 32, 56, 0.9) 100%);
+    border-radius: 14px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.28);
+    border: 1px solid rgba(45, 212, 191, 0.16);
+}
+
+.stat-icon {
+    font-size: 1.8rem;
+    margin-bottom: 0.35rem;
+}
+
+.stat-number {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #f8fafc;
+}
+
+.stat-label {
+    color: #cbd5e1;
+    font-size: 0.92rem;
+}
+
+.inline-search-form {
+    margin-left: auto;
+}
+
+.search-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.compact-select,
+.compact-input {
+    padding: 0.45rem 0.65rem;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 8px;
+    font-size: 0.88rem;
+    background: rgba(15, 23, 42, 0.88);
+    color: #e5e7eb;
+}
+
+.compact-btn {
+    padding: 0.45rem 0.85rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-search {
+    background: linear-gradient(135deg, #00897b 0%, #26a69a 100%);
+}
+
+.btn-reset {
+    background: linear-gradient(135deg, #607d8b 0%, #455a64 100%);
+}
+
+.ml-record-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.region-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.region-stat-card {
+    padding: 1rem 1.1rem;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(18, 40, 50, 0.88) 100%);
+    border: 1px solid rgba(45, 212, 191, 0.16);
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
+}
+
+.region-stat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.85rem;
+}
+
+.region-stat-title {
+    font-size: 1rem;
+    font-weight: 800;
+    color: #f8fafc;
+}
+
+.region-stat-total {
+    font-size: 0.85rem;
+    color: #94a3b8;
+}
+
+.region-stat-body {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.region-stat-item {
+    text-align: center;
+    padding: 0.7rem 0.35rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.74);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.region-stat-value {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #f8fafc;
+}
+
+.region-stat-label {
+    margin-top: 0.2rem;
+    font-size: 0.78rem;
+    color: #94a3b8;
+}
+
+.ml-record-card {
+    padding: 1.1rem;
+    border-radius: 18px;
+    border: 1px solid rgba(45, 212, 191, 0.14);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(18, 40, 50, 0.92) 100%);
+    box-shadow: 0 16px 34px rgba(2, 6, 23, 0.26);
+}
+
+.ml-record-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.ml-record-title {
+    font-size: 1.08rem;
+    font-weight: 800;
+    color: #f8fafc;
+}
+
+.ml-record-time {
+    margin-top: 0.3rem;
+    color: #94a3b8;
+    font-size: 0.88rem;
+}
+
+.result-pill {
+    padding: 0.45rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.result-success {
+    color: #0b6b4f;
+    background: rgba(11, 107, 79, 0.10);
+}
+
+.result-partial {
+    color: #0f6aa6;
+    background: rgba(15, 106, 166, 0.10);
+}
+
+.result-failed {
+    color: #d93025;
+    background: rgba(217, 48, 37, 0.10);
+}
+
+.result-pending {
+    color: #c77700;
+    background: rgba(255, 193, 7, 0.12);
+}
+
+.ml-record-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 1rem;
+}
+
+.ml-panel {
+    padding: 1rem;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.78);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.panel-title {
+    margin-bottom: 0.75rem;
+    font-size: 0.92rem;
+    font-weight: 800;
+    color: #e2e8f0;
+}
+
+.balls-row {
+    display: flex;
+    gap: 0.85rem;
+    flex-wrap: wrap;
+}
+
+.ball-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.ball-zodiac {
+    padding: 0.22rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(30, 41, 59, 0.95);
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.2);
+    font-size: 0.82rem;
+    color: #e2e8f0;
+    font-weight: 700;
+}
+
+.ball-red { background: linear-gradient(135deg, #ff4b4b 0%, #dc3545 100%); }
+.ball-blue { background: linear-gradient(135deg, #4b83ff 0%, #007bff 100%); }
+.ball-green { background: linear-gradient(135deg, #4bff91 0%, #28a745 100%); }
+
+.number-ball-compact {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    font-weight: 800;
+    color: white;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+}
+
+.draw-result-container-centered {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+}
+
+.special-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.number-ball-large {
+    width: 74px;
+    height: 74px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.7rem;
+    font-weight: 800;
+    color: white;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.actual-special-ball-large {
+    border: 4px solid rgba(255, 215, 0, 0.95);
+}
+
+.special-zodiac {
+    padding: 0.28rem 0.8rem;
+    border-radius: 999px;
+    background: rgba(30, 41, 59, 0.95);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.22);
+    font-size: 0.95rem;
+    color: #f8fafc;
+    font-weight: 700;
+}
+
+.pending-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    color: #c77700;
+    font-weight: 700;
+}
+
+.pagination-wrap {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.9rem;
+}
+
+.page-btn {
+    padding: 0.45rem 0.85rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #fff;
+    background: linear-gradient(135deg, #00897b 0%, #26a69a 100%);
+}
+
+.page-info {
+    color: #cbd5e1;
+    font-weight: 700;
+}
+
+.empty-state {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: #cbd5e1;
+}
+
+.empty-state h3 {
+    color: #f8fafc;
+}
+
+.empty-state p {
+    color: #94a3b8;
+}
+
+.ml-record-card p,
+.ml-record-card span,
+.ml-record-card div,
+.region-stat-card p,
+.region-stat-card span,
+.region-stat-card div {
+    text-shadow: none;
+}
+
+.empty-icon {
+    font-size: 2.2rem;
+    margin-bottom: 0.5rem;
+}
+
+.ml-loading-state {
+    padding: 2.2rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.9rem;
+    color: #cbd5e1;
+}
+
+.ml-loading-spinner {
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    border: 3px solid rgba(148, 163, 184, 0.25);
+    border-top-color: #2dd4bf;
+    animation: ml-spin 0.8s linear infinite;
+}
+
+.ml-loading-text {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #cbd5e1;
+}
+
+@keyframes ml-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 1100px) {
+    .ml-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .region-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .region-stat-body {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ml-record-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 720px) {
+    .ml-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .ml-record-top {
+        flex-direction: column;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.querySelector('.inline-search-form');
+    const container = document.getElementById('mlRecordsContainer');
+    const loading = document.getElementById('mlRecordsLoading');
+    const errorBox = document.getElementById('mlRecordsError');
+    const fallbackEmptyState = document.querySelector('.card > .empty-state');
+    if (!form || !container || !loading || !errorBox) {
+        return;
+    }
+
+    if (fallbackEmptyState) {
+        fallbackEmptyState.style.display = 'none';
+    }
+
+    const setLoading = (visible) => {
+        loading.style.display = visible ? 'flex' : 'none';
+    };
+
+    const buildQuery = (page) => {
+        const params = new URLSearchParams(new FormData(form));
+        params.set('page', String(page));
+        return params.toString();
+    };
+
+    const loadRecords = async (page = 1, pushState = false) => {
+        setLoading(true);
+        errorBox.style.display = 'none';
+
+        try {
+            const response = await fetch(`{{ url_for('user.ml_records_list') }}?${buildQuery(page)}`, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || '加载记录失败');
+            }
+
+            container.innerHTML = data.html || '';
+            if (pushState) {
+                const nextUrl = `{{ url_for('user.ml_records') }}?${buildQuery(page)}`;
+                window.history.pushState({ page }, '', nextUrl);
+            }
+        } catch (error) {
+            container.innerHTML = '';
+            errorBox.innerHTML = `
+                <div class="empty-icon">!</div>
+                <h3>加载失败</h3>
+                <p>${error.message || '请稍后再试'}</p>
+            `;
+            errorBox.style.display = 'block';
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        loadRecords(1, true);
+    });
+
+    container.addEventListener('click', (event) => {
+        const target = event.target.closest('[data-ml-page]');
+        if (!target) {
+            return;
+        }
+        event.preventDefault();
+        const page = parseInt(target.getAttribute('data-ml-page') || '1', 10) || 1;
+        loadRecords(page, true);
+    });
+
+    window.addEventListener('popstate', () => {
+        const params = new URLSearchParams(window.location.search);
+        const page = parseInt(params.get('page') || '1', 10) || 1;
+        loadRecords(page, false);
+    });
+
+    const initialPage = parseInt(container.dataset.initialPage || '1', 10) || 1;
+    loadRecords(initialPage, false);
+});
+</script>
+
+{% endblock %}

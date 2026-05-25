@@ -1,0 +1,135 @@
+{% extends "admin/base.html" %}
+
+{% block page_title %}支付订单{% endblock %}
+
+{% block content %}
+<style>
+    .order-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        border: 1px solid transparent;
+        white-space: nowrap;
+    }
+
+    .order-badge-channel-alipay {
+        color: #93c5fd;
+        background: rgba(59, 130, 246, 0.14);
+        border-color: rgba(96, 165, 250, 0.24);
+    }
+
+    .order-badge-channel-wechat {
+        color: #86efac;
+        background: rgba(34, 197, 94, 0.14);
+        border-color: rgba(74, 222, 128, 0.24);
+    }
+
+    .order-badge-status-created,
+    .order-badge-status-pending {
+        color: #fde68a;
+        background: rgba(245, 158, 11, 0.14);
+        border-color: rgba(251, 191, 36, 0.24);
+    }
+
+    .order-badge-status-success {
+        color: #bbf7d0;
+        background: rgba(34, 197, 94, 0.14);
+        border-color: rgba(74, 222, 128, 0.24);
+    }
+
+    .order-badge-status-failed,
+    .order-badge-status-closed {
+        color: #fecaca;
+        background: rgba(239, 68, 68, 0.14);
+        border-color: rgba(248, 113, 113, 0.24);
+    }
+</style>
+
+<div class="card">
+    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+        <h2 class="card-title">支付订单</h2>
+        <form method="GET" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+            <select name="channel" class="form-control" style="min-width:180px;">
+                <option value="" {{ 'selected' if not channel_filter else '' }}>全部渠道</option>
+                <option value="alipay_f2f" {{ 'selected' if channel_filter == 'alipay_f2f' else '' }}>支付宝</option>
+                <option value="wechat_native" {{ 'selected' if channel_filter == 'wechat_native' else '' }}>微信支付</option>
+            </select>
+            <select name="status" class="form-control" style="min-width:180px;">
+                <option value="" {{ 'selected' if not status_filter else '' }}>全部状态</option>
+                <option value="created" {{ 'selected' if status_filter == 'created' else '' }}>待支付</option>
+                <option value="pending" {{ 'selected' if status_filter == 'pending' else '' }}>处理中</option>
+                <option value="success" {{ 'selected' if status_filter == 'success' else '' }}>成功</option>
+                <option value="failed" {{ 'selected' if status_filter == 'failed' else '' }}>失败</option>
+                <option value="closed" {{ 'selected' if status_filter == 'closed' else '' }}>关闭</option>
+            </select>
+            <button type="submit" class="btn">筛选</button>
+        </form>
+    </div>
+
+    <div style="overflow-x:auto;">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>订单号</th>
+                    <th>渠道</th>
+                    <th>用户</th>
+                    <th>套餐</th>
+                    <th>金额</th>
+                    <th>状态</th>
+                    <th>渠道单号</th>
+                    <th>激活码</th>
+                    <th>创建时间</th>
+                    <th>支付时间</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders.items %}
+                <tr>
+                    <td style="font-family:monospace;">{{ order.order_no }}</td>
+                    <td>
+                        <span class="order-badge {{ 'order-badge-channel-alipay' if order.channel == 'alipay_f2f' else 'order-badge-channel-wechat' if order.channel == 'wechat_native' else '' }}">
+                            {{ '支付宝' if order.channel == 'alipay_f2f' else '微信支付' if order.channel == 'wechat_native' else order.channel }}
+                        </span>
+                    </td>
+                    <td>
+                        {% set user_info = user_map.get(order.user_id, {}) %}
+                        <div>{{ user_info.get('username', '用户 #' ~ order.user_id) }}</div>
+                        <div style="font-size:0.85rem; color:#94a3b8; margin-top:2px;">{{ user_info.get('email', '-') }}</div>
+                    </td>
+                    <td>{{ order.validity_label }}</td>
+                    <td>¥{{ order.amount_text }}</td>
+                    <td>
+                        <span class="order-badge order-badge-status-{{ order.status }}">{{ order.status }}</span>
+                    </td>
+                    <td style="font-family:monospace;">{{ order.alipay_trade_no or '-' }}</td>
+                    <td style="font-family:monospace;">{{ order.issued_code or '-' }}</td>
+                    <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M:%S') if order.created_at else '-' }}</td>
+                    <td>{{ order.paid_at.strftime('%Y-%m-%d %H:%M:%S') if order.paid_at else '-' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10" style="text-align:center; color:#94a3b8;">暂无支付订单</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if orders.pages > 1 %}
+    <div style="display:flex; gap:0.75rem; justify-content:center; margin-top:1.5rem; flex-wrap:wrap;">
+        {% if orders.has_prev %}
+        <a class="btn" href="{{ url_for('admin.payment_orders', page=orders.prev_num, status=status_filter, channel=channel_filter) }}">上一页</a>
+        {% endif %}
+        <span style="padding:0.7rem 1rem; color:#94a3b8;">第 {{ orders.page }} / {{ orders.pages }} 页</span>
+        {% if orders.has_next %}
+        <a class="btn" href="{{ url_for('admin.payment_orders', page=orders.next_num, status=status_filter, channel=channel_filter) }}">下一页</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

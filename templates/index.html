@@ -1,10 +1,18 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI数据分析系统</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>{{ site_name or system_name or 'AI数据分析预测系统' }}</title>
+    <meta name="description" content="{{ site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
+    <script src="https://fastly.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='js/lottery-display.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/prediction.js') }}"></script>
+    <script>
+        window.userPredictionSettings = {
+            showNormalNumbers: {{ 'true' if show_normal_numbers else 'false' }}
+        };
+    </script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
@@ -13,13 +21,13 @@
             --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
             --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
             --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-            --glass-bg: rgba(255, 255, 255, 0.25);
-            --glass-border: rgba(255, 255, 255, 0.18);
-            --text-primary: #2d3748;
-            --text-secondary: #4a5568;
-            --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-            --shadow-medium: 0 15px 35px rgba(0, 0, 0, 0.1);
-            --shadow-heavy: 0 20px 40px rgba(0, 0, 0, 0.15);
+            --glass-bg: rgba(15, 23, 42, 0.58);
+            --glass-border: rgba(148, 163, 184, 0.16);
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --shadow-light: 0 14px 36px rgba(2, 6, 23, 0.35);
+            --shadow-medium: 0 20px 40px rgba(2, 6, 23, 0.28);
+            --shadow-heavy: 0 24px 54px rgba(2, 6, 23, 0.38);
         }
 
         * {
@@ -30,11 +38,31 @@
 
         body {
             font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+            background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #111827 100%);
             background-attachment: fixed;
             min-height: 100vh;
             color: var(--text-primary);
             overflow-x: hidden;
+        }
+
+        .github-watermark {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.06;
+            overflow: hidden;
+        }
+
+        .github-watermark::before {
+            content: "";
+            position: absolute;
+            inset: -35%;
+            transform: rotate(-45deg);
+            transform-origin: center;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='520' height='240' viewBox='0 0 520 240'><text x='18' y='102' font-size='28' font-family='Arial, sans-serif' fill='%23e2e8f0' fill-opacity='1'>github.com/e5sub/mark-six</text><text x='18' y='146' font-size='22' font-family='Arial, sans-serif' fill='%23e2e8f0' fill-opacity='1'>本项目源码仅限非商业用途使用</text></svg>");
+            background-repeat: repeat;
+            background-size: 520px 240px;
         }
 
         /* 动态背景粒子效果 */
@@ -69,14 +97,37 @@
             z-index: 1;
         }
 
+        .app-footer {
+            margin-top: 2.5rem;
+            padding: 1rem 1.25rem 2rem;
+            text-align: center;
+            color: #94a3b8;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .app-footer a {
+            color: #93c5fd;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        .app-footer a:hover {
+            text-decoration: underline;
+        }
+
         /* 玻璃拟态卡片 */
         .glass-card {
-            background: rgba(255, 255, 255, 0);
+            background: var(--glass-bg);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow-light);
             padding: 25px;
             margin-bottom: 25px;
             transition: all 0.3s ease;
@@ -104,14 +155,14 @@
             text-align: center;
             font-size: 2.5rem;
             font-weight: 700;
-            color: #2c3e50;
+            color: #f8fafc;
             margin-bottom: 10px;
             text-shadow: none;
         }
 
         .subtitle {
             text-align: center;
-            color: #6c757d;
+            color: var(--text-secondary);
             font-size: 1.1rem;
             margin-bottom: 30px;
         }
@@ -133,7 +184,7 @@
         }
 
         .control-label {
-            color: #495057;
+            color: #cbd5e1;
             font-weight: 600;
             font-size: 1rem;
         }
@@ -141,10 +192,10 @@
         /* 地区选择器 */
         .region-selector {
             display: flex;
-            background: rgba(248, 249, 250, 0.7);
+            background: rgba(15, 23, 42, 0.75);
             border-radius: 10px;
             padding: 4px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--glass-border);
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
         }
@@ -154,7 +205,7 @@
             border: none;
             border-radius: 8px;
             background: transparent;
-            color: #6c757d;
+            color: var(--text-secondary);
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -169,7 +220,7 @@
         }
 
         .region-btn:hover {
-            background: #e9ecef;
+            background: rgba(51, 65, 85, 0.9);
             transform: translateY(-1px);
         }
 
@@ -180,10 +231,10 @@
         /* 选择器样式 */
         .modern-select {
             padding: 10px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--glass-border);
             border-radius: 8px;
-            background: rgba(255, 255, 255, 0.7);
-            color: #495057;
+            background: rgba(15, 23, 42, 0.78);
+            color: #e2e8f0;
             font-size: 0.95rem;
             font-weight: 500;
             transition: all 0.3s ease;
@@ -199,8 +250,8 @@
         }
 
         .modern-select option {
-            background: white;
-            color: #495057;
+            background: #0f172a;
+            color: #e2e8f0;
         }
 
         /* 现代化按钮 */
@@ -217,9 +268,11 @@
             text-decoration: none;
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 8px;
             color: white;
             box-shadow: var(--shadow-medium);
+            text-align: center;
         }
 
         .modern-btn:before {
@@ -247,6 +300,7 @@
         }
 
         .btn-primary { background: var(--primary-gradient); }
+        .btn-info { background: linear-gradient(135deg, #1565C0 0%, #42A5F5 100%); }
         .btn-success { background: var(--success-gradient); }
         .btn-warning { background: var(--warning-gradient); }
         .btn-danger { background: var(--danger-gradient); }
@@ -254,19 +308,27 @@
 
         /* 按钮容器 */
         .button-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
             margin-bottom: 30px;
+        }
+
+        #predictionButtons .modern-btn {
+            padding: 10px 18px;
+            font-size: 0.92rem;
+            border-radius: 12px;
+            white-space: nowrap;
         }
 
         /* 推荐区域 */
         .recommendation-card {
-            background: rgba(255, 255, 255, 0);
+            background: var(--glass-bg);
             border-radius: 12px;
             padding: 20px;
             text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--glass-border);
             margin-bottom: 25px;
             min-height: 70px;
             display: flex;
@@ -278,20 +340,20 @@
         }
 
         .recommendation-card p {
-            color: #495057;
+            color: #cbd5e1;
             font-size: 1rem;
             margin: 0;
         }
 
         .recommendation-card pre {
-            background: rgba(255, 255, 255, 0);
+            background: rgba(15, 23, 42, 0.72);
             padding: 16px;
             border-radius: 8px;
-            color: #495057;
+            color: #e2e8f0;
             text-align: left;
             line-height: 1.6;
             margin: 12px 0;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--glass-border);
         }
 
         /* 搜索区域 */
@@ -305,10 +367,10 @@
 
         .search-input {
             padding: 12px 16px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--glass-border);
             border-radius: 8px;
-            background: rgba(255, 255, 255, 0.7);
-            color: #495057;
+            background: rgba(15, 23, 42, 0.78);
+            color: #e2e8f0;
             font-size: 0.95rem;
             transition: all 0.3s ease;
             min-width: 280px;
@@ -317,7 +379,7 @@
         }
 
         .search-input::placeholder {
-            color: #6c757d;
+            color: #94a3b8;
         }
 
         .search-input:focus {
@@ -331,22 +393,22 @@
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            background: rgba(255, 255, 255, 0);
+            background: rgba(15, 23, 42, 0.68);
             border-radius: 10px;
             overflow-x: auto;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 12px 24px rgba(2, 6, 23, 0.22);
+            border: 1px solid var(--glass-border);
         }
 
         .modern-table th {
-            background: rgba(255, 255, 255, 0.1);
-            color: #495057;
+            background: rgba(30, 41, 59, 0.92);
+            color: #e2e8f0;
             padding: 14px 8px;
             text-align: center;
             font-weight: 600;
             font-size: 0.85rem;
-            border-bottom: 1px solid #dee2e6;
-            border-right: 1px solid #dee2e6;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+            border-right: 1px solid rgba(148, 163, 184, 0.16);
             white-space: nowrap;
         }
         
@@ -355,29 +417,29 @@
         }
         
         .modern-table thead tr:first-child th {
-            border-bottom: 1px solid #dee2e6;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
             font-weight: 700;
         }
         
         .modern-table thead tr:last-child th {
-            border-bottom: 2px solid #dee2e6;
+            border-bottom: 2px solid rgba(148, 163, 184, 0.24);
         }
 
         .modern-table td {
             padding: 10px 8px;
             text-align: center;
-            border-bottom: 1px solid #dee2e6;
-            color: #495057;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+            color: #cbd5e1;
             transition: all 0.3s ease;
             vertical-align: middle;
         }
 
         .modern-table tbody tr:nth-child(even) {
-            background: rgba(248, 249, 250, 0.3);
+            background: rgba(30, 41, 59, 0.36);
         }
 
         .modern-table tbody tr:hover {
-            background: rgba(248, 249, 250, 0.7);
+            background: rgba(51, 65, 85, 0.5);
         }
 
         .modern-table tbody tr:last-child td {
@@ -460,13 +522,13 @@
 
         .zodiac-label {
             margin-left: 5px;
-            color: #495057;
+            color: #e2e8f0;
             font-weight: 600;
             font-size: 0.85rem;
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(15, 23, 42, 0.92);
             padding: 2px 8px;
             border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--glass-border);
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
@@ -476,7 +538,7 @@
         }
 
         .section-title {
-            color: #2c3e50;
+            color: #f8fafc;
             font-size: 1.8rem;
             font-weight: 600;
             text-align: center;
@@ -491,10 +553,10 @@
         }
 
         .chart-card {
-            background: rgba(255, 255, 255, 0);
+            background: var(--glass-bg);
             border-radius: 12px;
             padding: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--glass-border);
             transition: all 0.3s ease;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             backdrop-filter: blur(10px);
@@ -507,7 +569,7 @@
         }
 
         .chart-title {
-            color: #495057;
+            color: #e2e8f0;
             font-size: 1.2rem;
             font-weight: 600;
             text-align: center;
@@ -531,7 +593,7 @@
         .legend-item {
             display: flex;
             align-items: center;
-            color: #495057;
+            color: #cbd5e1;
             font-size: 0.9rem;
             font-weight: 500;
         }
@@ -566,7 +628,7 @@
         }
 
         .modal-content {
-            background: #ffffff;
+            background: #0f172a;
             border-radius: 15px;
             width: 90%;
             max-width: 600px;
@@ -575,7 +637,7 @@
             box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
             animation: modalSlideIn 0.4s ease-out;
             backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--glass-border);
         }
 
         @keyframes modalSlideIn {
@@ -605,14 +667,14 @@
         .modal-body {
             padding: 25px;
             color: var(--text-primary);
-            background: #ffffff;
+            background: #0f172a;
             border-radius: 0;
         }
 
         .modal-footer {
             padding: 15px 25px;
             text-align: right;
-            background: #ffffff;
+            background: #0f172a;
             border-radius: 0 0 15px 15px;
         }
 
@@ -651,7 +713,7 @@
             }
 
             .button-grid {
-                grid-template-columns: 1fr;
+                flex-direction: column;
                 gap: 12px;
             }
 
@@ -719,50 +781,145 @@
             }
         }
 
-        /* 导航栏样式 */
-        .navbar {
-            background: var(--primary-gradient);
-            padding: 15px 0;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
+        /* 侧边栏样式 */
+        body.has-sidebar {
+            padding-left: 240px;
+            transition: padding-left 0.3s ease;
         }
 
-        .navbar-content {
-            max-width: 1200px;
-            margin: 0 auto;
+        body.sidebar-collapsed {
+            padding-left: 80px;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 240px;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(148, 163, 184, 0.16);
+            z-index: 1200;
             display: flex;
+            flex-direction: column;
+            transition: width 0.3s ease, transform 0.3s ease;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
             justify-content: space-between;
-            align-items: center;
-            padding: 0 20px;
+            padding: 1.5rem 1.25rem;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.16);
         }
 
-        .navbar-brand {
-            color: white;
-            font-size: 1.5rem;
+        .sidebar-brand {
+            font-size: 1.2rem;
             font-weight: 700;
+            color: #f8fafc;
             text-decoration: none;
         }
 
-        .navbar-nav {
-            display: flex;
-            gap: 20px;
+        .sidebar-toggle {
+            background: rgba(30, 41, 59, 0.88);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            display: inline-flex;
             align-items: center;
-        }
-
-        .nav-link {
-            color: white;
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 20px;
+            justify-content: center;
+            cursor: pointer;
             transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 5px;
+            color: #f8fafc;
         }
 
-        .nav-link:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
+        .sidebar-toggle:hover {
+            background: rgba(51, 65, 85, 0.96);
+        }
+
+        .sidebar-nav {
+            padding: 1rem 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0.8rem 1.25rem;
+            color: #e5e7eb;
+            text-decoration: none;
+            font-weight: 700;
+            border-left: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar-nav a:hover {
+            background: rgba(30, 41, 59, 0.82);
+            border-left-color: #667eea;
+        }
+
+        .sidebar-nav .nav-text {
+            transition: opacity 0.2s ease, width 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .sidebar-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.35);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            z-index: 1100;
+        }
+
+        .sidebar-backdrop.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        body.sidebar-collapsed .sidebar {
+            width: 80px;
+        }
+
+        body.sidebar-collapsed .sidebar-header {
+            padding: 1.25rem 0.75rem;
+        }
+
+        body.sidebar-collapsed .sidebar-brand {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        body.sidebar-collapsed .sidebar-nav a {
+            justify-content: center;
+            padding: 0.8rem 0.75rem;
+        }
+
+        body.sidebar-collapsed .sidebar-nav .nav-text {
+            opacity: 0;
+            width: 0;
+            overflow: hidden;
+        }
+
+        @media (max-width: 768px) {
+            body.has-sidebar {
+                padding-left: 0;
+            }
+
+            .sidebar {
+                transform: translateX(-100%);
+            }
+
+            .sidebar.show {
+                transform: translateX(0);
+            }
         }
 
         /* 加载动画 */
@@ -789,832 +946,679 @@
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        /* 禁用状态样式 */
+        .disabled {
+            opacity: 0.5;
+            pointer-events: none;
+            cursor: not-allowed !important;
+        }
+
+        .region-btn.disabled {
+            background: rgba(51, 65, 85, 0.9) !important;
+            color: #94a3b8 !important;
+            cursor: not-allowed !important;
+        }
+
+        .modern-btn.disabled {
+            opacity: 0.5;
+            pointer-events: none;
+            cursor: not-allowed !important;
+            filter: grayscale(50%);
+        }
+
+        /* Stronger global text contrast for the homepage and dynamic prediction content. */
+        .main-container,
+        .main-container p,
+        .main-container li,
+        .main-container label,
+        .main-container td,
+        .main-container th,
+        .main-container input,
+        .main-container select,
+        .main-container textarea {
+            color: #f8fafc;
+        }
+
+        .main-container .subtitle,
+        .main-container .control-label,
+        .main-container .recommendation-card p,
+        .main-container .recommendation-card pre,
+        .main-container .legend-item,
+        .main-container .zodiac-label,
+        .main-container [style*="color: #666"],
+        .main-container [style*="color:#666"],
+        .main-container [style*="color: #667"],
+        .main-container [style*="color:#667"],
+        .main-container [style*="color: #6c757d"],
+        .main-container [style*="color:#6c757d"],
+        .main-container [style*="color: #7b8798"],
+        .main-container [style*="color:#7b8798"],
+        .main-container [style*="color: #8a94a6"],
+        .main-container [style*="color:#8a94a6"],
+        .main-container [style*="color: #94a3b8"],
+        .main-container [style*="color:#94a3b8"] {
+            color: #dbe4f0 !important;
+        }
+
+        .main-container h1,
+        .main-container h2,
+        .main-container h3,
+        .main-container h4,
+        .main-container .main-title,
+        .main-container .section-title,
+        .main-container .chart-title,
+        .main-container [style*="color: #333"],
+        .main-container [style*="color:#333"],
+        .main-container [style*="color: #24324a"],
+        .main-container [style*="color:#24324a"],
+        .main-container [style*="color: #2c3e50"],
+        .main-container [style*="color:#2c3e50"],
+        .main-container [style*="color: #1f3a56"],
+        .main-container [style*="color:#1f3a56"] {
+            color: #f8fafc !important;
+        }
+
+        .main-container .stat-number,
+        .main-container [style*="color: #0f5f56"],
+        .main-container [style*="color:#0f5f56"],
+        .main-container [style*="color: #114d46"],
+        .main-container [style*="color:#114d46"] {
+            color: #f8fafc !important;
+        }
+
+        .main-container .glass-card,
+        .main-container .recommendation-card,
+        .main-container .chart-card,
+        .main-container .modal-content,
+        .main-container [style*="background: white"],
+        .main-container [style*="background:white"],
+        .main-container [style*="linear-gradient(135deg, #fff"],
+        .main-container [style*="linear-gradient(180deg, #fff"],
+        .main-container [style*="rgba(255,255,255"],
+        .main-container [style*="rgba(255, 255, 255"],
+        .main-container [style*="background: #fff"],
+        .main-container [style*="background:#fff"],
+        .main-container [style*="#f8f9ff"],
+        .main-container [style*="#fbfcfe"],
+        .main-container [style*="#ffffff"] {
+            background: rgba(15, 23, 42, 0.9) !important;
+            color: #f8fafc !important;
+            border-color: rgba(148, 163, 184, 0.14) !important;
+        }
+
+        .info-ribbon {
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 16px;
+            padding: 14px 16px;
+            border-radius: 18px;
+            background:
+                radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 35%),
+                linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.92));
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            box-shadow: 0 12px 30px rgba(2, 6, 23, 0.22);
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .info-ribbon.embedded {
+            margin-bottom: 8px;
+        }
+
+        .info-ribbon::after {
+            content: "";
+            position: absolute;
+            inset: auto -30px -30px auto;
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,255,0.09), transparent 68%);
+            pointer-events: none;
+        }
+
+        .info-panel {
+            min-width: 0;
+            min-height: 96px;
+            padding: 6px 6px 4px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(148, 163, 184, 0.08);
+        }
+
+        .info-panel + .info-panel {
+            position: relative;
+        }
+
+        .info-panel + .info-panel::before {
+            content: "";
+            position: absolute;
+            left: -7px;
+            top: 10px;
+            bottom: 10px;
+            width: 1px;
+            background: linear-gradient(
+                180deg,
+                rgba(148, 163, 184, 0),
+                rgba(148, 163, 184, 0.22),
+                rgba(148, 163, 184, 0)
+            );
+        }
+
+        .info-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .info-panel-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #cbd5e1;
+            font-size: 0.84rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .info-panel-label i {
+            color: #7dd3fc;
+        }
+
+        .info-panel-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.16);
+            color: #bfdbfe;
+            font-size: 0.72rem;
+            font-weight: 700;
+            border: 1px solid rgba(96, 165, 250, 0.18);
+        }
+
+        .info-panel-value {
+            color: #f8fafc;
+            font-size: 1.35rem;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: 0.02em;
+            margin-bottom: 6px;
+        }
+
+        .info-panel-subtitle,
+        .info-panel-meta {
+            color: #94a3b8;
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .info-panel-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 6px;
+        }
+
+        .info-panel-meta span {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        @media (max-width: 1100px) {
+            .info-ribbon {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 768px) {
+            .info-ribbon {
+                grid-template-columns: 1fr;
+                padding: 12px;
+            }
+
+            .info-panel {
+                min-height: 0;
+                padding: 4px;
+            }
+
+            .info-panel + .info-panel::before {
+                display: none;
+            }
+
+            .info-panel-value {
+                font-size: 1.2rem;
+            }
+        }
     </style>
 </head>
-<body>
+<body class="{% if session.get('user_id') %}has-sidebar{% endif %}">
+    <div class="github-watermark" aria-hidden="true"></div>
     <!-- 动态背景粒子 -->
     <div class="particles" id="particles"></div>
 
-    <!-- 用户导航栏 -->
+    <!-- 用户侧边栏 -->
     {% if session.get('user_id') %}
-    <nav class="navbar">
-        <div class="navbar-content" style="justify-content: center; gap: 30px;">
-            <a href="{{ url_for('index') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-home"></i> 开奖记录
-            </a>
-            <a href="{{ url_for('user.dashboard') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-tachometer-alt"></i> 用户中心
-            </a>
-            {% if session.get('is_admin') %}
-            <a href="{{ url_for('admin.dashboard') }}" class="nav-link" style="font-size: 1.2rem; background: rgba(255,215,0,0.2);" onmouseover="this.style.background='rgba(255,215,0,0.4)'" onmouseout="this.style.background='rgba(255,215,0,0.2)'">
-                <i class="fas fa-tachometer-alt"></i> 控制台
-            </a>
-            {% endif %}
-            <a href="{{ url_for('auth.logout') }}" class="nav-link" style="font-size: 1.2rem;">
-                <i class="fas fa-sign-out-alt"></i> 退出登录
-            </a>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('index') }}" class="sidebar-brand">{{ site_name or '数据分析' }}</a>
+            <button class="sidebar-toggle" type="button" id="sidebarToggle" aria-label="切换侧边栏">
+                <span>≡</span>
+            </button>
         </div>
-    </nav>
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('index') }}"><i class="fas fa-home"></i><span class="nav-text">开奖记录</span></a>
+            <a href="{{ url_for('user.dashboard') }}"><i class="fas fa-tachometer-alt"></i><span class="nav-text">用户中心</span></a>
+            <a href="{{ url_for('chat_page') }}"><i class="fas fa-robot"></i><span class="nav-text">AI 聊天室</span></a>
+            {% if session.get('is_admin') %}
+            <a href="{{ url_for('admin.dashboard') }}"><i class="fas fa-tools"></i><span class="nav-text">控制台</span></a>
+            {% endif %}
+            <a href="{{ url_for('auth.logout') }}"><i class="fas fa-sign-out-alt"></i><span class="nav-text">退出登录</span></a>
+        </nav>
+    </aside>
     {% endif %}
 
-    <div class="main-container">
-        <!-- 主标题区域 -->
-        <div class="glass-card">
-            <h1 class="main-title" id="mainTitle">
-                <i class="fas fa-chart-line"></i>
-                六合彩数据分析
-            </h1>
-            <p class="subtitle">智能数据分析 · 精准预测推荐 · 实时更新</p>
-            {% if not session.get('user_id') %}
-            <div style="text-align: center; margin-top: 20px;">
-                <a href="{{ url_for('auth.login') }}" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 25px; border-radius: 25px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-                    <i class="fas fa-sign-in-alt"></i> 登录使用完整功能
-                </a>
-                <a href="{{ url_for('auth.register') }}" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 12px 25px; border-radius: 25px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); transition: all 0.3s ease; margin-left: 15px;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-                    <i class="fas fa-user-plus"></i> 注册新账号
-                </a>
+    <!-- 通知样式提示 -->
+    <div id="loadingIndicator" style="display: none; position: fixed; top: 20px; right: 20px; max-width: 300px; background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.96) 100%); border-radius: 12px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); z-index: 1000; overflow: hidden; animation: slideIn 0.3s ease-out;">
+        <div style="display: flex; align-items: center; padding: 15px;">
+            <div style="position: relative; width: 24px; height: 24px; margin-right: 15px;">
+                <div style="position: absolute; width: 24px; height: 24px; border: 3px solid; border-color: #3498db transparent transparent transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
             </div>
-            {% elif not session.get('is_active') %}
-            <div style="background: rgba(255, 193, 7, 0.1); color: #856404; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; border: 1px solid rgba(255, 193, 7, 0.3);">
-                <i class="fas fa-exclamation-triangle"></i> 您的账号尚未激活，请先激活账号才能使用预测功能。
-                <a href="{{ url_for('auth.activate') }}" style="color: #856404; text-decoration: underline; margin-left: 10px;">立即激活</a>
+            <div>
+                <p style="margin: 0; font-size: 14px; font-weight: 600; color: #f8fafc;">正在加载数据</p>
+                <p style="margin: 3px 0 0 0; font-size: 12px; color: #94a3b8;">请稍候...</p>
             </div>
-            {% endif %}
         </div>
+        <div style="height: 3px; width: 100%; background: linear-gradient(to right, #3498db, #9b59b6); animation: progress 2s infinite;"></div>
+    </div>
+    
+    <!-- 预测提示 -->
+    <div id="predictionIndicator" style="display: none; position: fixed; top: 20px; right: 20px; max-width: 300px; background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.96) 100%); border-radius: 12px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); z-index: 1000; overflow: hidden; animation: slideIn 0.3s ease-out;">
+        <div style="display: flex; align-items: center; padding: 15px;">
+            <div style="position: relative; width: 24px; height: 24px; margin-right: 15px;">
+                <div style="position: absolute; width: 24px; height: 24px; border: 3px solid; border-color: #2ecc71 transparent transparent transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            </div>
+            <div>
+                <p style="margin: 0; font-size: 14px; font-weight: 600; color: #f8fafc;">正在生成预测结果</p>
+                <p style="margin: 3px 0 0 0; font-size: 12px; color: #94a3b8;">请稍候...</p>
+            </div>
+        </div>
+        <div style="height: 3px; width: 100%; background: linear-gradient(to right, #2ecc71, #1abc9c); animation: progress 2s infinite;"></div>
+    </div>
+    
+    <style>
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @keyframes progress {
+            0% { transform: translateX(-100%); }
+            50% { transform: translateX(0); }
+            100% { transform: translateX(100%); }
+        }
+    </style>
 
+    <div class="main-container">
         <!-- 控制面板 -->
         <div class="glass-card">
-            <div class="controls-panel">
-                <div class="control-group">
-                    <span class="control-label">
-                        <i class="fas fa-map-marker-alt"></i> 地区:
-                    </span>
-                    <div class="region-selector">
-                        <button id="hkBtn" class="region-btn active" data-region="hk">
-                            <i class="fas fa-building"></i> 香港
-                        </button>
-                        <button id="macauBtn" class="region-btn" data-region="macau">
-                            <i class="fas fa-dice"></i> 澳门
-                        </button>
+            <section class="info-ribbon embedded" id="homeInfoRibbon">
+                <div class="info-panel">
+                    <div class="info-panel-header">
+                        <span class="info-panel-label"><i class="fas fa-clock"></i> 当前时间</span>
                     </div>
+                    <div class="info-panel-value" id="currentTimeValue">--:--:--</div>
+                    <div class="info-panel-subtitle" id="currentDateValue">--</div>
                 </div>
 
-                <div class="control-group" id="year-selector-container">
-                    <span class="control-label">
-                        <i class="fas fa-calendar-alt"></i> 年份:
-                    </span>
-                    <select id="yearSelect" class="modern-select"></select>
+                <div class="info-panel">
+                    <div class="info-panel-header">
+                        <span class="info-panel-label"><i class="fas fa-moon"></i> 农历</span>
+                        <span class="info-panel-badge">今日</span>
+                    </div>
+                    <div class="info-panel-value" id="lunarDateValue">--</div>
+                    <div class="info-panel-subtitle" id="lunarDetailValue">--</div>
                 </div>
 
-                <button id="queryBtn" class="modern-btn btn-primary">
-                    <i class="fas fa-search"></i> 查询数据
-                </button>
-            </div>
-        </div>
-
-        <!-- 功能按钮区域 -->
-        <div class="glass-card">
-            <div class="button-grid">
-                <button id="randomRecommendationBtn" class="modern-btn btn-warning">
-                    <i class="fas fa-random"></i> 随机预测
-                </button>
-                <button id="balancedRecommendationBtn" class="modern-btn btn-warning">
-                    <i class="fas fa-balance-scale"></i> 均衡预测
-                </button>
-                <button id="aiPredictBtn" class="modern-btn btn-danger">
-                    <i class="fas fa-brain"></i> AI 智能预测
-                </button>
-                <a href="{{ url_for('chat_page') }}" id="chatBtn" class="modern-btn btn-secondary">
-                    <i class="fas fa-comments"></i> AI 智能聊天
-                </a>
-            </div>
-        </div>
-
-        <!-- 推荐结果区域 -->
-        <div class="recommendation-card" id="recommendation">
-            <p><i class="fas fa-info-circle"></i> 请选择地区并查询数据</p>
-        </div>
-
-        <!-- 搜索区域 -->
-        <div class="glass-card">
-            <h2 class="section-title">
-                <i class="fas fa-history"></i> 近期开奖历史
-                <small style="font-size: 0.6em; opacity: 0.8;">(仅显示最新20期)</small>
-            </h2>
-            
-            <div class="search-container">
-                <input type="text" id="searchInput" class="search-input" placeholder="🔍 输入特码或其生肖进行搜索...">
-                <button id="searchBtn" class="modern-btn btn-primary">
-                    <i class="fas fa-search"></i> 搜索
-                </button>
-                <button id="resetBtn" class="modern-btn btn-secondary">
-                    <i class="fas fa-undo"></i> 重置
-                </button>
-            </div>
-
-            <div class="table-container">
-                <table id="recentDrawsTable" class="modern-table">
-                    <thead>
-                        <tr>
-                            <th rowspan="2"><i class="fas fa-calendar"></i> 日期/期数</th>
-                            <th rowspan="2"><i class="fas fa-dice"></i> 平码</th>
-                            <th rowspan="2"><i class="fas fa-star"></i> 特码</th>
-                            <th colspan="3" style="background-color: rgba(255, 248, 220, 0.3);">总和</th>
-                            <th colspan="6" style="background-color: rgba(230, 230, 250, 0.3);">特码</th>
-                            <th rowspan="2"><i class="fas fa-info"></i> 详情</th>
-                        </tr>
-                        <tr>
-                            <th>总数</th>
-                            <th>单双</th>
-                            <th>大小</th>
-                            <th>七色波</th>
-                            <th>单双</th>
-                            <th>大小</th>
-                            <th>合单双</th>
-                            <th>合大小</th>
-                            <th>尾大小</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- 频率分析图表 -->
-        <div class="glass-card chart-section">
-            <h2 class="section-title" id="frequency-heading">
-                <i class="fas fa-chart-bar"></i> 特码出现频率分析
-                <small style="font-size: 0.6em; opacity: 0.8;">(基于所选年份数据)</small>
-            </h2>
-            <canvas id="frequencyChart"></canvas>
-        </div>
-
-        <!-- 统计图表网格 -->
-        <div class="chart-grid">
-            <div class="chart-card">
-                <h3 class="chart-title">
-                    <i class="fas fa-palette"></i> 特码波色出现次数
-                </h3>
-                <div class="doughnut-chart-wrapper">
-                    <canvas id="colorChart"></canvas>
+                <div class="info-panel">
+                    <div class="info-panel-header">
+                        <span class="info-panel-label"><i class="fas fa-hourglass-half"></i> 下期开奖时间</span>
+                        <span class="info-panel-badge" id="drawRegionBadge">澳门</span>
+                    </div>
+                    <div class="info-panel-value" id="nextDrawTimeValue">--</div>
+                    <div class="info-panel-subtitle" id="nextDrawCountdownValue">正在计算倒计时...</div>
                 </div>
-                <div id="colorLegend" class="chart-legend"></div>
-            </div>
+            </section>
 
-            <div class="chart-card">
-                <h3 class="chart-title">
-                    <i class="fas fa-paw"></i> 特肖出现次数
-                </h3>
-                <div class="doughnut-chart-wrapper">
-                    <canvas id="zodiacChart"></canvas>
+            {% include 'control_panel.html' %}
+        </div>
+        
+        <!-- 开奖详情模态框 -->
+        <div id="drawDetailsModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="drawDetailsModalTitle">开奖详情</h3>
+                    <button type="button" class="close-modal" style="position: absolute; right: 20px; top: 20px; background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">&times;</button>
                 </div>
-                <div id="zodiacLegend" class="chart-legend"></div>
+                <div class="modal-body" id="drawDetailsModalBody">
+                    <!-- 详情内容将通过JavaScript动态加载 -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="modern-btn btn-primary close-modal" style="padding: 8px 16px; font-size: 0.9rem;">关闭</button>
+                </div>
             </div>
         </div>
-    </div>
-
-    <!-- 模态框 -->
-    <div id="detailsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modalTitle">
-                    <i class="fas fa-info-circle"></i> 开奖详情
-                </h3>
-            </div>
-            <div id="modalBody" class="modal-body"></div>
-            <div class="modal-footer">
-                <button type="button" class="modern-btn btn-secondary close-btn">
-                    <i class="fas fa-times"></i> 关闭
-                </button>
-            </div>
-        </div>
-    </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-    // 创建动态背景粒子
-    function createParticles() {
-        const particlesContainer = document.getElementById('particles');
-        const particleCount = 50;
-        
-        for (let i = 0; i < particleCount; i++) {
-            const particle = document.createElement('div');
-            particle.className = 'particle';
-            particle.style.width = Math.random() * 4 + 2 + 'px';
-            particle.style.height = particle.style.width;
-            particle.style.left = Math.random() * 100 + '%';
-            particle.style.top = Math.random() * 100 + '%';
-            particle.style.animationDelay = Math.random() * 6 + 's';
-            particle.style.animationDuration = (Math.random() * 3 + 3) + 's';
-            particlesContainer.appendChild(particle);
-        }
-    }
-
-    // 数字计数动画
-    function animateNumber(element, start, end, duration = 1000) {
-        const startTime = performance.now();
-        const animate = (currentTime) => {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            const current = Math.floor(start + (end - start) * progress);
-            element.textContent = current;
-            if (progress < 1) {
-                requestAnimationFrame(animate);
+        // 页面加载时初始化状态
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof initHomeInfoRibbon === 'function') {
+                initHomeInfoRibbon();
             }
+        });
+        </script>
+    </div>
+
+    <footer class="app-footer">
+        <span>GitHub：</span>
+        <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
+        <span>本项目源码仅限非商业用途使用。</span>
+        <a href="https://github.com/e5sub/mark-six/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">许可协议</a>
+    </footer>
+
+    <script>
+        const REGION_INFO = {
+            macau: {
+                label: '澳门',
+            },
+            hk: {
+                label: '香港',
+            },
         };
-        requestAnimationFrame(animate);
-    }
 
-    // --- 元素引用 ---
-    const hkBtn = document.getElementById('hkBtn');
-    const macauBtn = document.getElementById('macauBtn');
-    const yearSelect = document.getElementById('yearSelect');
-    const yearSelectorContainer = document.getElementById('year-selector-container');
-    const mainTitle = document.getElementById('mainTitle');
-    const recommendationDiv = document.getElementById('recommendation');
-    const recentDrawsTableBody = document.querySelector('#recentDrawsTable tbody');
-    const frequencyChartCanvas = document.getElementById('frequencyChart');
-    const modal = document.getElementById('detailsModal');
-    const modalTitle = document.getElementById('modalTitle');
-    const modalBody = document.getElementById('modalBody');
-    const updateBtn = document.getElementById('updateBtn');
-    const randomBtn = document.getElementById('randomRecommendationBtn');
-    const balancedBtn = document.getElementById('balancedRecommendationBtn');
-    const aiBtn = document.getElementById('aiPredictBtn');
-    const searchInput = document.getElementById('searchInput');
-    const frequencyHeading = document.getElementById('frequency-heading');
-    const colorChartCanvas = document.getElementById('colorChart');
-    const colorLegend = document.getElementById('colorLegend');
-    const zodiacChartCanvas = document.getElementById('zodiacChart');
-    const zodiacLegend = document.getElementById('zodiacLegend');
-
-    // --- 状态与配置 ---
-    let currentRegion = 'hk';
-    let frequencyChart = null;
-    let colorChart = null;
-    let zodiacChart = null;
-    let allDrawData = [];
-    const RED_BALLS = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46];
-    const BLUE_BALLS = [3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48];
-    const GREEN_BALLS = [5, 6, 11, 16, 17, 21, 22, 27, 28, 32, 33, 38, 39, 43, 44, 49];
-    
-    // --- 工具函数 ---
-    const getBallColorClass = (numberStr) => {
-        const number = parseInt(numberStr, 10);
-        if (RED_BALLS.includes(number)) return 'red';
-        if (BLUE_BALLS.includes(number)) return 'blue';
-        if (GREEN_BALLS.includes(number)) return 'green';
-        return '';
-    };
-
-    const createLotteryBallElement = (num, isSpecial = false, zodiac = '') => {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'ball-wrapper';
-        wrapper.style.display = 'flex';
-        wrapper.style.alignItems = 'center';
-        
-        const ball = document.createElement('div');
-        ball.className = `lottery-ball ${getBallColorClass(num)}`;
-        if (isSpecial) ball.classList.add('special');
-        ball.textContent = num;
-        
-        wrapper.appendChild(ball);
-        
-        if (isSpecial && zodiac) {
-            const zodiacLabel = document.createElement('span');
-            zodiacLabel.className = 'zodiac-label';
-            zodiacLabel.textContent = zodiac;
-            zodiacLabel.style.marginLeft = '5px';
-            wrapper.appendChild(zodiacLabel);
+        let nextDrawTarget = null;
+        function getActiveRegion() {
+            return document.querySelector('.region-btn.active')?.dataset.region || 'macau';
         }
-        return wrapper;
-    };
 
-    const openDetailsModal = (drawId) => {
-        const draw = allDrawData.find(d => d.id === drawId);
-        if (!draw) return;
-        modalTitle.innerHTML = `<i class="fas fa-info-circle"></i> 第 ${draw.id} 期 开奖详情`;
-        let modalHtml = '';
-        
-        if (currentRegion === 'hk') {
-            const parseAndFormat = (value) => {
-                if (value === null || value === undefined) return 'N/A';
-                const num = parseFloat(String(value).replace(/,/g, ''));
-                return isNaN(num) ? 'N/A' : `¥${num.toLocaleString('en-US')}`;
+        function changeRegion(region, buttonEl) {
+            const buttons = document.querySelectorAll('.region-btn');
+            buttons.forEach((btn) => btn.classList.remove('active'));
+            if (buttonEl) {
+                buttonEl.classList.add('active');
+            } else {
+                document.querySelector(`.region-btn[data-region="${region}"]`)?.classList.add('active');
+            }
+            updateHomeInfoRegion(region);
+            if (typeof fetchDraws === 'function') {
+                fetchDraws();
+            }
+        }
+
+        function formatTwo(value) {
+            return String(value).padStart(2, '0');
+        }
+
+        function convertLunarDayNumber(value) {
+            const day = Number(value);
+            if (!Number.isFinite(day) || day <= 0) {
+                return String(value || '');
+            }
+            const mapping = {
+                1: '初一',
+                2: '初二',
+                3: '初三',
+                4: '初四',
+                5: '初五',
+                6: '初六',
+                7: '初七',
+                8: '初八',
+                9: '初九',
+                10: '初十',
+                11: '十一',
+                12: '十二',
+                13: '十三',
+                14: '十四',
+                15: '十五',
+                16: '十六',
+                17: '十七',
+                18: '十八',
+                19: '十九',
+                20: '二十',
+                21: '廿一',
+                22: '廿二',
+                23: '廿三',
+                24: '廿四',
+                25: '廿五',
+                26: '廿六',
+                27: '廿七',
+                28: '廿八',
+                29: '廿九',
+                30: '三十',
             };
-            modalHtml += `<div style="background: #ffffff; padding: 20px; border-radius: 15px; margin-bottom: 20px; border: 1px solid rgba(0, 0, 0, 0.1);">`;
-            modalHtml += `<table style="width: 100%; border-collapse: collapse;">`;
-            modalHtml += `<tr><td style="padding: 5px; width: 150px; text-align: right;"><strong><i class="fas fa-coins"></i> 总投注金额：</strong></td><td style="padding: 5px; text-align: left;"><span style="color: #28a745; font-weight: bold;">${parseAndFormat(draw.inv)}</span></td></tr>`;
-            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong><i class="fas fa-trophy"></i> 头奖：</strong></td><td style="padding: 5px; text-align: left;"><span style="color: #dc3545; font-weight: bold;">${parseAndFormat(draw.p1)} / ${draw.p1u||0} 注</span></td></tr>`;
-            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong><i class="fas fa-medal"></i> 二奖：</strong></td><td style="padding: 5px; text-align: left;"><span style="color: #fd7e14; font-weight: bold;">${parseAndFormat(draw.p2)} / ${draw.p2u||0} 注</span></td></tr>`;
-            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong><i class="fas fa-award"></i> 三奖：</strong></td><td style="padding: 5px; text-align: left;"><span style="color: #ffc107; font-weight: bold;">${parseAndFormat(draw.p3)} / ${draw.p3u||0} 注</span></td></tr>`;
-            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong>四奖：</strong></td><td style="padding: 5px; text-align: left;"><span>${parseAndFormat(draw.p4)} / ${draw.p4u||0} 注</span></td></tr>`;
-            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong>五奖：</strong></td><td style="padding: 5px; text-align: left;"><span>${parseAndFormat(draw.p5)} / ${draw.p5u||0} 注</span></td></tr>`;
-            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong>六奖：</strong></td><td style="padding: 5px; text-align: left;"><span>${parseAndFormat(draw.p6)} / ${draw.p6u||0} 注</span></td></tr>`;
-            modalHtml += `<tr><td style="padding: 5px; text-align: right;"><strong>七奖：</strong></td><td style="padding: 5px; text-align: left;"><span>${parseAndFormat(draw.p7)} / ${draw.p7u||0} 注</span></td></tr>`;
-            modalHtml += `</table>`;
-            modalHtml += `</div>`;
-            modalHtml += `<h4 style="text-align:center; margin:20px 0 15px; color: #495057;"><i class="fas fa-list"></i> 号码详情</h4>`;
-            
-            if (draw.details_breakdown && draw.details_breakdown.length > 0) {
-                modalHtml += `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: #f8f9fa; color: #333;"><th style="padding: 12px; text-align: center;">位置</th><th style="padding: 12px; text-align: center;">号码</th><th style="padding: 12px; text-align: center;">波色</th><th style="padding: 12px; text-align: center;">生肖</th></tr></thead><tbody>`;
-                draw.details_breakdown.forEach((item, index) => { 
-                    const bgColor = index % 2 === 0 ? '#ffffff' : '#f8f9fa';
-                    modalHtml += `<tr style="background: ${bgColor};"><td style="padding: 10px; text-align: center;">${item.position}</td><td style="padding: 10px; font-weight: bold; text-align: center;">${item.number||'N/A'}</td><td style="padding: 10px; text-align: center;"><span class="color-text-${item.color_en}" style="font-weight: bold;">${item.color_zh||'N/A'}</span></td><td style="padding: 10px; text-align: center;">${item.zodiac||'N/A'}</td></tr>`; 
-                });
-                modalHtml += '</tbody></table>';
-            }
-        } else {
-            modalHtml = `<table style="width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><thead><tr style="background: #f8f9fa; color: #333;"><th style="padding: 12px; text-align: center;">位置</th><th style="padding: 12px; text-align: center;">号码</th><th style="padding: 12px; text-align: center;">波色</th><th style="padding: 12px; text-align: center;">生肖</th></tr></thead><tbody>`;
-            const colorMap = { 'red': '红', 'blue': '蓝', 'green': '绿' };
-            const numbers = (draw.no || []).concat(draw.sno || []);
-            const waves = draw.raw_wave ? draw.raw_wave.split(',') : [];
-            const zodiacs = draw.raw_zodiac ? draw.raw_zodiac.split(',') : [];
-            
-            for (let i = 0; i < numbers.length; i++) {
-                const position = i < 6 ? `平码 ${i + 1}` : '<b><i class="fas fa-star"></i> 特码</b>';
-                const englishColor = (waves[i] || 'N/A').toLowerCase();
-                const chineseColor = colorMap[englishColor] || waves[i];
-                const bgColor = i % 2 === 0 ? '#ffffff' : '#f8f9fa';
-                modalHtml += `<tr style="background: ${bgColor};"><td style="padding: 10px; text-align: center;">${position}</td><td style="padding: 10px; font-weight: bold; text-align: center;">${numbers[i]||'N/A'}</td><td style="padding: 10px; text-align: center;"><span class="color-text-${englishColor}" style="font-weight: bold;">${chineseColor}</span></td><td style="padding: 10px; text-align: center;">${zodiacs[i]||'N/A'}</td></tr>`;
-            }
-            modalHtml += '</tbody></table>';
+            return mapping[day] || String(value);
         }
-        modalBody.innerHTML = modalHtml;
-        modal.style.display = "flex";
-    };
 
-    function displayDraws(data) {
-        recentDrawsTableBody.innerHTML = ''; 
-        allDrawData = data;
-        
-        if (!data || data.length === 0) { 
-            recentDrawsTableBody.innerHTML = '<tr><td colspan="13" style="padding: 30px; color: rgba(255,255,255,0.7);"><i class="fas fa-exclamation-circle"></i> 没有找到数据</td></tr>'; 
-            return; 
-        }
-        
-        data.forEach((draw, index) => {
-            const row = recentDrawsTableBody.insertRow();
-            row.style.animationDelay = (index * 0.1) + 's';
-            row.classList.add('count-up');
-            
-            // 日期/期数
-            row.insertCell().innerHTML = `${draw.date ? draw.date.split(' ')[0] : ''}<br><strong>${draw.id || ''}</strong>期`;
-            
-            // 正码
-            const normalNumbersCell = row.insertCell();
-            const normalNumbersContainer = document.createElement('div');
-            normalNumbersContainer.style.cssText = 'display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap: 5px;';
-            
-            if (Array.isArray(draw.no)) {
-                draw.no.forEach(num => {
-                    const numElement = createLotteryBallElement(num);
-                    // 添加生肖标签
-                    const zodiac = getZodiacForNumber(num);
-                    if (zodiac) {
-                        const zodiacSpan = document.createElement('span');
-                        zodiacSpan.textContent = zodiac;
-                        zodiacSpan.style.fontSize = '0.8em';
-                        zodiacSpan.style.display = 'block';
-                        zodiacSpan.style.textAlign = 'center';
-                        numElement.appendChild(zodiacSpan);
-                    }
-                    normalNumbersContainer.appendChild(numElement);
-                });
+        function normalizeChineseLunarDayText(text) {
+            if (!text) {
+                return text;
             }
-            normalNumbersCell.appendChild(normalNumbersContainer);
-            
-            // 特码
-            const specialNumberCell = row.insertCell();
-            if (draw.sno) {
-                specialNumberCell.appendChild(createLotteryBallElement(draw.sno, true, draw.sno_zodiac));
-            }
-            
-            // 计算总和
-            const numbers = Array.isArray(draw.no) ? [...draw.no] : [];
-            if (draw.sno) numbers.push(draw.sno);
-            const sum = numbers.reduce((acc, curr) => acc + parseInt(curr), 0);
-            row.insertCell().textContent = sum;
-            
-            // 单双 (总和)
-            row.insertCell().innerHTML = `<span style="color: ${sum % 2 === 0 ? 'blue' : 'red'}; font-weight: bold;">${sum % 2 === 0 ? '双' : '单'}</span>`;
-            
-            // 大小 (总和)
-            const isBig = sum > 175;
-            row.insertCell().innerHTML = `<span style="color: ${isBig ? 'red' : 'blue'}; font-weight: bold;">${isBig ? '大' : '小'}</span>`;
-            
-            // 七色波 (特码)
-            let waveColor = '';
-            if (draw.sno) {
-                const specialNum = parseInt(draw.sno);
-                if (RED_BALLS.includes(specialNum)) waveColor = '<span style="color: red; font-weight: bold;">红</span>';
-                else if (BLUE_BALLS.includes(specialNum)) waveColor = '<span style="color: blue; font-weight: bold;">蓝</span>';
-                else if (GREEN_BALLS.includes(specialNum)) waveColor = '<span style="color: green; font-weight: bold;">绿</span>';
-            }
-            row.insertCell().innerHTML = waveColor;
-            
-            // 单双 (特码)
-            let specialEvenOdd = '';
-            if (draw.sno) {
-                const specialNum = parseInt(draw.sno);
-                specialEvenOdd = `<span style="color: ${specialNum % 2 === 0 ? 'blue' : 'red'}; font-weight: bold;">${specialNum % 2 === 0 ? '双' : '单'}</span>`;
-            }
-            row.insertCell().innerHTML = specialEvenOdd;
-            
-            // 大小 (特码)
-            let specialBigSmall = '';
-            if (draw.sno) {
-                const specialNum = parseInt(draw.sno);
-                const isSpecialBig = specialNum > 24;
-                specialBigSmall = `<span style="color: ${isSpecialBig ? 'red' : 'blue'}; font-weight: bold;">${isSpecialBig ? '大' : '小'}</span>`;
-            }
-            row.insertCell().innerHTML = specialBigSmall;
-            
-            // 合单双 (特码)
-            let specialSumEvenOdd = '';
-            if (draw.sno) {
-                const specialNum = parseInt(draw.sno);
-                const digitSum = String(specialNum).split('').reduce((acc, digit) => acc + parseInt(digit), 0);
-                specialSumEvenOdd = `<span style="color: ${digitSum % 2 === 0 ? 'blue' : 'red'}; font-weight: bold;">合${digitSum % 2 === 0 ? '双' : '单'}</span>`;
-            }
-            row.insertCell().innerHTML = specialSumEvenOdd;
-            
-            // 合大小 (特码)
-            let specialSumBigSmall = '';
-            if (draw.sno) {
-                const specialNum = parseInt(draw.sno);
-                const digitSum = String(specialNum).split('').reduce((acc, digit) => acc + parseInt(digit), 0);
-                const isSumBig = digitSum > 6;
-                specialSumBigSmall = `<span style="color: ${isSumBig ? 'red' : 'blue'}; font-weight: bold;">合${isSumBig ? '大' : '小'}</span>`;
-            }
-            row.insertCell().innerHTML = specialSumBigSmall;
-            
-            // 尾大小 (特码)
-            let specialTailBigSmall = '';
-            if (draw.sno) {
-                const specialNum = parseInt(draw.sno);
-                const tail = specialNum % 10;
-                const isTailBig = tail >= 5;
-                specialTailBigSmall = `<span style="color: ${isTailBig ? 'red' : 'blue'}; font-weight: bold;">尾${isTailBig ? '大' : '小'}</span>`;
-            }
-            row.insertCell().innerHTML = specialTailBigSmall;
-            
-            // 详情按钮
-            const detailsCell = row.insertCell();
-            const detailsButton = document.createElement('button');
-            detailsButton.innerHTML = '<i class="fas fa-eye"></i> 详情';
-            detailsButton.className = 'modern-btn btn-secondary';
-            detailsButton.style.padding = '8px 16px';
-            detailsButton.style.fontSize = '0.85rem';
-            detailsButton.onclick = () => openDetailsModal(draw.id);
-            detailsCell.appendChild(detailsButton);
-        });
-    }
-    
-    // 根据号码获取生肖
-    function getZodiacForNumber(number) {
-        const ZODIAC_MAPPING_SEQUENCE = ["虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马"];
-        try {
-            const num = parseInt(number);
-            if (!num || num < 1 || num > 49) return "";
-            return ZODIAC_MAPPING_SEQUENCE[(num - 1) % 12];
-        } catch {
-            return "";
-        }
-    }
-
-    function updateUIForRegion() {
-        const isHongKong = (currentRegion === 'hk');
-        mainTitle.innerHTML = `<i class="fas fa-chart-line"></i> ${isHongKong ? '香港' : '澳门'}六合彩数据分析`;
-        yearSelectorContainer.style.display = 'inline-block';
-        hkBtn.classList.toggle('active', isHongKong);
-        macauBtn.classList.toggle('active', !isHongKong);
-        // 不再需要显示更新按钮
-        frequencyHeading.innerHTML = `<i class="fas fa-chart-bar"></i> 特码出现频率分析 <small style="font-size: 0.6em; opacity: 0.8;">(基于所选年份数据)</small>`;
-    }
-
-    function renderDoughnutChart(canvas, legendContainer, chartInstance, data, colorMapping, emojiMapping = {}) {
-        if (chartInstance) chartInstance.destroy();
-        legendContainer.innerHTML = '';
-        
-        const sortedData = Object.entries(data).sort(([,a],[,b]) => b-a);
-        const labels = sortedData.map(item => item[0]);
-        const values = sortedData.map(item => item[1]);
-        
-        sortedData.forEach(([label, value]) => {
-            const item = document.createElement('div');
-            item.className = 'legend-item';
-            const swatch = document.createElement('div');
-            swatch.className = 'legend-swatch';
-            swatch.style.backgroundColor = colorMapping[label];
-            const emoji = emojiMapping[label] ? `${emojiMapping[label]} ` : '';
-            item.innerHTML = `${swatch.outerHTML} ${emoji}${label}: <strong>${value}次</strong>`;
-            legendContainer.appendChild(item);
-        });
-        
-        return new Chart(canvas, { 
-            type: 'doughnut', 
-            data: { 
-                labels: labels, 
-                datasets: [{ 
-                    data: values, 
-                    backgroundColor: labels.map(label => colorMapping[label]), 
-                    borderWidth: 3,
-                    borderColor: 'rgba(255, 255, 255, 0.8)',
-                    hoverBorderWidth: 5,
-                    hoverBorderColor: 'rgba(255, 255, 255, 1)'
-                }] 
-            }, 
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false, 
-                plugins: { 
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleColor: 'white',
-                        bodyColor: 'white',
-                        borderColor: 'rgba(255, 255, 255, 0.3)',
-                        borderWidth: 1
-                    }
-                }, 
-                cutout: '65%',
-                animation: {
-                    animateRotate: true,
-                    duration: 1500
-                }
-            } 
-        });
-    }
-
-    function showLoading(element, message) {
-        element.innerHTML = `<p><span class="loading-spinner"></span> ${message}</p>`;
-    }
-
-    function fetchData() {
-        const year = yearSelect.value;
-        showLoading(recommendationDiv, `正在加载 ${currentRegion === 'hk' ? '香港' : '澳门'} ${year}年 数据...`);
-        
-        const urls = [
-            `/api/draws?region=${currentRegion}&year=${year}`, 
-            `/api/number_frequency?region=${currentRegion}&year=${year}`, 
-            `/api/special_zodiac_frequency?region=${currentRegion}&year=${year}`, 
-            `/api/special_color_frequency?region=${currentRegion}&year=${year}`
-        ];
-        
-        Promise.all(urls.map(url => fetch(url)))
-            .then(responses => { 
-                if (responses.some(res => !res.ok)) throw new Error("服务器响应错误"); 
-                return Promise.all(responses.map(res => res.json())); 
-            })
-            .then(([drawsData, freqData, zodiacData, colorData]) => {
-                if (drawsData.error) throw new Error(drawsData.error);
-                
-                displayDraws(drawsData);
-                
-                if (frequencyChart) frequencyChart.destroy();
-                
-                // 创建频率图表
-                const freqLabels = Object.keys(freqData);
-                const freqValues = Object.values(freqData);
-                
-                frequencyChart = new Chart(frequencyChartCanvas, { 
-                    type: 'bar', 
-                    data: { 
-                        labels: freqLabels, 
-                        datasets: [{ 
-                            label: '特码出现频率', 
-                            data: freqValues, 
-                            backgroundColor: freqLabels.map(label => {
-                                const colorClass = getBallColorClass(label);
-                                if (colorClass === 'red') return 'rgba(255, 107, 107, 0.8)';
-                                if (colorClass === 'blue') return 'rgba(52, 152, 219, 0.8)';
-                                if (colorClass === 'green') return 'rgba(46, 204, 113, 0.8)';
-                                return 'rgba(156, 163, 175, 0.8)';
-                            }),
-                            borderColor: freqLabels.map(label => {
-                                const colorClass = getBallColorClass(label);
-                                if (colorClass === 'red') return '#ff6b6b';
-                                if (colorClass === 'blue') return '#3498db';
-                                if (colorClass === 'green') return '#2ecc71';
-                                return '#9ca3af';
-                            }),
-                            borderWidth: 2,
-                            borderRadius: 8,
-                            borderSkipped: false,
-                        }] 
-                    }, 
-                    options: { 
-                        responsive: true,
-                        plugins: { 
-                            legend: { 
-                                display: false 
-                            },
-                            tooltip: {
-                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                                titleColor: 'white',
-                                bodyColor: 'white',
-                                borderColor: 'rgba(255, 255, 255, 0.3)',
-                                borderWidth: 1
-                            }
-                        }, 
-                        scales: { 
-                            y: { 
-                                beginAtZero: true,
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)'
-                                },
-                                ticks: {
-                                    color: '#000000'
-                                }
-                            },
-                            x: {
-                                grid: {
-                                    color: 'rgba(255, 255, 255, 0.1)'
-                                },
-                                ticks: {
-                                    color: '#000000'
-                                }
-                            }
-                        },
-                        animation: {
-                            duration: 1500,
-                            easing: 'easeOutQuart'
-                        }
-                    } 
-                });
-                
-                const colorChartColors = {'红': '#ff6b6b', '蓝': '#3498db', '绿': '#2ecc71'};
-                colorChart = renderDoughnutChart(colorChartCanvas, colorLegend, colorChart, colorData, colorChartColors);
-                
-                const zodiacChartColors = {
-                    '鼠':'#8e44ad','牛':'#c0392b','虎':'#d35400','兔':'#27ae60',
-                    '龙':'#f39c12','蛇':'#2980b9','马':'#e74c3c','羊':'#f1c40f',
-                    '猴':'#16a085','鸡':'#95a5a6','狗':'#34495e','猪':'#ea8685'
-                };
-                const zodiacEmojis = {
-                    '鼠':'🐀','牛':'🐂','虎':'🐅','兔':'🐇','龙':'🐉','蛇':'🐍',
-                    '马':'🐎','羊':'🐑','猴':'🐒','鸡':'🐓','狗':'🐕','猪':'🐖'
-                };
-                zodiacChart = renderDoughnutChart(zodiacChartCanvas, zodiacLegend, zodiacChart, zodiacData, zodiacChartColors, zodiacEmojis);
-                
-                recommendationDiv.innerHTML = `<p><i class="fas fa-check-circle" style="color: #28a745;"></i> ${currentRegion === 'hk' ? '香港' : '澳门'} 数据加载完成！</p>`;
-            })
-            .catch(err => { 
-                console.error("Fetch Data Error:", err); 
-                recentDrawsTableBody.innerHTML = `<tr><td colspan="4" style="color:#ff6b6b; padding: 20px;"><i class="fas fa-exclamation-triangle"></i> <b>加载失败:</b> ${err.message}</td></tr>`; 
-                recommendationDiv.innerHTML = `<p style="color:#ff6b6b;"><i class="fas fa-exclamation-triangle"></i> 数据加载失败！请检查后端服务。</p>`; 
-            });
-    }
-
-    function getPrediction(strategy) {
-        const strategyText = { 'random': '随机', 'balanced': '均衡', 'ai': 'AI智能' }[strategy];
-        const strategyIcon = { 'random': 'fas fa-random', 'balanced': 'fas fa-balance-scale', 'ai': 'fas fa-brain' }[strategy];
-        
-        showLoading(recommendationDiv, `正在为${currentRegion === 'hk' ? '香港' : '澳门'}地区生成 ${strategyText} 预测...`);
-        
-        fetch(`/api/predict?strategy=${strategy}&region=${currentRegion}&year=${yearSelect.value}`)
-            .then(res => { 
-                if (!res.ok) { 
-                    return res.json().then(errData => { 
-                        throw new Error(errData.error || '服务器响应错误') 
-                    }); 
-                } 
-                return res.json(); 
-            })
-            .then(data => {
-                if (data.error) { 
-                    recommendationDiv.innerHTML = `<p style="color:#ff6b6b;"><i class="fas fa-exclamation-triangle"></i> 错误: ${data.error}</p>`; 
-                }
-                else if (data.recommendation_text) { 
-                    recommendationDiv.innerHTML = `
-                        <div style="text-align: left;">
-                            <h3 style="color: #000000; text-align: center; margin-bottom: 20px;">
-                                <i class="${strategyIcon}"></i> ${strategyText}预测
-                            </h3>
-                            <pre style="background: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 15px; color: #000000; line-height: 1.6; white-space: pre-wrap;">${data.recommendation_text}</pre>
-                        </div>
-                    `; 
-                }
-                else {
-                    recommendationDiv.innerHTML = "";
-                    
-                    const ballsContainer = document.createElement('div');
-                    ballsContainer.style.cssText = 'display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 auto; width: fit-content;';
-                    
-                    // 添加普通号码
-                    data.normal.forEach(num => ballsContainer.appendChild(createLotteryBallElement(String(num))));
-                    
-                    // 添加特别号码
-                    ballsContainer.appendChild(createLotteryBallElement(data.special.number, true, data.special.sno_zodiac));
-                    
-                    recommendationDiv.appendChild(ballsContainer);
-                }
-            })
-            .catch(err => { 
-                recommendationDiv.innerHTML = `<p style="color:#ff6b6b;"><i class="fas fa-exclamation-triangle"></i> 推荐获取失败: ${err.message}</p>`; 
-            });
-    }
-
-    function switchRegion(newRegion) {
-        if (currentRegion === newRegion) return;
-        currentRegion = newRegion;
-        updateUIForRegion();
-        fetchData();
-    }
-
-    function initialize() {
-        // 创建背景粒子
-        createParticles();
-        
-        // 初始化年份选择器
-        const currentYear = new Date().getFullYear();
-        for (let year = currentYear; year >= 2015; year--) { 
-            yearSelect.add(new Option(year, year)); 
-        }
-        
-        // 事件监听器
-        hkBtn.addEventListener('click', () => switchRegion('hk'));
-        macauBtn.addEventListener('click', () => switchRegion('macau'));
-        document.getElementById('queryBtn').addEventListener('click', fetchData);
-        
-        // 模态框事件
-        document.querySelector('.close-btn').onclick = () => { modal.style.display = "none"; };
-        window.onclick = (event) => { if (event.target == modal) modal.style.display = "none"; };
-        
-        // 移除更新按钮事件
-        
-        // 用户登录状态检查
-        const isLoggedIn = {% if session.get('user_id') %}true{% else %}false{% endif %};
-        const isActive = {% if session.get('is_active') %}true{% else %}false{% endif %};
-        const loginUrl = '{{ url_for("auth.login") }}';
-        const activateUrl = '{{ url_for("auth.activate") }}';
-        
-        function checkUserAccess() {
-            if (!isLoggedIn) {
-                alert('请先登录后再使用预测功能');
-                window.location.href = loginUrl;
-                return false;
-            }
-            if (!isActive) {
-                alert('请先激活账号后再使用预测功能');
-                window.location.href = activateUrl;
-                return false;
-            }
-            return true;
-        }
-        
-        randomBtn.onclick = () => {
-            if (checkUserAccess()) {
-                getPrediction('random');
-            }
-        };
-        
-        balancedBtn.onclick = () => {
-            if (checkUserAccess()) {
-                getPrediction('balanced');
-            }
-        };
-        
-        aiBtn.onclick = () => {
-            if (checkUserAccess()) {
-                getPrediction('ai');
-            }
-        };
-        
-        // 搜索功能
-        document.getElementById('searchBtn').onclick = () => { 
-            const term = searchInput.value.trim(); 
-            if (!term) return; 
-            showLoading(recommendationDiv, '正在搜索...');
-            fetch(`/api/search_draws?region=${currentRegion}&year=${yearSelect.value}&term=${encodeURIComponent(term)}`)
-                .then(res => res.json())
-                .then(data => {
-                    displayDraws(data);
-                    recommendationDiv.innerHTML = `<p><i class="fas fa-search"></i> 搜索完成，找到 ${data.length} 条结果</p>`;
+            const normalized = text
+                .replace(/([正一二三四五六七八九十冬腊闰]+月)(\d{1,2})(?!\d)/g, (_, month, day) => {
+                    return `${month}${convertLunarDayNumber(day)}`;
                 })
-                .catch(err => {
-                    recommendationDiv.innerHTML = `<p style="color:#ff6b6b;"><i class="fas fa-exclamation-triangle"></i> 搜索失败: ${err.message}</p>`;
-                });
-        };
-        
-        document.getElementById('resetBtn').onclick = () => { 
-            searchInput.value = ''; 
-            fetchData(); 
-        };
-        
-        searchInput.addEventListener('keyup', (event) => { 
-            if (event.key === 'Enter') document.getElementById('searchBtn').click(); 
-        });
-        
-        // 初始化UI和数据
-        updateUIForRegion();
-        fetchData();
-    }
+                .replace(/十一(?=[^\u4e00-\u9fa5]|$)/g, '十一')
+                .replace(/十二(?=[^\u4e00-\u9fa5]|$)/g, '十二')
+                .replace(/十三(?=[^\u4e00-\u9fa5]|$)/g, '十三')
+                .replace(/十四(?=[^\u4e00-\u9fa5]|$)/g, '十四')
+                .replace(/十五(?=[^\u4e00-\u9fa5]|$)/g, '十五')
+                .replace(/十六(?=[^\u4e00-\u9fa5]|$)/g, '十六')
+                .replace(/十七(?=[^\u4e00-\u9fa5]|$)/g, '十七')
+                .replace(/十八(?=[^\u4e00-\u9fa5]|$)/g, '十八')
+                .replace(/十九(?=[^\u4e00-\u9fa5]|$)/g, '十九')
+                .replace(/二十(?=[^\u4e00-\u9fa5]|$)/g, '二十')
+                .replace(/二十一(?=[^\u4e00-\u9fa5]|$)/g, '廿一')
+                .replace(/二十二(?=[^\u4e00-\u9fa5]|$)/g, '廿二')
+                .replace(/二十三(?=[^\u4e00-\u9fa5]|$)/g, '廿三')
+                .replace(/二十四(?=[^\u4e00-\u9fa5]|$)/g, '廿四')
+                .replace(/二十五(?=[^\u4e00-\u9fa5]|$)/g, '廿五')
+                .replace(/二十六(?=[^\u4e00-\u9fa5]|$)/g, '廿六')
+                .replace(/二十七(?=[^\u4e00-\u9fa5]|$)/g, '廿七')
+                .replace(/二十八(?=[^\u4e00-\u9fa5]|$)/g, '廿八')
+                .replace(/二十九(?=[^\u4e00-\u9fa5]|$)/g, '廿九')
+                .replace(/三十(?=[^\u4e00-\u9fa5]|$)/g, '三十')
+                .replace(/十(?=[一二三四五六七八九]|$)/g, '初十')
+                .replace(/(?<![初十廿三])一(?=[^\u4e00-\u9fa5]|$)/g, '初一')
+                .replace(/(?<![初十廿三])二(?=[^\u4e00-\u9fa5]|$)/g, '初二')
+                .replace(/(?<![初十廿三])三(?=[^\u4e00-\u9fa5]|$)/g, '初三')
+                .replace(/(?<![初十廿三])四(?=[^\u4e00-\u9fa5]|$)/g, '初四')
+                .replace(/(?<![初十廿三])五(?=[^\u4e00-\u9fa5]|$)/g, '初五')
+                .replace(/(?<![初十廿三])六(?=[^\u4e00-\u9fa5]|$)/g, '初六')
+                .replace(/(?<![初十廿三])七(?=[^\u4e00-\u9fa5]|$)/g, '初七')
+                .replace(/(?<![初十廿三])八(?=[^\u4e00-\u9fa5]|$)/g, '初八')
+                .replace(/(?<![初十廿三])九(?=[^\u4e00-\u9fa5]|$)/g, '初九');
+            return normalized;
+        }
 
-    // 启动应用
-    initialize();
-});
-</script>
+        function updateClockPanel() {
+            const now = new Date();
+            const currentTimeValue = document.getElementById('currentTimeValue');
+            const currentDateValue = document.getElementById('currentDateValue');
+            const gregorianDayValue = document.getElementById('gregorianDayValue');
+            const gregorianFullValue = document.getElementById('gregorianFullValue');
+            const lunarDateValue = document.getElementById('lunarDateValue');
+            const lunarDetailValue = document.getElementById('lunarDetailValue');
+
+            if (currentTimeValue) {
+                currentTimeValue.textContent = `${formatTwo(now.getHours())}:${formatTwo(now.getMinutes())}:${formatTwo(now.getSeconds())}`;
+            }
+
+            const fullDate = new Intl.DateTimeFormat('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).format(now).replace(/\//g, '-');
+            const weekdayShort = new Intl.DateTimeFormat('zh-CN', {
+                weekday: 'long',
+            }).format(now);
+            const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+            const weekOfYear = Math.ceil((dayOfYear + new Date(now.getFullYear(), 0, 1).getDay()) / 7);
+            if (currentDateValue) {
+                currentDateValue.textContent = `${fullDate} ${weekdayShort} · 第 ${weekOfYear} 周 / 第 ${dayOfYear} 天`;
+            }
+
+                if (gregorianDayValue) {
+                gregorianDayValue.innerHTML = `<i class="fas fa-sun"></i> ${fullDate.replace(/\s+/g, ' ')}`;
+                }
+
+            if (gregorianFullValue) {
+                gregorianFullValue.innerHTML = `<i class="fas fa-calendar-alt"></i> ${now.getFullYear()}-${formatTwo(now.getMonth() + 1)}-${formatTwo(now.getDate())}`;
+            }
+
+            try {
+                const lunarFormatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                });
+                const lunarText = lunarFormatter.format(now).replace(/\s+/g, ' ').trim();
+                const lunarParts = lunarText.split('年');
+                const lunarYear = lunarParts.length > 1 ? `${lunarParts[0]}年` : lunarText;
+                const lunarMonthDayRaw = lunarParts.length > 1 ? lunarParts.slice(1).join('年').trim() : '';
+                const lunarMonthDay = normalizeChineseLunarDayText(lunarMonthDayRaw);
+                if (lunarDateValue) {
+                    lunarDateValue.textContent = lunarYear;
+                }
+                if (lunarDetailValue) {
+                    lunarDetailValue.textContent = lunarMonthDay
+                        ? `农历${lunarMonthDay}`
+                        : '农历日期';
+                }
+            } catch (error) {
+                if (lunarDateValue) {
+                    lunarDateValue.textContent = '农历信息暂不可用';
+                }
+                if (lunarDetailValue) {
+                    lunarDetailValue.textContent = '当前浏览器不支持农历格式化';
+                }
+            }
+
+            updateNextDrawCountdown(now);
+        }
+
+        async function fetchNextDrawTime(region) {
+            const info = REGION_INFO[region] || REGION_INFO.macau;
+            const nextDrawTimeValue = document.getElementById('nextDrawTimeValue');
+            const nextDrawCountdownValue = document.getElementById('nextDrawCountdownValue');
+            const nextDrawSourceValue = document.getElementById('nextDrawSourceValue');
+            const nextDrawDateValue = document.getElementById('nextDrawDateValue');
+
+            if (nextDrawTimeValue) nextDrawTimeValue.textContent = '--';
+            if (nextDrawCountdownValue) nextDrawCountdownValue.textContent = '正在获取最新时间...';
+            if (nextDrawSourceValue) nextDrawSourceValue.innerHTML = '<i class="fas fa-broadcast-tower"></i> 地区联动';
+            if (nextDrawDateValue) nextDrawDateValue.innerHTML = '<i class="fas fa-stopwatch"></i> --';
+
+            try {
+                const response = await fetch(`/api/next_draw_time?region=${region}`);
+                if (!response.ok) {
+                    throw new Error(`draw ${response.status}`);
+                }
+                const data = await response.json();
+                const rawValue = String(data.next_time || data.next_draw_time || '').trim();
+                if (!rawValue) {
+                    throw new Error('empty next draw time');
+                }
+                const matched = rawValue.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})/);
+                const displayValue = matched
+                    ? `${matched[1]}-${formatTwo(matched[2])}-${formatTwo(matched[3])} ${formatTwo(matched[4])}:${matched[5]}`
+                    : rawValue;
+                const normalized = displayValue.replace(' ', 'T');
+                const parsed = new Date(normalized);
+                nextDrawTarget = Number.isNaN(parsed.getTime()) ? null : parsed;
+                if (nextDrawTimeValue) nextDrawTimeValue.textContent = displayValue;
+                if (nextDrawDateValue) {
+                    nextDrawDateValue.innerHTML = `<i class="fas fa-stopwatch"></i> 下期时间`;
+                }
+                updateNextDrawCountdown();
+            } catch (error) {
+                nextDrawTarget = null;
+                if (nextDrawCountdownValue) nextDrawCountdownValue.textContent = '暂时无法获取下期时间';
+            }
+        }
+
+        function updateNextDrawCountdown(now = new Date()) {
+            const nextDrawCountdownValue = document.getElementById('nextDrawCountdownValue');
+            if (!nextDrawCountdownValue) {
+                return;
+            }
+            if (!nextDrawTarget) {
+                nextDrawCountdownValue.textContent = '正在等待时间源返回...';
+                return;
+            }
+
+            const diff = nextDrawTarget.getTime() - now.getTime();
+            if (diff <= 0) {
+                nextDrawCountdownValue.textContent = '已接近下期时间';
+                return;
+            }
+
+            const totalSeconds = Math.floor(diff / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            nextDrawCountdownValue.textContent = `倒计时 ${formatTwo(hours)}:${formatTwo(minutes)}:${formatTwo(seconds)}`;
+        }
+
+        function updateHomeInfoRegion(region) {
+            const info = REGION_INFO[region] || REGION_INFO.macau;
+            const drawRegionBadge = document.getElementById('drawRegionBadge');
+            if (drawRegionBadge) drawRegionBadge.textContent = info.label;
+            fetchNextDrawTime(region);
+        }
+
+        function initHomeInfoRibbon() {
+            updateClockPanel();
+            updateHomeInfoRegion(getActiveRegion());
+            setInterval(updateClockPanel, 1000);
+        }
+    </script>
+
+    {% if session.get('user_id') %}
+    <script>
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+
+        function closeSidebarOnMobile() {
+            sidebar.classList.remove('show');
+            sidebarBackdrop.classList.remove('show');
+        }
+
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', () => {
+                if (window.innerWidth <= 768) {
+                    sidebar.classList.toggle('show');
+                    sidebarBackdrop.classList.toggle('show');
+                } else {
+                    document.body.classList.toggle('sidebar-collapsed');
+                }
+            });
+        }
+
+        if (sidebarBackdrop) {
+            sidebarBackdrop.addEventListener('click', closeSidebarOnMobile);
+        }
+    </script>
+    {% endif %}
 </body>
 </html>
