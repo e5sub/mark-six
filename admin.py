@@ -40,7 +40,7 @@ DATA_EXPORT_LABELS = {
     'activation_codes': '激活码',
     'activation_code_requests': '激活码申请',
     'prediction_records': '预测记录',
-    'backtest_runs': '回测记录',
+    'backtest_runs': '历史模拟记录',
     'invite_codes': '邀请码',
     'system_configs': '系统配置',
     'zodiac_settings': '生肖设置',

@@ -63,7 +63,7 @@
 
 <div class="card-compact">
     <div class="card-header-compact">
-        <h2 class="card-title-compact">📊 近窗回测</h2>
+        <h2 class="card-title-compact">📊 近期历史模拟</h2>
     </div>
 
     <div style="overflow-x:auto;">
@@ -114,13 +114,13 @@
                         主配置={{ current[strategy_key].primary_runtime_profile_label or '基础档' }} · {{ current[strategy_key].primary_feature_profile_label or '完整特征' }}，固化状态={{ current[strategy_key].promotion_strength_label or '观察中' }}，学习把握度={{ current[strategy_key].profile_learning_confidence or 0 }}%
                         {% if current[strategy_key].promotion_history %}
                         <div style="margin-top:0.45rem; display:grid; gap:0.3rem;">
-                            {% for history in current[strategy_key].promotion_history[:3] %}
+                            {% for history in current[strategy_key].promotion_history[:1] %}
                             <div style="padding:0.38rem 0.5rem; border-radius:8px; background:rgba(30,41,59,0.92); border:1px solid rgba(148,163,184,0.12); color:#dbe4f0;">
                                 {{ history.timestamp[:16].replace('T', ' ') if history.timestamp else '' }} ·
                                 {{ history.strength_label or '观察中' }} ·
                                 {{ history.runtime_profile_label or '基础档' }} / {{ history.feature_profile_label or '完整特征' }}
                                 {% if history.backtest_rank %}
-                                · 回测第 {{ history.backtest_rank }} 名
+                                · 模拟第 {{ history.backtest_rank }} 名
                                 {% endif %}
                             </div>
                             {% endfor %}
@@ -184,7 +184,7 @@
 
 <div class="card-compact">
     <div class="card-header-compact">
-        <h2 class="card-title-compact">🧪 最近离线回测</h2>
+        <h2 class="card-title-compact">🧪 最近历史模拟测试</h2>
     </div>
 
     {% if latest_backtests %}
@@ -196,7 +196,7 @@
                     <div style="font-weight:700; color:#f8fafc;">{{ item.display_name or item.name }}</div>
                     <div style="font-size:0.84rem; color:#cbd5e1; margin-top:0.2rem;">
                         {{ item.region_label or ('香港' if item.region == 'hk' else '澳门' if item.region == 'macau' else item.region) }} ·
-                        {{ (item.periods_evaluated ~ ' 期回放') if item.has_data else '回测准备中' }} ·
+                        {{ (item.periods_evaluated ~ ' 期模拟') if item.has_data else '模拟准备中' }} ·
                         {{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '等待生成' }}
                     </div>
                 </div>
@@ -212,7 +212,7 @@
                 {% endfor %}
                 {% else %}
                 <div style="padding:0.75rem 0.85rem; border-radius:10px; background:rgba(30,41,59,0.92); border:1px dashed rgba(148,163,184,0.18); color:#cbd5e1;">
-                    当前正在后台生成离线回测快照，稍后刷新页面即可查看最新表现。
+                    当前正在后台生成历史模拟快照，稍后刷新页面即可查看最新表现。
                 </div>
                 {% endif %}
             </div>
@@ -220,7 +220,7 @@
         {% endfor %}
     </div>
     {% else %}
-    <div style="color:#94a3b8;">还没有离线回测结果。运行 `python scripts/backtest_predictions.py --region macau` 后，这里会自动显示最新排行。</div>
+    <div style="color:#94a3b8;">还没有历史模拟结果。运行 `python scripts/backtest_predictions.py --region macau` 后，这里会自动显示最新排行。</div>
     {% endif %}
 </div>
 

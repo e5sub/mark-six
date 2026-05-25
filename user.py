@@ -411,14 +411,14 @@ def _latest_backtest_summary(limit=6):
             items.append({
                 "id": None,
                 "name": f"auto-{region_key}",
-                "display_name": f"{region_label}离线回测",
+                "display_name": f"{region_label}历史模拟测试",
                 "region": region_key,
                 "region_label": region_label,
                 "created_at": None,
                 "periods_evaluated": 0,
                 "top_items": [],
                 "has_data": False,
-                "status_text": "暂无回测快照",
+                "status_text": "暂无历史模拟快照",
             })
             continue
 
@@ -435,14 +435,14 @@ def _latest_backtest_summary(limit=6):
         items.append({
             "id": record.id,
             "name": record.name,
-            "display_name": f"{region_label}离线回测",
+            "display_name": f"{region_label}历史模拟测试",
             "region": record.region or payload.get("region") or "",
             "region_label": region_label,
             "created_at": record.created_at,
             "periods_evaluated": periods_evaluated,
             "top_items": top_items,
             "has_data": periods_evaluated > 0 and bool(top_items),
-            "status_text": f"{periods_evaluated} 期回放" if periods_evaluated > 0 else "样本不足，暂未形成有效回测",
+            "status_text": f"{periods_evaluated} 期模拟" if periods_evaluated > 0 else "样本不足，暂未形成有效历史模拟",
         })
 
     extra_records = (
@@ -463,14 +463,14 @@ def _latest_backtest_summary(limit=6):
         items.append({
             "id": record.id,
             "name": record.name,
-            "display_name": f"{'香港' if (record.region or payload.get('region')) == 'hk' else '澳门' if (record.region or payload.get('region')) == 'macau' else (record.region or payload.get('region') or '')}离线回测",
+            "display_name": f"{'香港' if (record.region or payload.get('region')) == 'hk' else '澳门' if (record.region or payload.get('region')) == 'macau' else (record.region or payload.get('region') or '')}历史模拟测试",
             "region": record.region or payload.get("region") or "",
             "region_label": "香港" if (record.region or payload.get("region")) == "hk" else "澳门" if (record.region or payload.get("region")) == "macau" else (record.region or payload.get("region") or ""),
             "created_at": record.created_at,
             "periods_evaluated": periods_evaluated,
             "top_items": top_items,
             "has_data": periods_evaluated > 0 and bool(top_items),
-            "status_text": f"{periods_evaluated} 期回放" if periods_evaluated > 0 else "样本不足，暂未形成有效回测",
+            "status_text": f"{periods_evaluated} 期模拟" if periods_evaluated > 0 else "样本不足，暂未形成有效历史模拟",
         })
         if len(items) >= limit:
             break
@@ -492,14 +492,14 @@ def _latest_unique_backtest_summary(limit=6):
             items.append({
                 "id": None,
                 "name": f"auto-{region_key}",
-                "display_name": f"{region_label}离线回测",
+                "display_name": f"{region_label}历史模拟测试",
                 "region": region_key,
                 "region_label": region_label,
                 "created_at": None,
                 "periods_evaluated": 0,
                 "top_items": [],
                 "has_data": False,
-                "status_text": "暂无回测快照",
+                "status_text": "暂无历史模拟快照",
             })
             continue
 
@@ -518,14 +518,14 @@ def _latest_unique_backtest_summary(limit=6):
         items.append({
             "id": record.id,
             "name": record.name,
-            "display_name": f"{region_label}离线回测",
+            "display_name": f"{region_label}历史模拟测试",
             "region": record.region or payload.get("region") or region_key,
             "region_label": region_label,
             "created_at": record.created_at,
             "periods_evaluated": periods_evaluated,
             "top_items": top_items,
             "has_data": periods_evaluated > 0 and bool(top_items),
-            "status_text": f"{periods_evaluated} 期回放" if periods_evaluated > 0 else "样本不足，暂未形成有效回测",
+            "status_text": f"{periods_evaluated} 期模拟" if periods_evaluated > 0 else "样本不足，暂未形成有效历史模拟",
         })
 
     return items[:limit]

@@ -7999,7 +7999,14 @@ def _merge_draw_history_desc(*draw_groups, limit=None):
 
 
 def _ensure_ml_prediction_history(data, region, minimum_draws=36, target_draws=240):
-    primary = _merge_draw_history_desc(data, limit=target_draws)
+    try:
+        from models import ZodiacSetting
+        current_zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    except Exception:
+        current_zodiac_year = datetime.now().year
+
+    current_year_data = _filter_draws_by_zodiac_year(data, current_zodiac_year)
+    primary = _merge_draw_history_desc(current_year_data, limit=target_draws)
     if len(primary) >= minimum_draws:
         return primary, 0
 
@@ -8007,14 +8014,20 @@ def _ensure_ml_prediction_history(data, region, minimum_draws=36, target_draws=2
         db_records = (
             LotteryDraw.query.filter_by(region=region)
             .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
-            .limit(max(target_draws * 2, 360))
+            .limit(max(target_draws * 3, 720))
             .all()
         )
     except Exception as e:
         print(f"补充{region}机器学习历史样本失败: {e}")
         return primary, 0
 
-    merged = _merge_draw_history_desc(primary, db_records, limit=target_draws)
+    current_year_db_records = _filter_draws_by_zodiac_year(db_records, current_zodiac_year)
+    merged = _merge_draw_history_desc(primary, current_year_db_records, limit=target_draws)
+
+    if len(merged) < minimum_draws:
+        previous_year_db_records = _filter_draws_by_zodiac_year(db_records, current_zodiac_year - 1)
+        merged = _merge_draw_history_desc(merged, previous_year_db_records, limit=target_draws)
+
     supplemental = max(0, len(merged) - len(primary))
     return merged, supplemental
 
