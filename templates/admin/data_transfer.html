@@ -1,0 +1,203 @@
+{% extends "admin/base.html" %}
+
+{% block page_title %}数据导入导出{% endblock %}
+
+{% block content %}
+<div class="transfer-grid">
+    <section class="panel-card">
+        <div class="panel-head">
+            <div>
+                <h2>全部数据导出</h2>
+                <p>导出用户、激活码、预测记录、下注记录、开奖数据和系统配置，生成一个完整 JSON 备份文件。</p>
+            </div>
+            <a href="{{ url_for('admin.export_all_data') }}" class="action-btn action-export">下载完整备份</a>
+        </div>
+
+        <div class="summary-grid">
+            {% for item in summary %}
+            <div class="summary-card">
+                <div class="summary-key">{{ item.label }}</div>
+                <div class="summary-value">{{ item.count }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="panel-card">
+        <div class="panel-head">
+            <div>
+                <h2>全部数据导入</h2>
+                <p>上传之前导出的 JSON 备份。建议导入前先做一次导出备份。</p>
+            </div>
+        </div>
+
+        <form method="post" action="{{ url_for('admin.import_all_data') }}" enctype="multipart/form-data" class="import-form" onsubmit="return confirmImportMode()">
+            <label class="field-label" for="backupFile">备份文件</label>
+            <input id="backupFile" name="file" type="file" accept=".json,application/json" class="file-input" required>
+
+            <label class="field-label" for="importMode">导入模式</label>
+            <select id="importMode" name="import_mode" class="form-control">
+                <option value="merge">按主键合并</option>
+                <option value="replace">覆盖现有数据</option>
+            </select>
+
+            <div class="risk-box">
+                <strong>模式说明</strong>
+                <div>按主键合并：保留现有数据，导入文件中的同 ID 记录会更新，不存在的会新增。</div>
+                <div>覆盖现有数据：会先清空现有业务数据，再导入备份内容。</div>
+            </div>
+
+            <div class="submit-row">
+                <button type="submit" class="action-btn action-import">开始导入</button>
+            </div>
+        </form>
+    </section>
+</div>
+
+<script>
+function confirmImportMode() {
+    const mode = document.getElementById('importMode').value;
+    if (mode === 'replace') {
+        return confirm('覆盖现有数据会先清空当前业务数据，再导入备份。确认继续吗？');
+    }
+    return confirm('确认导入这份备份数据吗？');
+}
+</script>
+
+<style>
+.transfer-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.panel-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 16px;
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
+    padding: 1.2rem;
+}
+
+.panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.panel-head h2 {
+    margin: 0 0 0.4rem;
+    color: #f8fafc;
+}
+
+.panel-head p {
+    margin: 0;
+    color: #94a3b8;
+    max-width: 720px;
+    line-height: 1.65;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.85rem;
+}
+
+.summary-card {
+    padding: 0.9rem 1rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.48);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.summary-key {
+    font-size: 0.82rem;
+    color: #94a3b8;
+    word-break: break-word;
+}
+
+.summary-value {
+    margin-top: 0.45rem;
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: #f8fafc;
+}
+
+.import-form {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.field-label {
+    color: #cbd5e1;
+    font-weight: 700;
+}
+
+.file-input,
+.form-control {
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.58);
+    color: #f8fafc;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.risk-box {
+    padding: 0.95rem 1rem;
+    border-radius: 12px;
+    background: rgba(120, 53, 15, 0.22);
+    border: 1px solid rgba(251, 191, 36, 0.24);
+    color: #fde68a;
+    line-height: 1.7;
+}
+
+.risk-box strong {
+    display: block;
+    margin-bottom: 0.35rem;
+}
+
+.submit-row {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    padding: 0.75rem 1.15rem;
+    border-radius: 12px;
+    color: #fff;
+    text-decoration: none;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+}
+
+.action-export {
+    background: linear-gradient(135deg, #0f766e 0%, #0f766e 15%, #0d9488 100%);
+}
+
+.action-import {
+    background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+}
+
+@media (max-width: 768px) {
+    .panel-head {
+        flex-direction: column;
+    }
+
+    .submit-row {
+        justify-content: stretch;
+    }
+
+    .submit-row .action-btn,
+    .panel-head .action-btn {
+        width: 100%;
+    }
+}
+</style>
+{% endblock %}

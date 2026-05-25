@@ -1,6 +1,18 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, Response
 from functools import wraps
-from models import db, User, ActivationCode, PredictionRecord, SystemConfig, InviteCode, ZodiacSetting, ManualBetRecord
+from models import (
+    db,
+    User,
+    ActivationCode,
+    ActivationCodeRequest,
+    PredictionRecord,
+    SystemConfig,
+    InviteCode,
+    ZodiacSetting,
+    ManualBetRecord,
+    LotteryDraw,
+    BacktestRun,
+)
 from datetime import datetime, timedelta
 import csv
 import json
@@ -9,6 +21,32 @@ from collections import OrderedDict
 from sqlalchemy import func, case, or_
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+DATA_EXPORT_MODELS = [
+    ('users', User),
+    ('activation_codes', ActivationCode),
+    ('activation_code_requests', ActivationCodeRequest),
+    ('prediction_records', PredictionRecord),
+    ('backtest_runs', BacktestRun),
+    ('invite_codes', InviteCode),
+    ('system_configs', SystemConfig),
+    ('zodiac_settings', ZodiacSetting),
+    ('manual_bet_records', ManualBetRecord),
+    ('lottery_draws', LotteryDraw),
+]
+
+DATA_EXPORT_LABELS = {
+    'users': '用户',
+    'activation_codes': '激活码',
+    'activation_code_requests': '激活码申请',
+    'prediction_records': '预测记录',
+    'backtest_runs': '回测记录',
+    'invite_codes': '邀请码',
+    'system_configs': '系统配置',
+    'zodiac_settings': '生肖设置',
+    'manual_bet_records': '下注记录',
+    'lottery_draws': '开奖数据',
+}
 
 LEARNING_PANEL_TERM_LABELS = {
     'hot': '热门',
@@ -179,6 +217,136 @@ def _build_strategy_visual_weights(strategy, config):
     if strategy == 'ai':
         return _build_ai_visual_weights(config)
     return []
+
+
+def _serialize_model_row(instance):
+    payload = {}
+    for column in instance.__table__.columns:
+        value = getattr(instance, column.name)
+        if isinstance(value, datetime):
+            payload[column.name] = value.isoformat()
+        else:
+            payload[column.name] = value
+    return payload
+
+
+def _parse_datetime_value(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    text = text.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"无法解析时间字段: {value}")
+
+
+def _deserialize_model_row(model, row):
+    values = {}
+    for column in model.__table__.columns:
+        name = column.name
+        if name not in row:
+            continue
+        value = row.get(name)
+        if value is None:
+            values[name] = None
+            continue
+        python_type = None
+        try:
+            python_type = column.type.python_type
+        except Exception:
+            python_type = None
+        if python_type is datetime:
+            values[name] = _parse_datetime_value(value)
+        elif python_type is bool:
+            if isinstance(value, str):
+                values[name] = value.strip().lower() in ("1", "true", "yes", "y", "on")
+            else:
+                values[name] = bool(value)
+        elif python_type is int:
+            values[name] = int(value)
+        elif python_type is float:
+            values[name] = float(value)
+        else:
+            values[name] = value
+    return model(**values)
+
+
+def _build_data_export_payload():
+    exported_at = datetime.now().isoformat()
+    data = {}
+    counts = {}
+    for key, model in DATA_EXPORT_MODELS:
+        rows = model.query.order_by(model.id.asc()).all()
+        data[key] = [_serialize_model_row(row) for row in rows]
+        counts[key] = len(data[key])
+    return {
+        "meta": {
+            "exported_at": exported_at,
+            "version": 1,
+        },
+        "counts": counts,
+        "data": data,
+    }
+
+
+def _validate_import_payload(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("导入文件格式不正确")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("导入文件缺少 data 节点")
+
+    users = data.get("users") or []
+    if not any(bool(item.get("is_admin")) for item in users):
+        raise ValueError("导入数据里至少需要保留一个管理员账号")
+
+
+def _clear_all_data():
+    delete_order = [
+        ManualBetRecord,
+        PredictionRecord,
+        ActivationCodeRequest,
+        ActivationCode,
+        InviteCode,
+        LotteryDraw,
+        ZodiacSetting,
+        SystemConfig,
+        BacktestRun,
+        User,
+    ]
+    for model in delete_order:
+        db.session.query(model).delete()
+
+
+def _import_data_payload(payload, mode):
+    _validate_import_payload(payload)
+    data = payload["data"]
+    imported_counts = {}
+
+    if mode == "replace":
+        _clear_all_data()
+
+    for key, model in DATA_EXPORT_MODELS:
+        rows = data.get(key) or []
+        imported_counts[key] = len(rows)
+        for row in rows:
+            instance = _deserialize_model_row(model, row)
+            db.session.merge(instance)
+
+    db.session.commit()
+    ZodiacSetting._macau_year_match_cache.clear()
+    return imported_counts
 
 
 def admin_required(f):
@@ -442,6 +610,70 @@ def dashboard():
                 'total_invites': 0
             }
         })
+
+
+@admin_bp.route('/data_transfer')
+@admin_required
+def data_transfer():
+    summary = []
+    for key, model in DATA_EXPORT_MODELS:
+        try:
+            count = model.query.count()
+        except Exception:
+            count = 0
+        summary.append({
+            'key': key,
+            'label': DATA_EXPORT_LABELS.get(key, key),
+            'count': count,
+        })
+    return render_template('admin/data_transfer.html', summary=summary)
+
+
+@admin_bp.route('/data_transfer/export')
+@admin_required
+def export_all_data():
+    try:
+        payload = _build_data_export_payload()
+        exported_at = datetime.now().strftime('%Y%m%d_%H%M%S')
+        return Response(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            mimetype='application/json',
+            headers={
+                'Content-Disposition': f'attachment; filename=mark_six_backup_{exported_at}.json'
+            }
+        )
+    except Exception as e:
+        flash(f'导出全部数据失败: {str(e)}', 'error')
+        return redirect(url_for('admin.data_transfer'))
+
+
+@admin_bp.route('/data_transfer/import', methods=['POST'])
+@admin_required
+def import_all_data():
+    try:
+        upload = request.files.get('file')
+        if not upload or not upload.filename:
+            flash('请选择要导入的 JSON 备份文件', 'error')
+            return redirect(url_for('admin.data_transfer'))
+
+        payload = json.load(upload.stream)
+        mode = str(request.form.get('import_mode') or 'merge').strip().lower()
+        if mode not in ('merge', 'replace'):
+            mode = 'merge'
+
+        imported_counts = _import_data_payload(payload, mode)
+        flash(
+            f"全部数据导入成功，模式：{'覆盖现有数据' if mode == 'replace' else '按主键合并'}。",
+            'success'
+        )
+        flash(
+            "；".join(f"{key} {count} 条" for key, count in imported_counts.items()),
+            'success'
+        )
+    except Exception as e:
+        db.session.rollback()
+        flash(f'导入全部数据失败: {str(e)}', 'error')
+    return redirect(url_for('admin.data_transfer'))
 
 @admin_bp.route('/users')
 @admin_required

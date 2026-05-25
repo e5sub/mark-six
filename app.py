@@ -16,6 +16,7 @@ import re
 from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 import time
+from sqlalchemy import inspect
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 
@@ -501,7 +502,10 @@ LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = _build_database_uri(db_path)
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {"pool_pre_ping": True}
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 280,
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 只在主进程中打印一次
@@ -513,6 +517,137 @@ if _should_log_startup():
 # 初始化数据库
 db.init_app(app)
 
+
+def _execute_ddl(statement):
+    with db.engine.begin() as connection:
+        connection.exec_driver_sql(statement)
+
+
+def _quote_identifier(name):
+    return db.engine.dialect.identifier_preparer.quote_identifier(str(name))
+
+
+def _deduplicate_prediction_records():
+    duplicate_groups = (
+        db.session.query(
+            PredictionRecord.user_id,
+            PredictionRecord.region,
+            PredictionRecord.period,
+            PredictionRecord.strategy,
+        )
+        .group_by(
+            PredictionRecord.user_id,
+            PredictionRecord.region,
+            PredictionRecord.period,
+            PredictionRecord.strategy,
+        )
+        .having(db.func.count(PredictionRecord.id) > 1)
+        .all()
+    )
+
+    removed_count = 0
+    for user_id, region, period, strategy in duplicate_groups:
+        duplicates = (
+            PredictionRecord.query.filter_by(
+                user_id=user_id,
+                region=region,
+                period=period,
+                strategy=strategy,
+            )
+            .order_by(PredictionRecord.id.desc())
+            .all()
+        )
+        for stale_row in duplicates[1:]:
+            db.session.delete(stale_row)
+            removed_count += 1
+
+    if removed_count:
+        db.session.commit()
+        if _should_log_startup():
+            print(f"Removed {removed_count} duplicate prediction_record rows")
+
+
+def _sync_runtime_database_schema():
+    inspector = inspect(db.engine)
+    dialect = db.engine.dialect.name
+
+    column_specs = {
+        'user': {
+            'auto_prediction_regions': "VARCHAR(20) DEFAULT 'hk,macau'",
+            'show_normal_numbers': 'BOOLEAN DEFAULT 0',
+        },
+        'prediction_record': {
+            'prediction_metadata': 'TEXT',
+        },
+    }
+
+    for table_name, columns in column_specs.items():
+        try:
+            existing_columns = {column['name'] for column in inspector.get_columns(table_name)}
+        except Exception:
+            existing_columns = set()
+        for column_name, ddl in columns.items():
+            if column_name in existing_columns:
+                continue
+            try:
+                quoted_table = _quote_identifier(table_name)
+                quoted_column = _quote_identifier(column_name)
+                _execute_ddl(f"ALTER TABLE {quoted_table} ADD COLUMN {quoted_column} {ddl}")
+                if _should_log_startup():
+                    print(f"Added missing column {table_name}.{column_name} for {dialect}")
+            except Exception as e:
+                print(f"Failed to add missing column {table_name}.{column_name}: {e}")
+
+    try:
+        existing_indexes = {item['name'] for item in inspector.get_indexes('prediction_record')}
+    except Exception:
+        existing_indexes = set()
+    try:
+        existing_unique_constraints = {
+            item['name']
+            for item in inspector.get_unique_constraints('prediction_record')
+            if item.get('name')
+        }
+    except Exception:
+        existing_unique_constraints = set()
+
+    prediction_record_index_ddls = {
+        'uq_prediction_record_user_region_period_strategy': (
+            f'CREATE UNIQUE INDEX {_quote_identifier("uq_prediction_record_user_region_period_strategy")} '
+            f'ON {_quote_identifier("prediction_record")} '
+            f'({_quote_identifier("user_id")}, {_quote_identifier("region")}, '
+            f'{_quote_identifier("period")}, {_quote_identifier("strategy")})'
+        ),
+        'ix_prediction_record_user_strategy_created_at': (
+            f'CREATE INDEX {_quote_identifier("ix_prediction_record_user_strategy_created_at")} '
+            f'ON {_quote_identifier("prediction_record")} '
+            f'({_quote_identifier("user_id")}, {_quote_identifier("strategy")}, '
+            f'{_quote_identifier("created_at")})'
+        ),
+        'ix_prediction_record_user_strategy_region_period': (
+            f'CREATE INDEX {_quote_identifier("ix_prediction_record_user_strategy_region_period")} '
+            f'ON {_quote_identifier("prediction_record")} '
+            f'({_quote_identifier("user_id")}, {_quote_identifier("strategy")}, '
+            f'{_quote_identifier("region")}, {_quote_identifier("period")})'
+        ),
+    }
+
+    for name, ddl in prediction_record_index_ddls.items():
+        if name == 'uq_prediction_record_user_region_period_strategy':
+            try:
+                _deduplicate_prediction_records()
+            except Exception as e:
+                db.session.rollback()
+                print(f"Failed to deduplicate prediction_record before creating {name}: {e}")
+        if name in existing_indexes or name in existing_unique_constraints:
+            continue
+        try:
+            _execute_ddl(ddl)
+            if _should_log_startup():
+                print(f"Created missing index {name} for {dialect}")
+        except Exception as e:
+            print(f"Failed to create missing index {name}: {e}")
+
 def ensure_runtime_database_schema():
     """在应用启动时尽早补齐数据库结构，避免WSGI模式下缺列报错。"""
     with app.app_context():
@@ -520,6 +655,11 @@ def ensure_runtime_database_schema():
             db.create_all()
         except Exception as e:
             print(f"创建数据库表时出错: {e}")
+
+        try:
+            _sync_runtime_database_schema()
+        except Exception as e:
+            print(f"Runtime schema sync failed: {e}")
 
         try:
             from auto_update_db import check_and_update_database
