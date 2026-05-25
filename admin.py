@@ -698,7 +698,8 @@ def users():
             page=page, per_page=20, error_out=False
         )
         
-        return render_template('admin/users.html', users=users, search_query=search_query)
+        admin_count = User.query.filter(User.is_admin.is_(True)).count()
+        return render_template('admin/users.html', users=users, search_query=search_query, admin_count=admin_count)
     except Exception as e:
         flash(f'加载用户数据失败: {str(e)}', 'error')
         # 创建空的分页对象
@@ -716,7 +717,7 @@ def users():
                 self.next_num = None
         
         empty_users = EmptyPagination()
-        return render_template('admin/users.html', users=empty_users)
+        return render_template('admin/users.html', users=empty_users, admin_count=0)
 
 @admin_bp.route('/user/<int:user_id>/edit', methods=['GET', 'POST'])
 @admin_required
@@ -894,11 +895,12 @@ def delete_user(user_id):
     try:
         user = User.query.get_or_404(user_id)
         
-        # 防止删除管理员账号
         if user.is_admin:
-            flash('不能删除管理员账号', 'error')
-            return redirect(url_for('admin.users'))
-        
+            admin_count = User.query.filter(User.is_admin.is_(True)).count()
+            if admin_count <= 1:
+                flash('至少保留一个管理员账号，不能删除最后一个管理员', 'error')
+                return redirect(url_for('admin.users'))
+
         db.session.delete(user)
         db.session.commit()
         flash('用户删除成功', 'success')

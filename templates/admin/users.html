@@ -83,7 +83,7 @@
                             {% endif %}
                             <a href="{{ url_for('admin.edit_user', user_id=user.id) }}" class="btn btn-primary btn-sm">编辑</a>
                             <button class="btn btn-warning btn-sm" onclick="resetPassword({{ user.id }})">重置密码</button>
-                            {% if not user.is_admin %}
+                            {% if not user.is_admin or admin_count > 1 %}
                                 <button class="btn btn-danger btn-sm" onclick="deleteUser({{ user.id }})">删除</button>
                             {% endif %}
                         </div>

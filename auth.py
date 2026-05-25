@@ -247,6 +247,7 @@ def register():
         return redirect(url_for('auth.login'))
 
     if request.method == 'POST':
+        first_admin = not _has_admin_account()
         username = request.form.get('username')
         email = request.form.get('email')
         password = request.form.get('password')
@@ -280,8 +281,8 @@ def register():
             flash('当前已开启邮箱验证，但邮件服务未配置完成，请联系管理员', 'error')
             return _render_auth_template('auth/register.html')
         
-        # 创建用户（默认为普通用户，非管理员）
-        user = User(username=username, email=email, is_admin=False)
+        # 首个注册用户自动成为管理员
+        user = User(username=username, email=email, is_admin=first_admin)
         user.set_password(password)
         
         db.session.add(user)
@@ -311,14 +312,16 @@ def register():
                 db.session.rollback()
                 return _render_auth_template('auth/register.html')
         
-        if not invite_code:
+        if first_admin or not invite_code:
             user.extend_activation(7)
             user.is_active = True
             user.auto_prediction_enabled = True
 
         db.session.commit()
 
-        if require_email_verification:
+        if first_admin:
+            flash('注册成功，您已成为首个管理员账号', 'success')
+        elif require_email_verification:
             try:
                 _mark_email_verification_pending(user)
                 verification_token = _create_email_verification_token(user)
@@ -335,9 +338,6 @@ def register():
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    if not _has_admin_account():
-        return redirect(url_for('auth.setup_admin'))
-
     if request.method == 'POST':
         username_or_email = request.form.get('username')
         password = request.form.get('password')
@@ -384,67 +384,7 @@ def login():
 
 @auth_bp.route('/setup-admin', methods=['GET', 'POST'])
 def setup_admin():
-    if _has_admin_account():
-        abort(404)
-
-    if request.method == 'POST':
-        username = (request.form.get('username') or '').strip()
-        email = (request.form.get('email') or '').strip().lower()
-        password = request.form.get('password') or ''
-        confirm_password = request.form.get('confirm_password') or ''
-
-        if not username or not email or not password or not confirm_password:
-            flash('请完整填写管理员信息', 'error')
-            return _render_auth_template('auth/setup_admin.html')
-
-        if len(username) < 3:
-            flash('管理员用户名至少需要 3 个字符', 'error')
-            return _render_auth_template('auth/setup_admin.html')
-
-        if '@' not in email or '.' not in email:
-            flash('请输入有效的邮箱地址', 'error')
-            return _render_auth_template('auth/setup_admin.html')
-
-        if len(password) < 6:
-            flash('管理员密码至少需要 6 个字符', 'error')
-            return _render_auth_template('auth/setup_admin.html')
-
-        if password != confirm_password:
-            flash('两次输入的密码不一致', 'error')
-            return _render_auth_template('auth/setup_admin.html')
-
-        if User.query.filter_by(username=username).first():
-            flash('管理员用户名已存在', 'error')
-            return _render_auth_template('auth/setup_admin.html')
-
-        if User.query.filter_by(email=email).first():
-            flash('管理员邮箱已存在', 'error')
-            return _render_auth_template('auth/setup_admin.html')
-
-        try:
-            admin_user = User(
-                username=username,
-                email=email,
-                is_active=True,
-                is_admin=True,
-            )
-            admin_user.set_password(password)
-            db.session.add(admin_user)
-            db.session.commit()
-
-            session['user_id'] = admin_user.id
-            session['username'] = admin_user.username
-            session['is_admin'] = True
-            session['is_active'] = True
-            session.permanent = True
-
-            flash('首个管理员账号创建成功', 'success')
-            return redirect(url_for('admin.dashboard'))
-        except Exception as e:
-            db.session.rollback()
-            flash(f'创建管理员失败: {str(e)}', 'error')
-
-    return _render_auth_template('auth/setup_admin.html')
+    abort(404)
 
 @auth_bp.route('/logout')
 def logout():

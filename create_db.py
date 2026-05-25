@@ -254,7 +254,7 @@ except Exception as e:
     print("请手动执行 python auto_update_db.py")
 
 print("\n系统信息:")
-print("- 首次部署请访问 /auth/setup-admin 手动创建管理员账号")
+print("- 首次部署时，第一个注册的用户会自动成为管理员")
 print("- 系统不再写死默认管理员账号和密码")
 print("- 请在管理后台配置AI API和邮箱服务")
 print("\n邀请系统:")
