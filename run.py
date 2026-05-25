@@ -25,9 +25,8 @@ def main():
         print("✓ 数据将在首次访问时自动获取")
         
         print("\n系统信息:")
-        print("- 默认管理员账号: admin")
-        print("- 默认管理员密码: admin123")
-        print("- 请在首次登录后修改管理员密码")
+        print("- 首次部署请访问 /auth/setup-admin 手动创建管理员账号")
+        print("- 系统不再写死默认管理员账号和密码")
         print("- 请在管理后台配置AI API和邮箱服务")
         
         print("\n启动Web服务器...")

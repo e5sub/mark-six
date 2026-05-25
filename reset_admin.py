@@ -1,123 +1,89 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-重置管理员密码脚本
+通过 Python 命令行重置管理员账号密码。
+
+用法示例：
+    python reset_admin.py --username admin --password NewPass123
+    python reset_admin.py --email admin@example.com --password NewPass123
+    python reset_admin.py --list-admins
 """
 
-import os
-import sqlite3
-import hashlib
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-重置管理员密码脚本
-"""
+import argparse
+import sys
 
-import os
-import sqlite3
-from werkzeug.security import generate_password_hash
+from app import app
+from models import db, User
 
-# 确保数据目录存在
-data_dir = os.path.join(os.getcwd(), 'data')
-db_path = os.path.join(data_dir, 'lottery_system.db')
 
-if not os.path.exists(db_path):
-    print(f"错误: 数据库文件不存在: {db_path}")
-    exit(1)
+def build_parser():
+    parser = argparse.ArgumentParser(description="重置管理员账号密码")
+    parser.add_argument("--username", help="管理员用户名")
+    parser.add_argument("--email", help="管理员邮箱")
+    parser.add_argument("--password", help="新的管理员密码")
+    parser.add_argument(
+        "--list-admins",
+        action="store_true",
+        help="列出当前所有管理员账号",
+    )
+    return parser
 
-# 连接数据库
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
 
-# 生成与Werkzeug兼容的密码哈希
-def generate_password_hash(password):
-    """生成与Werkzeug兼容的密码哈希"""
-    # 使用pbkdf2:sha256方法，与Werkzeug默认方法兼容
-    method = 'pbkdf2:sha256:150000'
-    salt = os.urandom(8).hex()
-    h = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 150000)
-    hash_value = h.hex()
-    return f"{method}${salt}${hash_value}"
+def list_admins():
+    admins = User.query.filter(User.is_admin.is_(True)).order_by(User.id.asc()).all()
+    if not admins:
+        print("当前没有管理员账号。")
+        return 1
 
-# 新密码
-new_password = 'admin123'
-password_hash = generate_password_hash(new_password)
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-重置管理员密码脚本
-"""
+    print("当前管理员账号：")
+    for admin in admins:
+        print(f"- id={admin.id} username={admin.username} email={admin.email} active={admin.is_active}")
+    return 0
 
-import os
-import sqlite3
-import hashlib
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-重置管理员密码脚本
-"""
 
-import os
-import sqlite3
-from werkzeug.security import generate_password_hash
+def reset_admin_password(username=None, email=None, password=None):
+    if not password:
+        print("错误：必须提供 --password")
+        return 1
 
-# 确保数据目录存在
-data_dir = os.path.join(os.getcwd(), 'data')
-db_path = os.path.join(data_dir, 'lottery_system.db')
+    if len(password) < 6:
+        print("错误：新密码至少需要 6 个字符")
+        return 1
 
-if not os.path.exists(db_path):
-    print(f"错误: 数据库文件不存在: {db_path}")
-    exit(1)
+    query = User.query.filter(User.is_admin.is_(True))
+    if username:
+        query = query.filter(User.username == username)
+    elif email:
+        query = query.filter(User.email == email)
+    else:
+        print("错误：请使用 --username 或 --email 指定管理员账号")
+        return 1
 
-# 连接数据库
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
+    admin = query.first()
+    if not admin:
+        print("错误：未找到匹配的管理员账号")
+        return 1
 
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-重置管理员密码脚本
-"""
+    admin.set_password(password)
+    admin.is_admin = True
+    db.session.commit()
+    print(f"已重置管理员密码：username={admin.username} email={admin.email}")
+    return 0
 
-import os
-import sqlite3
-import hashlib
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-重置管理员密码脚本
-"""
 
-import os
-import sqlite3
-from werkzeug.security import generate_password_hash
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
 
-# 确保数据目录存在
-data_dir = os.path.join(os.getcwd(), 'data')
-db_path = os.path.join(data_dir, 'lottery_system.db')
+    with app.app_context():
+        if args.list_admins:
+            return list_admins()
+        return reset_admin_password(
+            username=(args.username or "").strip() or None,
+            email=(args.email or "").strip() or None,
+            password=args.password,
+        )
 
-if not os.path.exists(db_path):
-    print(f"错误: 数据库文件不存在: {db_path}")
-    exit(1)
 
-# 连接数据库
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
-
-# 新密码
-new_password = 'admin123'
-password_hash = generate_password_hash(new_password)
-
-# 更新管理员密码
-cursor.execute('''
-UPDATE user 
-SET password_hash = ? 
-WHERE username = 'admin'
-''', (password_hash,))
-
-# 提交更改并关闭连接
-conn.commit()
-conn.close()
-
-print(f"✓ 管理员密码已重置为: {new_password}")
-print("请立即登录并修改此默认密码")
+if __name__ == "__main__":
+    sys.exit(main())

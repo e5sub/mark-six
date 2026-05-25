@@ -204,7 +204,6 @@ CREATE TABLE zodiac_settings (
 
 print("表创建完成，正在添加初始数据...")
 
-# 创建管理员用户
 # 使用与Werkzeug兼容的密码哈希格式
 def generate_password_hash(password):
     """生成与Werkzeug兼容的密码哈希"""
@@ -214,12 +213,6 @@ def generate_password_hash(password):
     h = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 150000)
     hash_value = h.hex()
     return f"{method}${salt}${hash_value}"
-
-admin_password_hash = generate_password_hash('admin123')
-cursor.execute('''
-INSERT INTO user (username, email, password_hash, is_active, is_admin)
-VALUES (?, ?, ?, ?, ?)
-''', ('admin', 'admin@example.com', admin_password_hash, 1, 1))
 
 # 添加系统配置
 configs = [
@@ -261,9 +254,8 @@ except Exception as e:
     print("请手动执行 python auto_update_db.py")
 
 print("\n系统信息:")
-print("- 默认管理员账号: admin")
-print("- 默认管理员密码: admin123")
-print("- 请在首次登录后修改管理员密码")
+print("- 首次部署请访问 /auth/setup-admin 手动创建管理员账号")
+print("- 系统不再写死默认管理员账号和密码")
 print("- 请在管理后台配置AI API和邮箱服务")
 print("\n邀请系统:")
 print("- 已创建邀请码表和相关字段")

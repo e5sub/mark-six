@@ -9969,20 +9969,7 @@ def init_database():
         except Exception as e:
             print(f"自动更新数据库结构时出错: {e}")
         
-        # 检查是否存在管理员账号，如果不存在则创建默认管理员
         admin = User.query.filter_by(is_admin=True).first()
-        if not admin:
-            admin = User(
-                username='admin',
-                email='admin@example.com',
-                is_active=True,
-                is_admin=True
-            )
-            admin.set_password('admin123')  # 默认密码，请在首次登录后修改
-            db.session.add(admin)
-            db.session.commit()
-            if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
-                print("已创建默认管理员账号: admin / admin123")
         
         # 初始化系统配置
         configs = [
@@ -10004,18 +9991,21 @@ def init_database():
         
         # 为管理员创建示例邀请码
         try:
-            existing_codes = InviteCode.query.filter_by(created_by='admin').count()
-            if existing_codes == 0:
+            if admin:
+                existing_codes = InviteCode.query.filter_by(created_by=admin.username).count()
+            else:
+                existing_codes = 0
+            if admin and existing_codes == 0:
                 from datetime import timedelta
                 for i in range(3):
                     invite_code = InviteCode()
                     invite_code.code = InviteCode.generate_code()
-                    invite_code.created_by = 'admin'
+                    invite_code.created_by = admin.username
                     invite_code.expires_at = datetime.now() + timedelta(days=30)
                     db.session.add(invite_code)
                 db.session.commit()
                 if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
-                    print("✅ 为管理员创建了3个示例邀请码")
+                    print("✅ 已为首个管理员预置示例邀请码")
         except Exception as e:
             print(f"创建示例邀请码时出错: {e}")
 

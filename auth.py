@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, abort
 from models import db, User, ActivationCode, ActivationCodeRequest, SystemConfig, InviteCode
 from werkzeug.security import generate_password_hash
 import uuid
@@ -27,8 +27,13 @@ def _email_verification_required():
     return _is_config_enabled('require_email_verification', 'false')
 
 
+def _has_admin_account():
+    return db.session.query(User.id).filter(User.is_admin.is_(True)).first() is not None
+
+
 def _render_auth_template(template_name, **context):
     context.setdefault('require_email_verification', _email_verification_required())
+    context.setdefault('admin_setup_required', not _has_admin_account())
     return render_template(template_name, **context)
 
 
@@ -330,6 +335,9 @@ def register():
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
+    if not _has_admin_account():
+        return redirect(url_for('auth.setup_admin'))
+
     if request.method == 'POST':
         username_or_email = request.form.get('username')
         password = request.form.get('password')
@@ -372,6 +380,71 @@ def login():
             flash('用户名/邮箱或密码错误', 'error')
     
     return _render_auth_template('auth/login.html')
+
+
+@auth_bp.route('/setup-admin', methods=['GET', 'POST'])
+def setup_admin():
+    if _has_admin_account():
+        abort(404)
+
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        email = (request.form.get('email') or '').strip().lower()
+        password = request.form.get('password') or ''
+        confirm_password = request.form.get('confirm_password') or ''
+
+        if not username or not email or not password or not confirm_password:
+            flash('请完整填写管理员信息', 'error')
+            return _render_auth_template('auth/setup_admin.html')
+
+        if len(username) < 3:
+            flash('管理员用户名至少需要 3 个字符', 'error')
+            return _render_auth_template('auth/setup_admin.html')
+
+        if '@' not in email or '.' not in email:
+            flash('请输入有效的邮箱地址', 'error')
+            return _render_auth_template('auth/setup_admin.html')
+
+        if len(password) < 6:
+            flash('管理员密码至少需要 6 个字符', 'error')
+            return _render_auth_template('auth/setup_admin.html')
+
+        if password != confirm_password:
+            flash('两次输入的密码不一致', 'error')
+            return _render_auth_template('auth/setup_admin.html')
+
+        if User.query.filter_by(username=username).first():
+            flash('管理员用户名已存在', 'error')
+            return _render_auth_template('auth/setup_admin.html')
+
+        if User.query.filter_by(email=email).first():
+            flash('管理员邮箱已存在', 'error')
+            return _render_auth_template('auth/setup_admin.html')
+
+        try:
+            admin_user = User(
+                username=username,
+                email=email,
+                is_active=True,
+                is_admin=True,
+            )
+            admin_user.set_password(password)
+            db.session.add(admin_user)
+            db.session.commit()
+
+            session['user_id'] = admin_user.id
+            session['username'] = admin_user.username
+            session['is_admin'] = True
+            session['is_active'] = True
+            session.permanent = True
+
+            flash('首个管理员账号创建成功', 'success')
+            return redirect(url_for('admin.dashboard'))
+        except Exception as e:
+            db.session.rollback()
+            flash(f'创建管理员失败: {str(e)}', 'error')
+
+    return _render_auth_template('auth/setup_admin.html')
 
 @auth_bp.route('/logout')
 def logout():

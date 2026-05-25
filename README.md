@@ -92,7 +92,7 @@ http://localhost:5000
 ## 默认账号
 
 - 用户名：`admin`
-- 密码：`admin123`
+- 首次部署后访问：`/auth/setup-admin`
 
 首次登录后请立即修改密码。
 
@@ -187,11 +187,13 @@ http://localhost:5000
 
 ## 注意事项
 
-1. 首次运行会自动创建数据库和默认管理员账号
+1. 首次运行会自动创建数据库；首个管理员需要访问 `/auth/setup-admin` 手动创建
 2. 使用 AI 相关功能前，需要先配置有效的 AI 接口信息
 3. 使用邮件功能前，需要先配置可用的 SMTP 服务
 4. 生产环境请使用安全的 `SECRET_KEY`
 5. 当前仓库中仍保留 `mark-six` 作为项目标识与源码链接
+6. 如需通过 Python 重置管理员密码，可使用：
+   `python reset_admin.py --username 你的管理员用户名 --password 新密码`
 
 ## 免责声明
 
