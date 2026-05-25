@@ -66,6 +66,14 @@
                            value="{{ configs.get('smtp_password', '') }}"
                            placeholder="应用专用密码">
                 </div>
+
+                <div class="form-group">
+                    <label>激活申请通知邮箱</label>
+                    <input type="text" name="activation_request_notify_emails" class="form-control"
+                           value="{{ configs.get('activation_request_notify_emails', '') }}"
+                           placeholder="多个邮箱用英文逗号分隔；留空则发给所有管理员账号邮箱">
+                    <small style="color: #666;">当用户申请激活码时，系统会发送通知到这些邮箱。</small>
+                </div>
             </div>
 
             <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">

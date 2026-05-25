@@ -121,6 +121,85 @@ def _send_html_email(email, subject, html_body):
     server.quit()
 
 
+def _get_admin_notification_emails():
+    raw_emails = str(
+        SystemConfig.get_config('activation_request_notify_emails', '')
+    ).strip()
+    recipients = []
+
+    if raw_emails:
+        normalized = raw_emails.replace(';', ',')
+        for chunk in normalized.replace(';', ',').split(','):
+            email = chunk.strip()
+            if email and email not in recipients:
+                recipients.append(email)
+
+    if recipients:
+        return recipients
+
+    admin_users = User.query.filter(
+        User.is_admin.is_(True),
+        User.email.isnot(None),
+        User.email != ''
+    ).all()
+    for admin in admin_users:
+        email = str(admin.email or '').strip()
+        if email and email not in recipients:
+            recipients.append(email)
+    return recipients
+
+
+def send_activation_request_notification(request_record):
+    if not _has_smtp_config():
+        return False
+
+    recipients = _get_admin_notification_emails()
+    if not recipients:
+        return False
+
+    site_name = SystemConfig.get_config('site_name', 'AI Prediction System')
+    admin_url = url_for('admin.activation_codes', _external=True)
+    created_at = getattr(request_record, 'created_at', None)
+    created_at_text = (
+        created_at.strftime('%Y-%m-%d %H:%M:%S UTC')
+        if created_at else
+        datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+    )
+    request_note = (getattr(request_record, 'request_note', '') or '').strip() or 'N/A'
+    subject = f'{site_name} - New activation code request'
+    html_body = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #28a745;">New activation code request received</h2>
+            <p>A user has just submitted an activation code request. Please review it soon.</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+                <tr><td style="padding: 8px; border: 1px solid #eee; width: 140px;"><strong>Request ID</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.id}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Username</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.username}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Email</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.email}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Status</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.status}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Requested At</strong></td><td style="padding: 8px; border: 1px solid #eee;">{created_at_text}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Note</strong></td><td style="padding: 8px; border: 1px solid #eee; white-space: pre-wrap;">{request_note}</td></tr>
+            </table>
+            <div style="margin: 30px 0; text-align: center;">
+                <a href="{admin_url}"
+                   style="background: #28a745; color: white; text-decoration: none; padding: 12px 24px; border-radius: 6px; display: inline-block;">
+                    Open admin panel
+                </a>
+            </div>
+            <p style="color: #999; font-size: 12px; text-align: center;">
+                This email was sent automatically by {site_name}. Please do not reply.
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+
+    for email in recipients:
+        _send_html_email(email, subject, html_body)
+    return True
+
+
 def send_verification_email(user, token):
     site_name = SystemConfig.get_config('site_name', 'AI预测系统')
     verify_url = url_for('auth.verify_email', token=token, _external=True)

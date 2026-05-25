@@ -929,6 +929,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     'smtp_port': '587',
     'smtp_username': '',
     'smtp_password': '',
+    'activation_request_notify_emails': '',
     'site_name': '六合彩预测系统',
     'site_description': '',
     'invite_daily_limit': '3',

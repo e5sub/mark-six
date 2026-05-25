@@ -17,6 +17,7 @@ from models import (
     ZodiacSetting,
     db,
 )
+from auth import send_activation_request_notification
 
 
 mobile_api_bp = Blueprint("mobile_api", __name__, url_prefix="/api/mobile")
@@ -507,6 +508,12 @@ def api_request_activation_code():
     )
     db.session.add(request_record)
     db.session.commit()
+
+    try:
+        send_activation_request_notification(request_record)
+    except Exception as e:
+        print(f"Failed to send activation request admin notification: {e}")
+
     return jsonify({
         "success": True,
         "message": "activation request submitted",
