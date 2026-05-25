@@ -96,6 +96,15 @@ _lottery_update_lock = threading.Lock()
 _lottery_update_state_lock = threading.Lock()
 _lottery_update_running = False
 _lottery_update_started_at = None
+_lottery_update_last_status = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "status": "idle",
+    "message": "",
+    "regions": (),
+    "source": "",
+}
 
 def _pid_is_running(pid):
     if pid <= 0:
@@ -730,6 +739,7 @@ def _sync_runtime_database_schema():
 
 def ensure_runtime_database_schema():
     """在应用启动时尽早补齐数据库结构，避免WSGI模式下缺列报错。"""
+    summary = {}
     with app.app_context():
         try:
             db.create_all()
@@ -9446,6 +9456,7 @@ def _run_lottery_update_job(regions=None, source="scheduler"):
         if "hk" in normalized_regions:
             print("正在同步香港数据...")
             hk_data = sync_draws_from_api('hk', current_year, force=True)
+            summary["hk"] = len(hk_data)
             print(f"香港数据更新完成：{len(hk_data)}条")
             update_hk_next_draw_time_cache(force=True)
             prediction_hk_data, _ = _get_prediction_data('hk', current_year)
@@ -9455,6 +9466,7 @@ def _run_lottery_update_job(regions=None, source="scheduler"):
         if "macau" in normalized_regions:
             print("正在同步澳门数据...")
             macau_data = sync_draws_from_api('macau', current_year, force=True)
+            summary["macau"] = len(macau_data)
             print(f"澳门数据更新完成：{len(macau_data)}条")
             prediction_macau_data, _ = _get_prediction_data('macau', current_year)
             if prediction_macau_data:
@@ -9462,24 +9474,52 @@ def _run_lottery_update_job(regions=None, source="scheduler"):
                 refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
     print(f"开奖更新任务执行完成 source={source} regions={normalized_regions}")
 
+    return summary
 
 def _start_lottery_update_async(regions=None, source="scheduler"):
-    global _lottery_update_thread, _lottery_update_running, _lottery_update_started_at
+    global _lottery_update_thread, _lottery_update_running, _lottery_update_started_at, _lottery_update_last_status
     normalized_regions = tuple(_normalize_update_regions(",".join(regions) if isinstance(regions, (list, tuple, set)) else regions))
     with _lottery_update_lock:
         if _lottery_update_running:
             return False, tuple(normalized_regions)
         _lottery_update_running = True
         _lottery_update_started_at = datetime.now().isoformat(timespec="seconds")
+        _lottery_update_last_status = {
+            "running": True,
+            "started_at": _lottery_update_started_at,
+            "finished_at": None,
+            "status": "running",
+            "message": "正在从官方数据源获取最新开奖数据...",
+            "regions": normalized_regions,
+            "source": source,
+        }
 
         def _runner():
-            global _lottery_update_running, _lottery_update_started_at
+            global _lottery_update_running, _lottery_update_started_at, _lottery_update_last_status
             try:
-                _run_lottery_update_job(normalized_regions, source=source)
+                summary = _run_lottery_update_job(normalized_regions, source=source)
+                _lottery_update_last_status = {
+                    "running": False,
+                    "started_at": _lottery_update_started_at,
+                    "finished_at": datetime.now().isoformat(timespec="seconds"),
+                    "status": "success",
+                    "message": f"开奖数据更新完成：香港 {summary.get('hk', 0)} 条，澳门 {summary.get('macau', 0)} 条",
+                    "regions": normalized_regions,
+                    "source": source,
+                }
             except Exception as e:
                 print(f"开奖更新后台任务失败 source={source}: {e}")
                 import traceback
                 traceback.print_exc()
+                _lottery_update_last_status = {
+                    "running": False,
+                    "started_at": _lottery_update_started_at,
+                    "finished_at": datetime.now().isoformat(timespec="seconds"),
+                    "status": "failed",
+                    "message": f"开奖数据更新失败: {e}",
+                    "regions": normalized_regions,
+                    "source": source,
+                }
             finally:
                 with _lottery_update_state_lock:
                     _lottery_update_running = False
@@ -9510,6 +9550,20 @@ def update_data_api():
         "queued": False,
         "message": "已有更新任务正在执行，请稍后刷新页面查看最新结果"
     }), 202
+
+@app.route('/api/update_data_status')
+def update_data_status_api():
+    with _lottery_update_state_lock:
+        return jsonify({
+            "success": True,
+            "running": bool(_lottery_update_running),
+            "started_at": _lottery_update_last_status.get("started_at"),
+            "finished_at": _lottery_update_last_status.get("finished_at"),
+            "status": _lottery_update_last_status.get("status", "idle"),
+            "message": _lottery_update_last_status.get("message", ""),
+            "regions": list(_lottery_update_last_status.get("regions") or []),
+            "source": _lottery_update_last_status.get("source", ""),
+        })
 
 @app.route('/api/number_frequency')
 def number_frequency_api():
