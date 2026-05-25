@@ -103,12 +103,9 @@
                         主配置 {{ current[strategy_key].primary_runtime_profile_label or '基础档' }} · {{ current[strategy_key].primary_feature_profile_label or '完整特征' }}，
                         固化状态 {{ current[strategy_key].promotion_strength_label or '观察中' }}，
                         学习把握度 {{ current[strategy_key].profile_learning_confidence or 0 }}%
-                        <div style="margin-top:0.45rem; color:#dbe4f0;">
-                            最近调整 {{ current[strategy_key].latest_promotion_time[:16].replace('T', ' ') if current[strategy_key].latest_promotion_time else '等待生成' }}
-                        </div>
                         {% if current[strategy_key].promotion_history %}
                         <div style="margin-top:0.45rem; display:grid; gap:0.3rem;">
-                            {% for history in current[strategy_key].promotion_history[:3] %}
+                            {% for history in current[strategy_key].promotion_history[:1] %}
                             <div style="padding:0.38rem 0.5rem; border-radius:8px; background:rgba(30,41,59,0.92); border:1px solid rgba(148,163,184,0.12); color:#dbe4f0;">
                                 {{ history.timestamp[:16].replace('T', ' ') if history.timestamp else '' }} ·
                                 {{ history.strength_label or '观察中' }} ·

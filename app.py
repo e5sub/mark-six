@@ -9,6 +9,7 @@ import copy
 import requests
 import smtplib
 import threading
+from contextlib import contextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import Counter
@@ -37,6 +38,7 @@ os.makedirs(data_dir, exist_ok=True)
 _ML_PREDICTION_CACHE_TTL_SECONDS = 180
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
+_strategy_config_override_local = threading.local()
 
 def _load_or_create_secret_key():
     env_secret = os.environ.get("SECRET_KEY")
@@ -1839,6 +1841,15 @@ def _load_strategy_config(strategy, region):
         stored_value = stored.get(key)
         if isinstance(default_value, dict) and isinstance(stored_value, dict):
             merged[key] = {**default_value, **stored_value}
+    override_bucket = getattr(_strategy_config_override_local, "configs", {})
+    override = dict(override_bucket.get((region, strategy)) or {})
+    if override:
+        base_before_override = dict(merged)
+        merged = {**merged, **override}
+        for field, override_value in override.items():
+            default_value = base_before_override.get(field)
+            if isinstance(default_value, dict) and isinstance(override_value, dict):
+                merged[field] = {**default_value, **override_value}
     if "updated_at" not in merged:
         merged["updated_at"] = datetime.now().isoformat()
     return merged
@@ -1847,6 +1858,29 @@ def _save_strategy_config(strategy, region, config):
     key = _strategy_config_key(region, strategy)
     payload = json.dumps(config, ensure_ascii=True)
     SystemConfig.set_config(key, payload, f"Auto-tuned config for {strategy} ({region})")
+
+
+@contextmanager
+def _temporary_strategy_config_override(region, strategy, override):
+    if not override:
+        yield
+        return
+
+    bucket = dict(getattr(_strategy_config_override_local, "configs", {}) or {})
+    override_key = (region, strategy)
+    previous = bucket.get(override_key)
+    merged_override = {**(previous or {}), **dict(override)}
+    bucket[override_key] = merged_override
+    _strategy_config_override_local.configs = bucket
+    try:
+        yield
+    finally:
+        current_bucket = dict(getattr(_strategy_config_override_local, "configs", {}) or {})
+        if previous is None:
+            current_bucket.pop(override_key, None)
+        else:
+            current_bucket[override_key] = previous
+        _strategy_config_override_local.configs = current_bucket
 
 
 def _normalize_draw_number(value):
@@ -2023,15 +2057,7 @@ def _build_ml_display_copy(model_meta):
 
 
 def _calculate_strategy_accuracy(region, strategy, limit=200):
-    query = PredictionRecord.query.filter_by(
-        region=region,
-        strategy=strategy,
-        is_result_updated=True
-    ).filter(PredictionRecord.actual_special_number != None)
-    query = query.order_by(PredictionRecord.created_at.desc())
-    if limit:
-        query = query.limit(limit)
-    predictions = query.all()
+    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
     if not predictions:
         return 0.0, 0
 
@@ -2048,15 +2074,7 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
 
 
 def _calculate_strategy_hit_rates(region, strategy, limit=200):
-    query = PredictionRecord.query.filter_by(
-        region=region,
-        strategy=strategy,
-        is_result_updated=True
-    ).filter(PredictionRecord.actual_special_number != None)
-    query = query.order_by(PredictionRecord.created_at.desc())
-    if limit:
-        query = query.limit(limit)
-    predictions = query.all()
+    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
     if not predictions:
         return {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0}
 
@@ -2159,15 +2177,7 @@ def _get_phase_history_before_period(draws_desc, target_period, window=12):
 
 
 def _calculate_strategy_phase_hit_rates(region, strategy, phases=("hot", "cold", "concentrated", "dispersed"), phase_window=12, limit=180):
-    query = PredictionRecord.query.filter_by(
-        region=region,
-        strategy=strategy,
-        is_result_updated=True,
-    ).filter(PredictionRecord.actual_special_number != None)
-    query = query.order_by(PredictionRecord.created_at.desc())
-    if limit:
-        query = query.limit(limit)
-    predictions = query.all()
+    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
     if not predictions:
         return {
             "aggregate": {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0, "score": 0.0},
@@ -3954,12 +3964,7 @@ def _personalized_predictions_enabled():
     return raw in {'true', '1', 'yes', 'on'}
 
 def _build_prediction_feedback(region, strategy, limit=240, cutoff_period=None):
-    query = PredictionRecord.query.filter_by(
-        region=region,
-        strategy=strategy,
-        is_result_updated=True
-    ).filter(PredictionRecord.actual_special_number != None)
-    predictions = query.order_by(PredictionRecord.created_at.desc()).all()
+    predictions = _load_learning_scope_predictions(region, strategy)
     if cutoff_period:
         predictions = [
             pred for pred in predictions
@@ -7998,6 +8003,95 @@ def _merge_draw_history_desc(*draw_groups, limit=None):
     return merged
 
 
+LEARNING_SCOPE_MIN_SAMPLES = 36
+LEARNING_SCOPE_DRAW_LIMIT = 720
+
+
+def _load_learning_scope_predictions(region, strategy, limit=None, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy=strategy,
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).all()
+    if not predictions:
+        return []
+
+    scoped = _apply_lunar_learning_scope_to_predictions(
+        predictions,
+        region,
+        minimum_samples=minimum_samples,
+    )
+    if limit:
+        return scoped[:limit]
+    return scoped
+
+
+def _apply_lunar_learning_scope_to_predictions(predictions, region, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES):
+    try:
+        from models import ZodiacSetting
+        current_zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    except Exception:
+        return list(predictions or [])
+
+    try:
+        draw_records = (
+            LotteryDraw.query.filter_by(region=region)
+            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+            .limit(LEARNING_SCOPE_DRAW_LIMIT)
+            .all()
+        )
+    except Exception as e:
+        print(f"加载{region}学习样本开奖范围失败: {e}")
+        return list(predictions or [])
+
+    draw_year_map = {}
+    for draw in draw_records:
+        if hasattr(draw, "to_dict"):
+            normalized = draw.to_dict()
+        elif isinstance(draw, dict):
+            normalized = dict(draw)
+        else:
+            continue
+        period = _normalize_period_value(normalized.get("id"))
+        draw_date = normalized.get("date", "")
+        if not period or not draw_date:
+            continue
+        try:
+            zodiac_year = ZodiacSetting.get_zodiac_year_for_date(draw_date)
+        except Exception:
+            continue
+        draw_year_map[period] = zodiac_year
+
+    current_year_predictions = []
+    previous_year_predictions = []
+    fallback_predictions = []
+
+    for pred in predictions or []:
+        period = _normalize_period_value(getattr(pred, "period", ""))
+        zodiac_year = draw_year_map.get(period)
+        if zodiac_year is None:
+            created_at = getattr(pred, "created_at", None)
+            if created_at:
+                try:
+                    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(created_at)
+                except Exception:
+                    zodiac_year = None
+
+        if zodiac_year == current_zodiac_year:
+            current_year_predictions.append(pred)
+        elif zodiac_year == current_zodiac_year - 1:
+            previous_year_predictions.append(pred)
+        else:
+            fallback_predictions.append(pred)
+
+    scoped = list(current_year_predictions)
+    if len(scoped) < minimum_samples:
+        scoped.extend(previous_year_predictions)
+
+    return scoped or fallback_predictions or list(predictions or [])
+
+
 def _ensure_ml_prediction_history(data, region, minimum_draws=36, target_draws=240):
     try:
         from models import ZodiacSetting
@@ -8247,6 +8341,321 @@ def refresh_auto_backtest_snapshots(regions=None, force=False):
             print(f"Auto backtest snapshot failed for {region}: {e}")
             db.session.rollback()
     return refreshed
+
+
+AUTO_OPTIMIZE_STRATEGIES = ("hot", "cold", "trend", "balanced", "hybrid", "ml")
+AUTO_OPTIMIZE_BACKTEST_PERIODS = 72
+
+
+def _auto_optimize_enabled():
+    raw = str(SystemConfig.get_config("auto_optimize_enabled", "false")).strip().lower()
+    return raw in {"true", "1", "yes", "on"}
+
+
+def _auto_optimize_level():
+    level = str(SystemConfig.get_config("auto_optimize_level", "balanced")).strip().lower()
+    return level if level in {"mild", "balanced", "aggressive"} else "balanced"
+
+
+def _auto_optimize_min_gain():
+    try:
+        value = float(SystemConfig.get_config("auto_optimize_min_gain", "0.6"))
+    except (TypeError, ValueError):
+        value = 0.6
+    return round(_clamp(value, 0.1, 8.0), 2)
+
+
+def _score_auto_optimize_summary(summary):
+    summary = dict(summary or {})
+    windows = list(summary.get("windows") or [])
+    base_score = (
+        _safe_float(summary.get("top1_hit_rate"), 0.0) * 1.0 +
+        _safe_float(summary.get("top6_hit_rate"), 0.0) * 0.35 +
+        _safe_float(summary.get("zodiac_hit_rate"), 0.0) * 0.15
+    )
+    recency_bonus = 0.0
+    for idx, window in enumerate(windows[:3]):
+        weight = max(0.2, 0.55 - idx * 0.15)
+        recency_bonus += (
+            _safe_float(window.get("top1_hit_rate"), 0.0) * 0.22 +
+            _safe_float(window.get("top6_hit_rate"), 0.0) * 0.08
+        ) * weight
+    return round(base_score + recency_bonus, 4)
+
+
+def _dedupe_auto_optimize_candidates(candidates):
+    deduped = []
+    seen = set()
+    for candidate in candidates or []:
+        normalized = json.dumps(candidate, sort_keys=True, ensure_ascii=True)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(candidate)
+    return deduped
+
+
+def _build_auto_optimize_candidates(strategy, config, level="balanced"):
+    level_map = {
+        "mild": {"window": 4, "pool": 1, "special_pool": 1, "trend_window": 2, "history": 12, "feature": 6, "eval": 4, "lr": 0.006, "l2": 0.0006},
+        "balanced": {"window": 8, "pool": 2, "special_pool": 1, "trend_window": 3, "history": 20, "feature": 10, "eval": 6, "lr": 0.01, "l2": 0.001},
+        "aggressive": {"window": 12, "pool": 3, "special_pool": 2, "trend_window": 4, "history": 28, "feature": 14, "eval": 8, "lr": 0.014, "l2": 0.0014},
+    }
+    delta = level_map.get(level, level_map["balanced"])
+    candidates = []
+
+    if strategy in {"hot", "cold", "trend", "balanced", "hybrid"}:
+        base_window = int(config.get("window") or _default_strategy_config(strategy).get("window") or 12)
+        base_pool = int(config.get("pool") or _default_strategy_config(strategy).get("pool") or 16)
+        base_special = int(config.get("special_pool") or _default_strategy_config(strategy).get("special_pool") or 8)
+        candidates.extend([
+            {
+                "window": _clamp(base_window - delta["window"], 8, 96),
+                "pool": _clamp(base_pool + delta["pool"], 8, 24),
+                "special_pool": _clamp(base_special, 6, 14),
+            },
+            {
+                "window": _clamp(base_window + delta["window"], 8, 96),
+                "pool": _clamp(base_pool - delta["pool"], 8, 24),
+                "special_pool": _clamp(base_special + delta["special_pool"], 6, 14),
+            },
+            {
+                "window": _clamp(base_window, 8, 96),
+                "pool": _clamp(base_pool, 8, 24),
+                "special_pool": _clamp(base_special - delta["special_pool"], 6, 14),
+            },
+        ])
+        if strategy == "trend":
+            candidates.append({
+                "window": _clamp(base_window - max(2, delta["window"] // 2), 8, 48),
+                "pool": _clamp(base_pool + 1, 8, 22),
+                "special_pool": _clamp(base_special, 6, 14),
+            })
+        if strategy == "balanced":
+            base_bucket = list(config.get("bucket_counts") or [2, 2, 2])
+            candidates.extend([
+                {"bucket_counts": [1, 2, 3], "window": _clamp(base_window + 4, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"bucket_counts": [3, 2, 1], "window": _clamp(base_window + 4, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"bucket_counts": base_bucket, "window": _clamp(base_window - 4, 24, 96), "pool": _clamp(base_pool + 1, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+            ])
+        if strategy == "hybrid":
+            base_trend = int(config.get("trend_window") or 15)
+            candidates.extend([
+                {"trend_window": _clamp(base_trend - delta["trend_window"], 8, 30), "window": _clamp(base_window, 24, 96), "pool": _clamp(base_pool + 1, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"trend_window": _clamp(base_trend + delta["trend_window"], 8, 30), "window": _clamp(base_window + 4, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special + 1, 6, 14)},
+                {"mix": {"hot": 3, "cold": 1, "trend": 2}, "window": _clamp(base_window, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"mix": {"hot": 1, "cold": 2, "trend": 3}, "window": _clamp(base_window, 24, 96), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+            ])
+    elif strategy == "ml":
+        base_history = int(config.get("history_window") or 120)
+        base_feature = int(config.get("feature_window") or 60)
+        base_eval = int(config.get("evaluation_window") or 30)
+        base_pool = int(config.get("pool") or 18)
+        base_special = int(config.get("special_pool") or 8)
+        base_epochs = int(config.get("epochs") or 18)
+        base_lr = float(config.get("learning_rate") or 0.035)
+        base_l2 = float(config.get("l2") or 0.0025)
+        candidates.extend([
+            {
+                "history_window": _clamp(base_history - delta["history"], 80, 240),
+                "feature_window": _clamp(base_feature - delta["feature"], 30, 90),
+                "evaluation_window": _clamp(base_eval - delta["eval"], 12, 60),
+                "pool": _clamp(base_pool + 1, 12, 24),
+                "special_pool": _clamp(base_special, 6, 12),
+                "epochs": _clamp(base_epochs - 2, 12, 30),
+                "learning_rate": round(_clamp(base_lr + delta["lr"], 0.01, 0.08), 3),
+                "l2": round(_clamp(base_l2 - delta["l2"], 0.001, 0.005), 4),
+            },
+            {
+                "history_window": _clamp(base_history + delta["history"], 80, 240),
+                "feature_window": _clamp(base_feature + delta["feature"], 30, 90),
+                "evaluation_window": _clamp(base_eval + delta["eval"], 12, 60),
+                "pool": _clamp(base_pool, 12, 24),
+                "special_pool": _clamp(base_special + 1, 6, 12),
+                "epochs": _clamp(base_epochs + 3, 12, 30),
+                "learning_rate": round(_clamp(base_lr - delta["lr"], 0.01, 0.08), 3),
+                "l2": round(_clamp(base_l2 + delta["l2"], 0.001, 0.005), 4),
+            },
+            {
+                "history_window": _clamp(base_history, 80, 240),
+                "feature_window": _clamp(base_feature, 30, 90),
+                "evaluation_window": _clamp(base_eval, 12, 60),
+                "pool": _clamp(base_pool + 2, 12, 24),
+                "special_pool": _clamp(base_special - 1, 6, 12),
+                "epochs": _clamp(base_epochs, 12, 30),
+                "learning_rate": round(_clamp(base_lr, 0.01, 0.08), 3),
+                "l2": round(_clamp(base_l2, 0.001, 0.005), 4),
+            },
+        ])
+
+    return _dedupe_auto_optimize_candidates(candidates)
+
+
+def _build_strategy_backtest_summary(region, strategy, draws=None, config_override=None, min_history=AUTO_BACKTEST_MIN_HISTORY, max_periods=AUTO_OPTIMIZE_BACKTEST_PERIODS):
+    source_draws = _normalize_backtest_draws(
+        draws if draws is not None else _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT),
+        limit=AUTO_BACKTEST_LIMIT,
+    )
+    chronological = list(source_draws or [])
+    if len(chronological) <= 1:
+        return {"total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0, "windows": []}
+
+    effective_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
+    start_idx = effective_min_history
+    if max_periods:
+        start_idx = max(effective_min_history, len(chronological) - int(max_periods))
+
+    entries = []
+    with _temporary_strategy_config_override(region, strategy, config_override):
+        for idx in range(start_idx, len(chronological)):
+            target_draw = chronological[idx]
+            history_desc = list(reversed(chronological[:idx]))
+            try:
+                result = get_local_recommendations(strategy, history_desc, region)
+                if result.get("error"):
+                    continue
+            except Exception:
+                continue
+            entries.append(_evaluate_backtest_prediction(result, target_draw))
+    summary = _summarize_backtest_entries(entries)
+    summary["periods_evaluated"] = len(entries)
+    return summary
+
+
+def _apply_auto_optimized_config(region, strategy, base_config, override, baseline_summary, best_summary, baseline_score, best_score, source="manual"):
+    updated = dict(base_config or {})
+    changed_fields = {}
+    for key, value in dict(override or {}).items():
+        if updated.get(key) == value:
+            continue
+        changed_fields[key] = {"from": updated.get(key), "to": value}
+        updated[key] = value
+
+    if not changed_fields:
+        return False, updated
+
+    now_text = datetime.now().isoformat(timespec="seconds")
+    gain = round(best_score - baseline_score, 4)
+    updated["auto_optimize_last_run_at"] = now_text
+    updated["auto_optimize_last_source"] = source
+    updated["auto_optimize_last_applied"] = True
+    updated["auto_optimize_last_score"] = round(best_score, 4)
+    updated["auto_optimize_last_baseline_score"] = round(baseline_score, 4)
+    updated["auto_optimize_last_gain"] = gain
+    updated["auto_optimize_last_periods"] = int(best_summary.get("periods_evaluated", 0) or 0)
+    history = list(updated.get("auto_optimize_history") or [])
+    history.insert(0, {
+        "timestamp": now_text,
+        "region": region,
+        "strategy": strategy,
+        "source": source,
+        "gain": gain,
+        "baseline_score": round(baseline_score, 4),
+        "best_score": round(best_score, 4),
+        "baseline_top1": round(_safe_float(baseline_summary.get("top1_hit_rate"), 0.0), 2),
+        "best_top1": round(_safe_float(best_summary.get("top1_hit_rate"), 0.0), 2),
+        "changed_fields": changed_fields,
+    })
+    updated["auto_optimize_history"] = history[:8]
+    _save_strategy_config(strategy, region, updated)
+    return True, updated
+
+
+def auto_optimize_strategy(region, strategy, draws=None, source="manual"):
+    if strategy not in AUTO_OPTIMIZE_STRATEGIES:
+        return {"strategy": strategy, "region": region, "updated": False, "reason": "unsupported"}
+
+    config = _load_strategy_config(strategy, region)
+    level = _auto_optimize_level()
+    min_gain = _auto_optimize_min_gain()
+    baseline_summary = _build_strategy_backtest_summary(region, strategy, draws=draws)
+    baseline_score = _score_auto_optimize_summary(baseline_summary)
+    best_score = baseline_score
+    best_summary = baseline_summary
+    best_override = None
+
+    for candidate in _build_auto_optimize_candidates(strategy, config, level=level):
+        summary = _build_strategy_backtest_summary(region, strategy, draws=draws, config_override=candidate)
+        score = _score_auto_optimize_summary(summary)
+        if score > best_score:
+            best_score = score
+            best_summary = summary
+            best_override = candidate
+
+    gain = round(best_score - baseline_score, 4)
+    if not best_override or gain < min_gain:
+        config["auto_optimize_last_run_at"] = datetime.now().isoformat(timespec="seconds")
+        config["auto_optimize_last_source"] = source
+        config["auto_optimize_last_applied"] = False
+        config["auto_optimize_last_score"] = round(best_score, 4)
+        config["auto_optimize_last_baseline_score"] = round(baseline_score, 4)
+        config["auto_optimize_last_gain"] = gain
+        _save_strategy_config(strategy, region, config)
+        return {
+            "strategy": strategy,
+            "region": region,
+            "updated": False,
+            "gain": gain,
+            "baseline_score": round(baseline_score, 4),
+            "best_score": round(best_score, 4),
+        }
+
+    updated, final_config = _apply_auto_optimized_config(
+        region,
+        strategy,
+        config,
+        best_override,
+        baseline_summary,
+        best_summary,
+        baseline_score,
+        best_score,
+        source=source,
+    )
+    return {
+        "strategy": strategy,
+        "region": region,
+        "updated": updated,
+        "gain": gain,
+        "baseline_score": round(baseline_score, 4),
+        "best_score": round(best_score, 4),
+        "config": final_config,
+    }
+
+
+def auto_optimize_strategy_configs(regions=None, source="manual"):
+    if not _auto_optimize_enabled():
+        return []
+
+    optimized = []
+    for region in (regions or ("hk", "macau")):
+        try:
+            draws = _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT)
+        except Exception as e:
+            print(f"Auto optimize skipped for {region}: {e}")
+            db.session.rollback()
+            continue
+        if not draws:
+            continue
+        for strategy in AUTO_OPTIMIZE_STRATEGIES:
+            try:
+                optimized.append(auto_optimize_strategy(region, strategy, draws=draws, source=source))
+            except Exception as e:
+                print(f"Auto optimize failed for {strategy} ({region}): {e}")
+                db.session.rollback()
+    return optimized
+
+
+def run_auto_strategy_optimization_job(regions=None, source="scheduler"):
+    with app.app_context():
+        try:
+            results = auto_optimize_strategy_configs(regions=regions, source=source)
+            applied = [item for item in results if item.get("updated")]
+            print(f"Auto strategy optimization finished: total={len(results)} applied={len(applied)} source={source}")
+            return results
+        except Exception as e:
+            print(f"Auto strategy optimization failed: {e}")
+            db.session.rollback()
+            return []
 
 
 def sync_draws_from_api(region, year=None, force=False):
@@ -9701,6 +10110,15 @@ def start_scheduler(force=False):
         hour=21,
         minute=40,
         misfire_grace_time=300,
+        coalesce=True
+    )
+    _scheduler.add_job(
+        run_auto_strategy_optimization_job,
+        'cron',
+        hour=22,
+        minute=5,
+        kwargs={"regions": ("hk", "macau"), "source": "scheduler"},
+        misfire_grace_time=600,
         coalesce=True
     )
     _scheduler.start()

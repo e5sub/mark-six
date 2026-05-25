@@ -939,6 +939,9 @@ SYSTEM_CONFIG_DEFAULTS = {
     'allow_registration': 'true',
     'require_email_verification': 'false',
     'enable_personalized_predictions': 'false',
+    'auto_optimize_enabled': 'false',
+    'auto_optimize_level': 'balanced',
+    'auto_optimize_min_gain': '0.6',
 }
 
 @admin_bp.route('/system_config', methods=['GET', 'POST'])
