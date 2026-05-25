@@ -1064,7 +1064,7 @@
         }
 
         .info-ribbon.embedded {
-            margin-bottom: 18px;
+            margin-bottom: 8px;
         }
 
         .info-ribbon::after {
@@ -1369,11 +1369,54 @@
             return String(value).padStart(2, '0');
         }
 
+        function convertLunarDayNumber(value) {
+            const day = Number(value);
+            if (!Number.isFinite(day) || day <= 0) {
+                return String(value || '');
+            }
+            const mapping = {
+                1: '初一',
+                2: '初二',
+                3: '初三',
+                4: '初四',
+                5: '初五',
+                6: '初六',
+                7: '初七',
+                8: '初八',
+                9: '初九',
+                10: '初十',
+                11: '十一',
+                12: '十二',
+                13: '十三',
+                14: '十四',
+                15: '十五',
+                16: '十六',
+                17: '十七',
+                18: '十八',
+                19: '十九',
+                20: '二十',
+                21: '廿一',
+                22: '廿二',
+                23: '廿三',
+                24: '廿四',
+                25: '廿五',
+                26: '廿六',
+                27: '廿七',
+                28: '廿八',
+                29: '廿九',
+                30: '三十',
+            };
+            return mapping[day] || String(value);
+        }
+
         function normalizeChineseLunarDayText(text) {
             if (!text) {
                 return text;
             }
-            return text
+            const normalized = text
+                .replace(/([正一二三四五六七八九十冬腊闰]+月)(\d{1,2})(?!\d)/g, (_, month, day) => {
+                    return `${month}${convertLunarDayNumber(day)}`;
+                })
                 .replace(/十一(?=[^\u4e00-\u9fa5]|$)/g, '十一')
                 .replace(/十二(?=[^\u4e00-\u9fa5]|$)/g, '十二')
                 .replace(/十三(?=[^\u4e00-\u9fa5]|$)/g, '十三')
@@ -1404,6 +1447,7 @@
                 .replace(/(?<![初十廿三])七(?=[^\u4e00-\u9fa5]|$)/g, '初七')
                 .replace(/(?<![初十廿三])八(?=[^\u4e00-\u9fa5]|$)/g, '初八')
                 .replace(/(?<![初十廿三])九(?=[^\u4e00-\u9fa5]|$)/g, '初九');
+            return normalized;
         }
 
         function updateClockPanel() {
@@ -1421,14 +1465,16 @@
 
             const fullDate = new Intl.DateTimeFormat('zh-CN', {
                 year: 'numeric',
-                month: 'long',
-                day: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).format(now).replace(/\//g, '-');
+            const weekdayShort = new Intl.DateTimeFormat('zh-CN', {
                 weekday: 'long',
             }).format(now);
             const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
             const weekOfYear = Math.ceil((dayOfYear + new Date(now.getFullYear(), 0, 1).getDay()) / 7);
             if (currentDateValue) {
-                currentDateValue.textContent = `${fullDate} · 第 ${weekOfYear} 周 / 第 ${dayOfYear} 天`;
+                currentDateValue.textContent = `${fullDate} ${weekdayShort} · 第 ${weekOfYear} 周 / 第 ${dayOfYear} 天`;
             }
 
                 if (gregorianDayValue) {
@@ -1450,16 +1496,13 @@
                 const lunarYear = lunarParts.length > 1 ? `${lunarParts[0]}年` : lunarText;
                 const lunarMonthDayRaw = lunarParts.length > 1 ? lunarParts.slice(1).join('年').trim() : '';
                 const lunarMonthDay = normalizeChineseLunarDayText(lunarMonthDayRaw);
-                const weekdayText = new Intl.DateTimeFormat('zh-CN', {
-                    weekday: 'long',
-                }).format(now);
                 if (lunarDateValue) {
                     lunarDateValue.textContent = lunarYear;
                 }
                 if (lunarDetailValue) {
                     lunarDetailValue.textContent = lunarMonthDay
-                        ? `农历${lunarMonthDay} · ${weekdayText}`
-                        : weekdayText;
+                        ? `农历${lunarMonthDay}`
+                        : '农历日期';
                 }
             } catch (error) {
                 if (lunarDateValue) {
