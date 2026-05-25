@@ -8700,7 +8700,7 @@ def run_auto_strategy_optimization_job(regions=None, source="scheduler"):
 def sync_draws_from_api(region, year=None, force=False):
     """从远程接口同步开奖记录并保存到数据库"""
     now = datetime.now()
-    if not _is_within_sync_window(now):
+    if not force and not _is_within_sync_window(now):
         global _last_sync_window_skip_date
         today = now.date()
         if _last_sync_window_skip_date != today:
@@ -8710,6 +8710,8 @@ def sync_draws_from_api(region, year=None, force=False):
     last_sync = _last_draw_sync_times.get(region)
     if not force and last_sync and now - last_sync < _DRAW_SYNC_INTERVAL:
         return []
+    if force:
+        print(f"Force sync enabled for {region}; bypassing sync window and interval limits.")
 
     if year is None or str(year).lower() == 'all':
         year_str = str(now.year)
