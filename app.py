@@ -461,8 +461,48 @@ STRATEGY_LABELS = {
     'hybrid': '综合预测'
 }
 
+STRATEGY_ICON_MAP = {
+    'hot': 'fire',
+    'cold': 'snowflake',
+    'trend': 'chart-line',
+    'hybrid': 'sliders-h',
+    'balanced': 'balance-scale',
+    'ml': 'flask',
+    'ai': 'robot',
+}
+
 def _get_strategy_label(strategy):
     return STRATEGY_LABELS.get(strategy, strategy or '未知策略')
+
+
+def _build_prediction_display_copy(requested_strategy=None, resolved_strategy=None):
+    strategy_key = str(resolved_strategy or requested_strategy or "").strip()
+    strategy_title = _get_strategy_label(strategy_key)
+    if strategy_key == "ml":
+        analysis_title = "机器学习分析"
+    elif strategy_key == "ai":
+        analysis_title = "AI分析"
+    else:
+        analysis_title = "分析说明"
+    return {
+        "strategy_title": strategy_title,
+        "strategy_icon": STRATEGY_ICON_MAP.get(strategy_key, "dice"),
+        "analysis_title": analysis_title,
+        "normal_numbers_title": "平码参考",
+        "special_number_title": "特码",
+        "special_focus_title": "本期主推特码",
+        "special_focus_hint": "重点参考号码",
+    }
+
+
+def _attach_prediction_display_copy(result, requested_strategy=None, resolved_strategy=None):
+    payload = dict(result or {})
+    existing = payload.get("display_copy") or {}
+    payload["display_copy"] = {
+        **_build_prediction_display_copy(requested_strategy, resolved_strategy),
+        **dict(existing or {}),
+    }
+    return payload
 
 def _build_strategy_note(requested_strategy, resolved_strategy):
     return _get_strategy_label(resolved_strategy)
@@ -9486,6 +9526,7 @@ def unified_predict_api():
             result["strategy"] = resolved_strategy
             result["requested_strategy"] = strategy
             result["prediction_zodiac_year"] = prediction_zodiac_year
+            result = _attach_prediction_display_copy(result, strategy, resolved_strategy)
             if stream_response and resolved_strategy == 'ai':
                 payload = {
                     "type": "done",
@@ -9592,6 +9633,7 @@ def unified_predict_api():
                         "period": current_period,
                         "prediction_zodiac_year": prediction_zodiac_year,
                     })
+                    result = _attach_prediction_display_copy(result, strategy, resolved_strategy)
 
                     if user_id and is_active:
                         try:
@@ -9742,6 +9784,7 @@ def unified_predict_api():
                     if refreshed_text:
                         result["recommendation_text"] = refreshed_text
                     print(f"检测到接口重复预测记录，已返回现有记录：user={user_id}, region={region}, period={current_period}, strategy={resolved_strategy}")
+                    result = _attach_prediction_display_copy(result, strategy, resolved_strategy)
                     return jsonify(result)
             db.session.rollback()
             print(f"保存预测记录失败: {e}")
@@ -9754,6 +9797,7 @@ def unified_predict_api():
     result["strategy"] = resolved_strategy
     result["requested_strategy"] = strategy
     result["prediction_zodiac_year"] = prediction_zodiac_year
+    result = _attach_prediction_display_copy(result, strategy, resolved_strategy)
     return jsonify(result)
 
 def _log_draw_update(message, source="manual", region=None):

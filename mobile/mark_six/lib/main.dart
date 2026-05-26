@@ -3802,7 +3802,19 @@ class _PredictScreenState extends State<PredictScreen> {
         _strategy;
   }
 
+  Map<String, dynamic> get _resultDisplayCopy {
+    final raw = _result?['display_copy'];
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return const <String, dynamic>{};
+  }
+
   String _analysisTitle() {
+    final title = _resultDisplayCopy['analysis_title']?.toString().trim() ?? '';
+    if (title.isNotEmpty) {
+      return title;
+    }
     switch (_resultStrategy) {
       case 'ml':
         return '机器学习分析';
@@ -4082,9 +4094,6 @@ class _PredictScreenState extends State<PredictScreen> {
     final displayCopy = Map<String, dynamic>.from(
       (metaMap['display_copy'] as Map?) ?? const {},
     );
-    final ensembleWeights = Map<String, dynamic>.from(
-      (metaMap['ensemble_strategy_weights'] as Map?) ?? const {},
-    );
     final weightDiagnostics = Map<String, dynamic>.from(
       (metaMap['ensemble_weight_diagnostics'] as Map?) ?? const {},
     );
@@ -4240,23 +4249,19 @@ class _PredictScreenState extends State<PredictScreen> {
                 color: Colors.grey.shade900,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              (displayCopy['weight_reason_summary']?.toString().isNotEmpty ?? false)
-                  ? displayCopy['weight_reason_summary'].toString()
-                  : '最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)',
-              style: TextStyle(
-                fontSize: 11.5,
-                color: Colors.grey.shade700,
-                height: 1.45,
+            if ((displayCopy['weight_reason_summary']?.toString().isNotEmpty ?? false)) ...[
+              const SizedBox(height: 4),
+              Text(
+                displayCopy['weight_reason_summary'].toString(),
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: Colors.grey.shade700,
+                  height: 1.45,
+                ),
               ),
-            ),
+            ],
             ...weightKeys.asMap().entries.map((entry) {
               final rank = entry.key + 1;
-              final key = entry.value;
-              final item = Map<String, dynamic>.from(
-                (weightDiagnostics[key] as Map?) ?? const {},
-              );
               final copyItems =
                   (displayCopy['weight_reason_items'] as List?) ?? const [];
               final copyItem = entry.key < copyItems.length
@@ -4264,39 +4269,12 @@ class _PredictScreenState extends State<PredictScreen> {
                       (copyItems[entry.key] as Map?) ?? const {},
                     )
                   : const <String, dynamic>{};
-              final overallTotal = (item['overall_total'] as num?)?.toInt() ?? 0;
-              final overallAccuracy =
-                  (item['overall_accuracy'] as num?)?.toDouble() ?? 0.0;
-              final recentAccuracyText =
-                  copyItem['accuracy_text']?.toString() ?? '';
-              final fallbackAccuracyText = overallTotal > 0
-                  ? '特码命中率：${overallAccuracy.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '')}% ($overallTotal条)'
-                  : '特码命中率：样本不足';
-              final fallbackMultiplierText =
-                  '排名系数×命中率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，最终参考分 ${item['weighted_score'] ?? '-'}';
-              final weightValue =
-                  ((ensembleWeights[key] as num?)?.toDouble() ?? 0.0)
-                      .toStringAsFixed(1)
-                      .replaceAll(RegExp(r'\.0$'), '');
               return _buildMlWeightReasonCard(
                 rank,
-                copyItem['strategy_label']?.toString() ?? (_strategyLabels[key] ?? key),
-                copyItem['weight_text']?.toString().replaceFirst('权重', '') ?? '$weightValue%',
-                (recentAccuracyText
-                        .replaceFirst('特码命中率：', '')
-                        .replaceFirst('近20/50/100期加权命中率：', '')
-                        .replaceFirst('近期状态评分：', '')
-                        .replaceFirst('最近表现：', '')
-                        .trim()
-                        .isNotEmpty)
-                    ? recentAccuracyText
-                        .replaceFirst('特码命中率：', '')
-                        .replaceFirst('近20/50/100期加权命中率：', '')
-                        .replaceFirst('近期状态评分：', '')
-                        .replaceFirst('最近表现：', '')
-                        .trim()
-                    : fallbackAccuracyText.replaceFirst('特码命中率：', '').trim(),
-                copyItem['multiplier_text']?.toString() ?? fallbackMultiplierText,
+                copyItem['strategy_label']?.toString() ?? '',
+                copyItem['weight_text']?.toString().replaceFirst('权重', '') ?? '',
+                copyItem['accuracy_text']?.toString() ?? '',
+                copyItem['multiplier_text']?.toString() ?? '',
               );
             }),
           ],

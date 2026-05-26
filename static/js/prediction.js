@@ -481,7 +481,7 @@ function renderPredictionInsights(data, strategy) {
                     ${displayCopy.six_reference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.six_reference}</div>` : ''}
                     ${displayCopy.selected_strategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.selected_strategies}</div>` : ''}
                     ${displayCopy.weight_summary ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.weight_summary}</div>` : ''}
-                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>近期权重分配依据：</strong><div style="margin-top:4px; color:#9fb1c8;">${displayCopy.weight_reason_summary || '最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)'}</div><div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
+                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>近期权重分配依据：</strong>${displayCopy.weight_reason_summary ? `<div style="margin-top:4px; color:#9fb1c8;">${displayCopy.weight_reason_summary}</div>` : ''}<div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
                     ${displayCopy.special_votes ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.special_votes}</div>` : ''}
                 </div>
                 <div style="padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(96, 165, 250, 0.18);">
@@ -504,12 +504,17 @@ function renderPredictionInsights(data, strategy) {
 // 显示最终结果（包括号码）
 function displayFinalResult(data, strategy) {
     const predictionContent = document.getElementById('predictionContent');
+    const displayCopy = data.display_copy || {};
+    const strategyTitle = displayCopy.strategy_title || getStrategyLabel(strategy);
+    const strategyIcon = displayCopy.strategy_icon || 'robot';
+    const specialNumberTitle = displayCopy.special_number_title || '特码';
+    const analysisTitle = displayCopy.analysis_title || 'AI分析';
 
     // 创建预测结果HTML
     let html = `
         <div style="text-align: center; margin-bottom: 20px;">
             <span style="background: rgba(0, 123, 255, 0.1); color: #007bff; padding: 5px 15px; border-radius: 20px; font-weight: 600;">
-                <i class="fas fa-robot"></i> AI智能预测
+                <i class="fas fa-${strategyIcon}"></i> ${strategyTitle}
             </span>
         </div>
     `;
@@ -546,7 +551,7 @@ function displayFinalResult(data, strategy) {
 
         html += `
             <div style="display: flex; align-items: center; justify-content: center; margin-top: 20px; position: relative;">
-                <div style="font-size: 1.2rem; font-weight: 700; color: #f8fafc; margin-right: 15px;">特码:</div>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #f8fafc; margin-right: 15px;">${specialNumberTitle}:</div>
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
                     <div style="position: absolute; width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle, rgba(255,215,0,0.4) 0%, rgba(255,215,0,0) 70%); z-index: 0; top: 20px; left: 50%; transform: translate(-50%, -50%);"></div>
                     <div class="lottery-ball ${colorClass} special" style="width: 50px; height: 50px; font-size: 1.4rem; border: 3px solid #ffd700; margin-bottom: 5px; position: relative; z-index: 1; box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);">${specialNum}</div>
@@ -579,7 +584,7 @@ function displayFinalResult(data, strategy) {
 
             html += `
                 <div style="margin-top: 20px; text-align: left; background: rgba(15, 23, 42, 0.88); color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14);">
-                    <h4 style="margin-bottom: 10px; color: #f8fafc;">AI分析:</h4>
+                    <h4 style="margin-bottom: 10px; color: #f8fafc;">${analysisTitle}:</h4>
                     <div style="line-height: 1.6; color: #dbe4f0;" class="markdown-content">${parsedContent}</div>
                 </div>
             `;
@@ -678,28 +683,11 @@ function displayPrediction(data, strategy) {
     let html = '';
     
     // 根据策略显示不同的标题
-    const strategyTitles = {
-        'hot': '热门预测',
-        'cold': '冷门预测',
-        'trend': '走势预测',
-        'hybrid': '综合预测',
-        'balanced': '均衡预测',
-        'ml': '机器学习预测',
-        'ai': 'AI智能预测'
-    };
-    
-    const strategyIcons = {
-        'hot': 'fire',
-        'cold': 'snowflake',
-        'trend': 'chart-line',
-        'hybrid': 'sliders-h',
-        'balanced': 'balance-scale',
-        'ml': 'flask',
-        'ai': 'robot'
-    };
-    
-    const strategyTitle = strategyTitles[strategy] || '预测';
-    const strategyIcon = strategyIcons[strategy] || 'dice';
+    const displayCopy = data.display_copy || {};
+    const strategyTitle = displayCopy.strategy_title || getStrategyLabel(strategy);
+    const strategyIcon = displayCopy.strategy_icon || 'dice';
+    const specialNumberTitle = displayCopy.special_number_title || '特码';
+    const analysisTitle = displayCopy.analysis_title || '分析说明';
     
     html += `<div style="text-align: center; margin-bottom: 20px;">
         <span style="background: rgba(0, 123, 255, 0.1); color: #007bff; padding: 5px 15px; border-radius: 20px; font-weight: 600;">
@@ -739,7 +727,7 @@ function displayPrediction(data, strategy) {
         
         html += `
             <div style="display: flex; align-items: center; justify-content: center; margin-top: 20px; position: relative;">
-                <div style="font-size: 1.2rem; font-weight: 700; color: #f8fafc; margin-right: 15px;">特码:</div>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #f8fafc; margin-right: 15px;">${specialNumberTitle}:</div>
                 <div style="position: relative; display: flex; flex-direction: column; align-items: center;">
                     <div style="position: absolute; width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle, rgba(255,215,0,0.4) 0%, rgba(255,215,0,0) 70%); z-index: 0; top: 20px; left: 50%; transform: translate(-50%, -50%);"></div>
                     <div class="lottery-ball ${colorClass} special" style="width: 50px; height: 50px; font-size: 1.4rem; border: 3px solid #ffd700; margin-bottom: 5px; position: relative; z-index: 1; box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3);">${specialNum}</div>
@@ -776,7 +764,7 @@ function displayPrediction(data, strategy) {
             
             html += `
                 <div style="margin-top: 20px; text-align: left; background: rgba(15, 23, 42, 0.88); color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14);">
-                    <h4 style="margin-bottom: 10px; color: #f8fafc;">AI分析:</h4>
+                    <h4 style="margin-bottom: 10px; color: #f8fafc;">${analysisTitle}:</h4>
                     <div style="line-height: 1.6; color: #dbe4f0;" class="markdown-content">${parsedContent}</div>
                 </div>
             `;
