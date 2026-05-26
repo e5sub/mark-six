@@ -8181,6 +8181,8 @@ AUTO_BACKTEST_STRATEGIES = ("ai", "ml", "hybrid", "balanced", "trend", "hot", "c
 AUTO_BACKTEST_MIN_HISTORY = 10
 AUTO_BACKTEST_LIMIT = 240
 AI_BACKTEST_MAX_PERIODS = 24
+POSTPROCESS_BACKTEST_STRATEGIES = ("ml", "hybrid", "balanced", "trend", "hot", "cold")
+POSTPROCESS_BACKTEST_LIMIT = 120
 
 
 def _ai_backtest_enabled():
@@ -8531,13 +8533,13 @@ def _persist_backtest_snapshot(region, payload):
     return record
 
 
-def refresh_auto_backtest_snapshot(region, draws=None, force=False):
+def refresh_auto_backtest_snapshot(region, draws=None, force=False, strategies=None, limit=AUTO_BACKTEST_LIMIT):
     region = (region or "").strip().lower()
     if region not in ("hk", "macau"):
         return None
     source_draws = _normalize_backtest_draws(
-        draws if draws is not None else _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT),
-        limit=AUTO_BACKTEST_LIMIT,
+        draws if draws is not None else _load_backtest_draws_from_db(region, limit=limit),
+        limit=limit,
     )
     if not source_draws:
         return None
@@ -8548,7 +8550,7 @@ def refresh_auto_backtest_snapshot(region, draws=None, force=False):
     if existing and not force:
         return existing
 
-    payload = _build_backtest_snapshot_payload(region, source_draws)
+    payload = _build_backtest_snapshot_payload(region, source_draws, strategies=strategies)
     payload["generated_at"] = datetime.now().isoformat(timespec="seconds")
     record = _persist_backtest_snapshot(region, payload)
     try:
@@ -9662,29 +9664,32 @@ def _log_draw_update(message, source="manual", region=None):
     print(log_line)
 
 
-def _run_draw_postprocess(regions, current_year, source="manual-postprocess"):
-    normalized_regions = tuple(region for region in (regions or []) if region in ("hk", "macau"))
-    if not normalized_regions:
-        return
-
+def _run_draw_postprocess_for_region(region, current_year, source="manual-postprocess"):
     with app.app_context():
-        for region in normalized_regions:
-            try:
-                prediction_data, _ = _get_prediction_data(region, current_year)
-                if not prediction_data:
-                    _log_draw_update("未获取到可用于自动预测的数据", source=source, region=region)
-                    continue
+        try:
+            prediction_data, _ = _get_prediction_data(region, current_year)
+            if not prediction_data:
+                _log_draw_update("未获取到可用于自动预测的数据", source=source, region=region)
+                return
 
-                _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_data)}", source=source, region=region)
-                generate_auto_predictions(prediction_data, region)
-                _log_draw_update("自动预测已完成", source=source, region=region)
-                _log_draw_update("开始刷新回测快照", source=source, region=region)
-                refresh_auto_backtest_snapshot(region, draws=prediction_data, force=True)
-                _log_draw_update("回测快照已完成", source=source, region=region)
-            except Exception as e:
-                _log_draw_update(f"自动预测/回测失败 error={e}", source=source, region=region)
-                import traceback
-                traceback.print_exc()
+            _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_data)}", source=source, region=region)
+            generate_auto_predictions(prediction_data, region)
+            _log_draw_update("自动预测已完成", source=source, region=region)
+            _log_draw_update("开始刷新回测快照", source=source, region=region)
+            backtest_started_at = time.time()
+            refresh_auto_backtest_snapshot(
+                region,
+                draws=prediction_data,
+                force=True,
+                strategies=POSTPROCESS_BACKTEST_STRATEGIES,
+                limit=POSTPROCESS_BACKTEST_LIMIT,
+            )
+            backtest_elapsed = round(time.time() - backtest_started_at, 2)
+            _log_draw_update(f"回测快照已完成 elapsed={backtest_elapsed}s", source=source, region=region)
+        except Exception as e:
+            _log_draw_update(f"自动预测/回测失败 error={e}", source=source, region=region)
+            import traceback
+            traceback.print_exc()
 
 
 def _start_draw_postprocess_async(regions, current_year, source="manual-postprocess"):
@@ -9692,16 +9697,18 @@ def _start_draw_postprocess_async(regions, current_year, source="manual-postproc
     if not normalized_regions:
         return False
 
-    def _runner():
-        _log_draw_update(f"后台后处理任务已启动 year={current_year}", source=source, region=",".join(normalized_regions))
-        _run_draw_postprocess(normalized_regions, current_year, source=source)
-        _log_draw_update("后台后处理任务已完成", source=source, region=",".join(normalized_regions))
+    _log_draw_update(f"后台后处理任务已启动 year={current_year}", source=source, region=",".join(normalized_regions))
+    for region in normalized_regions:
+        def _runner(target_region=region):
+            _log_draw_update("后台后处理分区任务开始", source=source, region=target_region)
+            _run_draw_postprocess_for_region(target_region, current_year, source=source)
+            _log_draw_update("后台后处理分区任务完成", source=source, region=target_region)
 
-    threading.Thread(
-        target=_runner,
-        name=f"draw-postprocess-{source}-{current_year}",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_runner,
+            name=f"draw-postprocess-{source}-{region}-{current_year}",
+            daemon=True,
+        ).start()
     return True
 
 
