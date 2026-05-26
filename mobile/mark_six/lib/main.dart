@@ -4798,6 +4798,13 @@ class _PredictScreenState extends State<PredictScreen> {
                     }
                     grouped[groupKey]!.add(item);
                   }
+                  for (final entry in grouped.entries) {
+                    entry.value.sort((a, b) {
+                      final aNum = int.tryParse(a.specialNumber) ?? 999;
+                      final bNum = int.tryParse(b.specialNumber) ?? 999;
+                      return aNum.compareTo(bNum);
+                    });
+                  }
 
                   final visiblePeriods = _showAllPredictionPeriods
                       ? orderedPeriods

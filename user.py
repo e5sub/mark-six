@@ -1169,6 +1169,15 @@ def predictions():
             grouped_predictions.append(group)
         grouped_predictions_map[period_key]['list'].append(prediction)
 
+    for group in grouped_predictions:
+        group['list'].sort(
+            key=lambda item: (
+                int(str(item.special_number).strip())
+                if str(item.special_number or '').strip().isdigit()
+                else 999
+            )
+        )
+
     groups_per_page = 4
     total_groups = len(grouped_predictions)
     total_pages = max(1, (total_groups + groups_per_page - 1) // groups_per_page)
