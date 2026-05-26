@@ -3579,6 +3579,64 @@ class _PredictScreenState extends State<PredictScreen> {
     _specialZodiac = '';
   }
 
+  void _upsertPredictionRecordFromResult({
+    required Map<String, dynamic> result,
+    required List<String> normalNumbers,
+    required List<String> normalZodiacs,
+    required String specialNumber,
+    required String specialZodiac,
+  }) {
+    final strategy = result['strategy']?.toString().trim().isNotEmpty == true
+        ? result['strategy']!.toString().trim()
+        : _strategy;
+    final period = result['period']?.toString().trim() ?? '';
+    if (period.isEmpty) return;
+
+    final createdAtRaw = result['created_at']?.toString();
+    final createdAt = createdAtRaw != null && createdAtRaw.isNotEmpty
+        ? DateTime.tryParse(createdAtRaw)
+        : DateTime.now();
+
+    final item = PredictionItem(
+      id: (result['prediction_id'] as num?)?.toInt() ??
+          DateTime.now().microsecondsSinceEpoch,
+      region: _region,
+      strategy: strategy,
+      period: period,
+      normalNumbers: normalNumbers,
+      normalZodiacs: normalZodiacs,
+      specialNumber: specialNumber,
+      specialZodiac: specialZodiac,
+      actualSpecialNumber: '',
+      actualSpecialZodiac: '',
+      result: 'pending',
+      createdAt: createdAt,
+    );
+
+    setState(() {
+      final next = List<PredictionItem>.from(_predictionRecords);
+      final existingIndex = next.indexWhere(
+        (record) =>
+            record.region == item.region &&
+            record.period == item.period &&
+            record.strategy == item.strategy,
+      );
+      if (existingIndex >= 0) {
+        next[existingIndex] = item;
+      } else {
+        next.insert(0, item);
+      }
+      next.sort((a, b) {
+        final aTime = a.createdAt?.millisecondsSinceEpoch ?? 0;
+        final bTime = b.createdAt?.millisecondsSinceEpoch ?? 0;
+        return bTime.compareTo(aTime);
+      });
+      _predictionRecords = next;
+      _recordNormalZodiacs[item.id] = normalZodiacs;
+      _recordSpecialZodiacs[item.id] = specialZodiac;
+    });
+  }
+
   Future<void> _updateZodiacs(List<String> numbers) async {
     if (numbers.isEmpty) return;
     try {
@@ -3649,7 +3707,14 @@ class _PredictScreenState extends State<PredictScreen> {
             _loading = false;
           });
           await _updateZodiacs(numbers);
-          await _loadPredictionRecords();
+          if (!mounted) return;
+          _upsertPredictionRecordFromResult(
+            result: _result ?? event,
+            normalNumbers: cleanNormal,
+            normalZodiacs: _normalZodiacs,
+            specialNumber: specialNumber,
+            specialZodiac: _specialZodiac,
+          );
         } else if (event.containsKey('error')) {
           setState(() {
             _loading = false;
@@ -3713,7 +3778,14 @@ class _PredictScreenState extends State<PredictScreen> {
         };
       });
       await _updateZodiacs(numbers);
-      await _loadPredictionRecords();
+      if (!mounted) return false;
+      _upsertPredictionRecordFromResult(
+        result: _result ?? res,
+        normalNumbers: cleanNormal,
+        normalZodiacs: _normalZodiacs,
+        specialNumber: specialNumber,
+        specialZodiac: _specialZodiac,
+      );
       return true;
     } catch (e) {
       if (!mounted) return false;
