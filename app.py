@@ -9538,18 +9538,63 @@ def _start_lottery_update_async(regions=None, source="scheduler"):
 @app.route('/api/update_data', methods=['POST'])
 def update_data_api():
     payload = request.get_json(silent=True) or {}
-    started, regions = _start_lottery_update_async(payload.get('region', 'all'), source="manual")
-    if started:
+    regions = tuple(_normalize_update_regions(payload.get('region', 'all')))
+    global _lottery_update_running, _lottery_update_started_at, _lottery_update_last_status
+
+    with _lottery_update_lock:
+        if _lottery_update_running:
+            return jsonify({
+                "success": False,
+                "queued": False,
+                "message": "已有开奖更新任务正在执行，请稍后再试"
+            }), 409
+        _lottery_update_running = True
+        _lottery_update_started_at = datetime.now().isoformat(timespec="seconds")
+        _lottery_update_last_status = {
+            "running": True,
+            "started_at": _lottery_update_started_at,
+            "finished_at": None,
+            "status": "running",
+            "message": "正在从官方数据源获取最新开奖数据...",
+            "regions": regions,
+            "source": "manual-sync",
+        }
+
+    try:
+        summary = _run_lottery_update_job(regions, source="manual-sync")
+        _lottery_update_last_status = {
+            "running": False,
+            "started_at": _lottery_update_started_at,
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+            "status": "success",
+            "message": f"开奖数据更新完成：香港 {summary.get('hk', 0)} 条，澳门 {summary.get('macau', 0)} 条",
+            "regions": regions,
+            "source": "manual-sync",
+        }
         return jsonify({
             "success": True,
-            "queued": True,
-            "message": f"更新任务已开始，地区：{','.join(regions)}"
-        }), 202
-    return jsonify({
-        "success": True,
-        "queued": False,
-        "message": "已有更新任务正在执行，请稍后刷新页面查看最新结果"
-    }), 202
+            "queued": False,
+            "message": _lottery_update_last_status["message"]
+        })
+    except Exception as e:
+        _lottery_update_last_status = {
+            "running": False,
+            "started_at": _lottery_update_started_at,
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+            "status": "failed",
+            "message": f"开奖数据更新失败: {e}",
+            "regions": regions,
+            "source": "manual-sync",
+        }
+        return jsonify({
+            "success": False,
+            "queued": False,
+            "message": _lottery_update_last_status["message"]
+        }), 500
+    finally:
+        with _lottery_update_state_lock:
+            _lottery_update_running = False
+            _lottery_update_started_at = None
 
 @app.route('/api/update_data_status')
 def update_data_status_api():
@@ -10118,12 +10163,53 @@ def _release_scheduler_lock():
 
 # 定时任务：每天21:40自动更新数据库中的开奖记录
 def update_lottery_data():
-    """定时任务：异步触发开奖记录更新，避免阻塞前台请求。"""
-    started, regions = _start_lottery_update_async(("hk", "macau"), source="scheduler")
-    if started:
-        print(f"定时任务已触发后台更新 regions={regions}")
-    else:
-        print("定时任务跳过：已有开奖更新任务正在执行")
+    """Run the scheduled lottery data update synchronously."""
+    global _lottery_update_running, _lottery_update_started_at, _lottery_update_last_status
+    regions = ("hk", "macau")
+    with _lottery_update_lock:
+        if _lottery_update_running:
+            print("Scheduled update skipped: another lottery update is already running")
+            return
+        _lottery_update_running = True
+        _lottery_update_started_at = datetime.now().isoformat(timespec="seconds")
+        _lottery_update_last_status = {
+            "running": True,
+            "started_at": _lottery_update_started_at,
+            "finished_at": None,
+            "status": "running",
+            "message": "正在从官方数据源获取最新开奖数据...",
+            "regions": regions,
+            "source": "scheduler-sync",
+        }
+
+    try:
+        summary = _run_lottery_update_job(regions, source="scheduler-sync")
+        _lottery_update_last_status = {
+            "running": False,
+            "started_at": _lottery_update_started_at,
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+            "status": "success",
+            "message": f"开奖数据更新完成：香港 {summary.get('hk', 0)} 条，澳门 {summary.get('macau', 0)} 条",
+            "regions": regions,
+            "source": "scheduler-sync",
+        }
+        print(f"Scheduled update completed synchronously regions={regions}")
+    except Exception as e:
+        _lottery_update_last_status = {
+            "running": False,
+            "started_at": _lottery_update_started_at,
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+            "status": "failed",
+            "message": f"开奖数据更新失败: {e}",
+            "regions": regions,
+            "source": "scheduler-sync",
+        }
+        print(f"Scheduled synchronous update failed: {e}")
+        raise
+    finally:
+        with _lottery_update_state_lock:
+            _lottery_update_running = False
+            _lottery_update_started_at = None
 
 def warmup_auto_backtest_snapshots():
     """Ensure current backtest snapshots exist after app startup."""
