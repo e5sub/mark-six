@@ -9425,38 +9425,60 @@ def unified_predict_api():
     result["prediction_zodiac_year"] = prediction_zodiac_year
     return jsonify(result)
 
+def _log_draw_update(message, source="manual", region=None):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    region_text = f" region={region}" if region else ""
+    print(f"[DRAW-UPDATE][{timestamp}][{source}]{region_text} {message}")
+
+
 @app.route('/api/update_data', methods=['POST'])
 def update_data_api():
     try:
         region = (request.get_json(silent=True) or {}).get('region', 'all')
         current_year = str(datetime.now().year)
+        _log_draw_update(f"开始手动更新开奖数据 current_year={current_year}", source="manual", region=region)
 
         if region == 'all' or region == 'hk':
+            _log_draw_update("开始拉取香港开奖数据", source="manual", region="hk")
             hk_data = load_hk_data(force_refresh=True)
             hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
             save_draws_to_database(hk_filtered, 'hk')
-            print(f"手动更新：成功更新香港数据{len(hk_filtered)}条")
+            _log_draw_update(f"香港开奖数据已保存 count={len(hk_filtered)}", source="manual", region="hk")
             update_hk_next_draw_time_cache(force=True)
+            _log_draw_update("香港下期时间缓存已刷新", source="manual", region="hk")
             prediction_hk_data, _ = _get_prediction_data('hk', current_year)
             if prediction_hk_data:
+                _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_hk_data)}", source="manual", region="hk")
                 generate_auto_predictions(prediction_hk_data, 'hk')
                 refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
+                _log_draw_update("自动预测和回测快照已完成", source="manual", region="hk")
+            else:
+                _log_draw_update("未获取到可用于自动预测的香港数据", source="manual", region="hk")
 
         if region == 'all' or region == 'macau':
+            _log_draw_update("开始拉取澳门开奖数据", source="manual", region="macau")
             macau_data = get_macau_data(current_year, force_api=True)
             save_draws_to_database(macau_data, 'macau')
-            print(f"手动更新：成功更新澳门数据{len(macau_data)}条")
+            _log_draw_update(f"澳门开奖数据已保存 count={len(macau_data)}", source="manual", region="macau")
             prediction_macau_data, _ = _get_prediction_data('macau', current_year)
             if prediction_macau_data:
+                _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_macau_data)}", source="manual", region="macau")
                 generate_auto_predictions(prediction_macau_data, 'macau')
                 refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
+                _log_draw_update("自动预测和回测快照已完成", source="manual", region="macau")
+            else:
+                _log_draw_update("未获取到可用于自动预测的澳门数据", source="manual", region="macau")
+
+        _log_draw_update("手动更新开奖数据完成", source="manual", region=region)
 
         return jsonify({
             "success": True,
             "message": "数据更新成功，香港和澳门数据已更新至最新"
         })
     except Exception as e:
-        print(f"手动更新数据失败: {e}")
+        _log_draw_update(f"手动更新开奖数据失败 error={e}", source="manual", region=(request.get_json(silent=True) or {}).get('region', 'all'))
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
             "message": f"更新失败: {str(e)}"
@@ -10008,35 +10030,47 @@ def _release_scheduler_lock():
 # 定时任务：每天21:40自动更新数据库中的开奖记录
 def update_lottery_data():
     """定时任务：更新数据库中的开奖记录"""
-    print(f"开始执行定时任务：更新数据库中的开奖记录，时间：{datetime.now()}")
+    _log_draw_update("开始执行定时开奖更新任务", source="scheduler", region="all")
 
     with app.app_context():
         try:
             current_year = str(datetime.now().year)
 
-            print("正在同步香港数据...")
+            _log_draw_update(f"开始同步香港开奖数据 current_year={current_year}", source="scheduler", region="hk")
             hk_data = sync_draws_from_api('hk', current_year, force=True)
-            print(f"香港数据更新完成：{len(hk_data)}条")
+            _log_draw_update(f"香港开奖数据同步完成 count={len(hk_data)}", source="scheduler", region="hk")
             update_hk_next_draw_time_cache(force=True)
+            _log_draw_update("香港下期时间缓存已刷新", source="scheduler", region="hk")
 
-            print("正在同步澳门数据...")
+            _log_draw_update(f"开始同步澳门开奖数据 current_year={current_year}", source="scheduler", region="macau")
             macau_data = sync_draws_from_api('macau', current_year, force=True)
-            print(f"澳门数据更新完成：{len(macau_data)}条")
+            _log_draw_update(f"澳门开奖数据同步完成 count={len(macau_data)}", source="scheduler", region="macau")
 
-            print("正在生成自动预测...")
             prediction_hk_data, _ = _get_prediction_data('hk', current_year)
             if prediction_hk_data:
+                _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_hk_data)}", source="scheduler", region="hk")
                 generate_auto_predictions(prediction_hk_data, 'hk')
                 refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
+                _log_draw_update("自动预测和回测快照已完成", source="scheduler", region="hk")
+            else:
+                _log_draw_update("未获取到可用于自动预测的香港数据", source="scheduler", region="hk")
             prediction_macau_data, _ = _get_prediction_data('macau', current_year)
             if prediction_macau_data:
+                _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_macau_data)}", source="scheduler", region="macau")
                 generate_auto_predictions(prediction_macau_data, 'macau')
                 refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
+                _log_draw_update("自动预测和回测快照已完成", source="scheduler", region="macau")
+            else:
+                _log_draw_update("未获取到可用于自动预测的澳门数据", source="scheduler", region="macau")
 
-            print(f"定时任务执行完成：成功更新香港数据{len(hk_data)}条，澳门数据{len(macau_data)}条")
+            _log_draw_update(
+                f"定时开奖更新任务完成 hk_count={len(hk_data)} macau_count={len(macau_data)}",
+                source="scheduler",
+                region="all",
+            )
 
         except Exception as e:
-            print(f"定时任务执行失败：{e}")
+            _log_draw_update(f"定时开奖更新任务失败 error={e}", source="scheduler", region="all")
             import traceback
             traceback.print_exc()
 
