@@ -7900,7 +7900,7 @@ def _get_prediction_data(region, year):
     candidate_years = [str(target_zodiac_year), str(target_zodiac_year + 1)]
 
     draw_groups = []
-    for candidate_year in candidate_years:
+    for index, candidate_year in enumerate(candidate_years):
         year_records = []
         try:
             year_records = (
@@ -7915,12 +7915,15 @@ def _get_prediction_data(region, year):
             draw_groups.append(year_records)
             continue
 
-        try:
-            remote_records = sync_draws_from_api(region, candidate_year, force=True)
-            if remote_records:
-                draw_groups.append(remote_records)
-        except Exception as e:
-            print(f"同步 {region} 地区 {candidate_year} 年数据失败: {e}")
+        # 预测阶段只主动补拉目标年份的数据；下一公历年的数据仅使用库内已有记录，
+        # 避免在年中请求尚未产生开奖的下一年接口。
+        if index == 0:
+            try:
+                remote_records = sync_draws_from_api(region, candidate_year, force=True)
+                if remote_records:
+                    draw_groups.append(remote_records)
+            except Exception as e:
+                print(f"同步 {region} 地区 {candidate_year} 年数据失败: {e}")
 
     merged = _merge_draw_history_desc(*draw_groups)
     filtered = _filter_draws_by_zodiac_year(merged, target_zodiac_year)
