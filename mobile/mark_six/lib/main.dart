@@ -4273,7 +4273,7 @@ class _PredictScreenState extends State<PredictScreen> {
                   ? '特码命中率：${overallAccuracy.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '')}% ($overallTotal条)'
                   : '特码命中率：样本不足';
               final fallbackMultiplierText =
-                  '排名系数×命中率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，加权分 ${item['weighted_score'] ?? '-'}';
+                  '排名系数×命中率加成：${item['rank_multiplier'] ?? '-'} × ${item['accuracy_multiplier'] ?? '-'}，最终参考分 ${item['weighted_score'] ?? '-'}';
               final weightValue =
                   ((ensembleWeights[key] as num?)?.toDouble() ?? 0.0)
                       .toStringAsFixed(1)

@@ -2223,15 +2223,12 @@ def _build_ml_display_copy(model_meta):
         key=lambda item: float(item[1] or 0.0),
         reverse=True,
     )
+    weight_text = ""
     if weight_entries:
         weight_text = "、".join(
             f"{_get_strategy_label(key)}:{str(round(float(value), 1)).rstrip('0').rstrip('.') if '.' in str(round(float(value), 1)) else round(float(value), 1)}%"
             for key, value in weight_entries
         )
-        line = f"集成权重：{weight_text}（按近期状态分配：近20期50% + 近50期30% + 近100期20%）"
-        if meta.get("ensemble_weight_confidence") is not None:
-            line += f" · 集成把握度{meta.get('ensemble_weight_confidence')}%"
-        display["weight_summary"] = line
 
     special_votes = meta.get("ensemble_special_votes") or {}
     if special_votes:
@@ -2291,7 +2288,7 @@ def _build_ml_display_copy(model_meta):
             "accuracy_text": accuracy_text,
             "multiplier_text": (
                 f"排名系数×命中率加成：{(value or {}).get('rank_multiplier', '-')} × "
-                f"{(value or {}).get('accuracy_multiplier', '-')}，加权分 {(value or {}).get('weighted_score', '-')}"
+                f"{(value or {}).get('accuracy_multiplier', '-')}，最终参考分 {(value or {}).get('weighted_score', '-')}"
             ),
             "window_accuracy_text": window_accuracy_text,
         })
@@ -2300,6 +2297,14 @@ def _build_ml_display_copy(model_meta):
         if has_recent_zero_fallback
         else "最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)"
     )
+    if weight_text:
+        if has_recent_zero_fallback:
+            line = f"集成权重：{weight_text}（当前含长期表现兜底）"
+        else:
+            line = f"集成权重：{weight_text}（按近期状态分配：近20期50% + 近50期30% + 近100期20%）"
+        if meta.get("ensemble_weight_confidence") is not None:
+            line += f" · 集成把握度{meta.get('ensemble_weight_confidence')}%"
+        display["weight_summary"] = line
     display["weight_reason_items"] = weight_reason_items
     return display
 
