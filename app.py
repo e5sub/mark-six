@@ -41,14 +41,103 @@ _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
 _strategy_config_override_local = threading.local()
 _SYSTEM_LOG_FILE_PATH = os.path.join(data_dir, "system.log")
+_SYSTEM_LOG_RETENTION_DAYS = 30
 _system_log_stream_lock = threading.Lock()
 _system_log_tee_installed = False
 
 
+def _system_log_archive_path(log_date):
+    return f"{_SYSTEM_LOG_FILE_PATH}.{log_date.strftime('%Y-%m-%d')}"
+
+
+def _cleanup_old_system_log_archives():
+    cutoff_date = datetime.now().date() - timedelta(days=_SYSTEM_LOG_RETENTION_DAYS)
+    log_dir = os.path.dirname(_SYSTEM_LOG_FILE_PATH)
+    base_name = os.path.basename(_SYSTEM_LOG_FILE_PATH)
+    prefix = f"{base_name}."
+
+    try:
+        for name in os.listdir(log_dir):
+            if not name.startswith(prefix):
+                continue
+            suffix = name[len(prefix):]
+            try:
+                archive_date = datetime.strptime(suffix, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if archive_date < cutoff_date:
+                try:
+                    os.remove(os.path.join(log_dir, name))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
+class _SystemLogFileManager:
+    def __init__(self, file_path):
+        self._file_path = file_path
+        self._handle = None
+        self._current_date = None
+
+    def _rotate_if_needed(self):
+        today = datetime.now().date()
+        if self._handle is None:
+            self._handle = open(self._file_path, "a", encoding="utf-8", buffering=1, errors="replace")
+            self._current_date = today
+            _cleanup_old_system_log_archives()
+            return
+
+        if self._current_date == today:
+            return
+
+        try:
+            self._handle.flush()
+            self._handle.close()
+        except Exception:
+            pass
+
+        if os.path.exists(self._file_path):
+            archive_path = _system_log_archive_path(self._current_date or today)
+            try:
+                if os.path.exists(archive_path):
+                    os.remove(archive_path)
+            except OSError:
+                pass
+            try:
+                os.replace(self._file_path, archive_path)
+            except OSError:
+                pass
+
+        self._handle = open(self._file_path, "a", encoding="utf-8", buffering=1, errors="replace")
+        self._current_date = today
+        _cleanup_old_system_log_archives()
+
+    def write(self, text):
+        self._rotate_if_needed()
+        self._handle.write(text)
+
+    def flush(self):
+        if self._handle is None:
+            self._rotate_if_needed()
+        self._handle.flush()
+
+    def truncate(self):
+        if self._handle is not None:
+            try:
+                self._handle.flush()
+                self._handle.close()
+            except Exception:
+                pass
+        self._handle = open(self._file_path, "w", encoding="utf-8", buffering=1, errors="replace")
+        self._current_date = datetime.now().date()
+        _cleanup_old_system_log_archives()
+
+
 class _TeeStream:
-    def __init__(self, original, file_handle):
+    def __init__(self, original, file_manager):
         self._original = original
-        self._file_handle = file_handle
+        self._file_manager = file_manager
 
     def write(self, data):
         text = "" if data is None else str(data)
@@ -60,11 +149,11 @@ class _TeeStream:
             except Exception:
                 pass
             try:
-                self._file_handle.write(text)
+                self._file_manager.write(text)
             except Exception:
                 pass
             try:
-                self._file_handle.flush()
+                self._file_manager.flush()
             except Exception:
                 pass
         return len(text)
@@ -76,7 +165,7 @@ class _TeeStream:
             except Exception:
                 pass
             try:
-                self._file_handle.flush()
+                self._file_manager.flush()
             except Exception:
                 pass
 
@@ -96,9 +185,9 @@ def _install_system_log_tee():
         return
     try:
         os.makedirs(os.path.dirname(_SYSTEM_LOG_FILE_PATH), exist_ok=True)
-        log_stream = open(_SYSTEM_LOG_FILE_PATH, "a", encoding="utf-8", buffering=1, errors="replace")
-        sys.stdout = _TeeStream(sys.stdout, log_stream)
-        sys.stderr = _TeeStream(sys.stderr, log_stream)
+        log_manager = _SystemLogFileManager(_SYSTEM_LOG_FILE_PATH)
+        sys.stdout = _TeeStream(sys.stdout, log_manager)
+        sys.stderr = _TeeStream(sys.stderr, log_manager)
         _system_log_tee_installed = True
     except Exception:
         _system_log_tee_installed = False
@@ -108,28 +197,49 @@ def get_system_log_file_path():
     return _SYSTEM_LOG_FILE_PATH
 
 
+def _list_system_log_files():
+    files = []
+    if os.path.exists(_SYSTEM_LOG_FILE_PATH):
+        files.append((_SYSTEM_LOG_FILE_PATH, datetime.max.date()))
+
+    log_dir = os.path.dirname(_SYSTEM_LOG_FILE_PATH)
+    base_name = os.path.basename(_SYSTEM_LOG_FILE_PATH)
+    prefix = f"{base_name}."
+    try:
+        for name in os.listdir(log_dir):
+            if not name.startswith(prefix):
+                continue
+            suffix = name[len(prefix):]
+            try:
+                log_date = datetime.strptime(suffix, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            files.append((os.path.join(log_dir, name), log_date))
+    except OSError:
+        pass
+
+    files.sort(key=lambda item: item[1])
+    return [path for path, _ in files]
+
+
 def get_system_logs(limit=200):
     try:
         normalized_limit = max(1, min(int(limit or 200), 1000))
     except (TypeError, ValueError):
         normalized_limit = 200
 
-    if not os.path.exists(_SYSTEM_LOG_FILE_PATH):
+    log_files = _list_system_log_files()
+    if not log_files:
         return []
 
     try:
-        with open(_SYSTEM_LOG_FILE_PATH, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            file_size = f.tell()
-            block_size = 8192
-            buffer = b""
-            while file_size > 0 and buffer.count(b"\n") <= normalized_limit:
-                read_size = min(block_size, file_size)
-                file_size -= read_size
-                f.seek(file_size)
-                buffer = f.read(read_size) + buffer
-        lines = buffer.decode("utf-8", errors="replace").splitlines()
-        tail_lines = lines[-normalized_limit:]
+        tail_lines = []
+        for log_file in log_files:
+            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    tail_lines.append(line.rstrip("\r\n"))
+                    if len(tail_lines) > normalized_limit:
+                        tail_lines.pop(0)
         return [
             {
                 "line": line,
@@ -142,8 +252,18 @@ def get_system_logs(limit=200):
 
 def clear_system_logs():
     try:
-        with open(_SYSTEM_LOG_FILE_PATH, "w", encoding="utf-8") as f:
-            f.write("")
+        for log_file in _list_system_log_files():
+            try:
+                os.remove(log_file)
+            except OSError:
+                pass
+        if hasattr(sys.stdout, "_file_manager"):
+            sys.stdout._file_manager.truncate()
+        elif hasattr(sys.stderr, "_file_manager"):
+            sys.stderr._file_manager.truncate()
+        else:
+            with open(_SYSTEM_LOG_FILE_PATH, "w", encoding="utf-8") as f:
+                f.write("")
     except Exception:
         pass
 
