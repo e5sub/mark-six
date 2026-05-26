@@ -629,6 +629,47 @@ def data_transfer():
     return render_template('admin/data_transfer.html', summary=summary)
 
 
+@admin_bp.route('/system_logs')
+@admin_required
+def system_logs():
+    from app import get_system_log_file_path, get_system_logs
+
+    limit = request.args.get('limit', 200, type=int)
+    logs = get_system_logs(limit=limit)
+    return render_template(
+        'admin/system_logs.html',
+        logs=logs,
+        log_limit=limit,
+        log_file_path=get_system_log_file_path(),
+    )
+
+
+@admin_bp.route('/system_logs/data')
+@admin_required
+def system_logs_data():
+    from app import get_system_logs
+
+    limit = request.args.get('limit', 200, type=int)
+    logs = get_system_logs(limit=limit)
+    return jsonify({
+        'success': True,
+        'logs': logs,
+        'count': len(logs),
+    })
+
+
+@admin_bp.route('/system_logs/clear', methods=['POST'])
+@admin_required
+def clear_system_logs_view():
+    from app import clear_system_logs
+
+    clear_system_logs()
+    return jsonify({
+        'success': True,
+        'message': '系统日志已清空'
+    })
+
+
 @admin_bp.route('/data_transfer/export')
 @admin_required
 def export_all_data():

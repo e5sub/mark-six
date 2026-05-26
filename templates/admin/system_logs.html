@@ -1,0 +1,213 @@
+{% extends "admin/base.html" %}
+
+{% block page_title %}系统日志{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <div>
+            <div class="card-title">系统日志</div>
+            <div class="log-meta">后台展示最近 {{ log_limit }} 条服务器日志。控制台输出会继续保留，同时额外写入日志文件供这里查看。</div>
+            <div class="log-path">日志文件：{{ log_file_path }}</div>
+        </div>
+        <div class="log-actions">
+            <label class="log-refresh-toggle">
+                <input type="checkbox" id="autoRefreshToggle" checked>
+                <span>自动刷新</span>
+            </label>
+            <button class="btn" type="button" id="refreshLogsBtn">刷新</button>
+            <button class="btn btn-danger" type="button" id="clearLogsBtn">清空</button>
+        </div>
+    </div>
+
+    <div class="log-toolbar">
+        <div id="logStatusText">准备就绪</div>
+        <div id="logCountText">当前 {{ logs|length }} 条</div>
+    </div>
+
+    <div class="log-list" id="systemLogList">
+        {% if logs %}
+            {% for item in logs %}
+            <div class="log-item">
+                <pre class="log-line">{{ item.line }}</pre>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-log">暂无日志，系统产生输出后会显示在这里。</div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .log-meta,
+    .log-path {
+        margin-top: 0.4rem;
+        color: #cbd5e1;
+        font-size: 0.92rem;
+    }
+
+    .log-path {
+        font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+        color: #93c5fd;
+        word-break: break-all;
+    }
+
+    .log-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .log-refresh-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: #cbd5e1;
+        font-size: 0.92rem;
+    }
+
+    .log-toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        color: #cbd5e1;
+        font-size: 0.92rem;
+    }
+
+    .log-list {
+        display: grid;
+        gap: 0.8rem;
+        max-height: 72vh;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+
+    .log-item {
+        background: rgba(2, 6, 23, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        border-radius: 16px;
+        padding: 0.9rem 1rem;
+    }
+
+    .log-line {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #f8fafc;
+        font-size: 0.92rem;
+        line-height: 1.6;
+        font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+    }
+
+    .empty-log {
+        padding: 2rem 1rem;
+        text-align: center;
+        color: #cbd5e1;
+        border: 1px dashed rgba(148, 163, 184, 0.2);
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.4);
+    }
+
+    @media (max-width: 768px) {
+        .log-actions,
+        .log-toolbar {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+</style>
+
+<script>
+    const logLimit = {{ log_limit|int }};
+    let autoRefreshTimer = null;
+
+    function escapeHtml(text) {
+        return String(text || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function renderSystemLogs(logs) {
+        const logList = document.getElementById('systemLogList');
+        const logCountText = document.getElementById('logCountText');
+        logCountText.textContent = `当前 ${logs.length} 条`;
+
+        if (!Array.isArray(logs) || logs.length === 0) {
+            logList.innerHTML = '<div class="empty-log">暂无日志，系统产生输出后会显示在这里。</div>';
+            return;
+        }
+
+        logList.innerHTML = logs.map(item => `
+            <div class="log-item">
+                <pre class="log-line">${escapeHtml(item.line || '')}</pre>
+            </div>
+        `).join('');
+    }
+
+    async function refreshSystemLogs(showBusyState = false) {
+        const statusText = document.getElementById('logStatusText');
+        if (showBusyState) {
+            statusText.textContent = '正在刷新系统日志...';
+        }
+        try {
+            const response = await fetch(`/admin/system_logs/data?limit=${logLimit}`);
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data?.message || `HTTP ${response.status}`);
+            }
+            renderSystemLogs(data.logs || []);
+            statusText.textContent = `最近刷新：${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
+        } catch (error) {
+            statusText.textContent = `刷新失败：${error.message || error}`;
+        }
+    }
+
+    function restartAutoRefresh() {
+        if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+        }
+        if (document.getElementById('autoRefreshToggle').checked) {
+            autoRefreshTimer = setInterval(() => refreshSystemLogs(false), 5000);
+        }
+    }
+
+    document.getElementById('refreshLogsBtn').addEventListener('click', () => {
+        refreshSystemLogs(true);
+    });
+
+    document.getElementById('autoRefreshToggle').addEventListener('change', restartAutoRefresh);
+
+    document.getElementById('clearLogsBtn').addEventListener('click', async () => {
+        if (!confirm('确认清空后台显示的系统日志文件吗？')) {
+            return;
+        }
+        const statusText = document.getElementById('logStatusText');
+        statusText.textContent = '正在清空系统日志...';
+        try {
+            const response = await fetch('/admin/system_logs/clear', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data?.message || `HTTP ${response.status}`);
+            }
+            renderSystemLogs([]);
+            statusText.textContent = data.message || '系统日志已清空';
+        } catch (error) {
+            statusText.textContent = `清空失败：${error.message || error}`;
+        }
+    });
+
+    restartAutoRefresh();
+</script>
+{% endblock %}

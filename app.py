@@ -6,6 +6,7 @@ import hashlib
 import math
 import os
 import copy
+import sys
 import requests
 import smtplib
 import threading
@@ -39,6 +40,115 @@ _ML_PREDICTION_CACHE_TTL_SECONDS = 180
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
 _strategy_config_override_local = threading.local()
+_SYSTEM_LOG_FILE_PATH = os.path.join(data_dir, "system.log")
+_system_log_stream_lock = threading.Lock()
+_system_log_tee_installed = False
+
+
+class _TeeStream:
+    def __init__(self, original, file_handle):
+        self._original = original
+        self._file_handle = file_handle
+
+    def write(self, data):
+        text = "" if data is None else str(data)
+        if not text:
+            return 0
+        with _system_log_stream_lock:
+            try:
+                self._original.write(text)
+            except Exception:
+                pass
+            try:
+                self._file_handle.write(text)
+            except Exception:
+                pass
+            try:
+                self._file_handle.flush()
+            except Exception:
+                pass
+        return len(text)
+
+    def flush(self):
+        with _system_log_stream_lock:
+            try:
+                self._original.flush()
+            except Exception:
+                pass
+            try:
+                self._file_handle.flush()
+            except Exception:
+                pass
+
+    def isatty(self):
+        try:
+            return bool(self._original.isatty())
+        except Exception:
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
+
+def _install_system_log_tee():
+    global _system_log_tee_installed
+    if _system_log_tee_installed:
+        return
+    try:
+        os.makedirs(os.path.dirname(_SYSTEM_LOG_FILE_PATH), exist_ok=True)
+        log_stream = open(_SYSTEM_LOG_FILE_PATH, "a", encoding="utf-8", buffering=1, errors="replace")
+        sys.stdout = _TeeStream(sys.stdout, log_stream)
+        sys.stderr = _TeeStream(sys.stderr, log_stream)
+        _system_log_tee_installed = True
+    except Exception:
+        _system_log_tee_installed = False
+
+
+def get_system_log_file_path():
+    return _SYSTEM_LOG_FILE_PATH
+
+
+def get_system_logs(limit=200):
+    try:
+        normalized_limit = max(1, min(int(limit or 200), 1000))
+    except (TypeError, ValueError):
+        normalized_limit = 200
+
+    if not os.path.exists(_SYSTEM_LOG_FILE_PATH):
+        return []
+
+    try:
+        with open(_SYSTEM_LOG_FILE_PATH, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+            block_size = 8192
+            buffer = b""
+            while file_size > 0 and buffer.count(b"\n") <= normalized_limit:
+                read_size = min(block_size, file_size)
+                file_size -= read_size
+                f.seek(file_size)
+                buffer = f.read(read_size) + buffer
+        lines = buffer.decode("utf-8", errors="replace").splitlines()
+        tail_lines = lines[-normalized_limit:]
+        return [
+            {
+                "line": line,
+            }
+            for line in reversed(tail_lines)
+        ]
+    except Exception as e:
+        return [{"line": f"读取系统日志失败: {e}"}]
+
+
+def clear_system_logs():
+    try:
+        with open(_SYSTEM_LOG_FILE_PATH, "w", encoding="utf-8") as f:
+            f.write("")
+    except Exception:
+        pass
+
+
+_install_system_log_tee()
 
 def _load_or_create_secret_key():
     env_secret = os.environ.get("SECRET_KEY")
@@ -9428,7 +9538,8 @@ def unified_predict_api():
 def _log_draw_update(message, source="manual", region=None):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     region_text = f" region={region}" if region else ""
-    print(f"[DRAW-UPDATE][{timestamp}][{source}]{region_text} {message}")
+    log_line = f"[DRAW-UPDATE][{timestamp}][{source}]{region_text} {message}"
+    print(log_line)
 
 
 def _run_draw_postprocess(regions, current_year, source="manual-postprocess"):
