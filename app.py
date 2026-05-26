@@ -2273,7 +2273,10 @@ def _build_ml_display_copy(model_meta):
             if window_accuracy_text else "最近表现：样本不足"
         )
         if fallback_reason == "recent_zero_fallback":
-            accuracy_text += f"（最近未出号，已参考长期单号{overall_accuracy}% / 六码{overall_top6_accuracy}%）"
+            accuracy_text = (
+                f"最近单号暂无命中，当前参考长期表现估算："
+                f"单号{overall_accuracy}% / 六码{overall_top6_accuracy}% / 综合参考{recent_accuracy}%"
+            )
         weight_value = float((meta.get("ensemble_strategy_weights") or {}).get(key, 0.0) or 0.0)
         weight_reason_items.append({
             "rank": idx + 1,
