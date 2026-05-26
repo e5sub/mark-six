@@ -9057,7 +9057,7 @@ def draws_api():
     else:
         return jsonify(data[start_idx:end_idx])
 
-def update_prediction_accuracy(data, region):
+def update_prediction_accuracy(data, region, trigger_auto_predictions=True):
     """更新预测准确率 - 只比较特码和生肖"""
     try:
         # 获取所有该地区的预测记录
@@ -9132,8 +9132,8 @@ def update_prediction_accuracy(data, region):
         # 根据最新准确率调整策略参数
         update_strategy_configs(region)
 
-        # 触发自动预测（排除 AI 策略）
-        if data and len(data) > 0:
+        # 仅在原有前台链路中继续触发自动预测；后台更新链会单独处理。
+        if trigger_auto_predictions and data and len(data) > 0:
             generate_auto_predictions(data, region)
         
     except Exception as e:
@@ -9725,6 +9725,8 @@ def update_data_api():
                 updated_regions.append(f"香港{len(hk_filtered)}条")
                 updated_region_keys.append("hk")
                 _log_draw_update(f"香港开奖数据已保存 count={len(hk_filtered)}", source="manual", region="hk")
+                update_prediction_accuracy(hk_filtered, 'hk', trigger_auto_predictions=False)
+                _log_draw_update("香港预测结算与学习参数已刷新", source="manual", region="hk")
                 update_hk_next_draw_time_cache(force=True)
                 _log_draw_update("香港下期时间缓存已刷新", source="manual", region="hk")
             except Exception as region_error:
@@ -9739,6 +9741,8 @@ def update_data_api():
                 updated_regions.append(f"澳门{len(macau_data)}条")
                 updated_region_keys.append("macau")
                 _log_draw_update(f"澳门开奖数据已保存 count={len(macau_data)}", source="manual", region="macau")
+                update_prediction_accuracy(macau_data, 'macau', trigger_auto_predictions=False)
+                _log_draw_update("澳门预测结算与学习参数已刷新", source="manual", region="macau")
             except Exception as region_error:
                 failed_regions.append(f"澳门: {region_error}")
                 _log_draw_update(f"澳门开奖更新失败 error={region_error}", source="manual", region="macau")
@@ -10331,6 +10335,8 @@ def update_lottery_data():
             _log_draw_update(f"香港开奖数据同步完成 count={len(hk_data)}", source="scheduler", region="hk")
             updated_region_keys.append("hk")
             updated_regions.append(f"香港{len(hk_data)}条")
+            update_prediction_accuracy(hk_data, 'hk', trigger_auto_predictions=False)
+            _log_draw_update("香港预测结算与学习参数已刷新", source="scheduler", region="hk")
             update_hk_next_draw_time_cache(force=True)
             _log_draw_update("香港下期时间缓存已刷新", source="scheduler", region="hk")
 
@@ -10339,6 +10345,8 @@ def update_lottery_data():
             _log_draw_update(f"澳门开奖数据同步完成 count={len(macau_data)}", source="scheduler", region="macau")
             updated_region_keys.append("macau")
             updated_regions.append(f"澳门{len(macau_data)}条")
+            update_prediction_accuracy(macau_data, 'macau', trigger_auto_predictions=False)
+            _log_draw_update("澳门预测结算与学习参数已刷新", source="scheduler", region="macau")
 
             postprocess_started = _start_draw_postprocess_async(updated_region_keys, current_year, source="scheduler-postprocess")
 
