@@ -9554,13 +9554,21 @@ def update_data_api():
 @app.route('/api/update_data_status')
 def update_data_status_api():
     with _lottery_update_state_lock:
+        thread_alive = bool(_lottery_update_thread and _lottery_update_thread.is_alive())
+        running = bool(_lottery_update_running or thread_alive)
+        status = _lottery_update_last_status.get("status", "idle")
+        message = _lottery_update_last_status.get("message", "")
+        if running and status == "idle":
+            status = "running"
+        if running and not message:
+            message = "正在从官方数据源获取最新开奖数据..."
         return jsonify({
             "success": True,
-            "running": bool(_lottery_update_running),
+            "running": running,
             "started_at": _lottery_update_last_status.get("started_at"),
             "finished_at": _lottery_update_last_status.get("finished_at"),
-            "status": _lottery_update_last_status.get("status", "idle"),
-            "message": _lottery_update_last_status.get("message", ""),
+            "status": status,
+            "message": message,
             "regions": list(_lottery_update_last_status.get("regions") or []),
             "source": _lottery_update_last_status.get("source", ""),
         })

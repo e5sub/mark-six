@@ -176,15 +176,18 @@
 
 <script>
     let drawUpdatePollTimer = null;
+    let drawUpdatePollAttempts = 0;
 
     function stopDrawUpdatePolling() {
         if (drawUpdatePollTimer) {
             clearTimeout(drawUpdatePollTimer);
             drawUpdatePollTimer = null;
         }
+        drawUpdatePollAttempts = 0;
     }
 
     function pollDrawUpdateStatus(btn, updateStatusIndicator, updateStatusIcon, updateStatusText) {
+        drawUpdatePollAttempts += 1;
         fetch('/api/update_data_status')
             .then(response => response.json())
             .then(data => {
@@ -215,6 +218,13 @@
                     updateStatusIcon.className = 'fas fa-exclamation-circle';
                     updateStatusIcon.style.color = '#e74c3c';
                     updateStatusText.textContent = data.message || '开奖数据更新失败，请稍后再试';
+                } else if (drawUpdatePollAttempts < 8) {
+                    updateStatusIcon.className = 'fas fa-spinner fa-spin';
+                    updateStatusIcon.style.color = '#3498db';
+                    updateStatusText.textContent = data.message || '正在确认开奖更新结果...';
+                    drawUpdatePollTimer = setTimeout(() => {
+                        pollDrawUpdateStatus(btn, updateStatusIndicator, updateStatusIcon, updateStatusText);
+                    }, 1200);
                 } else {
                     updateStatusIcon.className = 'fas fa-info-circle';
                     updateStatusIcon.style.color = '#f59e0b';
