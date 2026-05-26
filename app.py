@@ -2247,6 +2247,7 @@ def _build_ml_display_copy(model_meta):
 
     diagnostics = meta.get("ensemble_weight_diagnostics") or {}
     weight_reason_items = []
+    has_recent_zero_fallback = False
     rank_titles = [
         ("冠军策略", "当前集成优先级最高"),
         ("亚军策略", "当前集成优先级第二"),
@@ -2263,6 +2264,8 @@ def _build_ml_display_copy(model_meta):
         overall_top6_accuracy = float((value or {}).get("overall_top6_accuracy", 0.0) or 0.0)
         window_accuracies = (value or {}).get("window_accuracies") or []
         fallback_reason = str((value or {}).get("fallback_reason") or "").strip()
+        if fallback_reason == "recent_zero_fallback":
+            has_recent_zero_fallback = True
         window_accuracy_text = " / ".join(
             f"近{int(item.get('window', 0))}期 {float(item.get('accuracy', 0.0) or 0.0)}%"
             for item in window_accuracies
@@ -2291,6 +2294,11 @@ def _build_ml_display_copy(model_meta):
             ),
             "window_accuracy_text": window_accuracy_text,
         })
+    display["weight_reason_summary"] = (
+        "最近单号暂无命中时，会自动参考长期单号和六码表现估算当前权重。"
+        if has_recent_zero_fallback
+        else "最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)"
+    )
     display["weight_reason_items"] = weight_reason_items
     return display
 

@@ -4242,7 +4242,9 @@ class _PredictScreenState extends State<PredictScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              '最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)',
+              (displayCopy['weight_reason_summary']?.toString().isNotEmpty ?? false)
+                  ? displayCopy['weight_reason_summary'].toString()
+                  : '最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)',
               style: TextStyle(
                 fontSize: 11.5,
                 color: Colors.grey.shade700,
