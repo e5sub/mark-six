@@ -9455,10 +9455,12 @@ def update_data_api():
                 try:
                     prediction_hk_data, _ = _get_prediction_data('hk', current_year)
                     if prediction_hk_data:
-                        _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_hk_data)}", source="manual", region="hk")
+                        _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_hk_data)}", source="manual", region="hk")
                         generate_auto_predictions(prediction_hk_data, 'hk')
+                        _log_draw_update("自动预测已完成", source="manual", region="hk")
+                        _log_draw_update("开始刷新回测快照", source="manual", region="hk")
                         refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
-                        _log_draw_update("自动预测和回测快照已完成", source="manual", region="hk")
+                        _log_draw_update("回测快照已完成", source="manual", region="hk")
                     else:
                         _log_draw_update("未获取到可用于自动预测的香港数据", source="manual", region="hk")
                 except Exception as post_process_error:
@@ -9479,10 +9481,12 @@ def update_data_api():
                 try:
                     prediction_macau_data, _ = _get_prediction_data('macau', current_year)
                     if prediction_macau_data:
-                        _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_macau_data)}", source="manual", region="macau")
+                        _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_macau_data)}", source="manual", region="macau")
                         generate_auto_predictions(prediction_macau_data, 'macau')
+                        _log_draw_update("自动预测已完成", source="manual", region="macau")
+                        _log_draw_update("开始刷新回测快照", source="manual", region="macau")
                         refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
-                        _log_draw_update("自动预测和回测快照已完成", source="manual", region="macau")
+                        _log_draw_update("回测快照已完成", source="manual", region="macau")
                     else:
                         _log_draw_update("未获取到可用于自动预测的澳门数据", source="manual", region="macau")
                 except Exception as post_process_error:
@@ -10086,18 +10090,22 @@ def update_lottery_data():
 
             prediction_hk_data, _ = _get_prediction_data('hk', current_year)
             if prediction_hk_data:
-                _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_hk_data)}", source="scheduler", region="hk")
+                _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_hk_data)}", source="scheduler", region="hk")
                 generate_auto_predictions(prediction_hk_data, 'hk')
+                _log_draw_update("自动预测已完成", source="scheduler", region="hk")
+                _log_draw_update("开始刷新回测快照", source="scheduler", region="hk")
                 refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
-                _log_draw_update("自动预测和回测快照已完成", source="scheduler", region="hk")
+                _log_draw_update("回测快照已完成", source="scheduler", region="hk")
             else:
                 _log_draw_update("未获取到可用于自动预测的香港数据", source="scheduler", region="hk")
             prediction_macau_data, _ = _get_prediction_data('macau', current_year)
             if prediction_macau_data:
-                _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_macau_data)}", source="scheduler", region="macau")
+                _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_macau_data)}", source="scheduler", region="macau")
                 generate_auto_predictions(prediction_macau_data, 'macau')
+                _log_draw_update("自动预测已完成", source="scheduler", region="macau")
+                _log_draw_update("开始刷新回测快照", source="scheduler", region="macau")
                 refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
-                _log_draw_update("自动预测和回测快照已完成", source="scheduler", region="macau")
+                _log_draw_update("回测快照已完成", source="scheduler", region="macau")
             else:
                 _log_draw_update("未获取到可用于自动预测的澳门数据", source="scheduler", region="macau")
 
