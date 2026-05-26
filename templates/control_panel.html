@@ -205,8 +205,8 @@
                     return;
                 }
 
-                stopDrawUpdatePolling();
                 if (data.status === 'success') {
+                    stopDrawUpdatePolling();
                     updateStatusIcon.className = 'fas fa-check-circle';
                     updateStatusIcon.style.color = '#2ecc71';
                     updateStatusText.textContent = data.message || '开奖数据更新完成';
@@ -215,6 +215,7 @@
                         updateStatusIndicator.style.display = 'none';
                     }, 2500);
                 } else if (data.status === 'failed') {
+                    stopDrawUpdatePolling();
                     updateStatusIcon.className = 'fas fa-exclamation-circle';
                     updateStatusIcon.style.color = '#e74c3c';
                     updateStatusText.textContent = data.message || '开奖数据更新失败，请稍后再试';
@@ -226,6 +227,7 @@
                         pollDrawUpdateStatus(btn, updateStatusIndicator, updateStatusIcon, updateStatusText);
                     }, 1200);
                 } else {
+                    stopDrawUpdatePolling();
                     updateStatusIcon.className = 'fas fa-info-circle';
                     updateStatusIcon.style.color = '#f59e0b';
                     updateStatusText.textContent = data.message || '开奖任务状态未知，请稍后手动刷新';
