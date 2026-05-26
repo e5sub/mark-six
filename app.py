@@ -2280,6 +2280,7 @@ def _build_ml_display_copy(model_meta):
                 f"最近单号暂无命中，当前参考长期表现估算："
                 f"单号{overall_accuracy}% / 六码{overall_top6_accuracy}% / 综合参考{recent_accuracy}%"
             )
+            window_accuracy_text = ""
         weight_value = float((meta.get("ensemble_strategy_weights") or {}).get(key, 0.0) or 0.0)
         weight_reason_items.append({
             "rank": idx + 1,
