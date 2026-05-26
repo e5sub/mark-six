@@ -196,7 +196,19 @@
             },
             body: JSON.stringify({ region: 'all' })
         })
-        .then(response => response.json())
+        .then(async response => {
+            const rawText = await response.text();
+            let data = null;
+            try {
+                data = rawText ? JSON.parse(rawText) : {};
+            } catch (parseError) {
+                throw new Error(rawText || `HTTP ${response.status}`);
+            }
+            if (!response.ok) {
+                throw new Error(data?.message || `HTTP ${response.status}`);
+            }
+            return data;
+        })
         .then(data => {
             if (data.success) {
                 updateStatusIcon.className = 'fas fa-check-circle';
@@ -215,7 +227,7 @@
         .catch(error => {
             updateStatusIcon.className = 'fas fa-exclamation-circle';
             updateStatusIcon.style.color = '#e74c3c';
-            updateStatusText.textContent = '更新失败，请稍后再试';
+            updateStatusText.textContent = error?.message || '更新失败，请稍后再试';
             console.error('更新数据出错:', error);
         })
         .finally(() => {

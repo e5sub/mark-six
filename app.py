@@ -9433,50 +9433,88 @@ def _log_draw_update(message, source="manual", region=None):
 
 @app.route('/api/update_data', methods=['POST'])
 def update_data_api():
+    payload = request.get_json(silent=True) or {}
+    region = payload.get('region', 'all')
     try:
-        region = (request.get_json(silent=True) or {}).get('region', 'all')
         current_year = str(datetime.now().year)
         _log_draw_update(f"开始手动更新开奖数据 current_year={current_year}", source="manual", region=region)
+        updated_regions = []
+        failed_regions = []
+        warning_messages = []
 
         if region == 'all' or region == 'hk':
-            _log_draw_update("开始拉取香港开奖数据", source="manual", region="hk")
-            hk_data = load_hk_data(force_refresh=True)
-            hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
-            save_draws_to_database(hk_filtered, 'hk')
-            _log_draw_update(f"香港开奖数据已保存 count={len(hk_filtered)}", source="manual", region="hk")
-            update_hk_next_draw_time_cache(force=True)
-            _log_draw_update("香港下期时间缓存已刷新", source="manual", region="hk")
-            prediction_hk_data, _ = _get_prediction_data('hk', current_year)
-            if prediction_hk_data:
-                _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_hk_data)}", source="manual", region="hk")
-                generate_auto_predictions(prediction_hk_data, 'hk')
-                refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
-                _log_draw_update("自动预测和回测快照已完成", source="manual", region="hk")
-            else:
-                _log_draw_update("未获取到可用于自动预测的香港数据", source="manual", region="hk")
+            try:
+                _log_draw_update("开始拉取香港开奖数据", source="manual", region="hk")
+                hk_data = load_hk_data(force_refresh=True)
+                hk_filtered = [rec for rec in hk_data if rec.get('date', '').startswith(current_year)]
+                save_draws_to_database(hk_filtered, 'hk')
+                updated_regions.append(f"香港{len(hk_filtered)}条")
+                _log_draw_update(f"香港开奖数据已保存 count={len(hk_filtered)}", source="manual", region="hk")
+                update_hk_next_draw_time_cache(force=True)
+                _log_draw_update("香港下期时间缓存已刷新", source="manual", region="hk")
+                try:
+                    prediction_hk_data, _ = _get_prediction_data('hk', current_year)
+                    if prediction_hk_data:
+                        _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_hk_data)}", source="manual", region="hk")
+                        generate_auto_predictions(prediction_hk_data, 'hk')
+                        refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
+                        _log_draw_update("自动预测和回测快照已完成", source="manual", region="hk")
+                    else:
+                        _log_draw_update("未获取到可用于自动预测的香港数据", source="manual", region="hk")
+                except Exception as post_process_error:
+                    warning = f"香港自动预测/回测失败: {post_process_error}"
+                    warning_messages.append(warning)
+                    _log_draw_update(warning, source="manual", region="hk")
+            except Exception as region_error:
+                failed_regions.append(f"香港: {region_error}")
+                _log_draw_update(f"香港开奖更新失败 error={region_error}", source="manual", region="hk")
 
         if region == 'all' or region == 'macau':
-            _log_draw_update("开始拉取澳门开奖数据", source="manual", region="macau")
-            macau_data = get_macau_data(current_year, force_api=True)
-            save_draws_to_database(macau_data, 'macau')
-            _log_draw_update(f"澳门开奖数据已保存 count={len(macau_data)}", source="manual", region="macau")
-            prediction_macau_data, _ = _get_prediction_data('macau', current_year)
-            if prediction_macau_data:
-                _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_macau_data)}", source="manual", region="macau")
-                generate_auto_predictions(prediction_macau_data, 'macau')
-                refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
-                _log_draw_update("自动预测和回测快照已完成", source="manual", region="macau")
-            else:
-                _log_draw_update("未获取到可用于自动预测的澳门数据", source="manual", region="macau")
+            try:
+                _log_draw_update("开始拉取澳门开奖数据", source="manual", region="macau")
+                macau_data = get_macau_data(current_year, force_api=True)
+                save_draws_to_database(macau_data, 'macau')
+                updated_regions.append(f"澳门{len(macau_data)}条")
+                _log_draw_update(f"澳门开奖数据已保存 count={len(macau_data)}", source="manual", region="macau")
+                try:
+                    prediction_macau_data, _ = _get_prediction_data('macau', current_year)
+                    if prediction_macau_data:
+                        _log_draw_update(f"开始生成自动预测和回测快照 draw_count={len(prediction_macau_data)}", source="manual", region="macau")
+                        generate_auto_predictions(prediction_macau_data, 'macau')
+                        refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
+                        _log_draw_update("自动预测和回测快照已完成", source="manual", region="macau")
+                    else:
+                        _log_draw_update("未获取到可用于自动预测的澳门数据", source="manual", region="macau")
+                except Exception as post_process_error:
+                    warning = f"澳门自动预测/回测失败: {post_process_error}"
+                    warning_messages.append(warning)
+                    _log_draw_update(warning, source="manual", region="macau")
+            except Exception as region_error:
+                failed_regions.append(f"澳门: {region_error}")
+                _log_draw_update(f"澳门开奖更新失败 error={region_error}", source="manual", region="macau")
 
-        _log_draw_update("手动更新开奖数据完成", source="manual", region=region)
+        if updated_regions:
+            message = f"开奖数据更新完成：{'，'.join(updated_regions)}"
+            if failed_regions:
+                message += f"；未完成：{'；'.join(failed_regions)}"
+            if warning_messages:
+                message += f"；后处理告警：{'；'.join(warning_messages)}"
+            _log_draw_update(message, source="manual", region=region)
+            return jsonify({
+                "success": True,
+                "message": message
+            })
 
+        message = "更新失败"
+        if failed_regions:
+            message = f"{message}：{'；'.join(failed_regions)}"
+        _log_draw_update(message, source="manual", region=region)
         return jsonify({
-            "success": True,
-            "message": "数据更新成功，香港和澳门数据已更新至最新"
-        })
+            "success": False,
+            "message": message
+        }), 500
     except Exception as e:
-        _log_draw_update(f"手动更新开奖数据失败 error={e}", source="manual", region=(request.get_json(silent=True) or {}).get('region', 'all'))
+        _log_draw_update(f"手动更新开奖数据失败 error={e}", source="manual", region=region)
         import traceback
         traceback.print_exc()
         return jsonify({
