@@ -40,8 +40,8 @@
     </div>
     <div class="stat-card">
         <div class="stat-icon">❌</div>
-        <div class="stat-number">{{ wrong_predictions }}</div>
-        <div class="stat-label">未中期数</div>
+        <div class="stat-number">{{ current_miss_streak }}</div>
+        <div class="stat-label">当前未中</div>
     </div>
     <div class="stat-card">
         <div class="stat-icon">⏳</div>
@@ -89,8 +89,8 @@
                 <div class="region-stat-label">当前连中</div>
             </div>
             <div class="region-stat-item">
-                <div class="region-stat-value">{{ region_stat.wrong_predictions }}</div>
-                <div class="region-stat-label">未中期数</div>
+                <div class="region-stat-value">{{ region_stat.current_miss_streak }}</div>
+                <div class="region-stat-label">当前未中</div>
             </div>
         </div>
     </div>
