@@ -690,6 +690,8 @@ def _compose_ai_recommendation_text(ai_response, special_number, normal_numbers,
     fallback_text = _build_ai_reason_fallback(special_number, normal_numbers, region=region)
     if not _has_meaningful_ai_reasoning(raw_text):
         return fallback_text
+    if "<!--AI_DYNAMIC_SELECTION-->" in raw_text:
+        return raw_text.replace("<!--AI_DYNAMIC_SELECTION-->", "").strip()
 
     final_special = _normalize_draw_number(special_number)
     _, extracted_special = _extract_ai_numbers_v2(raw_text, region=region)
@@ -711,7 +713,92 @@ def _compose_ai_recommendation_text(ai_response, special_number, normal_numbers,
         cleaned_text = ""
     if not _has_meaningful_ai_reasoning(cleaned_text):
         return fallback_text
+    if len(cleaned_text) >= 180:
+        return cleaned_text
     return f"{cleaned_text}\n\n{fallback_text}"
+
+
+def _build_ai_dynamic_selection_text(best_candidate, context, ranked_candidates):
+    special = best_candidate.get("special")
+    normal = [int(number) for number in (best_candidate.get("normal") or []) if str(number).isdigit()]
+    special_votes = context.get("special_votes") or Counter()
+    normal_votes = context.get("normal_votes") or Counter()
+    phase_profile = dict(context.get("phase_profile") or {})
+    gate_profile = dict(context.get("gate_profile") or {})
+    diagnostics = dict(best_candidate.get("score_diagnostics") or {})
+    recent_specials = [int(number) for number in (context.get("recent_specials") or []) if str(number).isdigit()]
+    region = str((context.get("structured_payload") or {}).get("region") or "")
+    region_label = "香港" if region == "hk" else "澳门" if region == "macau" else "当前地区"
+
+    try:
+        special_num = int(str(special).strip())
+    except (TypeError, ValueError):
+        special_num = 0
+
+    try:
+        year = datetime.now().year
+        zodiac_map = _get_number_to_zodiac_map(year)
+    except Exception:
+        zodiac_map = {}
+
+    special_color = _get_color_zh(special_num) or "待定"
+    special_zodiac = zodiac_map.get(str(special_num), "") or "待定"
+    special_parity = "双" if special_num and special_num % 2 == 0 else "单" if special_num else "待定"
+    special_zone = "小号区" if special_num <= 16 else "中段区" if special_num <= 33 else "大号区" if special_num else "待定区"
+    normal_zone_count = len(set(1 if number <= 16 else 2 if number <= 33 else 3 for number in normal))
+    normal_tail_count = len(set(number % 10 for number in normal))
+    normal_vote_avg = round(
+        sum(_safe_float(normal_votes.get(int(number), 0.0)) for number in normal) / max(len(normal), 1),
+        2,
+    )
+    special_vote = round(_safe_float(special_votes.get(int(special_num), 0.0)), 2) if special_num else 0.0
+    recent_text = "、".join(f"{number:02d}" for number in recent_specials[:5]) or "暂无"
+    alternatives = "、".join(
+        f"{item.get('special')}({round(_safe_float(item.get('aggregate_score'), 0.0), 3)})"
+        for item in (ranked_candidates or [])[:4]
+        if item.get("special") is not None
+    ) or "暂无"
+
+    repeat_note = (
+        "主推号刚在近期出现过，已在评分中扣除重复风险后仍保留。"
+        if special_num in recent_specials[:5]
+        else "主推号避开了最近几期的重复特码，短期拥挤度相对低。"
+    )
+    gate_status = str(gate_profile.get("status") or "active")
+    gate_note = {
+        "guarded": "当前网关偏谨慎，系统会压低高波动候选。",
+        "fallback": "当前样本信号偏弱，系统采用保守兜底筛选。",
+        "active": "当前网关允许 AI 主动选择，但仍会保留结构校验。",
+    }.get(gate_status, f"当前网关状态：{gate_status}。")
+    phase_label = str(phase_profile.get("label") or "neutral")
+    phase_guidance = str(phase_profile.get("guidance") or "保持中性判断。")
+    quality = round(_safe_float(best_candidate.get("aggregate_score"), 0.0), 4)
+    rerank = round(_safe_float(best_candidate.get("rerank_score"), 0.0), 4)
+    structure_bonus = round(_safe_float(diagnostics.get("structure_bonus"), 0.0), 4)
+    repeat_penalty = round(_safe_float(diagnostics.get("repeat_penalty"), 0.0), 4)
+    shape_score = round(_safe_float(diagnostics.get("shape_score"), 0.0), 4)
+
+    raw_reason = str(best_candidate.get("why") or "").strip()
+    raw_reason_line = f"\n模型原始理由：{raw_reason}" if raw_reason else ""
+
+    return (
+        "<!--AI_DYNAMIC_SELECTION-->\n"
+        f"**本期 AI 判断**\n\n"
+        f"{region_label}当前阶段：{phase_label}，{phase_guidance} {gate_note}\n"
+        f"最近特码序列：{recent_text}。\n\n"
+        f"**特码重点**\n\n"
+        f"号码：`{special}`\n"
+        f"理由：{special_color}波、生肖{special_zodiac}、{special_parity}数，落在{special_zone}；"
+        f"系统重排分{rerank}，综合参考分{quality}，特码票数{special_vote}。{repeat_note}{raw_reason_line}\n\n"
+        f"**平码结构**\n\n"
+        f"参考平码：[{', '.join(f'{number:02d}' for number in normal)}]\n"
+        f"说明：六码覆盖{normal_zone_count}个区间、{normal_tail_count}组尾数，平均票数{normal_vote_avg}；"
+        f"结构加成{structure_bonus}，形态评分{shape_score}，重复扣分{repeat_penalty}。\n\n"
+        f"**候选对比**\n\n"
+        f"候选排序：{alternatives}。本期优先选择分数、结构和短期重复风险更均衡的一组。\n\n"
+        f"**风险提示**\n\n"
+        f"AI 结果已通过本地候选池重排，仍然只适合作为参考；如果临场继续集中在最近热区，特码可能被相邻区间或同属性号码打断。"
+    )
 
 
 def _normalize_special_candidate_numbers(candidates):
@@ -7803,6 +7890,8 @@ def _score_ai_candidate(candidate, context):
 def _build_ai_selection_recommendation(best_candidate, context, ranked_candidates):
     special = best_candidate.get("special")
     normal = best_candidate.get("normal") or []
+    raw_text = _build_ai_dynamic_selection_text(best_candidate, context, ranked_candidates)
+    return _compose_ai_recommendation_text(raw_text, str(special), normal, region=context.get("structured_payload", {}).get("region"))
     special_votes = context.get("special_votes") or Counter()
     normal_votes = context.get("normal_votes") or Counter()
     rationale = str(best_candidate.get("why") or "").strip()
