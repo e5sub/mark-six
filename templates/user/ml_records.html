@@ -34,6 +34,16 @@
         <div class="stat-label">六码命中</div>
     </div>
     <div class="stat-card">
+        <div class="stat-icon">🔥</div>
+        <div class="stat-number">{{ current_special_hit_streak }}</div>
+        <div class="stat-label">当前连中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">❌</div>
+        <div class="stat-number">{{ wrong_predictions }}</div>
+        <div class="stat-label">未中期数</div>
+    </div>
+    <div class="stat-card">
         <div class="stat-icon">⏳</div>
         <div class="stat-number">{{ pending_predictions }}</div>
         <div class="stat-label">待开奖</div>
@@ -73,6 +83,14 @@
             <div class="region-stat-item">
                 <div class="region-stat-value">{{ region_stat.normal_hits }}</div>
                 <div class="region-stat-label">六码命中</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ region_stat.current_special_hit_streak }}</div>
+                <div class="region-stat-label">当前连中</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ region_stat.wrong_predictions }}</div>
+                <div class="region-stat-label">未中期数</div>
             </div>
         </div>
     </div>
@@ -207,7 +225,7 @@
 <style>
 .ml-stats {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(8, 1fr);
     gap: 1rem;
     margin-bottom: 1rem;
 }
@@ -317,7 +335,7 @@
 
 .region-stat-body {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0.75rem;
 }
 

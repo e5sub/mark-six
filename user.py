@@ -906,6 +906,40 @@ def _get_ml_predictions_page(user_id, page=1, region='', period='', result='', s
     )
 
 def _get_ml_stats(user_id):
+    def _calculate_current_special_hit_streak(region=None):
+        streak_query = PredictionRecord.query.filter(
+            PredictionRecord.user_id == user_id,
+            PredictionRecord.strategy == 'ml',
+            PredictionRecord.is_result_updated.is_(True),
+            PredictionRecord.actual_special_number != None,
+        )
+        if region:
+            streak_query = streak_query.filter(PredictionRecord.region == region)
+
+        deduped_ids = streak_query.with_entities(
+            func.max(PredictionRecord.id).label('id')
+        ).group_by(
+            PredictionRecord.region,
+            PredictionRecord.period,
+            PredictionRecord.strategy,
+        ).subquery()
+
+        rows = PredictionRecord.query.join(
+            deduped_ids,
+            PredictionRecord.id == deduped_ids.c.id
+        ).order_by(
+            PredictionRecord.created_at.desc(),
+            PredictionRecord.id.desc()
+        ).all()
+
+        streak = 0
+        for row in rows:
+            if str(row.special_number or '').strip() == str(row.actual_special_number or '').strip():
+                streak += 1
+            else:
+                break
+        return streak
+
     actual_special = PredictionRecord.actual_special_number
     special_number = PredictionRecord.special_number
     stats_row = db.session.query(
@@ -924,6 +958,7 @@ def _get_ml_stats(user_id):
     special_hit_predictions = stats_row[2] or 0
     normal_hit_predictions = stats_row[3] or 0
     wrong_predictions = stats_row[4] or 0
+    current_special_hit_streak = _calculate_current_special_hit_streak()
     pending_predictions = max(total_ml_predictions - updated_predictions, 0)
     special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
@@ -934,7 +969,8 @@ def _get_ml_stats(user_id):
         db.func.count(PredictionRecord.id),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
-        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0))
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
     ).filter(
         PredictionRecord.user_id == user_id,
         PredictionRecord.strategy == 'ml',
@@ -947,6 +983,7 @@ def _get_ml_stats(user_id):
             'updated': row[2] or 0,
             'special_hits': row[3] or 0,
             'normal_hits': row[4] or 0,
+            'wrong_predictions': row[5] or 0,
         }
         for row in region_rows
     }
@@ -957,6 +994,7 @@ def _get_ml_stats(user_id):
         region_updated = region_data.get('updated', 0)
         region_special_hits = region_data.get('special_hits', 0)
         region_normal_hits = region_data.get('normal_hits', 0)
+        region_wrong_predictions = region_data.get('wrong_predictions', 0)
         region_ml_stats.append({
             'region': region_key,
             'label': region_label,
@@ -964,6 +1002,8 @@ def _get_ml_stats(user_id):
             'updated': region_updated,
             'special_hits': region_special_hits,
             'normal_hits': region_normal_hits,
+            'wrong_predictions': region_wrong_predictions,
+            'current_special_hit_streak': _calculate_current_special_hit_streak(region_key),
             'special_hit_rate': round((region_special_hits / region_updated * 100), 2) if region_updated > 0 else 0,
             'normal_hit_rate': round((region_normal_hits / region_updated * 100), 2) if region_updated > 0 else 0,
         })
@@ -974,6 +1014,7 @@ def _get_ml_stats(user_id):
         'special_hit_count': special_hit_predictions,
         'normal_hit_count': normal_hit_predictions,
         'wrong_predictions': wrong_predictions,
+        'current_special_hit_streak': current_special_hit_streak,
         'pending_predictions': pending_predictions,
         'special_hit_rate': round(special_hit_rate, 2),
         'normal_hit_rate': round(normal_hit_rate, 2),
