@@ -10092,40 +10092,27 @@ def update_lottery_data():
     with app.app_context():
         try:
             current_year = str(datetime.now().year)
+            updated_region_keys = []
+            updated_regions = []
 
             _log_draw_update(f"开始同步香港开奖数据 current_year={current_year}", source="scheduler", region="hk")
             hk_data = sync_draws_from_api('hk', current_year, force=True)
             _log_draw_update(f"香港开奖数据同步完成 count={len(hk_data)}", source="scheduler", region="hk")
+            updated_region_keys.append("hk")
+            updated_regions.append(f"香港{len(hk_data)}条")
             update_hk_next_draw_time_cache(force=True)
             _log_draw_update("香港下期时间缓存已刷新", source="scheduler", region="hk")
 
             _log_draw_update(f"开始同步澳门开奖数据 current_year={current_year}", source="scheduler", region="macau")
             macau_data = sync_draws_from_api('macau', current_year, force=True)
             _log_draw_update(f"澳门开奖数据同步完成 count={len(macau_data)}", source="scheduler", region="macau")
+            updated_region_keys.append("macau")
+            updated_regions.append(f"澳门{len(macau_data)}条")
 
-            prediction_hk_data, _ = _get_prediction_data('hk', current_year)
-            if prediction_hk_data:
-                _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_hk_data)}", source="scheduler", region="hk")
-                generate_auto_predictions(prediction_hk_data, 'hk')
-                _log_draw_update("自动预测已完成", source="scheduler", region="hk")
-                _log_draw_update("开始刷新回测快照", source="scheduler", region="hk")
-                refresh_auto_backtest_snapshot('hk', draws=prediction_hk_data, force=True)
-                _log_draw_update("回测快照已完成", source="scheduler", region="hk")
-            else:
-                _log_draw_update("未获取到可用于自动预测的香港数据", source="scheduler", region="hk")
-            prediction_macau_data, _ = _get_prediction_data('macau', current_year)
-            if prediction_macau_data:
-                _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_macau_data)}", source="scheduler", region="macau")
-                generate_auto_predictions(prediction_macau_data, 'macau')
-                _log_draw_update("自动预测已完成", source="scheduler", region="macau")
-                _log_draw_update("开始刷新回测快照", source="scheduler", region="macau")
-                refresh_auto_backtest_snapshot('macau', draws=prediction_macau_data, force=True)
-                _log_draw_update("回测快照已完成", source="scheduler", region="macau")
-            else:
-                _log_draw_update("未获取到可用于自动预测的澳门数据", source="scheduler", region="macau")
+            postprocess_started = _start_draw_postprocess_async(updated_region_keys, current_year, source="scheduler-postprocess")
 
             _log_draw_update(
-                f"定时开奖更新任务完成 hk_count={len(hk_data)} macau_count={len(macau_data)}",
+                f"定时开奖更新任务完成 {'，'.join(updated_regions)}" + ("；自动预测和回测快照已转入后台继续处理" if postprocess_started else ""),
                 source="scheduler",
                 region="all",
             )
