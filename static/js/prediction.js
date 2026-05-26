@@ -452,6 +452,7 @@ function renderPredictionInsights(data, strategy) {
                             <span style="font-size:0.82rem; font-weight:800; color:${accentPalette.title};">${item.weight_text || ''}</span>
                         </div>
                         <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">${item.accuracy_text || ''}</div>
+                        ${item.window_accuracy_text ? `<div style="margin-top:4px; font-size:0.78rem; color:#5e7a73;">${item.window_accuracy_text}</div>` : ''}
                         <div style="margin-top:4px; font-size:0.8rem; color:#46655f;">${item.multiplier_text || ''}</div>
                     </div>
                 `;
@@ -480,7 +481,7 @@ function renderPredictionInsights(data, strategy) {
                     ${displayCopy.six_reference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.six_reference}</div>` : ''}
                     ${displayCopy.selected_strategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.selected_strategies}</div>` : ''}
                     ${displayCopy.weight_summary ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.weight_summary}</div>` : ''}
-                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>权重依据：</strong><div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
+                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>近期权重分配依据：</strong><div style="margin-top:4px; color:#9fb1c8;">最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)</div><div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
                     ${displayCopy.special_votes ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.special_votes}</div>` : ''}
                 </div>
                 <div style="padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(96, 165, 250, 0.18);">

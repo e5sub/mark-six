@@ -2228,7 +2228,7 @@ def _build_ml_display_copy(model_meta):
             f"{_get_strategy_label(key)}:{str(round(float(value), 1)).rstrip('0').rstrip('.') if '.' in str(round(float(value), 1)) else round(float(value), 1)}%"
             for key, value in weight_entries
         )
-        line = f"集成权重：{weight_text}（按近20/50/100期表现自动分配）"
+        line = f"集成权重：{weight_text}（按近期状态分配：近20期50% + 近50期30% + 近100期20%）"
         if meta.get("ensemble_weight_confidence") is not None:
             line += f" · 集成把握度{meta.get('ensemble_weight_confidence')}%"
         display["weight_summary"] = line
@@ -2258,11 +2258,16 @@ def _build_ml_display_copy(model_meta):
         reverse=True,
     )):
         title, note = rank_titles[min(idx, 2)]
-        overall_total = int((value or {}).get("overall_total", 0) or 0)
-        overall_accuracy = float((value or {}).get("overall_accuracy", 0.0) or 0.0)
+        recent_accuracy = float((value or {}).get("recent_accuracy", 0.0) or 0.0)
+        window_accuracies = (value or {}).get("window_accuracies") or []
+        window_accuracy_text = " / ".join(
+            f"近{int(item.get('window', 0))}期 {float(item.get('accuracy', 0.0) or 0.0)}%"
+            for item in window_accuracies
+            if int(item.get("total", 0) or 0) > 0
+        )
         accuracy_text = (
-            f"特码命中率：{overall_accuracy}% ({overall_total}条)"
-            if overall_total > 0 else "特码命中率：样本不足"
+            f"最近表现：{recent_accuracy}%"
+            if window_accuracy_text else "最近表现：样本不足"
         )
         weight_value = float((meta.get("ensemble_strategy_weights") or {}).get(key, 0.0) or 0.0)
         weight_reason_items.append({
@@ -2276,6 +2281,7 @@ def _build_ml_display_copy(model_meta):
                 f"排名系数×命中率加成：{(value or {}).get('rank_multiplier', '-')} × "
                 f"{(value or {}).get('accuracy_multiplier', '-')}，加权分 {(value or {}).get('weighted_score', '-')}"
             ),
+            "window_accuracy_text": window_accuracy_text,
         })
     display["weight_reason_items"] = weight_reason_items
     return display
@@ -2954,6 +2960,11 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
     learned_bias = ml_config.get("ensemble_bias") or {}
     learning_confidence = float(ml_config.get("profile_learning_confidence") or 0.0)
     scored = []
+    window_weights = {
+        20: 0.5,
+        50: 0.3,
+        100: 0.2,
+    }
 
     for strategy in candidates:
         config = _load_strategy_config(strategy, region)
@@ -2962,8 +2973,40 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
         )
         total_samples = int(overall_total or 0)
         accuracy_percent = round(float(overall_accuracy or 0.0) * 100, 2)
-        confidence = _clamp(total_samples / max(min_samples, 1), 0.25, 1.0)
-        base_score = max(0.01, accuracy_percent * confidence)
+        window_summaries = []
+        weighted_accuracy_sum = 0.0
+        weighted_factor_sum = 0.0
+        for window in windows:
+            window_accuracy, window_total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            window_accuracy_percent = round(float(window_accuracy or 0.0) * 100, 2)
+            # 近期窗口样本越完整，越充分参与权重；样本不足时自动降权。
+            window_factor = float(window_weights.get(window, 0.0)) * _clamp(
+                int(window_total or 0) / max(min(window, min_samples * 2), 1),
+                0.0,
+                1.0,
+            )
+            if window_factor > 0:
+                weighted_accuracy_sum += window_accuracy_percent * window_factor
+                weighted_factor_sum += window_factor
+            window_summaries.append({
+                "window": int(window),
+                "accuracy": window_accuracy_percent,
+                "total": int(window_total or 0),
+                "weight": round(float(window_weights.get(window, 0.0)), 3),
+                "factor": round(window_factor, 4),
+            })
+
+        recent_accuracy_percent = round(
+            (weighted_accuracy_sum / weighted_factor_sum) if weighted_factor_sum > 0 else accuracy_percent,
+            2,
+        )
+        effective_sample_basis = sum(item["total"] * item["weight"] for item in window_summaries)
+        confidence = _clamp(
+            effective_sample_basis / max(min_samples * 8, 1),
+            0.25,
+            1.0,
+        )
+        base_score = max(0.01, recent_accuracy_percent * confidence)
         bias_value = float(learned_bias.get(strategy, 0.0) or 0.0)
         bias_multiplier = 1.0 + (
             (bias_value - (1.0 / max(len(candidates), 1))) * 0.12 * learning_confidence
@@ -2975,9 +3018,10 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
             "score": score,
             "samples": total_samples,
             "bias": round(bias_value * 100, 2),
-            "recent_accuracy": accuracy_percent,
+            "recent_accuracy": recent_accuracy_percent,
             "overall_accuracy": accuracy_percent,
             "overall_total": total_samples,
+            "window_accuracies": window_summaries,
         })
 
     scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
@@ -5163,6 +5207,7 @@ def _get_ml_ensemble_weights(region, strategies=None):
             "recent_accuracy": round(float(item.get("recent_accuracy", 0.0)), 2),
             "overall_accuracy": round(float(item.get("overall_accuracy", 0.0)), 2),
             "overall_total": int(item.get("overall_total", 0) or 0),
+            "window_accuracies": item.get("window_accuracies") or [],
             "rank_multiplier": round(rank_multiplier, 4),
             "accuracy_multiplier": round(accuracy_multiplier, 4),
             "weighted_score": round(raw_score * 100, 2),

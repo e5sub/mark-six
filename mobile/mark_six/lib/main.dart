@@ -4233,11 +4233,20 @@ class _PredictScreenState extends State<PredictScreen> {
           if (weightKeys.isNotEmpty) ...[
             const SizedBox(height: 10),
             Text(
-              '权重依据',
+              '近期权重分配依据',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: Colors.grey.shade900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Colors.grey.shade700,
+                height: 1.45,
               ),
             ),
             ...weightKeys.asMap().entries.map((entry) {
@@ -4256,6 +4265,8 @@ class _PredictScreenState extends State<PredictScreen> {
               final overallTotal = (item['overall_total'] as num?)?.toInt() ?? 0;
               final overallAccuracy =
                   (item['overall_accuracy'] as num?)?.toDouble() ?? 0.0;
+              final recentAccuracyText =
+                  copyItem['accuracy_text']?.toString() ?? '';
               final fallbackAccuracyText = overallTotal > 0
                   ? '特码命中率：${overallAccuracy.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '')}% ($overallTotal条)'
                   : '特码命中率：样本不足';
@@ -4269,8 +4280,19 @@ class _PredictScreenState extends State<PredictScreen> {
                 rank,
                 copyItem['strategy_label']?.toString() ?? (_strategyLabels[key] ?? key),
                 copyItem['weight_text']?.toString().replaceFirst('权重', '') ?? '$weightValue%',
-                (copyItem['accuracy_text']?.toString().replaceFirst('特码命中率：', '').trim().isNotEmpty ?? false)
-                    ? copyItem['accuracy_text'].toString().replaceFirst('特码命中率：', '').trim()
+                (recentAccuracyText
+                        .replaceFirst('特码命中率：', '')
+                        .replaceFirst('近20/50/100期加权命中率：', '')
+                        .replaceFirst('近期状态评分：', '')
+                        .replaceFirst('最近表现：', '')
+                        .trim()
+                        .isNotEmpty)
+                    ? recentAccuracyText
+                        .replaceFirst('特码命中率：', '')
+                        .replaceFirst('近20/50/100期加权命中率：', '')
+                        .replaceFirst('近期状态评分：', '')
+                        .replaceFirst('最近表现：', '')
+                        .trim()
                     : fallbackAccuracyText.replaceFirst('特码命中率：', '').trim(),
                 copyItem['multiplier_text']?.toString() ?? fallbackMultiplierText,
               );
