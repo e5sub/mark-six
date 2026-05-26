@@ -2259,7 +2259,10 @@ def _build_ml_display_copy(model_meta):
     )):
         title, note = rank_titles[min(idx, 2)]
         recent_accuracy = float((value or {}).get("recent_accuracy", 0.0) or 0.0)
+        overall_accuracy = float((value or {}).get("overall_accuracy", 0.0) or 0.0)
+        overall_top6_accuracy = float((value or {}).get("overall_top6_accuracy", 0.0) or 0.0)
         window_accuracies = (value or {}).get("window_accuracies") or []
+        fallback_reason = str((value or {}).get("fallback_reason") or "").strip()
         window_accuracy_text = " / ".join(
             f"近{int(item.get('window', 0))}期 {float(item.get('accuracy', 0.0) or 0.0)}%"
             for item in window_accuracies
@@ -2269,6 +2272,8 @@ def _build_ml_display_copy(model_meta):
             f"最近表现：{recent_accuracy}%"
             if window_accuracy_text else "最近表现：样本不足"
         )
+        if fallback_reason == "recent_zero_fallback":
+            accuracy_text += f"（最近未出号，已参考长期单号{overall_accuracy}% / 六码{overall_top6_accuracy}%）"
         weight_value = float((meta.get("ensemble_strategy_weights") or {}).get(key, 0.0) or 0.0)
         weight_reason_items.append({
             "rank": idx + 1,
@@ -2971,26 +2976,34 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
         overall_accuracy, overall_total = _calculate_strategy_accuracy(
             region, strategy, limit=None
         )
+        overall_hit_rates = _calculate_strategy_hit_rates(region, strategy, limit=None)
         total_samples = int(overall_total or 0)
         accuracy_percent = round(float(overall_accuracy or 0.0) * 100, 2)
+        overall_top6_percent = round(float((overall_hit_rates or {}).get("top6", 0.0) or 0.0) * 100, 2)
         window_summaries = []
         weighted_accuracy_sum = 0.0
         weighted_factor_sum = 0.0
+        all_recent_zero = True
         for window in windows:
             window_accuracy, window_total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            window_hit_rates = _calculate_strategy_hit_rates(region, strategy, limit=window)
             window_accuracy_percent = round(float(window_accuracy or 0.0) * 100, 2)
+            window_top6_percent = round(float((window_hit_rates or {}).get("top6", 0.0) or 0.0) * 100, 2)
             # 近期窗口样本越完整，越充分参与权重；样本不足时自动降权。
             window_factor = float(window_weights.get(window, 0.0)) * _clamp(
                 int(window_total or 0) / max(min(window, min_samples * 2), 1),
                 0.0,
                 1.0,
             )
+            if window_accuracy_percent > 0:
+                all_recent_zero = False
             if window_factor > 0:
                 weighted_accuracy_sum += window_accuracy_percent * window_factor
                 weighted_factor_sum += window_factor
             window_summaries.append({
                 "window": int(window),
                 "accuracy": window_accuracy_percent,
+                "top6_accuracy": window_top6_percent,
                 "total": int(window_total or 0),
                 "weight": round(float(window_weights.get(window, 0.0)), 3),
                 "factor": round(window_factor, 4),
@@ -3000,6 +3013,26 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
             (weighted_accuracy_sum / weighted_factor_sum) if weighted_factor_sum > 0 else accuracy_percent,
             2,
         )
+        fallback_reason = ""
+        if all_recent_zero:
+            fallback_recent_score = 0.0
+            fallback_recent_weight = 0.0
+            for item in window_summaries:
+                fallback_component = (
+                    float(item.get("accuracy", 0.0) or 0.0) * 1.0 +
+                    float(item.get("top6_accuracy", 0.0) or 0.0) * 0.35
+                )
+                fallback_factor = float(item.get("factor", 0.0) or 0.0)
+                if fallback_factor > 0:
+                    fallback_recent_score += fallback_component * fallback_factor
+                    fallback_recent_weight += fallback_factor
+            long_term_score = (accuracy_percent * 1.0) + (overall_top6_percent * 0.35)
+            blended_fallback = (
+                (fallback_recent_score / fallback_recent_weight) * 0.4
+                if fallback_recent_weight > 0 else 0.0
+            ) + (long_term_score * 0.6)
+            recent_accuracy_percent = round(blended_fallback, 2)
+            fallback_reason = "recent_zero_fallback"
         effective_sample_basis = sum(item["total"] * item["weight"] for item in window_summaries)
         confidence = _clamp(
             effective_sample_basis / max(min_samples * 8, 1),
@@ -3021,7 +3054,9 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
             "recent_accuracy": recent_accuracy_percent,
             "overall_accuracy": accuracy_percent,
             "overall_total": total_samples,
+            "overall_top6_accuracy": overall_top6_percent,
             "window_accuracies": window_summaries,
+            "fallback_reason": fallback_reason,
         })
 
     scored.sort(key=lambda item: (item["score"], item["samples"]), reverse=True)
@@ -5207,7 +5242,9 @@ def _get_ml_ensemble_weights(region, strategies=None):
             "recent_accuracy": round(float(item.get("recent_accuracy", 0.0)), 2),
             "overall_accuracy": round(float(item.get("overall_accuracy", 0.0)), 2),
             "overall_total": int(item.get("overall_total", 0) or 0),
+            "overall_top6_accuracy": round(float(item.get("overall_top6_accuracy", 0.0)), 2),
             "window_accuracies": item.get("window_accuracies") or [],
+            "fallback_reason": item.get("fallback_reason") or "",
             "rank_multiplier": round(rank_multiplier, 4),
             "accuracy_multiplier": round(accuracy_multiplier, 4),
             "weighted_score": round(raw_score * 100, 2),
