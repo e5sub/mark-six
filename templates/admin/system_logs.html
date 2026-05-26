@@ -1,121 +1,234 @@
 {% extends "admin/base.html" %}
 
-{% block page_title %}系统日志{% endblock %}
+{% block page_title %}&#x7CFB;&#x7EDF;&#x65E5;&#x5FD7;{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <div>
-            <div class="card-title">系统日志</div>
-            <div class="log-meta">后台展示最近 {{ log_limit }} 条服务器日志。控制台输出会继续保留，同时额外写入日志文件供这里查看。</div>
-            <div class="log-path">日志文件：{{ log_file_path }}</div>
+<div class="terminal-shell">
+    <div class="terminal-topbar">
+        <div class="terminal-dots" aria-hidden="true">
+            <span class="dot dot-red"></span>
+            <span class="dot dot-yellow"></span>
+            <span class="dot dot-green"></span>
         </div>
-        <div class="log-actions">
-            <label class="log-refresh-toggle">
+        <div class="terminal-title">system.log</div>
+        <div class="terminal-actions">
+            <label class="terminal-toggle">
                 <input type="checkbox" id="autoRefreshToggle" checked>
-                <span>自动刷新</span>
+                <span>&#x81EA;&#x52A8;&#x5237;&#x65B0;</span>
             </label>
-            <button class="btn" type="button" id="refreshLogsBtn">刷新</button>
-            <button class="btn btn-danger" type="button" id="clearLogsBtn">清空</button>
+            <button class="terminal-btn" type="button" id="refreshLogsBtn">&#x5237;&#x65B0;</button>
+            <button class="terminal-btn terminal-btn-danger" type="button" id="clearLogsBtn">&#x6E05;&#x7A7A;</button>
         </div>
     </div>
 
-    <div class="log-toolbar">
-        <div id="logStatusText">准备就绪</div>
-        <div id="logCountText">当前 {{ logs|length }} 条</div>
+    <div class="terminal-meta">
+        <div class="meta-row">
+            <span class="meta-label">&#x65E5;&#x5FD7;&#x6587;&#x4EF6;</span>
+            <code class="meta-value">{{ log_file_path }}</code>
+        </div>
+        <div class="meta-row">
+            <span class="meta-label">&#x72B6;&#x6001;</span>
+            <span class="meta-value" id="logStatusText">&#x51C6;&#x5907;&#x5C31;&#x7EEA;</span>
+        </div>
+        <div class="meta-row">
+            <span class="meta-label">&#x6570;&#x91CF;</span>
+            <span class="meta-value" id="logCountText">&#x5F53;&#x524D; {{ logs|length }} &#x6761;</span>
+        </div>
     </div>
 
-    <div class="log-list" id="systemLogList">
+    <div class="terminal-screen" id="systemLogList">
         {% if logs %}
             {% for item in logs %}
-            <div class="log-item">
-                <pre class="log-line">{{ item.line }}</pre>
-            </div>
+            <div class="terminal-line">{{ item.line }}</div>
             {% endfor %}
         {% else %}
-            <div class="empty-log">暂无日志，系统产生输出后会显示在这里。</div>
+            <div class="terminal-line terminal-line-muted">&#x6682;&#x65E0;&#x65E5;&#x5FD7;&#xFF0C;&#x7CFB;&#x7EDF;&#x4EA7;&#x751F;&#x8F93;&#x51FA;&#x540E;&#x4F1A;&#x663E;&#x793A;&#x5728;&#x8FD9;&#x91CC;&#x3002;</div>
         {% endif %}
     </div>
 </div>
 
 <style>
-    .log-meta,
-    .log-path {
-        margin-top: 0.4rem;
-        color: #cbd5e1;
-        font-size: 0.92rem;
+    .terminal-shell {
+        background:
+            radial-gradient(circle at top right, rgba(34, 197, 94, 0.08), transparent 26%),
+            radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 24%),
+            #020617;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
     }
 
-    .log-path {
-        font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
-        color: #93c5fd;
-        word-break: break-all;
-    }
-
-    .log-actions {
+    .terminal-topbar {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(10, 15, 29, 0.96));
+        border-bottom: 1px solid rgba(148, 163, 184, 0.14);
     }
 
-    .log-refresh-toggle {
+    .terminal-dots {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        min-width: 72px;
+    }
+
+    .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+
+    .dot-red { background: #ff5f57; }
+    .dot-yellow { background: #febc2e; }
+    .dot-green { background: #28c840; }
+
+    .terminal-title {
+        flex: 1;
+        text-align: center;
+        color: #cbd5e1;
+        font-size: 0.95rem;
+        letter-spacing: 0.04em;
+        font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+    }
+
+    .terminal-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        min-width: 260px;
+    }
+
+    .terminal-toggle {
         display: inline-flex;
         align-items: center;
         gap: 0.45rem;
         color: #cbd5e1;
-        font-size: 0.92rem;
+        font-size: 0.9rem;
     }
 
-    .log-toolbar {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        align-items: center;
-        margin-bottom: 1rem;
-        color: #cbd5e1;
-        font-size: 0.92rem;
+    .terminal-btn {
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(15, 23, 42, 0.9);
+        color: #e2e8f0;
+        border-radius: 10px;
+        padding: 0.55rem 0.9rem;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
     }
 
-    .log-list {
+    .terminal-btn:hover {
+        background: rgba(30, 41, 59, 0.95);
+        border-color: rgba(148, 163, 184, 0.3);
+        transform: translateY(-1px);
+    }
+
+    .terminal-btn-danger {
+        color: #fecaca;
+        border-color: rgba(248, 113, 113, 0.25);
+        background: rgba(69, 10, 10, 0.55);
+    }
+
+    .terminal-btn-danger:hover {
+        background: rgba(127, 29, 29, 0.72);
+        border-color: rgba(248, 113, 113, 0.4);
+    }
+
+    .terminal-meta {
         display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.8rem;
-        max-height: 72vh;
-        overflow-y: auto;
-        padding-right: 0.25rem;
+        padding: 1rem 1.25rem;
+        background: rgba(3, 7, 18, 0.92);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.1);
     }
 
-    .log-item {
-        background: rgba(2, 6, 23, 0.7);
-        border: 1px solid rgba(148, 163, 184, 0.14);
-        border-radius: 16px;
-        padding: 0.9rem 1rem;
+    .meta-row {
+        min-width: 0;
     }
 
-    .log-line {
-        margin: 0;
-        white-space: pre-wrap;
-        word-break: break-word;
-        color: #f8fafc;
-        font-size: 0.92rem;
-        line-height: 1.6;
+    .meta-label {
+        display: block;
+        margin-bottom: 0.35rem;
+        color: #64748b;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .meta-value {
+        color: #dbeafe;
+        font-size: 0.9rem;
+        word-break: break-all;
         font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
     }
 
-    .empty-log {
-        padding: 2rem 1rem;
-        text-align: center;
-        color: #cbd5e1;
-        border: 1px dashed rgba(148, 163, 184, 0.2);
-        border-radius: 16px;
-        background: rgba(15, 23, 42, 0.4);
+    .terminal-screen {
+        background:
+            linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+            #020617;
+        background-size: 100% 28px, 28px 100%, auto;
+        padding: 1rem 1.25rem 1.25rem;
+        max-height: 72vh;
+        overflow-y: auto;
+        font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
     }
 
-    @media (max-width: 768px) {
-        .log-actions,
-        .log-toolbar {
-            flex-direction: column;
-            align-items: flex-start;
+    .terminal-line {
+        color: #d1fae5;
+        font-size: 0.92rem;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        word-break: break-word;
+        padding: 0.08rem 0;
+        text-shadow: 0 0 8px rgba(16, 185, 129, 0.08);
+    }
+
+    .terminal-line::before {
+        content: "> ";
+        color: #22c55e;
+    }
+
+    .terminal-line-muted {
+        color: #94a3b8;
+        text-shadow: none;
+    }
+
+    .terminal-line-muted::before {
+        color: #475569;
+    }
+
+    @media (max-width: 900px) {
+        .terminal-topbar,
+        .terminal-meta {
+            grid-template-columns: 1fr;
+            display: grid;
+        }
+
+        .terminal-dots,
+        .terminal-title,
+        .terminal-actions {
+            min-width: 0;
+            width: 100%;
+            justify-content: flex-start;
+            text-align: left;
+        }
+
+        .terminal-title {
+            order: -1;
+        }
+
+        .terminal-meta {
+            grid-template-columns: 1fr;
         }
     }
 </style>
@@ -136,24 +249,22 @@
     function renderSystemLogs(logs) {
         const logList = document.getElementById('systemLogList');
         const logCountText = document.getElementById('logCountText');
-        logCountText.textContent = `当前 ${logs.length} 条`;
+        logCountText.textContent = `\u5f53\u524d ${logs.length} \u6761`;
 
         if (!Array.isArray(logs) || logs.length === 0) {
-            logList.innerHTML = '<div class="empty-log">暂无日志，系统产生输出后会显示在这里。</div>';
+            logList.innerHTML = '<div class="terminal-line terminal-line-muted">\u6682\u65e0\u65e5\u5fd7\uff0c\u7cfb\u7edf\u4ea7\u751f\u8f93\u51fa\u540e\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002</div>';
             return;
         }
 
         logList.innerHTML = logs.map(item => `
-            <div class="log-item">
-                <pre class="log-line">${escapeHtml(item.line || '')}</pre>
-            </div>
+            <div class="terminal-line">${escapeHtml(item.line || '')}</div>
         `).join('');
     }
 
     async function refreshSystemLogs(showBusyState = false) {
         const statusText = document.getElementById('logStatusText');
         if (showBusyState) {
-            statusText.textContent = '正在刷新系统日志...';
+            statusText.textContent = '\u6b63\u5728\u5237\u65b0\u7cfb\u7edf\u65e5\u5fd7...';
         }
         try {
             const response = await fetch(`/admin/system_logs/data?limit=${logLimit}`);
@@ -162,9 +273,9 @@
                 throw new Error(data?.message || `HTTP ${response.status}`);
             }
             renderSystemLogs(data.logs || []);
-            statusText.textContent = `最近刷新：${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
+            statusText.textContent = `\u6700\u8fd1\u5237\u65b0\uff1a${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
         } catch (error) {
-            statusText.textContent = `刷新失败：${error.message || error}`;
+            statusText.textContent = `\u5237\u65b0\u5931\u8d25\uff1a${error.message || error}`;
         }
     }
 
@@ -185,11 +296,11 @@
     document.getElementById('autoRefreshToggle').addEventListener('change', restartAutoRefresh);
 
     document.getElementById('clearLogsBtn').addEventListener('click', async () => {
-        if (!confirm('确认清空后台显示的系统日志文件吗？')) {
+        if (!confirm('\u786e\u8ba4\u6e05\u7a7a\u540e\u53f0\u663e\u793a\u7684\u7cfb\u7edf\u65e5\u5fd7\u6587\u4ef6\u5417\uff1f')) {
             return;
         }
         const statusText = document.getElementById('logStatusText');
-        statusText.textContent = '正在清空系统日志...';
+        statusText.textContent = '\u6b63\u5728\u6e05\u7a7a\u7cfb\u7edf\u65e5\u5fd7...';
         try {
             const response = await fetch('/admin/system_logs/clear', {
                 method: 'POST',
@@ -202,9 +313,9 @@
                 throw new Error(data?.message || `HTTP ${response.status}`);
             }
             renderSystemLogs([]);
-            statusText.textContent = data.message || '系统日志已清空';
+            statusText.textContent = data.message || '\u7cfb\u7edf\u65e5\u5fd7\u5df2\u6e05\u7a7a';
         } catch (error) {
-            statusText.textContent = `清空失败：${error.message || error}`;
+            statusText.textContent = `\u6e05\u7a7a\u5931\u8d25\uff1a${error.message || error}`;
         }
     });
 
