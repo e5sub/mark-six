@@ -2343,6 +2343,10 @@ def _build_ml_display_copy(model_meta):
             f"（样本 {int(meta.get('evaluation_draws') or 0)} 期）"
         )
 
+    special_selection_reason = str(meta.get("special_selection_reason") or "").strip()
+    if special_selection_reason:
+        display["special_selection_reason"] = special_selection_reason
+
     selected_strategies = [
         _get_strategy_label(item)
         for item in (meta.get("ensemble_selected_strategies") or [])
@@ -5453,6 +5457,73 @@ def _select_ml_special_number(
     return (special_pick[0] if special_pick else special_candidates[0]), special_candidates
 
 
+def _build_ml_special_selection_reason(
+    special_num,
+    special_candidates,
+    special_score_map,
+    special_votes,
+    preferred_special_color="",
+    preferred_special_parity="",
+    recent_selection_state=None,
+    number_to_zodiac=None,
+):
+    try:
+        special_num = int(special_num)
+    except (TypeError, ValueError):
+        return ""
+
+    special_candidates = list(special_candidates or [])
+    special_votes = special_votes or {}
+    recent_selection_state = dict(recent_selection_state or {})
+    recent_draw_number_counter = Counter(recent_selection_state.get("recent_draw_number_counter") or {})
+    latest_draw_numbers = set(recent_selection_state.get("latest_draw_numbers") or set())
+    number_to_zodiac = number_to_zodiac or {}
+    reasons = []
+
+    if special_candidates:
+        rank = special_candidates.index(special_num) + 1 if special_num in special_candidates else 0
+        if rank and rank <= 3:
+            reasons.append(f"综合重排第{rank}")
+        elif rank:
+            reasons.append("进入综合候选池")
+
+    score = _safe_float(special_score_map.get(special_num), 0.0)
+    if score > 0:
+        reasons.append(f"模型分{round(score * 100, 1)}")
+
+    vote_value = special_votes.get(special_num)
+    if vote_value is None:
+        vote_value = special_votes.get(str(special_num), 0.0)
+    vote_value = _safe_float(vote_value, 0.0)
+    if vote_value > 0:
+        reasons.append(f"策略参考票{round(vote_value, 2)}")
+    else:
+        reasons.append("策略票不是主因")
+
+    attr_matches = []
+    if preferred_special_color and _get_color_zh(special_num) == preferred_special_color:
+        attr_matches.append(preferred_special_color)
+    if preferred_special_parity and _get_parity_zh(special_num) == preferred_special_parity:
+        attr_matches.append(preferred_special_parity)
+    zodiac = number_to_zodiac.get(str(special_num), "")
+    if zodiac:
+        attr_matches.append(zodiac)
+    if attr_matches:
+        reasons.append("属性参考：" + "、".join(attr_matches[:3]))
+
+    recent_hits = int(recent_draw_number_counter.get(special_num, 0) or 0)
+    if special_num in latest_draw_numbers:
+        reasons.append("上期出现过，已计入重复扣分")
+    elif recent_hits <= 0:
+        reasons.append("近期重复压力低")
+    elif recent_hits == 1:
+        reasons.append("近期出现1次，已轻度扣分")
+    else:
+        reasons.append(f"近期出现{recent_hits}次，已扣分")
+
+    return "最终选号依据：" + "；".join(reasons[:5])
+
+
 def _estimate_ml_confidence(probability_map, blended_scores, special_num, model):
     ranked = sorted(blended_scores.items(), key=lambda item: item[1], reverse=True)
     top_score = float(blended_scores.get(special_num, 0.0))
@@ -6159,6 +6230,16 @@ def _predict_with_ml(data, region, variation_key=None):
         special_num,
         model,
     )
+    special_selection_reason = _build_ml_special_selection_reason(
+        special_num,
+        special_candidates,
+        special_score_map,
+        ensemble_signals.get("special_votes") or Counter(),
+        preferred_special_color=preferred_special_color,
+        preferred_special_parity=preferred_special_parity,
+        recent_selection_state=recent_selection_state,
+        number_to_zodiac=number_to_zodiac,
+    )
     samples = int(model.get("samples", 0) or 0)
     history_window = int(model.get("history_window", 0) or 0)
     if samples > 0:
@@ -6197,6 +6278,7 @@ def _predict_with_ml(data, region, variation_key=None):
         "selected_blend": round(blend_weight * 100, 2),
         "normal_numbers": list(normal),
         "selected_special_number": str(special_num),
+        "special_selection_reason": special_selection_reason,
         "preferred_feature_profiles": runtime_config.get("preferred_feature_profiles", []),
         "preferred_runtime_profiles": runtime_config.get("preferred_runtime_profiles", []),
         "profile_learning_confidence": round(
