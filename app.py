@@ -2358,16 +2358,29 @@ def _build_ml_display_copy(model_meta):
         )
 
     special_votes = meta.get("ensemble_special_votes") or {}
+    selected_special_number = str(meta.get("selected_special_number") or "").strip()
     if special_votes:
+        sorted_special_votes = sorted(
+            special_votes.items(),
+            key=lambda item: (float(item[1] or 0.0), int(item[0])),
+            reverse=True,
+        )
+        top_special_vote_numbers = {str(num) for num, _ in sorted_special_votes[:5]}
         vote_entries = "、".join(
             f"{num}({str(round(float(votes), 2)).rstrip('0').rstrip('.')})"
-            for num, votes in sorted(
-                special_votes.items(),
-                key=lambda item: (float(item[1] or 0.0), int(item[0])),
-                reverse=True,
-            )[:5]
+            for num, votes in sorted_special_votes[:5]
         )
-        display["special_votes"] = f"特码共识票：{vote_entries}"
+        if selected_special_number and selected_special_number not in top_special_vote_numbers:
+            selected_special_vote = special_votes.get(selected_special_number)
+            if selected_special_vote is None and selected_special_number.isdigit():
+                selected_special_vote = special_votes.get(int(selected_special_number), 0.0)
+            display["special_votes"] = (
+                f"策略辅助参考：{vote_entries}；最终按综合模型重排，未直接采用原始票最高号码"
+            )
+        else:
+            display["special_votes"] = f"策略辅助参考：{vote_entries}"
+    elif selected_special_number:
+        display["special_votes"] = "策略辅助参考：暂无；最终按综合模型选择"
 
     diagnostics = meta.get("ensemble_weight_diagnostics") or {}
     weight_reason_items = []
@@ -6063,6 +6076,7 @@ def _predict_with_ml(data, region, variation_key=None):
         "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
         "selected_blend": round(blend_weight * 100, 2),
         "normal_numbers": list(normal),
+        "selected_special_number": str(special_num),
         "preferred_feature_profiles": runtime_config.get("preferred_feature_profiles", []),
         "preferred_runtime_profiles": runtime_config.get("preferred_runtime_profiles", []),
         "profile_learning_confidence": round(
