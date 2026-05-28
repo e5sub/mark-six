@@ -136,23 +136,23 @@ def _build_ml_visual_weights(config):
         weight_map['生肖参考'] -= 2
 
     if feature_profile == 'compact_attributes':
-        weight_map['单双参考'] += 3
-        weight_map['波色参考'] += 3
-        weight_map['生肖参考'] += 2
-        weight_map['历史样本'] -= 4
-        weight_map['近期走势'] -= 2
-        weight_map['策略共识'] -= 2
-    elif feature_profile == 'compact_structure':
-        weight_map['策略共识'] += 4
+        weight_map['单双参考'] -= 3
+        weight_map['波色参考'] -= 3
+        weight_map['生肖参考'] -= 2
+        weight_map['历史样本'] += 4
         weight_map['近期走势'] += 2
-        weight_map['历史样本'] += 1
-        weight_map['单双参考'] -= 2
-        weight_map['波色参考'] -= 2
-        weight_map['生肖参考'] -= 3
+        weight_map['策略共识'] += 2
+    elif feature_profile == 'compact_structure':
+        weight_map['策略共识'] -= 4
+        weight_map['近期走势'] -= 2
+        weight_map['历史样本'] -= 1
+        weight_map['单双参考'] += 2
+        weight_map['波色参考'] += 2
+        weight_map['生肖参考'] += 3
     elif feature_profile == 'compact_recency':
-        weight_map['近期走势'] += 6
-        weight_map['历史样本'] -= 4
-        weight_map['策略共识'] -= 2
+        weight_map['近期走势'] -= 6
+        weight_map['历史样本'] += 4
+        weight_map['策略共识'] += 2
 
     return _normalize_visual_weights(weight_map)
 

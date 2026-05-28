@@ -2262,9 +2262,9 @@ def _ml_runtime_profile_label(value):
 def _ml_feature_profile_label(value):
     mapping = {
         "full": "综合参考全部因素",
-        "compact_structure": "侧重整体结构",
-        "compact_attributes": "侧重波色生肖单双",
-        "compact_recency": "侧重近期走势",
+        "compact_structure": "弱化整体结构",
+        "compact_attributes": "弱化波色生肖单双",
+        "compact_recency": "弱化近期走势",
     }
     key = str(value or "").strip()
     return mapping.get(key, key or "综合参考全部因素")
@@ -2336,6 +2336,12 @@ def _build_ml_display_copy(model_meta):
 
     if normal_numbers:
         display["six_reference"] = f"六码参考号：{'、'.join(normal_numbers[:6])}"
+
+    if meta.get("final_top1_hit_rate") is not None:
+        display["final_selection_backtest"] = (
+            f"最终选号回测：{meta.get('final_top1_hit_rate')}%"
+            f"（样本 {int(meta.get('evaluation_draws') or 0)} 期）"
+        )
 
     selected_strategies = [
         _get_strategy_label(item)
@@ -5356,6 +5362,97 @@ def _select_ml_normal_numbers(
     return _rebalance_selected_numbers_by_parity(chosen[:6], ranked_numbers, score_map, parity_pref, count=6)
 
 
+def _build_ml_recent_selection_state(history_data, region, year=None):
+    repeat_transition_profile = _build_repeat_transition_profile(
+        history_data,
+        region,
+        year=year or _infer_draw_year(history_data),
+    )
+    recent_draw_number_counter = Counter()
+    recent_draw_sets = []
+    for item in list(history_data or [])[:6]:
+        draw_numbers = []
+        for raw_number in list(item.get("no") or []) + [item.get("sno")]:
+            try:
+                parsed = int(str(raw_number).strip())
+            except (TypeError, ValueError):
+                continue
+            if 1 <= parsed <= 49:
+                draw_numbers.append(parsed)
+        deduped_draw = _dedupe_keep_order(draw_numbers)
+        if deduped_draw:
+            recent_draw_sets.append(set(deduped_draw))
+            for parsed in deduped_draw:
+                recent_draw_number_counter[parsed] += 1
+    return {
+        "repeat_transition_profile": repeat_transition_profile,
+        "recent_draw_number_counter": recent_draw_number_counter,
+        "recent_draw_sets": recent_draw_sets,
+        "latest_draw_numbers": recent_draw_sets[0] if recent_draw_sets else set(),
+    }
+
+
+def _select_ml_special_number(
+    special_ranked_numbers,
+    special_score_map,
+    normal_numbers,
+    special_pool_size,
+    preferred_special_parity="",
+    recent_selection_state=None,
+    number_to_zodiac=None,
+    variation_key=None,
+):
+    recent_selection_state = dict(recent_selection_state or {})
+    repeat_transition_profile = dict(recent_selection_state.get("repeat_transition_profile") or {})
+    latest_special_repeat_probability = float(
+        repeat_transition_profile.get("latest_special_repeat_probability") or 0.0
+    )
+    latest_zodiac_repeat_probability = float(
+        repeat_transition_profile.get("latest_zodiac_repeat_probability") or 0.0
+    )
+    latest_special = repeat_transition_profile.get("latest_special")
+    latest_zodiac = str(repeat_transition_profile.get("latest_zodiac") or "").strip()
+    latest_draw_numbers = set(recent_selection_state.get("latest_draw_numbers") or set())
+    recent_draw_number_counter = Counter(recent_selection_state.get("recent_draw_number_counter") or {})
+    normal_set = {int(number) for number in (normal_numbers or [])}
+    number_to_zodiac = number_to_zodiac or {}
+
+    special_candidates = [
+        number for number in list(special_ranked_numbers or [])[:max(int(special_pool_size or 0), 1) * 2]
+        if number not in normal_set
+    ]
+    if not special_candidates:
+        special_candidates = [
+            number for number in list(special_ranked_numbers or [])
+            if number not in normal_set
+        ]
+    if not special_candidates:
+        special_candidates = [
+            number for number in range(1, 50)
+            if number not in normal_set
+        ]
+    special_candidates = sorted(
+        special_candidates,
+        key=lambda number: (
+            special_score_map.get(number, 0.0) +
+            (0.08 if preferred_special_parity and _get_parity_zh(number) == preferred_special_parity else 0.0) -
+            ((0.16 + max(0.0, 0.24 - latest_special_repeat_probability)) if number == latest_special else 0.0) -
+            ((0.12 + max(0.0, 0.20 - latest_zodiac_repeat_probability)) if latest_zodiac and number_to_zodiac.get(str(number), "") == latest_zodiac else 0.0) -
+            (0.24 if number in latest_draw_numbers else 0.0) -
+            (0.16 if int(recent_draw_number_counter.get(number, 0) or 0) >= 2 else 0.0) -
+            (0.06 if int(recent_draw_number_counter.get(number, 0) or 0) == 1 else 0.0)
+        ),
+        reverse=True,
+    )
+    special_pick = _take_personalized_ranked(
+        special_candidates,
+        1,
+        variation_key=variation_key,
+        window_size=max(int(special_pool_size or 1) // 2, 2),
+    )
+    return (special_pick[0] if special_pick else special_candidates[0]), special_candidates
+
+
 def _estimate_ml_confidence(probability_map, blended_scores, special_num, model):
     ranked = sorted(blended_scores.items(), key=lambda item: item[1], reverse=True)
     top_score = float(blended_scores.get(special_num, 0.0))
@@ -5619,6 +5716,7 @@ def _optimize_ml_runtime_config(data, region, config):
             "raw_score": runtime_score,
             "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
             "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
+            "final_top1_hit_rate": round(float(model.get("final_top1_hit_rate", 0.0)) * 100, 2),
             "history_window": candidate_config.get("history_window"),
             "feature_window": candidate_config.get("feature_window"),
             "evaluation_window": candidate_config.get("evaluation_window"),
@@ -5657,6 +5755,10 @@ def _train_ml_number_model(data, region, config):
         blend_candidates = [0.7]
     blend_stats = {
         round(candidate, 4): {"top1": 0, "top6": 0}
+        for candidate in blend_candidates
+    }
+    final_blend_stats = {
+        round(candidate, 4): {"top1": 0}
         for candidate in blend_candidates
     }
 
@@ -5745,6 +5847,55 @@ def _train_ml_number_model(data, region, config):
                     stats["top1"] += 1
                 if target_number in blended_rank[:6]:
                     stats["top6"] += 1
+                special_score_map, normal_score_map = _build_ml_dual_score_maps(
+                    blended_rank,
+                    probability_map,
+                    heuristic_map,
+                    {"normal_votes": Counter(), "special_votes": Counter()},
+                )
+                history_desc = list(reversed(chronological[:idx]))
+                selection_year = _infer_draw_year(history_desc)
+                selection_feedback = _build_prediction_feedback(
+                    region,
+                    "ml",
+                    cutoff_period=target_draw.get("id"),
+                )
+                _, _, selection_parity_pref = _build_attribute_preferences(
+                    history_desc[:feature_window],
+                    region,
+                    selection_feedback,
+                    selection_year,
+                    apply_recent_zodiac_cooldown=True,
+                )
+                preferred_selection_parity = (
+                    max(selection_parity_pref.items(), key=lambda item: item[1])[0]
+                    if selection_parity_pref else ""
+                )
+                selection_state = _build_ml_recent_selection_state(
+                    history_desc,
+                    region,
+                    year=selection_year,
+                )
+                candidate_normal = _select_ml_normal_numbers(
+                    _rank_numbers(normal_score_map),
+                    normal_score_map,
+                    config.get("bucket_counts") or [2, 2, 2],
+                    pool_size=_clamp(int(config.get("pool") or 18), 12, 24),
+                    parity_pref=selection_parity_pref,
+                    recent_draw_number_counter=selection_state["recent_draw_number_counter"],
+                    latest_draw_numbers=selection_state["latest_draw_numbers"],
+                )
+                candidate_special, _ = _select_ml_special_number(
+                    _rank_numbers(special_score_map),
+                    special_score_map,
+                    candidate_normal,
+                    _clamp(int(config.get("special_pool") or 8), 6, 12),
+                    preferred_special_parity=preferred_selection_parity,
+                    recent_selection_state=selection_state,
+                    number_to_zodiac=_get_number_to_zodiac_map(selection_year),
+                )
+                if candidate_special == target_number:
+                    final_blend_stats[round(candidate, 4)]["top1"] += 1
             evaluation_steps += 1
 
         eval_weights, eval_bias, _, _ = _update_ml_weights(
@@ -5795,6 +5946,7 @@ def _train_ml_number_model(data, region, config):
         if candidate_score > best_score:
             best_score = candidate_score
             selected_blend = candidate
+    selected_final_stats = final_blend_stats.get(round(selected_blend, 4), {})
 
     return {
         "weights": [round(weight, 6) for weight in (fit_weights or [])],
@@ -5810,11 +5962,13 @@ def _train_ml_number_model(data, region, config):
         "avg_target_probability": round((target_probability_sum / evaluation_steps), 6) if evaluation_steps else 0.0,
         "top1_hit_rate": round((top1_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
         "top6_hit_rate": round((top6_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
+        "final_top1_hit_rate": round((selected_final_stats.get("top1", 0) / evaluation_steps), 6) if evaluation_steps else 0.0,
         "selected_blend": round(selected_blend, 4),
         "blend_stats": {
             str(candidate): {
                 "top1_hit_rate": round((blend_stats[round(candidate, 4)]["top1"] / evaluation_steps), 6) if evaluation_steps else 0.0,
                 "top6_hit_rate": round((blend_stats[round(candidate, 4)]["top6"] / evaluation_steps), 6) if evaluation_steps else 0.0,
+                "final_top1_hit_rate": round((final_blend_stats[round(candidate, 4)]["top1"] / evaluation_steps), 6) if evaluation_steps else 0.0,
             }
             for candidate in blend_candidates
         },
@@ -5835,7 +5989,7 @@ def _build_ml_prediction_cache_key(region, data, config):
             "total": int(total or 0),
         }
     payload = {
-        "cache_version": 2,
+        "cache_version": 3,
         "region": normalized_region,
         "periods": head_periods,
         "draw_count": len(data or []),
@@ -5968,28 +6122,9 @@ def _predict_with_ml(data, region, variation_key=None):
     normal_score_map = artifacts.get("normal_score_map") or {}
     special_ranked_numbers = list(artifacts.get("special_ranked_numbers") or [])
     normal_ranked_numbers = list(artifacts.get("normal_ranked_numbers") or [])
-    repeat_transition_profile = _build_repeat_transition_profile(enriched_data, region, year=year)
-    recent_draw_number_counter = Counter()
-    recent_draw_sets = []
-    for item in enriched_data[:6]:
-        draw_numbers = []
-        for raw_number in list(item.get("no") or []) + [item.get("sno")]:
-            try:
-                parsed = int(str(raw_number).strip())
-            except (TypeError, ValueError):
-                continue
-            if 1 <= parsed <= 49:
-                draw_numbers.append(parsed)
-        deduped_draw = _dedupe_keep_order(draw_numbers)
-        if deduped_draw:
-            recent_draw_sets.append(set(deduped_draw))
-            for parsed in deduped_draw:
-                recent_draw_number_counter[parsed] += 1
-    latest_draw_numbers = recent_draw_sets[0] if recent_draw_sets else set()
-    latest_special_repeat_probability = float(repeat_transition_profile.get("latest_special_repeat_probability") or 0.0)
-    latest_zodiac_repeat_probability = float(repeat_transition_profile.get("latest_zodiac_repeat_probability") or 0.0)
-    latest_special = repeat_transition_profile.get("latest_special")
-    latest_zodiac = str(repeat_transition_profile.get("latest_zodiac") or "").strip()
+    recent_selection_state = _build_ml_recent_selection_state(enriched_data, region, year=year)
+    recent_draw_number_counter = recent_selection_state["recent_draw_number_counter"]
+    latest_draw_numbers = recent_selection_state["latest_draw_numbers"]
     number_to_zodiac = _get_number_to_zodiac_map(year)
 
     pool_size = _clamp(int(runtime_config.get("pool") or 18), 12, 24)
@@ -6008,32 +6143,16 @@ def _predict_with_ml(data, region, variation_key=None):
 
     preferred_special_color = max(color_pref.items(), key=lambda item: item[1])[0] if color_pref else ""
     preferred_special_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
-    special_candidates = [
-        number for number in special_ranked_numbers[:special_pool_size * 2]
-        if number not in normal
-    ]
-    if not special_candidates:
-        special_candidates = [number for number in special_ranked_numbers if number not in normal]
-    special_candidates = sorted(
-        special_candidates,
-        key=lambda number: (
-            special_score_map.get(number, 0.0) +
-            (0.08 if preferred_special_parity and _get_parity_zh(number) == preferred_special_parity else 0.0) -
-            ((0.16 + max(0.0, 0.24 - latest_special_repeat_probability)) if number == latest_special else 0.0) -
-            ((0.12 + max(0.0, 0.20 - latest_zodiac_repeat_probability)) if latest_zodiac and number_to_zodiac.get(str(number), "") == latest_zodiac else 0.0) -
-            (0.24 if number in latest_draw_numbers else 0.0) -
-            (0.16 if int(recent_draw_number_counter.get(number, 0) or 0) >= 2 else 0.0) -
-            (0.06 if int(recent_draw_number_counter.get(number, 0) or 0) == 1 else 0.0)
-        ),
-        reverse=True,
-    )
-    special_pick = _take_personalized_ranked(
-        special_candidates,
-        1,
+    special_num, special_candidates = _select_ml_special_number(
+        special_ranked_numbers,
+        special_score_map,
+        normal,
+        special_pool_size,
+        preferred_special_parity=preferred_special_parity,
+        recent_selection_state=recent_selection_state,
+        number_to_zodiac=number_to_zodiac,
         variation_key=variation_key,
-        window_size=max(special_pool_size // 2, 2)
     )
-    special_num = special_pick[0] if special_pick else special_candidates[0]
     special_probability = _estimate_ml_confidence(
         probability_map,
         special_score_map,
@@ -6073,6 +6192,7 @@ def _predict_with_ml(data, region, variation_key=None):
         "special_probability": special_probability,
         "top1_hit_rate": round(float(model.get("top1_hit_rate", 0.0)) * 100, 2),
         "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
+        "final_top1_hit_rate": round(float(model.get("final_top1_hit_rate", 0.0)) * 100, 2),
         "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
         "selected_blend": round(blend_weight * 100, 2),
         "normal_numbers": list(normal),

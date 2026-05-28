@@ -479,6 +479,7 @@ function renderPredictionInsights(data, strategy) {
                     ${displayCopy.color_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.color_preference}</div>` : ''}
                     ${displayCopy.parity_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.parity_preference}</div>` : ''}
                     ${displayCopy.six_reference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.six_reference}</div>` : ''}
+                    ${displayCopy.final_selection_backtest ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.final_selection_backtest}</div>` : ''}
                     ${displayCopy.selected_strategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.selected_strategies}</div>` : ''}
                     ${displayCopy.weight_summary ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.weight_summary}</div>` : ''}
                     ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>近期权重分配依据：</strong>${displayCopy.weight_reason_summary ? `<div style="margin-top:4px; color:#9fb1c8;">${displayCopy.weight_reason_summary}</div>` : ''}<div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
