@@ -210,7 +210,7 @@
                 {% for rank in item.top_items %}
                 <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.65rem; border-radius:10px; background:rgba(30,41,59,0.92); border:1px dashed rgba(148,163,184,0.18);">
                     <span style="font-weight:600; color:#f8fafc;">{{ loop.index }}. {{ strategy_label_map.get(rank.strategy, rank.strategy) }}</span>
-                    <span style="color:#dbe4f0;">单号 {{ rank.top1_hit_rate }}% / 六码 {{ rank.top6_hit_rate }}%</span>
+                    <span style="color:#dbe4f0;">一码 {{ rank.top1_hit_rate }}% / 六码 {{ rank.top6_hit_rate }}%</span>
                 </div>
                 {% endfor %}
                 {% else %}

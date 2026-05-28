@@ -518,7 +518,7 @@ def _build_special_focus_text(special, normal=None, strategy_name=None, accuracy
     if samples is not None:
         lines.append(f"学习样本：{samples}期")
     if confidence is not None:
-        lines.append(f"本期把握度：{confidence}%")
+        lines.append(f"本期参考分：{confidence}%")
     if extra_reason:
         lines.append(f"简要说明：{extra_reason}")
     return "\n".join(lines)
@@ -2251,9 +2251,9 @@ def _ml_runtime_profile_label(value):
         "compact": "轻量模式",
         "deep": "深度模式",
         "adaptive": "自动调整",
-        "recent_bias": "侧重近期走势",
-        "context_bias": "侧重号码属性",
-        "recency_trim": "近期简化模式",
+        "recent_bias": "更看近期走势",
+        "context_bias": "更看号码属性",
+        "recency_trim": "少看复杂走势",
     }
     key = str(value or "").strip()
     return mapping.get(key, key or "标准模式")
@@ -2262,9 +2262,9 @@ def _ml_runtime_profile_label(value):
 def _ml_feature_profile_label(value):
     mapping = {
         "full": "综合参考全部因素",
-        "compact_structure": "弱化整体结构",
-        "compact_attributes": "弱化波色生肖单双",
-        "compact_recency": "弱化近期走势",
+        "compact_structure": "少看整体结构",
+        "compact_attributes": "少看波色生肖单双",
+        "compact_recency": "少看近期走势",
     }
     key = str(value or "").strip()
     return mapping.get(key, key or "综合参考全部因素")
@@ -2272,9 +2272,9 @@ def _ml_feature_profile_label(value):
 
 def _ml_promotion_strength_label(value):
     mapping = {
-        "hold": "观察中",
+        "hold": "继续观察",
         "watch": "重点观察",
-        "promoted": "已提升",
+        "promoted": "已作为常用设置",
     }
     key = str(value or "").strip()
     return mapping.get(key, key or "观察中")
@@ -2292,7 +2292,7 @@ def _build_ml_display_copy(model_meta):
     primary_runtime = _ml_runtime_profile_label(meta.get("primary_runtime_profile"))
     primary_feature = _ml_feature_profile_label(meta.get("primary_feature_profile"))
     display["primary_config"] = (
-        f"当前主配置：{primary_runtime} · {primary_feature}（会根据近期表现自动微调）"
+        f"平时设置：{primary_runtime} · {primary_feature}；本次会再试算一遍，选表现更合适的组合。"
     )
 
     preferred_features = [
@@ -2301,9 +2301,9 @@ def _build_ml_display_copy(model_meta):
         if str(item or "").strip()
     ]
     if preferred_features:
-        line = f"地区偏好特征：{'、'.join(preferred_features)}"
+        line = f"本地区近期更适合：{'、'.join(preferred_features)}"
         if meta.get("profile_learning_confidence") is not None:
-            line += f" · 学习把握度{meta.get('profile_learning_confidence')}%"
+            line += f"；参考度 {meta.get('profile_learning_confidence')}%"
         display["preferred_features"] = line
 
     preferred_runtimes = [
@@ -2312,7 +2312,7 @@ def _build_ml_display_copy(model_meta):
         if str(item or "").strip()
     ]
     if preferred_runtimes:
-        display["preferred_runtimes"] = f"地区偏好参数：{'、'.join(preferred_runtimes)}"
+        display["preferred_runtimes"] = f"本地区常用偏向：{'、'.join(preferred_runtimes)}"
 
     color_preference = str(meta.get("preferred_special_color") or "").strip()
     color_preferences = meta.get("color_preferences") or {}
@@ -2322,7 +2322,7 @@ def _build_ml_display_copy(model_meta):
             f"（历史特码参考 {color_conf}%）"
             if color_conf is not None else "（历史特码参考）"
         )
-        display["color_preference"] = f"本期波色偏向：{color_preference}{suffix}"
+        display["color_preference"] = f"本期波色参考：{color_preference}{suffix}"
 
     parity_preference = str(meta.get("preferred_special_parity") or "").strip()
     parity_preferences = meta.get("parity_preferences") or {}
@@ -2332,15 +2332,15 @@ def _build_ml_display_copy(model_meta):
             f"（历史特码参考 {parity_conf}%）"
             if parity_conf is not None else "（历史特码参考）"
         )
-        display["parity_preference"] = f"本期单双偏向：{parity_preference}{suffix}"
+        display["parity_preference"] = f"本期单双参考：{parity_preference}{suffix}"
 
     if normal_numbers:
-        display["six_reference"] = f"六码参考号：{'、'.join(normal_numbers[:6])}"
+        display["six_reference"] = f"一起参考的六码：{'、'.join(normal_numbers[:6])}"
 
     if meta.get("final_top1_hit_rate") is not None:
         display["final_selection_backtest"] = (
-            f"最终选号回测：{meta.get('final_top1_hit_rate')}%"
-            f"（样本 {int(meta.get('evaluation_draws') or 0)} 期）"
+            f"过去按这套选法，一码命中过 {meta.get('final_top1_hit_rate')}%"
+            f"（看了 {int(meta.get('evaluation_draws') or 0)} 期样本）"
         )
 
     special_selection_reason = str(meta.get("special_selection_reason") or "").strip()
@@ -2353,7 +2353,7 @@ def _build_ml_display_copy(model_meta):
         if str(item or "").strip()
     ]
     if selected_strategies:
-        display["selected_strategies"] = f"当前核心集成：{'、'.join(selected_strategies)}"
+        display["selected_strategies"] = f"这次主要参考：{'、'.join(selected_strategies)}"
 
     weight_entries = sorted(
         (meta.get("ensemble_strategy_weights") or {}).items(),
@@ -2385,20 +2385,20 @@ def _build_ml_display_copy(model_meta):
             if selected_special_vote is None and selected_special_number.isdigit():
                 selected_special_vote = special_votes.get(int(selected_special_number), 0.0)
             display["special_votes"] = (
-                f"策略辅助参考：{vote_entries}；最终按综合模型重排，未直接采用原始票最高号码"
+                f"其它策略看好的号码：{vote_entries}；本次最终按综合结果选择，没有直接选票数最高的号码。"
             )
         else:
-            display["special_votes"] = f"策略辅助参考：{vote_entries}"
+            display["special_votes"] = f"其它策略看好的号码：{vote_entries}"
     elif selected_special_number:
-        display["special_votes"] = "策略辅助参考：暂无；最终按综合模型选择"
+        display["special_votes"] = "其它策略暂无明显共识，本次按综合结果选择。"
 
     diagnostics = meta.get("ensemble_weight_diagnostics") or {}
     weight_reason_items = []
     has_recent_zero_fallback = False
     rank_titles = [
-        ("冠军策略", "当前集成优先级最高"),
-        ("亚军策略", "当前集成优先级第二"),
-        ("季军策略", "当前集成优先级第三"),
+        ("最常参考", "这次参考力度最高"),
+        ("次常参考", "这次参考力度第二"),
+        ("辅助参考", "这次作为补充参考"),
     ]
     for idx, (key, value) in enumerate(sorted(
         diagnostics.items(),
@@ -2414,18 +2414,18 @@ def _build_ml_display_copy(model_meta):
         if fallback_reason == "recent_zero_fallback":
             has_recent_zero_fallback = True
         window_accuracy_text = " / ".join(
-            f"近{int(item.get('window', 0))}期 {float(item.get('accuracy', 0.0) or 0.0)}%"
+            f"近{int(item.get('window', 0))}期命中 {float(item.get('accuracy', 0.0) or 0.0)}%"
             for item in window_accuracies
             if int(item.get("total", 0) or 0) > 0
         )
         accuracy_text = (
-            f"最近表现：{recent_accuracy}%"
-            if window_accuracy_text else "最近表现：样本不足"
+            f"近期命中过 {recent_accuracy}%"
+            if window_accuracy_text else "近期样本还不够"
         )
         if fallback_reason == "recent_zero_fallback":
             accuracy_text = (
-                f"最近单号暂无命中，当前参考长期表现估算："
-                f"单号{overall_accuracy}% / 六码{overall_top6_accuracy}% / 综合参考{recent_accuracy}%"
+                f"最近一码命中偏少，先参考长期表现："
+                f"一码{overall_accuracy}% / 六码{overall_top6_accuracy}% / 综合参考{recent_accuracy}%"
             )
             window_accuracy_text = ""
         weight_value = float((meta.get("ensemble_strategy_weights") or {}).get(key, 0.0) or 0.0)
@@ -2434,26 +2434,25 @@ def _build_ml_display_copy(model_meta):
             "ribbon_title": title,
             "ribbon_note": note,
             "strategy_label": _get_strategy_label(key),
-            "weight_text": f"权重{round(weight_value, 1)}%",
+            "weight_text": f"参考占比 {round(weight_value, 1)}%",
             "accuracy_text": accuracy_text,
             "multiplier_text": (
-                f"排名系数×命中率加成：{(value or {}).get('rank_multiplier', '-')} × "
-                f"{(value or {}).get('accuracy_multiplier', '-')}，最终参考分 {(value or {}).get('weighted_score', '-')}"
+                f"系统给它的参考分：{(value or {}).get('weighted_score', '-')}"
             ),
             "window_accuracy_text": window_accuracy_text,
         })
     display["weight_reason_summary"] = (
-        "最近单号暂无命中时，会自动参考长期单号和六码表现估算当前权重。"
+        "如果最近一码命中偏少，系统会多看长期表现和六码命中情况。"
         if has_recent_zero_fallback
-        else "最近表现评分 = 近20期(50%) + 近50期(30%) + 近100期(20%)"
+        else "系统主要看近20期，再参考近50期和近100期。"
     )
     if weight_text:
         if has_recent_zero_fallback:
-            line = f"集成权重：{weight_text}（当前含长期表现兜底）"
+            line = f"各策略参考占比：{weight_text}（最近一码命中偏少，已加入长期表现参考）"
         else:
-            line = f"集成权重：{weight_text}（按近期状态分配：近20期50% + 近50期30% + 近100期20%）"
+            line = f"各策略参考占比：{weight_text}（主要按近期表现分配）"
         if meta.get("ensemble_weight_confidence") is not None:
-            line += f" · 集成把握度{meta.get('ensemble_weight_confidence')}%"
+            line += f"；整体参考度 {meta.get('ensemble_weight_confidence')}%"
         display["weight_summary"] = line
     display["weight_reason_items"] = weight_reason_items
     return display
@@ -5483,22 +5482,22 @@ def _build_ml_special_selection_reason(
     if special_candidates:
         rank = special_candidates.index(special_num) + 1 if special_num in special_candidates else 0
         if rank and rank <= 3:
-            reasons.append(f"综合重排第{rank}")
+            reasons.append(f"综合排序第{rank}")
         elif rank:
-            reasons.append("进入综合候选池")
+            reasons.append("在候选范围内")
 
     score = _safe_float(special_score_map.get(special_num), 0.0)
     if score > 0:
-        reasons.append(f"模型分{round(score * 100, 1)}")
+        reasons.append(f"系统评分{round(score * 100, 1)}")
 
     vote_value = special_votes.get(special_num)
     if vote_value is None:
         vote_value = special_votes.get(str(special_num), 0.0)
     vote_value = _safe_float(vote_value, 0.0)
     if vote_value > 0:
-        reasons.append(f"策略参考票{round(vote_value, 2)}")
+        reasons.append(f"其它策略也给了{round(vote_value, 2)}票")
     else:
-        reasons.append("策略票不是主因")
+        reasons.append("不是靠策略票选出来的")
 
     attr_matches = []
     if preferred_special_color and _get_color_zh(special_num) == preferred_special_color:
@@ -5509,19 +5508,19 @@ def _build_ml_special_selection_reason(
     if zodiac:
         attr_matches.append(zodiac)
     if attr_matches:
-        reasons.append("属性参考：" + "、".join(attr_matches[:3]))
+        reasons.append("属性上参考了" + "、".join(attr_matches[:3]))
 
     recent_hits = int(recent_draw_number_counter.get(special_num, 0) or 0)
     if special_num in latest_draw_numbers:
-        reasons.append("上期出现过，已计入重复扣分")
+        reasons.append("上期出现过，系统已经降了一点分")
     elif recent_hits <= 0:
-        reasons.append("近期重复压力低")
+        reasons.append("近期没怎么重复")
     elif recent_hits == 1:
-        reasons.append("近期出现1次，已轻度扣分")
+        reasons.append("近期出现过1次，系统轻微降分")
     else:
-        reasons.append(f"近期出现{recent_hits}次，已扣分")
+        reasons.append(f"近期出现过{recent_hits}次，系统已经降分")
 
-    return "最终选号依据：" + "；".join(reasons[:5])
+    return "为什么选这个特码：" + "；".join(reasons[:5])
 
 
 def _estimate_ml_confidence(probability_map, blended_scores, special_num, model):

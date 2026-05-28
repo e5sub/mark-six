@@ -142,9 +142,9 @@ def _hydrate_user_prediction_text(prediction):
 def _translate_ml_runtime_profile(value):
     mapping = {
         "base": "标准模式",
-        "recent_bias": "侧重近期走势",
-        "context_bias": "侧重号码属性",
-        "recency_trim": "近期简化模式",
+        "recent_bias": "更看近期走势",
+        "context_bias": "更看号码属性",
+        "recency_trim": "少看复杂走势",
         "learned_feature_bias": "学习偏好模式",
     }
     key = str(value or "").strip()
@@ -154,9 +154,9 @@ def _translate_ml_runtime_profile(value):
 def _translate_ml_feature_profile(value):
     mapping = {
         "full": "综合参考全部因素",
-        "compact_attributes": "弱化波色生肖单双",
-        "compact_structure": "弱化整体结构",
-        "compact_recency": "弱化近期走势",
+        "compact_attributes": "少看波色生肖单双",
+        "compact_structure": "少看整体结构",
+        "compact_recency": "少看近期走势",
     }
     key = str(value or "").strip()
     return mapping.get(key, key or "综合参考全部因素")
@@ -164,9 +164,9 @@ def _translate_ml_feature_profile(value):
 
 def _translate_ml_promotion_strength(value):
     mapping = {
-        "hold": "观察中",
-        "watch": "待提升",
-        "promoted": "已固化",
+        "hold": "继续观察",
+        "watch": "重点观察",
+        "promoted": "已作为常用设置",
     }
     key = str(value or "").strip()
     return mapping.get(key, key or "观察中")

@@ -371,9 +371,9 @@ function getMlRuntimeProfileLabel(value) {
         compact: '轻量模式',
         deep: '深度模式',
         adaptive: '自动调整',
-        recent_bias: '侧重近期走势',
-        context_bias: '侧重号码属性',
-        recency_trim: '近期简化模式',
+        recent_bias: '更看近期走势',
+        context_bias: '更看号码属性',
+        recency_trim: '少看复杂走势',
     };
     return labels[value] || value || '标准模式';
 }
@@ -381,18 +381,18 @@ function getMlRuntimeProfileLabel(value) {
 function getMlFeatureProfileLabel(value) {
     const labels = {
         full: '综合参考全部因素',
-        compact_structure: '弱化整体结构',
-        compact_attributes: '弱化波色生肖单双',
-        compact_recency: '弱化近期走势',
+        compact_structure: '少看整体结构',
+        compact_attributes: '少看波色生肖单双',
+        compact_recency: '少看近期走势',
     };
     return labels[value] || value || '综合参考全部因素';
 }
 
 function getMlPromotionStrengthLabel(value) {
     const labels = {
-        hold: '观察中',
+        hold: '继续观察',
         watch: '重点观察',
-        promoted: '已提升',
+        promoted: '已作为常用设置',
     };
     return labels[value] || value || '观察中';
 }
@@ -413,7 +413,7 @@ function renderPredictionInsights(data, strategy) {
                     <div>${item.history_window}/${item.feature_window}${item.feature_profile && item.feature_profile !== 'full' ? ` · ${getMlFeatureProfileLabel(item.feature_profile)}` : ''}</div>
                 </div>
             `).join('')
-            : '<div style="font-size:0.82rem; color:#dbe4f0;">样本较少，当前使用基础档参数。</div>';
+            : '<div style="font-size:0.82rem; color:#dbe4f0;">样本还少，先按基础方式来算。</div>';
 
         const specialVotes = meta.ensemble_special_votes || {};
         const voteEntries = Object.entries(specialVotes)
@@ -429,9 +429,9 @@ function renderPredictionInsights(data, strategy) {
         const weightReasonRows = Array.isArray(displayCopy.weight_reason_items)
             ? displayCopy.weight_reason_items.map((item, index) => {
                 const accentPalette = [
-                    { bg: 'linear-gradient(135deg, rgba(255,248,214,0.96), rgba(255,236,176,0.92))', border: 'rgba(196, 146, 0, 0.28)', badgeBg: '#c69200', badgeColor: '#fffaf0', title: '#7a5600', ribbonBg: 'linear-gradient(90deg, rgba(198,146,0,0.96), rgba(255,193,7,0.92))', ribbonTitle: '冠军策略', ribbonNote: '当前集成优先级最高' },
-                    { bg: 'linear-gradient(135deg, rgba(240,244,248,0.96), rgba(223,231,239,0.92))', border: 'rgba(96, 125, 139, 0.26)', badgeBg: '#607d8b', badgeColor: '#f8fbff', title: '#38505d', ribbonBg: 'linear-gradient(90deg, rgba(96,125,139,0.96), rgba(176,190,197,0.92))', ribbonTitle: '亚军策略', ribbonNote: '当前集成优先级第二' },
-                    { bg: 'linear-gradient(135deg, rgba(255,241,230,0.96), rgba(251,223,198,0.92))', border: 'rgba(191, 102, 34, 0.22)', badgeBg: '#bf6622', badgeColor: '#fff7f1', title: '#8a4516', ribbonBg: 'linear-gradient(90deg, rgba(191,102,34,0.96), rgba(205,127,50,0.92))', ribbonTitle: '季军策略', ribbonNote: '当前集成优先级第三' },
+                    { bg: 'linear-gradient(135deg, rgba(255,248,214,0.96), rgba(255,236,176,0.92))', border: 'rgba(196, 146, 0, 0.28)', badgeBg: '#c69200', badgeColor: '#fffaf0', title: '#7a5600', ribbonBg: 'linear-gradient(90deg, rgba(198,146,0,0.96), rgba(255,193,7,0.92))', ribbonTitle: '最常参考', ribbonNote: '这次参考力度最高' },
+                    { bg: 'linear-gradient(135deg, rgba(240,244,248,0.96), rgba(223,231,239,0.92))', border: 'rgba(96, 125, 139, 0.26)', badgeBg: '#607d8b', badgeColor: '#f8fbff', title: '#38505d', ribbonBg: 'linear-gradient(90deg, rgba(96,125,139,0.96), rgba(176,190,197,0.92))', ribbonTitle: '次常参考', ribbonNote: '这次参考力度第二' },
+                    { bg: 'linear-gradient(135deg, rgba(255,241,230,0.96), rgba(251,223,198,0.92))', border: 'rgba(191, 102, 34, 0.22)', badgeBg: '#bf6622', badgeColor: '#fff7f1', title: '#8a4516', ribbonBg: 'linear-gradient(90deg, rgba(191,102,34,0.96), rgba(205,127,50,0.92))', ribbonTitle: '辅助参考', ribbonNote: '这次作为补充参考' },
                 ][Math.min(index, 2)];
                 const rankLabel = `#${item.rank || index + 1}`;
                 const rankRibbon = `<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:-10px -12px 10px; padding:8px 12px; border-radius:10px 10px 0 0; background: ${accentPalette.ribbonBg}; color:#fffaf0; box-shadow: inset 0 -1px 0 rgba(255,255,255,0.18);"><span style="font-size:0.78rem; font-weight:900; letter-spacing:0.04em;">${item.ribbon_title || accentPalette.ribbonTitle}</span><span style="font-size:0.76rem; font-weight:700;">${item.ribbon_note || accentPalette.ribbonNote}</span></div>`;
@@ -462,16 +462,16 @@ function renderPredictionInsights(data, strategy) {
         sections.push(`
             <div style="margin-top: 18px; display:grid; gap:12px;">
                 <div style="padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(45, 212, 191, 0.18);">
-                    <div style="font-size: 0.95rem; font-weight: 700; color: #f8fafc; margin-bottom: 10px;">机器学习诊断</div>
+                    <div style="font-size: 0.95rem; font-weight: 700; color: #f8fafc; margin-bottom: 10px;">机器学习说明</div>
                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; font-size:0.85rem; color:#dbe4f0;">
-                        <div><strong>单号参考</strong><br>${meta.top1_hit_rate ?? 0}%</div>
-                        <div><strong>六码参考</strong><br>${meta.top6_hit_rate ?? 0}%</div>
-                        <div><strong>本期把握度</strong><br>${meta.special_probability ?? 0}%</div>
-                        <div><strong>评估样本</strong><br>${meta.evaluation_draws ?? meta.draw_samples ?? 0}期</div>
-                        <div><strong>参数档位</strong><br>${getMlRuntimeProfileLabel(meta.runtime_profile)}</div>
-                        <div><strong>综合评分</strong><br>${meta.runtime_score ?? 0}</div>
-                        <div><strong>特征档位</strong><br>${getMlFeatureProfileLabel(meta.feature_profile)}</div>
-                        <div><strong>固化状态</strong><br>${getMlPromotionStrengthLabel(meta.promotion_strength)}</div>
+                        <div><strong>一码参考</strong><br>${meta.top1_hit_rate ?? 0}%</div>
+                        <div><strong>覆盖参考</strong><br>${meta.top6_hit_rate ?? 0}%</div>
+                        <div><strong>本期参考分</strong><br>${meta.special_probability ?? 0}%</div>
+                        <div><strong>参考样本</strong><br>${meta.evaluation_draws ?? meta.draw_samples ?? 0}期</div>
+                        <div><strong>本次偏向</strong><br>${getMlRuntimeProfileLabel(meta.runtime_profile)}</div>
+                        <div><strong>综合分</strong><br>${meta.runtime_score ?? 0}</div>
+                        <div><strong>本次取舍</strong><br>${getMlFeatureProfileLabel(meta.feature_profile)}</div>
+                        <div><strong>学习状态</strong><br>${getMlPromotionStrengthLabel(meta.promotion_strength)}</div>
                     </div>
                     ${displayCopy.primary_config ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.primary_config}</div>` : ''}
                     ${displayCopy.preferred_features ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.preferred_features}</div>` : ''}
@@ -483,16 +483,16 @@ function renderPredictionInsights(data, strategy) {
                     ${displayCopy.special_selection_reason ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.special_selection_reason}</div>` : ''}
                     ${displayCopy.selected_strategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.selected_strategies}</div>` : ''}
                     ${displayCopy.weight_summary ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.weight_summary}</div>` : ''}
-                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>近期权重分配依据：</strong>${displayCopy.weight_reason_summary ? `<div style="margin-top:4px; color:#9fb1c8;">${displayCopy.weight_reason_summary}</div>` : ''}<div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
+                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>这些策略为什么参与参考：</strong>${displayCopy.weight_reason_summary ? `<div style="margin-top:4px; color:#9fb1c8;">${displayCopy.weight_reason_summary}</div>` : ''}<div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
                     ${displayCopy.special_votes ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.special_votes}</div>` : ''}
                 </div>
                 <div style="padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(96, 165, 250, 0.18);">
-                    <div style="font-size: 0.92rem; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">运行时参数搜索</div>
+                    <div style="font-size: 0.92rem; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">系统试算记录</div>
                     <div style="display:grid; grid-template-columns: 1.1fr 0.8fr 0.8fr 0.8fr; gap:8px; font-size:0.78rem; color:#dbe4f0; font-weight:700; padding-bottom:6px;">
-                        <div>档位</div>
-                        <div>单号</div>
-                        <div>六码</div>
-                        <div>窗长</div>
+                        <div>偏向</div>
+                        <div>一码</div>
+                        <div>覆盖命中</div>
+                        <div>参考期数</div>
                     </div>
                     ${searchRows}
                 </div>

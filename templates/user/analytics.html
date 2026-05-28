@@ -199,7 +199,7 @@
             <div class="comparison-row">
                 <div class="comparison-main">
                     <div class="comparison-title">{{ loop.index }}. {{ strategy_label_map.get(rank.strategy, rank.strategy) }}</div>
-                    <div class="comparison-meta">单号 {{ rank.top1_hit_rate }}% · 六码 {{ rank.top6_hit_rate }}% · {{ rank.total }} 期样本</div>
+                    <div class="comparison-meta">一码 {{ rank.top1_hit_rate }}% · 六码 {{ rank.top6_hit_rate }}% · {{ rank.total }} 期样本</div>
                 </div>
             </div>
             {% endfor %}
