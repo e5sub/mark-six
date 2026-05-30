@@ -454,6 +454,10 @@ def _startup_schema_lock(timeout_seconds=120):
             except OSError:
                 pass
 
+MYSQL_CHARSET = "utf8mb4"
+MYSQL_COLLATION = os.environ.get("MYSQL_COLLATION", "utf8mb4_unicode_ci")
+
+
 def _build_database_uri(db_path):
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
@@ -466,9 +470,25 @@ def _build_database_uri(db_path):
         name = os.environ.get("DB_NAME", "mark_six")
         user = quote_plus(os.environ.get("DB_USER", "root"))
         password = quote_plus(os.environ.get("DB_PASSWORD", ""))
-        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
+        return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset={MYSQL_CHARSET}"
 
     return f"sqlite:///{db_path}"
+
+
+def _build_engine_options(database_uri):
+    options = {
+        "pool_pre_ping": True,
+        "pool_recycle": 280,
+    }
+    try:
+        backend = (make_url(database_uri).get_backend_name() or "").lower()
+    except Exception:
+        backend = ""
+    if backend in ("mysql", "mariadb"):
+        options["connect_args"] = {
+            "init_command": f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}",
+        }
+    return options
 
 def _mask_db_uri(uri):
     return re.sub(r'//([^:/@]+):([^@]+)@', r'//\1:***@', uri)
@@ -495,12 +515,15 @@ def _ensure_mysql_database_exists(database_uri):
             server_url,
             pool_pre_ping=True,
             pool_recycle=280,
+            connect_args={
+                "init_command": f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}",
+            },
         )
         escaped_name = db_name.replace("`", "``")
         with admin_engine.begin() as connection:
             connection.exec_driver_sql(
                 f"CREATE DATABASE IF NOT EXISTS `{escaped_name}` "
-                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                f"CHARACTER SET {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}"
             )
         if _should_log_startup():
             print(f"MySQL database ready: {db_name}")
@@ -1006,10 +1029,9 @@ LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = _build_database_uri(db_path)
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "pool_pre_ping": True,
-    "pool_recycle": 280,
-}
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = _build_engine_options(
+    app.config['SQLALCHEMY_DATABASE_URI']
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 _ensure_mysql_database_exists(app.config['SQLALCHEMY_DATABASE_URI'])
 
@@ -1074,6 +1096,43 @@ def _deduplicate_prediction_records():
             print(f"Removed {removed_count} duplicate prediction_record rows")
 
 
+def _sync_mysql_collation(existing_tables):
+    db_name = str(db.engine.url.database or "").strip()
+    if not db_name:
+        return
+
+    escaped_db_name = db_name.replace("`", "``")
+    with db.engine.begin() as connection:
+        connection.exec_driver_sql(
+            f"ALTER DATABASE `{escaped_db_name}` "
+            f"CHARACTER SET {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}"
+        )
+        rows = connection.exec_driver_sql(
+            """
+            SELECT DISTINCT TABLE_NAME
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = %s
+              AND COLLATION_NAME IS NOT NULL
+              AND COLLATION_NAME <> %s
+            """,
+            (db_name, MYSQL_COLLATION),
+        ).fetchall()
+
+        for row in rows:
+            table_name = row[0]
+            if table_name not in existing_tables:
+                continue
+            try:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE {_quote_identifier(table_name)} "
+                    f"CONVERT TO CHARACTER SET {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}"
+                )
+                if _should_log_startup():
+                    print(f"Converted {table_name} to {MYSQL_CHARSET}/{MYSQL_COLLATION}")
+            except Exception as e:
+                print(f"Failed to convert {table_name} collation: {e}")
+
+
 def _sync_runtime_database_schema():
     inspector = inspect(db.engine)
     dialect = db.engine.dialect.name
@@ -1081,6 +1140,11 @@ def _sync_runtime_database_schema():
         existing_tables = set(inspector.get_table_names())
     except Exception:
         existing_tables = set()
+    if dialect in ('mysql', 'mariadb'):
+        try:
+            _sync_mysql_collation(existing_tables)
+        except Exception as e:
+            print(f"Failed to sync MySQL collation: {e}")
 
     column_specs = {
         'user': {
