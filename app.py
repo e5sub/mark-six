@@ -421,7 +421,7 @@ def _build_database_uri(db_path):
         host = os.environ.get("DB_HOST", "localhost")
         port = os.environ.get("DB_PORT", "3306")
         name = os.environ.get("DB_NAME", "mark_six")
-        user = os.environ.get("DB_USER", "root")
+        user = quote_plus(os.environ.get("DB_USER", "root"))
         password = quote_plus(os.environ.get("DB_PASSWORD", ""))
         return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
 
@@ -1042,6 +1042,9 @@ def _sync_runtime_database_schema():
         },
         'prediction_record': {
             'prediction_metadata': 'TEXT',
+        },
+        'manual_bet_records': {
+            'bettor_name': 'VARCHAR(50)',
         },
     }
 
