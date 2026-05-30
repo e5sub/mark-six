@@ -39,7 +39,10 @@
     <div class="terminal-screen" id="systemLogList">
         {% if logs %}
             {% for item in logs %}
-            <div class="terminal-line">{{ item.line }}</div>
+            <div class="terminal-line">
+                {% if item.time %}<span class="terminal-time">{{ item.time }}</span>{% endif %}
+                <span class="terminal-message">{{ item.line }}</span>
+            </div>
             {% endfor %}
         {% else %}
             <div class="terminal-line terminal-line-muted">&#x6682;&#x65E0;&#x65E5;&#x5FD7;&#xFF0C;&#x7CFB;&#x7EDF;&#x4EA7;&#x751F;&#x8F93;&#x51FA;&#x540E;&#x4F1A;&#x663E;&#x793A;&#x5728;&#x8FD9;&#x91CC;&#x3002;</div>
@@ -190,16 +193,29 @@
         white-space: pre-wrap;
         word-break: break-word;
         overflow-wrap: anywhere;
-        display: block;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
         width: 100%;
-        padding: 0.08rem 0 0.08rem 1.4rem;
-        text-indent: -1.4rem;
+        padding: 0.08rem 0;
         text-shadow: 0 0 8px rgba(16, 185, 129, 0.08);
     }
 
     .terminal-line::before {
         content: "> ";
         color: #22c55e;
+        flex: 0 0 auto;
+    }
+
+    .terminal-time {
+        flex: 0 0 150px;
+        color: #93c5fd;
+        white-space: nowrap;
+    }
+
+    .terminal-message {
+        flex: 1 1 auto;
+        min-width: 0;
     }
 
     .terminal-line-muted {
@@ -234,6 +250,14 @@
         .terminal-meta {
             grid-template-columns: 1fr;
         }
+
+        .terminal-line {
+            gap: 0.55rem;
+        }
+
+        .terminal-time {
+            flex: 0 0 auto;
+        }
     }
 </style>
 
@@ -261,7 +285,10 @@
         }
 
         logList.innerHTML = logs.map(item => `
-            <div class="terminal-line">${escapeHtml(item.line || '')}</div>
+            <div class="terminal-line">
+                ${item.time ? `<span class="terminal-time">${escapeHtml(item.time)}</span>` : ''}
+                <span class="terminal-message">${escapeHtml(item.line || '')}</span>
+            </div>
         `).join('');
     }
 

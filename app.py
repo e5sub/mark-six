@@ -42,8 +42,28 @@ _ml_prediction_cache_lock = threading.Lock()
 _strategy_config_override_local = threading.local()
 _SYSTEM_LOG_FILE_PATH = os.path.join(data_dir, "system.log")
 _SYSTEM_LOG_RETENTION_DAYS = 30
+_SYSTEM_LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+_SYSTEM_LOG_PREFIX_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s?(.*)$")
+_SYSTEM_LOG_INLINE_TIME_RE = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
 _system_log_stream_lock = threading.Lock()
 _system_log_tee_installed = False
+
+
+def _current_system_log_timestamp():
+    return datetime.now().strftime(_SYSTEM_LOG_TIMESTAMP_FORMAT)
+
+
+def _split_system_log_timestamp(line):
+    text = "" if line is None else str(line)
+    prefix_match = _SYSTEM_LOG_PREFIX_RE.match(text)
+    if prefix_match:
+        return prefix_match.group(1), prefix_match.group(2)
+
+    inline_match = _SYSTEM_LOG_INLINE_TIME_RE.search(text)
+    if inline_match:
+        return inline_match.group(1), text
+
+    return "", text
 
 
 def _system_log_archive_path(log_date):
@@ -138,6 +158,16 @@ class _TeeStream:
     def __init__(self, original, file_manager):
         self._original = original
         self._file_manager = file_manager
+        self._line_start = True
+
+    def _with_timestamps(self, text):
+        output = []
+        for chunk in text.splitlines(keepends=True):
+            if self._line_start:
+                output.append(f"[{_current_system_log_timestamp()}] ")
+            output.append(chunk)
+            self._line_start = chunk.endswith(("\n", "\r"))
+        return "".join(output)
 
     def write(self, data):
         text = "" if data is None else str(data)
@@ -149,7 +179,7 @@ class _TeeStream:
             except Exception:
                 pass
             try:
-                self._file_manager.write(text)
+                self._file_manager.write(self._with_timestamps(text))
             except Exception:
                 pass
             try:
@@ -240,14 +270,16 @@ def get_system_logs(limit=200):
                     tail_lines.append(line.rstrip("\r\n"))
                     if len(tail_lines) > normalized_limit:
                         tail_lines.pop(0)
-        return [
-            {
-                "line": line,
-            }
-            for line in reversed(tail_lines)
-        ]
+        logs = []
+        for line in reversed(tail_lines):
+            log_time, log_line = _split_system_log_timestamp(line)
+            logs.append({
+                "time": log_time,
+                "line": log_line,
+            })
+        return logs
     except Exception as e:
-        return [{"line": f"读取系统日志失败: {e}"}]
+        return [{"time": _current_system_log_timestamp(), "line": f"读取系统日志失败: {e}"}]
 
 
 def clear_system_logs():
