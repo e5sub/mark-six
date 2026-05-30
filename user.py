@@ -204,6 +204,16 @@ def _decorate_ml_config_snapshot(config):
     return snapshot
 
 def _actual_in_normal_expr():
+    try:
+        dialect = db.engine.dialect.name
+    except Exception:
+        dialect = ''
+    if dialect in ('mysql', 'mariadb'):
+        return db.func.find_in_set(
+            PredictionRecord.actual_special_number,
+            PredictionRecord.normal_numbers
+        ) > 0
+
     actual_as_string = db.cast(PredictionRecord.actual_special_number, db.String)
     return db.or_(
         PredictionRecord.normal_numbers.contains(',' + actual_as_string + ','),

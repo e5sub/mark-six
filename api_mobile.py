@@ -1314,18 +1314,28 @@ def _resolve_actual_special_zodiac(record, zodiac_map_cache, draw_cache):
 
 
 def _mobile_secondary_hit_expr():
-    actual_as_string = db.cast(PredictionRecord.actual_special_number, db.String)
-    actual_in_normal = db.or_(
-        PredictionRecord.normal_numbers.contains(
-            "," + actual_as_string + ","
-        ),
-        PredictionRecord.normal_numbers.startswith(
-            actual_as_string + ","
-        ),
-        PredictionRecord.normal_numbers.endswith(
-            "," + actual_as_string
-        ),
-    )
+    try:
+        dialect = db.engine.dialect.name
+    except Exception:
+        dialect = ""
+    if dialect in ("mysql", "mariadb"):
+        actual_in_normal = db.func.find_in_set(
+            PredictionRecord.actual_special_number,
+            PredictionRecord.normal_numbers,
+        ) > 0
+    else:
+        actual_as_string = db.cast(PredictionRecord.actual_special_number, db.String)
+        actual_in_normal = db.or_(
+            PredictionRecord.normal_numbers.contains(
+                "," + actual_as_string + ","
+            ),
+            PredictionRecord.normal_numbers.startswith(
+                actual_as_string + ","
+            ),
+            PredictionRecord.normal_numbers.endswith(
+                "," + actual_as_string
+            ),
+        )
     zodiac_hit = db.and_(
         PredictionRecord.special_zodiac.isnot(None),
         PredictionRecord.actual_special_zodiac.isnot(None),

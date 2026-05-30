@@ -18,7 +18,7 @@ import re
 from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 import time
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.engine import make_url
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
@@ -486,9 +486,30 @@ def _build_engine_options(database_uri):
         backend = ""
     if backend in ("mysql", "mariadb"):
         options["connect_args"] = {
-            "init_command": f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}",
+            "init_command": (
+                f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}; "
+                f"SET collation_connection = {MYSQL_COLLATION}"
+            ),
         }
     return options
+
+
+def _install_mysql_connection_collation_hook():
+    try:
+        backend = (make_url(app.config['SQLALCHEMY_DATABASE_URI']).get_backend_name() or "").lower()
+    except Exception:
+        backend = ""
+    if backend not in ("mysql", "mariadb"):
+        return
+
+    @event.listens_for(db.engine, "connect")
+    def _set_mysql_connection_collation(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}")
+            cursor.execute(f"SET collation_connection = {MYSQL_COLLATION}")
+        finally:
+            cursor.close()
 
 def _mask_db_uri(uri):
     return re.sub(r'//([^:/@]+):([^@]+)@', r'//\1:***@', uri)
@@ -516,7 +537,10 @@ def _ensure_mysql_database_exists(database_uri):
             pool_pre_ping=True,
             pool_recycle=280,
             connect_args={
-                "init_command": f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}",
+                "init_command": (
+                    f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}; "
+                    f"SET collation_connection = {MYSQL_COLLATION}"
+                ),
             },
         )
         escaped_name = db_name.replace("`", "``")
@@ -1045,6 +1069,8 @@ if _should_log_startup():
 # 初始化数据库
 # 初始化数据库
 db.init_app(app)
+with app.app_context():
+    _install_mysql_connection_collation_hook()
 
 
 def _execute_ddl(statement):
