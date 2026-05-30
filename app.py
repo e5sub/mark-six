@@ -1043,6 +1043,9 @@ def _get_email_strategy_display(prediction):
     return _get_strategy_label(prediction.strategy)
 
 LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
+_DRAWS_API_CACHE_TTL_SECONDS = 60
+_draws_api_cache_lock = threading.Lock()
+_draws_api_cache = {}
 
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
@@ -8780,6 +8783,49 @@ def get_yearly_data(region, year):
     print(f"未知地区: {region}")
     return []
 
+
+def _apply_draw_year_filter(query, year):
+    if year and year != 'all':
+        year_text = str(year)
+        if len(year_text) == 4 and year_text.isdigit():
+            return query.filter(
+                LotteryDraw.draw_date >= f"{year_text}-01-01",
+                LotteryDraw.draw_date < f"{int(year_text) + 1}-01-01",
+            )
+        return query.filter(LotteryDraw.draw_date.like(f"{year_text}%"))
+    return query
+
+
+def _load_draw_page_from_db(region, year, page, page_size):
+    query = LotteryDraw.query.filter_by(region=region)
+    query = _apply_draw_year_filter(query, year)
+    records = (
+        query.order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return [record.to_dict() for record in records]
+
+
+def _get_draws_cache(cache_key):
+    now = time.time()
+    with _draws_api_cache_lock:
+        cached = _draws_api_cache.get(cache_key)
+        if cached and now - cached.get('created_at', 0) < _DRAWS_API_CACHE_TTL_SECONDS:
+            return copy.deepcopy(cached['data'])
+    return None
+
+
+def _set_draws_cache(cache_key, data):
+    with _draws_api_cache_lock:
+        if len(_draws_api_cache) > 128:
+            _draws_api_cache.clear()
+        _draws_api_cache[cache_key] = {
+            'created_at': time.time(),
+            'data': copy.deepcopy(data),
+        }
+
 def _filter_draws_by_zodiac_year(draws, zodiac_year):
     try:
         from models import ZodiacSetting
@@ -9673,8 +9719,14 @@ def sync_draws_from_api(region, year=None, force=False):
 def draws_api():
     region = request.args.get('region', 'hk')
     year = request.args.get('year', str(datetime.now().year))
-    page = int(request.args.get('page', 1))
-    page_size = int(request.args.get('pageSize', 20))
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = max(1, min(int(request.args.get('pageSize', 50)), 100))
+    except (TypeError, ValueError):
+        page_size = 50
     
     print(f"API请求: 地区={region}, 年份={year}, 页码={page}, 每页数量={page_size}")
     
@@ -9683,11 +9735,18 @@ def draws_api():
         year = str(datetime.now().year)
         print(f"年份为'全部'，使用当前年份: {year}")
     
-    data = get_yearly_data(region, year)
+    cache_key = (region, str(year), page, page_size)
+    cached = _get_draws_cache(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    data = _load_draw_page_from_db(region, year, page, page_size)
+    if not data and page == 1:
+        data = get_yearly_data(region, year)[:page_size]
     print(f"获取到{len(data)}条数据")
     
     # 获取澳门数据，用于提取生肖信息（优先数据库）
-    macau_data = get_yearly_data('macau', year)
+    macau_data = _load_draw_page_from_db('macau', year, 1, 80) if region == 'hk' else []
     print(f"获取到{len(macau_data)}条澳门数据用于生肖映射")
     
     # 创建号码到生肖的映射（澳门数据作为兜底）
@@ -9746,20 +9805,17 @@ def draws_api():
         data = sorted(data, key=lambda x: x.get('date', ''), reverse=True)
         
         # 更新预测准确率
-        update_prediction_accuracy(data, 'hk')
+        pass
     else:
         # 更新澳门预测准确率
-        update_prediction_accuracy(data, 'macau')
+        pass
     
     # 分页处理
-    start_idx = (page - 1) * page_size
-    end_idx = start_idx + page_size
+    _set_draws_cache(cache_key, data)
+    return jsonify(data)
     
     # 如果是第一页，返回前50条数据，否则返回分页数据
-    if page == 1:
-        return jsonify(data[:50])
-    else:
-        return jsonify(data[start_idx:end_idx])
+    return jsonify(data)
 
 def update_prediction_accuracy(data, region, trigger_auto_predictions=True):
     """更新预测准确率 - 只比较特码和生肖"""
