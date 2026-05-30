@@ -8,6 +8,13 @@ import hashlib
 db = SQLAlchemy()
 
 class User(db.Model):
+    __table_args__ = (
+        db.Index('ix_user_created_at', 'created_at'),
+        db.Index('ix_user_activation_expires_at', 'activation_expires_at'),
+        db.Index('ix_user_invited_by_created_at', 'invited_by', 'created_at'),
+        db.Index('ix_user_active_auto_prediction', 'is_active', 'auto_prediction_enabled'),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
@@ -165,6 +172,11 @@ class ActivationCode(db.Model):
 
 
 class ActivationCodeRequest(db.Model):
+    __table_args__ = (
+        db.Index('ix_activation_code_request_user_status', 'user_id', 'status'),
+        db.Index('ix_activation_code_request_user_created_at', 'user_id', 'created_at'),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     username = db.Column(db.String(80), nullable=False)
@@ -240,6 +252,16 @@ class PredictionRecord(db.Model):
             'region',
             'period',
         ),
+        db.Index(
+            'ix_prediction_record_user_created_at',
+            'user_id',
+            'created_at',
+        ),
+        db.Index(
+            'ix_prediction_record_region_created_at',
+            'region',
+            'created_at',
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -268,6 +290,11 @@ class PredictionRecord(db.Model):
 
 class BacktestRun(db.Model):
     __tablename__ = 'backtest_runs'
+    __table_args__ = (
+        db.Index('ix_backtest_runs_region_name', 'region', 'name'),
+        db.Index('ix_backtest_runs_region_created_at', 'region', 'created_at'),
+        db.Index('ix_backtest_runs_created_at', 'created_at'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
@@ -282,6 +309,11 @@ class BacktestRun(db.Model):
 
 class InviteCode(db.Model):
     """邀请码模型"""
+    __table_args__ = (
+        db.Index('ix_invite_code_created_by_used_created_at', 'created_by', 'is_used', 'created_at'),
+        db.Index('ix_invite_code_created_at', 'created_at'),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(32), unique=True, nullable=False)
     created_by = db.Column(db.String(80), nullable=False)  # 创建者用户名
@@ -790,6 +822,18 @@ class ZodiacSetting(db.Model):
 
 class ManualBetRecord(db.Model):
     __tablename__ = 'manual_bet_records'
+    __table_args__ = (
+        db.Index('ix_manual_bet_records_user_region_created_at', 'user_id', 'region', 'created_at'),
+        db.Index('ix_manual_bet_records_region_period_profit', 'region', 'period', 'total_profit'),
+        db.Index(
+            'ix_manual_bet_records_user_region_period_profit_created_at',
+            'user_id',
+            'region',
+            'period',
+            'total_profit',
+            'created_at',
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -842,7 +886,10 @@ class LotteryDraw(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
     
     # 创建联合唯一索引，确保每个地区的每期号码只有一条记录
-    __table_args__ = (db.UniqueConstraint('region', 'draw_id', name='uix_region_draw_id'),)
+    __table_args__ = (
+        db.UniqueConstraint('region', 'draw_id', name='uix_region_draw_id'),
+        db.Index('ix_lottery_draws_region_draw_date_draw_id', 'region', 'draw_date', 'draw_id'),
+    )
     
     def to_dict(self):
         """将记录转换为字典，方便API返回"""

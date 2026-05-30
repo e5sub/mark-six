@@ -1065,55 +1065,105 @@ def _sync_runtime_database_schema():
             except Exception as e:
                 print(f"Failed to add missing column {table_name}.{column_name}: {e}")
 
-    try:
-        existing_indexes = {item['name'] for item in inspector.get_indexes('prediction_record')}
-    except Exception:
-        existing_indexes = set()
-    try:
-        existing_unique_constraints = {
-            item['name']
-            for item in inspector.get_unique_constraints('prediction_record')
-            if item.get('name')
-        }
-    except Exception:
-        existing_unique_constraints = set()
+    def _index_ddl(table_name, index_name, columns, unique=False):
+        unique_sql = 'UNIQUE ' if unique else ''
+        column_sql = ', '.join(_quote_identifier(column) for column in columns)
+        return (
+            f'CREATE {unique_sql}INDEX {_quote_identifier(index_name)} '
+            f'ON {_quote_identifier(table_name)} ({column_sql})'
+        )
 
-    prediction_record_index_ddls = {
-        'uq_prediction_record_user_region_period_strategy': (
-            f'CREATE UNIQUE INDEX {_quote_identifier("uq_prediction_record_user_region_period_strategy")} '
-            f'ON {_quote_identifier("prediction_record")} '
-            f'({_quote_identifier("user_id")}, {_quote_identifier("region")}, '
-            f'{_quote_identifier("period")}, {_quote_identifier("strategy")})'
-        ),
-        'ix_prediction_record_user_strategy_created_at': (
-            f'CREATE INDEX {_quote_identifier("ix_prediction_record_user_strategy_created_at")} '
-            f'ON {_quote_identifier("prediction_record")} '
-            f'({_quote_identifier("user_id")}, {_quote_identifier("strategy")}, '
-            f'{_quote_identifier("created_at")})'
-        ),
-        'ix_prediction_record_user_strategy_region_period': (
-            f'CREATE INDEX {_quote_identifier("ix_prediction_record_user_strategy_region_period")} '
-            f'ON {_quote_identifier("prediction_record")} '
-            f'({_quote_identifier("user_id")}, {_quote_identifier("strategy")}, '
-            f'{_quote_identifier("region")}, {_quote_identifier("period")})'
-        ),
+    runtime_index_specs = {
+        'user': {
+            'ix_user_created_at': ('created_at',),
+            'ix_user_activation_expires_at': ('activation_expires_at',),
+            'ix_user_invited_by_created_at': ('invited_by', 'created_at'),
+            'ix_user_active_auto_prediction': ('is_active', 'auto_prediction_enabled'),
+        },
+        'activation_code_request': {
+            'ix_activation_code_request_user_status': ('user_id', 'status'),
+            'ix_activation_code_request_user_created_at': ('user_id', 'created_at'),
+        },
+        'prediction_record': {
+            'uq_prediction_record_user_region_period_strategy': (
+                ('user_id', 'region', 'period', 'strategy'),
+                True,
+            ),
+            'ix_prediction_record_user_strategy_created_at': ('user_id', 'strategy', 'created_at'),
+            'ix_prediction_record_user_strategy_region_period': (
+                'user_id',
+                'strategy',
+                'region',
+                'period',
+            ),
+            'ix_prediction_record_user_created_at': ('user_id', 'created_at'),
+            'ix_prediction_record_region_created_at': ('region', 'created_at'),
+        },
+        'backtest_runs': {
+            'ix_backtest_runs_region_name': ('region', 'name'),
+            'ix_backtest_runs_region_created_at': ('region', 'created_at'),
+            'ix_backtest_runs_created_at': ('created_at',),
+        },
+        'invite_code': {
+            'ix_invite_code_created_by_used_created_at': ('created_by', 'is_used', 'created_at'),
+            'ix_invite_code_created_at': ('created_at',),
+        },
+        'manual_bet_records': {
+            'ix_manual_bet_records_user_region_created_at': ('user_id', 'region', 'created_at'),
+            'ix_manual_bet_records_region_period_profit': ('region', 'period', 'total_profit'),
+            'ix_manual_bet_records_user_region_period_profit_created_at': (
+                'user_id',
+                'region',
+                'period',
+                'total_profit',
+                'created_at',
+            ),
+        },
+        'lottery_draws': {
+            'ix_lottery_draws_region_draw_date_draw_id': ('region', 'draw_date', 'draw_id'),
+        },
     }
 
-    for name, ddl in prediction_record_index_ddls.items():
-        if name == 'uq_prediction_record_user_region_period_strategy':
-            try:
-                _deduplicate_prediction_records()
-            except Exception as e:
-                db.session.rollback()
-                print(f"Failed to deduplicate prediction_record before creating {name}: {e}")
-        if name in existing_indexes or name in existing_unique_constraints:
+    for table_name, indexes in runtime_index_specs.items():
+        try:
+            existing_indexes = {item['name'] for item in inspector.get_indexes(table_name)}
+        except Exception:
             continue
         try:
-            _execute_ddl(ddl)
-            if _should_log_startup():
-                print(f"Created missing index {name} for {dialect}")
-        except Exception as e:
-            print(f"Failed to create missing index {name}: {e}")
+            existing_unique_constraints = {
+                item['name']
+                for item in inspector.get_unique_constraints(table_name)
+                if item.get('name')
+            }
+        except Exception:
+            existing_unique_constraints = set()
+
+        for name, spec in indexes.items():
+            unique = False
+            columns = spec
+            if (
+                isinstance(spec, tuple)
+                and len(spec) == 2
+                and isinstance(spec[0], tuple)
+                and isinstance(spec[1], bool)
+            ):
+                columns, unique = spec
+
+            if name == 'uq_prediction_record_user_region_period_strategy':
+                try:
+                    _deduplicate_prediction_records()
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Failed to deduplicate prediction_record before creating {name}: {e}")
+
+            if name in existing_indexes or name in existing_unique_constraints:
+                continue
+            try:
+                _execute_ddl(_index_ddl(table_name, name, columns, unique=unique))
+                if _should_log_startup():
+                    print(f"Created missing index {name} on {table_name} for {dialect}")
+            except Exception as e:
+                print(f"Failed to create missing index {name} on {table_name}: {e}")
 
 def ensure_runtime_database_schema():
     """在应用启动时尽早补齐数据库结构，避免WSGI模式下缺列报错。"""
