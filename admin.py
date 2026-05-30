@@ -213,6 +213,23 @@ def _build_ai_visual_weights(config):
 def _build_strategy_visual_weights(strategy, config):
     weights = config.get('weights') or {}
     if weights:
+        if strategy == 'markov':
+            visible_keys = (
+                'transition',
+                'special_transition',
+                'feedback',
+                'second_order',
+                'phase_transition',
+                'failure',
+                'hot',
+                'trend',
+                'normal',
+            )
+            weights = OrderedDict(
+                (key, weights[key])
+                for key in visible_keys
+                if key in weights
+            )
         return [
             {
                 'key': key,

@@ -236,8 +236,6 @@
                         <div>转移衰减：<strong style="color:#f8fafc;">{{ item.transition_decay or '-' }}</strong></div>
                         <div>特号源权重：<strong style="color:#f8fafc;">{{ item.source_special_weight or '-' }}</strong></div>
                         <div>最小转移样本：<strong style="color:#f8fafc;">{{ item.transition_min_samples or '-' }}</strong></div>
-                        <div>优化冷却：<strong style="color:#f8fafc;">{{ item.promotion_cooldown_hours or '-' }} 小时</strong></div>
-                        <div>最小提升：<strong style="color:#f8fafc;">{{ item.promotion_min_gain or '-' }}</strong></div>
                         {% endif %}
                     </div>
 
@@ -257,6 +255,9 @@
                     <div style="font-size:0.8rem; color:#d5e0f2; margin-bottom:0.65rem;">更新时间：{{ item.updated_at or '-' }}</div>
 
                     {% if item.weights %}
+                    {% if item.key == 'markov' %}
+                    <div style="font-size:0.78rem; color:#94a3b8; margin-bottom:0.45rem;">关键参考权重</div>
+                    {% endif %}
                     <div style="display:flex; flex-wrap:wrap; gap:0.45rem;">
                         {% for weight in item.weights %}
                         <span style="background:rgba(59,130,246,0.12); color:#e2e8f0; padding:0.35rem 0.55rem; border-radius:999px; font-size:0.8rem; border:1px solid rgba(96,165,250,0.16);">
