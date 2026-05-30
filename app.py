@@ -504,7 +504,7 @@ def _install_mysql_connection_collation_hook():
         cursor = dbapi_connection.cursor()
         try:
             cursor.execute(f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}")
-            cursor.execute(f"SET collation_connection = {MYSQL_COLLATION}")
+            cursor.execute("SET collation_connection = %s", (MYSQL_COLLATION,))
         finally:
             cursor.close()
 
