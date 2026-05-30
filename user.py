@@ -121,7 +121,7 @@ def _deserialize_prediction_metadata(value):
         return {}
 
 
-def _hydrate_user_prediction_model_meta(prediction):
+def _hydrate_user_prediction_model_meta(prediction, prediction_data=None):
     metadata = _deserialize_prediction_metadata(
         getattr(prediction, 'prediction_metadata', '')
     )
@@ -131,10 +131,12 @@ def _hydrate_user_prediction_model_meta(prediction):
     try:
         from app import _get_prediction_data, _hydrate_prediction_model_meta
 
-        data, _ = _get_prediction_data(
-            getattr(prediction, 'region', ''),
-            datetime.now().year,
-        )
+        data = prediction_data
+        if data is None:
+            data, _ = _get_prediction_data(
+                getattr(prediction, 'region', ''),
+                datetime.now().year,
+            )
         return _hydrate_prediction_model_meta(
             getattr(prediction, 'strategy', ''),
             metadata,
@@ -146,7 +148,7 @@ def _hydrate_user_prediction_model_meta(prediction):
         return metadata
 
 
-def _hydrate_user_prediction_text(prediction):
+def _hydrate_user_prediction_text(prediction, prediction_data=None):
     text = getattr(prediction, 'prediction_text', '') or ''
     if getattr(prediction, 'strategy', '') != 'ml':
         return text
@@ -157,10 +159,12 @@ def _hydrate_user_prediction_text(prediction):
             _hydrate_prediction_recommendation_text,
         )
 
-        data, _ = _get_prediction_data(
-            getattr(prediction, 'region', ''),
-            datetime.now().year,
-        )
+        data = prediction_data
+        if data is None:
+            data, _ = _get_prediction_data(
+                getattr(prediction, 'region', ''),
+                datetime.now().year,
+            )
         metadata = _deserialize_prediction_metadata(
             getattr(prediction, 'prediction_metadata', '')
         )
@@ -986,9 +990,24 @@ def _get_strategy_predictions_page(user_id, strategy, page=1, region='', period=
     ).offset(start_index).limit(records_per_page).all()
 
     items = [_decorate_ml_prediction(item) for item in items]
+    prediction_data_cache = {}
     for item in items:
-        item.display_prediction_text = _hydrate_user_prediction_text(item)
-        item.display_model_meta = _hydrate_user_prediction_model_meta(item)
+        item_region = getattr(item, 'region', '')
+        item_data = None
+        if getattr(item, 'strategy', '') == 'ml':
+            if item_region not in prediction_data_cache:
+                try:
+                    from app import _get_prediction_data
+                    prediction_data_cache[item_region], _ = _get_prediction_data(
+                        item_region,
+                        datetime.now().year,
+                    )
+                except Exception as e:
+                    print(f"用户侧缓存机器学习开奖记录失败: {e}")
+                    prediction_data_cache[item_region] = []
+            item_data = prediction_data_cache.get(item_region)
+        item.display_prediction_text = _hydrate_user_prediction_text(item, prediction_data=item_data)
+        item.display_model_meta = _hydrate_user_prediction_model_meta(item, prediction_data=item_data)
     return SimpleNamespace(
         items=items,
         page=current_page,
@@ -1807,6 +1826,7 @@ def ml_records():
         PredictionRecord.id.desc()
     ).offset(start_index).limit(records_per_page).all()
 
+    prediction_data_cache = {}
     for prediction in paged_predictions:
         prediction.display_actual_special_zodiac = (
             prediction.actual_special_zodiac or ''
@@ -1830,7 +1850,24 @@ def ml_records():
                 or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers
             )
         )
-        prediction.display_prediction_text = _hydrate_user_prediction_text(prediction)
+        prediction_region = getattr(prediction, 'region', '')
+        prediction_data = None
+        if getattr(prediction, 'strategy', '') == 'ml':
+            if prediction_region not in prediction_data_cache:
+                try:
+                    from app import _get_prediction_data
+                    prediction_data_cache[prediction_region], _ = _get_prediction_data(
+                        prediction_region,
+                        datetime.now().year,
+                    )
+                except Exception as e:
+                    print(f"用户侧缓存机器学习开奖记录失败: {e}")
+                    prediction_data_cache[prediction_region] = []
+            prediction_data = prediction_data_cache.get(prediction_region)
+        prediction.display_prediction_text = _hydrate_user_prediction_text(
+            prediction,
+            prediction_data=prediction_data,
+        )
     predictions = SimpleNamespace(
         items=paged_predictions,
         page=current_page,
