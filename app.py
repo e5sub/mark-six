@@ -411,6 +411,49 @@ def _should_log_startup():
     atexit.register(_release_startup_log_lock)
     return True
 
+
+@contextmanager
+def _startup_schema_lock(timeout_seconds=120):
+    import tempfile
+    lock_path = os.path.join(tempfile.gettempdir(), "mark-six-schema.lock")
+    pid = os.getpid()
+    deadline = time.time() + timeout_seconds
+    acquired = False
+
+    while time.time() < deadline:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w") as f:
+                f.write(str(pid))
+            acquired = True
+            break
+        except FileExistsError:
+            existing_pid = 0
+            try:
+                with open(lock_path, "r") as f:
+                    existing_pid = int((f.read() or "").strip() or "0")
+            except Exception:
+                existing_pid = 0
+            if existing_pid and not _pid_is_running(existing_pid):
+                try:
+                    os.remove(lock_path)
+                    continue
+                except OSError:
+                    pass
+            time.sleep(0.25)
+
+    if not acquired:
+        print("Startup schema lock timeout; continuing without exclusive schema lock.")
+
+    try:
+        yield
+    finally:
+        if acquired:
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
+
 def _build_database_uri(db_path):
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
@@ -1034,6 +1077,10 @@ def _deduplicate_prediction_records():
 def _sync_runtime_database_schema():
     inspector = inspect(db.engine)
     dialect = db.engine.dialect.name
+    try:
+        existing_tables = set(inspector.get_table_names())
+    except Exception:
+        existing_tables = set()
 
     column_specs = {
         'user': {
@@ -1049,6 +1096,8 @@ def _sync_runtime_database_schema():
     }
 
     for table_name, columns in column_specs.items():
+        if table_name not in existing_tables:
+            continue
         try:
             existing_columns = {column['name'] for column in inspector.get_columns(table_name)}
         except Exception:
@@ -1125,6 +1174,8 @@ def _sync_runtime_database_schema():
     }
 
     for table_name, indexes in runtime_index_specs.items():
+        if table_name not in existing_tables:
+            continue
         try:
             existing_indexes = {item['name'] for item in inspector.get_indexes(table_name)}
         except Exception:
@@ -1184,7 +1235,8 @@ def ensure_runtime_database_schema():
         except Exception as e:
             print(f"运行时自动更新数据库结构时出错: {e}")
 
-ensure_runtime_database_schema()
+with _startup_schema_lock():
+    ensure_runtime_database_schema()
 
 # 初始化Flask-Login
 def cleanup_legacy_smart_strategy():
@@ -8557,6 +8609,10 @@ def index():
     
     # 检查用户是否激活，如果未激活则显示提示
     user = User.query.get(session['user_id'])
+    if not user:
+        session.clear()
+        flash('登录状态已失效，请重新登录。', 'warning')
+        return redirect(url_for('auth.login'))
     
     # 检查激活状态是否过期
     if user and user.is_activation_expired():
