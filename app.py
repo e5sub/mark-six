@@ -5802,10 +5802,12 @@ def _predict_with_markov(data, region, variation_key=None):
         for item in support_chains[:3]:
             if item.get("type") == "two_step":
                 source = item.get("source") or []
-                chain_parts.append(f"{source[0]}+{source[1]}->{special_num}")
+                if len(source) >= 2:
+                    chain_parts.append(f"{source[0]}、{source[1]}连着出现后，历史上更容易靠近{special_num}")
             else:
-                chain_parts.append(f"{item.get('source')}->{special_num}")
-        chain_text = "；主要转移链路：" + "、".join(chain_parts)
+                chain_parts.append(f"{item.get('source')}出现后，历史上更容易靠近{special_num}")
+        if chain_parts:
+            chain_text = "；另外参考了这些历史关联：" + "；".join(chain_parts)
 
     recommendation_text = _build_special_focus_text(
         str(special_num),

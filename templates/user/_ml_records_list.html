@@ -77,26 +77,6 @@
                 {% endif %}
             </div>
         </div>
-        {% if prediction.strategy == 'markov' and prediction.display_model_meta and prediction.display_model_meta.markov_support_chains %}
-        <div class="ml-panel" style="margin-top:0.85rem;">
-            <div class="panel-title">近期号码关联</div>
-            <div style="font-size:0.82rem; color:#94a3b8; margin-bottom:0.55rem;">
-                根据历史记录，下面这些号码组合和本期参考号的关联度较高。
-            </div>
-            <div style="display:flex; flex-wrap:wrap; gap:0.45rem;">
-                {% for chain in prediction.display_model_meta.markov_support_chains[:4] %}
-                <span style="padding:0.28rem 0.55rem; border-radius:999px; background:rgba(37,99,235,0.16); color:#bfdbfe; border:1px solid rgba(96,165,250,0.25); font-size:0.82rem;">
-                    {% if chain.type == 'two_step' and chain.source %}
-                        {{ chain.source[0] }}、{{ chain.source[1] }} 关联 {{ chain.target }}
-                    {% else %}
-                        {{ chain.source }} 关联 {{ chain.target }}
-                    {% endif %}
-                    · {{ chain.score }}%
-                </span>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
     </div>
     {% endfor %}
 </div>
