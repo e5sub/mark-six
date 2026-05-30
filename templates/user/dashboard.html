@@ -3,6 +3,35 @@
 {% block page_title %}个人中心{% endblock %}
 
 {% block content %}
+<!-- 快速操作 -->
+<div class="card-compact">
+    <div class="card-header-compact">
+        <h2 class="card-title-compact">🚀 快速操作</h2>
+    </div>
+    
+    <div class="quick-actions">
+        <a href="{{ url_for('index') }}" class="action-btn action-primary">
+            <span class="action-icon">🎯</span>
+            <span class="action-text">开始预测</span>
+        </a>
+        
+        <a href="{{ url_for('user.predictions') }}" class="action-btn action-success">
+            <span class="action-icon">📊</span>
+            <span class="action-text">预测记录</span>
+        </a>
+
+        <a href="{{ url_for('user.invite_codes') }}" class="action-btn action-warning">
+            <span class="action-icon">👥</span>
+            <span class="action-text">邀请好友</span>
+        </a>
+        
+        <button onclick="openProfileModal()" class="action-btn action-info">
+            <span class="action-icon">⚙️</span>
+            <span class="action-text">个人信息</span>
+        </button>
+    </div>
+</div>
+
 <!-- 统计信息 -->
 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
     <div class="stat-card-compact">
@@ -225,35 +254,6 @@
     {% else %}
     <div style="color:#94a3b8;">还没有历史模拟结果。运行 `python scripts/backtest_predictions.py --region macau` 后，这里会自动显示最新排行。</div>
     {% endif %}
-</div>
-
-<!-- 快速操作 -->
-<div class="card-compact">
-    <div class="card-header-compact">
-        <h2 class="card-title-compact">🚀 快速操作</h2>
-    </div>
-    
-    <div class="quick-actions">
-        <a href="{{ url_for('index') }}" class="action-btn action-primary">
-            <span class="action-icon">🎯</span>
-            <span class="action-text">开始预测</span>
-        </a>
-        
-        <a href="{{ url_for('user.predictions') }}" class="action-btn action-success">
-            <span class="action-icon">📊</span>
-            <span class="action-text">预测记录</span>
-        </a>
-
-        <a href="{{ url_for('user.invite_codes') }}" class="action-btn action-warning">
-            <span class="action-icon">👥</span>
-            <span class="action-text">邀请好友</span>
-        </a>
-        
-        <button onclick="openProfileModal()" class="action-btn action-info">
-            <span class="action-icon">⚙️</span>
-            <span class="action-text">个人信息</span>
-        </button>
-    </div>
 </div>
 
 <!-- 自动预测设置 - 紧凑版 -->
