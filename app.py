@@ -486,10 +486,7 @@ def _build_engine_options(database_uri):
         backend = ""
     if backend in ("mysql", "mariadb"):
         options["connect_args"] = {
-            "init_command": (
-                f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}; "
-                f"SET collation_connection = {MYSQL_COLLATION}"
-            ),
+            "init_command": f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}",
         }
     return options
 
@@ -537,10 +534,7 @@ def _ensure_mysql_database_exists(database_uri):
             pool_pre_ping=True,
             pool_recycle=280,
             connect_args={
-                "init_command": (
-                    f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}; "
-                    f"SET collation_connection = {MYSQL_COLLATION}"
-                ),
+                "init_command": f"SET NAMES {MYSQL_CHARSET} COLLATE {MYSQL_COLLATION}",
             },
         )
         escaped_name = db_name.replace("`", "``")
