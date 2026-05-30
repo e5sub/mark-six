@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, Response
+﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, Response
 from functools import wraps
 from models import (
     db,
@@ -74,10 +74,14 @@ PREDICTION_STRATEGY_LABELS = {
     'ai': 'AI预测',
 }
 
-LEARNING_PANEL_TERM_LABELS['markov'] = '马尔可夫'
+LEARNING_PANEL_TERM_LABELS['markov'] = '马尔科夫'
 LEARNING_PANEL_TERM_LABELS['transition'] = '转移概率'
+LEARNING_PANEL_TERM_LABELS['second_order'] = '二阶转移'
+LEARNING_PANEL_TERM_LABELS['phase_transition'] = '阶段转移'
+LEARNING_PANEL_TERM_LABELS['attribute_transition'] = '属性转移'
 LEARNING_PANEL_TERM_LABELS['special_transition'] = '特码转移'
-PREDICTION_STRATEGY_LABELS['markov'] = '马尔可夫预测'
+LEARNING_PANEL_TERM_LABELS['failure'] = '失误修正'
+PREDICTION_STRATEGY_LABELS['markov'] = '马尔科夫预测'
 
 def _normalize_visual_weights(weight_map):
     cleaned = OrderedDict()
@@ -378,7 +382,7 @@ def _strategy_learning_panel_data():
     from app import _load_strategy_config, _get_strategy_label
 
     regions = [('hk', '香港'), ('macau', '澳门')]
-    strategies = ['hot', 'cold', 'trend', 'balanced', 'hybrid', 'ml', 'ai']
+    strategies = ['hot', 'cold', 'trend', 'balanced', 'hybrid', 'markov', 'ml', 'ai']
     panel = []
 
     for region_key, region_label in regions:
@@ -407,6 +411,11 @@ def _strategy_learning_panel_data():
                 'trend_window': config.get('trend_window'),
                 'history_window': config.get('history_window'),
                 'feature_window': config.get('feature_window'),
+                'transition_decay': config.get('transition_decay'),
+                'transition_min_samples': config.get('transition_min_samples'),
+                'source_special_weight': config.get('source_special_weight'),
+                'promotion_cooldown_hours': config.get('promotion_cooldown_hours'),
+                'promotion_min_gain': config.get('promotion_min_gain'),
                 'pool': config.get('pool'),
                 'special_pool': config.get('special_pool'),
                 'epochs': config.get('epochs'),

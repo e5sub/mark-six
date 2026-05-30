@@ -124,7 +124,7 @@
                         转移衰减 {{ current[strategy_key].transition_decay or '-' }}，
                         特号源权重 {{ current[strategy_key].source_special_weight or '-' }}
                         <br>
-                        固化状态 {{ current[strategy_key].promotion_strength or 'hold' }}，
+                        固化状态 {{ current[strategy_key].promotion_strength_label or '观察中' }}，
                         学习把握度 {{ current[strategy_key].profile_learning_confidence or 0 }}%，
                         学习样本 {{ current[strategy_key].profile_learning_samples or 0 }}
                         {% else %}

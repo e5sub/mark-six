@@ -77,12 +77,6 @@
                 {% endif %}
             </div>
         </div>
-        {% if prediction.display_prediction_text %}
-        <div class="ml-panel" style="margin-top:0.85rem;">
-            <div class="panel-title">分析说明</div>
-            <div style="white-space:pre-wrap; color:#cbd5e1; font-size:0.88rem; line-height:1.65;">{{ prediction.display_prediction_text }}</div>
-        </div>
-        {% endif %}
         {% if prediction.strategy == 'markov' and prediction.display_model_meta and prediction.display_model_meta.markov_support_chains %}
         <div class="ml-panel" style="margin-top:0.85rem;">
             <div class="panel-title">转移链路</div>

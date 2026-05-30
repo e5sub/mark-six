@@ -159,7 +159,7 @@
                         开启策略自动优化
                     </label>
                     <small style="color: #666; display: block; margin-top: 0.4rem;">
-                        开启后，系统会基于历史模拟测试自动尝试调整热门、冷门、走势、综合、均衡、机器学习和 AI 预测参数，只有效果明显更好才会生效。
+                        开启后，系统会基于历史模拟测试自动尝试调整热门、冷门、走势、综合、均衡、马尔科夫、机器学习和 AI 预测参数，只有效果明显更好才会生效。
                     </small>
                 </div>
 
@@ -232,6 +232,13 @@
                         <div>特征窗口：<strong style="color:#f8fafc;">{{ item.feature_window or '-' }}</strong></div>
                         <div>训练轮数：<strong style="color:#f8fafc;">{{ item.epochs or '-' }}</strong></div>
                         <div>学习率：<strong style="color:#f8fafc;">{{ item.learning_rate or '-' }}</strong></div>
+                        {% if item.key == 'markov' %}
+                        <div>转移衰减：<strong style="color:#f8fafc;">{{ item.transition_decay or '-' }}</strong></div>
+                        <div>特号源权重：<strong style="color:#f8fafc;">{{ item.source_special_weight or '-' }}</strong></div>
+                        <div>最小转移样本：<strong style="color:#f8fafc;">{{ item.transition_min_samples or '-' }}</strong></div>
+                        <div>优化冷却：<strong style="color:#f8fafc;">{{ item.promotion_cooldown_hours or '-' }} 小时</strong></div>
+                        <div>最小提升：<strong style="color:#f8fafc;">{{ item.promotion_min_gain or '-' }}</strong></div>
+                        {% endif %}
                     </div>
 
                     {% if item.bucket_counts %}

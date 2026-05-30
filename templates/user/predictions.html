@@ -14,7 +14,7 @@
     {% elif strategy == 'balanced' %}
         ⚖️ 均衡预测
     {% elif strategy == 'markov' %}
-        🔗 马尔可夫预测
+        🔗 马尔科夫预测
     {% elif strategy == 'ml' %}
         🧪 机器学习预测
     {% elif strategy == 'ai' %}
@@ -257,7 +257,7 @@
                     <option value="trend" {% if request.args.get('strategy') == 'trend' %}selected{% endif %}>走势预测</option>
                     <option value="hybrid" {% if request.args.get('strategy') == 'hybrid' %}selected{% endif %}>综合预测</option>
                     <option value="balanced" {% if request.args.get('strategy') == 'balanced' %}selected{% endif %}>均衡预测</option>
-                    <option value="markov" {% if request.args.get('strategy') == 'markov' %}selected{% endif %}>马尔可夫预测</option>
+                    <option value="markov" {% if request.args.get('strategy') == 'markov' %}selected{% endif %}>马尔科夫预测</option>
                     <option value="ml" {% if request.args.get('strategy') == 'ml' %}selected{% endif %}>机器学习预测</option>
                     <option value="ai" {% if request.args.get('strategy') == 'ai' %}selected{% endif %}>AI智能</option>
                 </select>

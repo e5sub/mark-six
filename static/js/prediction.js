@@ -360,6 +360,7 @@ function getStrategyLabel(strategy) {
         hybrid: '综合预测',
         balanced: '均衡预测',
         ml: '机器学习预测',
+        markov: '马尔科夫预测',
         ai: 'AI智能预测',
     };
     return labels[strategy] || strategy || '未知';

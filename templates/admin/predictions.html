@@ -441,7 +441,7 @@
                 <option value="cold" {% if strategy_filter == 'cold' %}selected{% endif %}>冷门预测</option>
                 <option value="trend" {% if strategy_filter == 'trend' %}selected{% endif %}>走势预测</option>
                 <option value="hybrid" {% if strategy_filter == 'hybrid' %}selected{% endif %}>综合预测</option>
-                <option value="markov" {% if strategy_filter == 'markov' %}selected{% endif %}>马尔可夫预测</option>
+                <option value="markov" {% if strategy_filter == 'markov' %}selected{% endif %}>马尔科夫预测</option>
                 <option value="ml" {% if strategy_filter == 'ml' %}selected{% endif %}>机器学习</option>
             </select>
         </div>
@@ -575,7 +575,7 @@
                                         {% elif prediction.strategy == 'hybrid' %}
                                             <span class="strategy-badge hybrid-badge">综合</span>
                                         {% elif prediction.strategy == 'markov' %}
-                                            <span class="strategy-badge markov-badge">马尔可夫</span>
+                                            <span class="strategy-badge markov-badge">马尔科夫</span>
                                         {% elif prediction.strategy == 'ml' %}
                                             <span class="strategy-badge ml-badge">机器学习</span>
                                         {% else %}

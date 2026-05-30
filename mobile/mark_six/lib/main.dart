@@ -3461,7 +3461,7 @@ class _PredictScreenState extends State<PredictScreen> {
 
   final Map<String, String> _strategyLabels = const {
     'ml': '机器学习',
-    'markov': '马尔可夫',
+    'markov': '马尔科夫',
     'hybrid': '综合',
     'balanced': '均衡',
     'hot': '热门',
@@ -3898,7 +3898,7 @@ class _PredictScreenState extends State<PredictScreen> {
       case 'ai':
         return 'AI分析';
       case 'markov':
-        return '马尔可夫分析';
+        return '马尔科夫分析';
       default:
         return '分析说明';
     }

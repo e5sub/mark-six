@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+﻿from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
 from flask import Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
@@ -569,7 +569,7 @@ def _describe_database_target(database_uri):
 
 STRATEGY_LABELS = {
     'ml': '机器学习预测',
-    'markov': '马尔可夫预测',
+    'markov': '马尔科夫预测',
     'balanced': '均衡预测',
     'ai': 'AI智能预测',
     'hot': '热门预测',

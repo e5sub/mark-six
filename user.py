@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
@@ -29,11 +29,28 @@ STRATEGY_META = [
     {"key": "ml", "label": "机器学习", "icon": "🧪"},
     {"key": "ai", "label": "AI", "icon": "🤖"},
 ]
-STRATEGY_META.insert(5, {"key": "markov", "label": "马尔可夫", "icon": "🔗"})
+STRATEGY_META.insert(5, {"key": "markov", "label": "马尔科夫", "icon": "🔗"})
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
 AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
 
 LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]
+
+MARKOV_LEARNING_DEFAULT_CONFIG = {
+    "window": 80,
+    "pool": 16,
+    "special_pool": 9,
+    "transition_decay": 0.985,
+    "source_special_weight": 1.28,
+    "promotion_strength": "hold",
+    "profile_learning_confidence": 0.0,
+    "profile_learning_samples": 0,
+    "last_accuracy": 0.0,
+    "last_total": 0,
+    "prev_accuracy": 0.0,
+    "prev_total": 0,
+    "accuracy_delta": 0.0,
+    "weights": {},
+}
 
 def _strategy_label_map():
     return {item["key"]: item["label"] for item in STRATEGY_META}
@@ -62,10 +79,19 @@ def _sanitize_auto_prediction_strategies(user):
 def _strategy_config(region, strategy):
     raw = SystemConfig.get_config(f"strategy_config_{region}_{strategy}", "")
     if not raw:
+        if strategy == "markov":
+            return dict(MARKOV_LEARNING_DEFAULT_CONFIG)
         return {}
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        if strategy == "markov":
+            merged = dict(MARKOV_LEARNING_DEFAULT_CONFIG)
+            merged.update(parsed if isinstance(parsed, dict) else {})
+            return merged
+        return parsed
     except Exception:
+        if strategy == "markov":
+            return dict(MARKOV_LEARNING_DEFAULT_CONFIG)
         return {}
 
 
@@ -206,6 +232,22 @@ def _decorate_ml_config_snapshot(config):
     snapshot["latest_promotion_time"] = (
         history_items[0].get("timestamp") if history_items else snapshot.get("promoted_at", "")
     )
+    return snapshot
+
+def _decorate_markov_config_snapshot(config):
+    snapshot = dict(config or {})
+    snapshot["promotion_strength_label"] = _translate_ml_promotion_strength(
+        snapshot.get("promotion_strength")
+    )
+
+    history_items = []
+    for item in list(snapshot.get("promotion_history") or [])[:8]:
+        history_copy = dict(item or {})
+        history_copy["strength_label"] = _translate_ml_promotion_strength(
+            history_copy.get("strength")
+        )
+        history_items.append(history_copy)
+    snapshot["promotion_history"] = history_items
     return snapshot
 
 def _actual_in_normal_expr():
@@ -368,6 +410,8 @@ def _learning_snapshot():
             }
             if strategy == "ml":
                 region_data[strategy] = _decorate_ml_config_snapshot(region_data[strategy])
+            elif strategy == "markov":
+                region_data[strategy] = _decorate_markov_config_snapshot(region_data[strategy])
         snapshots[region] = region_data
     return snapshots
 
@@ -2000,15 +2044,15 @@ def markov_records():
         start_date=start_date,
         end_date=end_date,
         initial_page=page,
-        record_page_title='马尔可夫',
+        record_page_title='马尔科夫',
         record_page_icon='🔗',
-        record_total_label='马尔可夫',
-        record_region_suffix='马尔可夫',
+        record_total_label='马尔科夫',
+        record_region_suffix='马尔科夫',
         records_endpoint='user.markov_records',
         records_list_endpoint='user.markov_records_list',
-        records_empty_title='暂无马尔可夫记录',
-        records_empty_text='先去首页生成一次马尔可夫预测，这里就会自动保存。',
-        records_loading_text='正在加载马尔可夫记录...',
+        records_empty_title='暂无马尔科夫记录',
+        records_empty_text='先去首页生成一次马尔科夫预测，这里就会自动保存。',
+        records_loading_text='正在加载马尔科夫记录...',
         records_page_key='markov',
         markov_panel=_get_markov_panel_data(),
         **_get_strategy_stats(session['user_id'], 'markov'),
@@ -2059,8 +2103,8 @@ def markov_records_list():
         get_number_color=get_number_color,
         get_number_zodiac=get_number_zodiac_cached,
         records_endpoint='user.markov_records',
-        records_empty_title='暂无马尔可夫记录',
-        records_empty_text='先去首页生成一次马尔可夫预测，这里会自动保存。',
+        records_empty_title='暂无马尔科夫记录',
+        records_empty_text='先去首页生成一次马尔科夫预测，这里会自动保存。',
         records_empty_icon='🔗',
     )
     return jsonify({

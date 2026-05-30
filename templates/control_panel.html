@@ -96,6 +96,9 @@
     <button class="modern-btn btn-info" onclick="getPrediction('ml')" id="mlPredBtn">
         <i class="fas fa-flask"></i> 机器学习预测
     </button>
+    <button class="modern-btn btn-primary" onclick="getPrediction('markov')" id="markovPredBtn">
+        <i class="fas fa-project-diagram"></i> 马尔科夫预测
+    </button>
     <button class="modern-btn btn-success" onclick="getPrediction('balanced')" id="balancedPredBtn">
         <i class="fas fa-balance-scale"></i> 均衡预测
     </button>
@@ -114,9 +117,6 @@
     <button class="modern-btn btn-warning" onclick="getPrediction('ai')" id="aiPredBtn">
         <i class="fas fa-robot"></i> AI智能预测
     </button>
-    <a href="{{ url_for('chat_page') }}" class="modern-btn btn-secondary" id="chatBtn">
-        <i class="fas fa-comments"></i> AI智能聊天室
-    </a>
 </div>
 
 <div id="predictionResult" class="recommendation-card" style="display: none;">
