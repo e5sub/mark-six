@@ -124,25 +124,20 @@
             <div class="region-stat-body">
                 <div class="region-stat-item">
                     <div class="region-stat-value">{{ config.window or '-' }}</div>
-                    <div class="region-stat-label">窗口</div>
+                    <div class="region-stat-label">参考期数</div>
                 </div>
                 <div class="region-stat-item">
                     <div class="region-stat-value">{{ config.transition_min_samples or '-' }}</div>
-                    <div class="region-stat-label">链路阈值</div>
+                    <div class="region-stat-label">最少出现</div>
                 </div>
                 <div class="region-stat-item">
                     <div class="region-stat-value">{{ config.learning_confidence }}%</div>
-                    <div class="region-stat-label">学习把握</div>
+                    <div class="region-stat-label">可信度</div>
                 </div>
                 <div class="region-stat-item">
                     <div class="region-stat-value">{{ config.transition_decay or '-' }}</div>
-                    <div class="region-stat-label">衰减</div>
+                    <div class="region-stat-label">近期偏重</div>
                 </div>
-            </div>
-            <div class="markov-weight-row">
-                {% for label, value in config.weights.items() %}
-                <span class="markov-weight-pill">{{ label }} {{ value or '-' }}</span>
-                {% endfor %}
             </div>
         </div>
         {% endfor %}
@@ -410,27 +405,6 @@
     margin-top: 0.2rem;
     font-size: 0.78rem;
     color: #94a3b8;
-}
-
-.markov-weight-row {
-    margin-top: 0.75rem;
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 0.4rem;
-    overflow-x: auto;
-    padding-bottom: 0.1rem;
-    scrollbar-width: thin;
-}
-
-.markov-weight-pill {
-    flex: 0 0 auto;
-    padding: 0.28rem 0.55rem;
-    border-radius: 999px;
-    background: rgba(15, 118, 110, 0.16);
-    color: #99f6e4;
-    border: 1px solid rgba(45, 212, 191, 0.2);
-    font-size: 0.8rem;
-    white-space: nowrap;
 }
 
 .ml-record-card {
