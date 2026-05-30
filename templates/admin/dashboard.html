@@ -115,6 +115,9 @@
                             {{ prediction.username or '未知用户' }}
                             <span class="inline-chip">{{ '香港' if prediction.region == 'hk' else '澳门' if prediction.region == 'macau' else prediction.region }}</span>
                             <span class="inline-chip">
+                                {% if prediction.strategy == 'markov' %}
+                                    马尔科夫预测
+                                {% else %}
                                 {{ {
                                     'hot': '热门预测',
                                     'cold': '冷门预测',
@@ -124,6 +127,7 @@
                                     'ml': '机器学习预测',
                                     'ai': 'AI预测'
                                 }.get(prediction.strategy, prediction.strategy) }}
+                                {% endif %}
                             </span>
                         </div>
                         <div class="list-sub">第 {{ prediction.period }} 期，特码 {{ prediction.special_number or '-' }}</div>

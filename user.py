@@ -1372,6 +1372,9 @@ def _get_markov_panel_data():
             "transition_decay": config.get("transition_decay"),
             "transition_min_samples": config.get("transition_min_samples"),
             "promotion_strength": config.get("promotion_strength", "hold"),
+            "promotion_strength_label": _translate_ml_promotion_strength(
+                config.get("promotion_strength", "hold")
+            ),
             "learning_confidence": round(float(config.get("profile_learning_confidence") or 0.0) * 100, 1),
             "cooldown": config.get("promotion_next_allowed_at", ""),
             "weights": {

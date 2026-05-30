@@ -5789,13 +5789,13 @@ def _predict_with_markov(data, region, variation_key=None):
     special_num = special_pick[0] if special_pick else special_candidates[0]
     support_chains = (transition_profile.get("support_chains") or {}).get(str(special_num), [])
     explanation_bits = [
-        "一阶/二阶号码转移",
-        f"{transition_profile.get('latest_phase', 'neutral')}阶段分层",
-        "区间/尾数/波色/单双属性转移",
-        "失败样本惩罚",
+        "先看最近几期号码后面常接哪些号",
+        "再看当前冷热阶段更像哪种走势",
+        "同时参考号码所在区间、尾数、波色和单双",
+        "并降低最近经常判断错的组合权重",
     ]
     if markov_guard.get("active"):
-        explanation_bits.append("近期表现动态回退" if markov_guard.get("mode") == "anchor_guard" else "近期表现强化")
+        explanation_bits.append("近期不稳时会自动保守一点" if markov_guard.get("mode") == "anchor_guard" else "近期表现好时会适当加大参考")
     chain_text = ""
     if support_chains:
         chain_parts = []
@@ -5814,7 +5814,7 @@ def _predict_with_markov(data, region, variation_key=None):
         accuracy=round(float(config.get("last_accuracy") or 0.0) * 100, 1),
         samples=max(int(feedback.get("samples") or 0), int(transition_profile.get("transition_samples") or 0)),
         confidence=round(max(number_scores.get(special_num, 0.0), special_scores.get(special_num, 0.0)) * 20, 1),
-        extra_reason="本期综合" + "、".join(explanation_bits) + chain_text + "。",
+        extra_reason="本期主要" + "，".join(explanation_bits) + chain_text + "。",
     )
     return {
         "normal": sorted(normal),
