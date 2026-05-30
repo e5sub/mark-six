@@ -256,11 +256,11 @@
 
                     {% if item.weights %}
                     {% if item.key == 'markov' %}
-                    <div style="font-size:0.78rem; color:#94a3b8; margin-bottom:0.45rem;">关键参考权重</div>
+                    <div style="font-size:0.74rem; color:#94a3b8; margin-bottom:0.35rem;">关键参考权重</div>
                     {% endif %}
-                    <div style="display:flex; flex-wrap:wrap; gap:0.45rem;">
+                    <div style="display:flex; flex-wrap:wrap; gap:{% if item.key == 'markov' %}0.32rem{% else %}0.45rem{% endif %};">
                         {% for weight in item.weights %}
-                        <span style="background:rgba(59,130,246,0.12); color:#e2e8f0; padding:0.35rem 0.55rem; border-radius:999px; font-size:0.8rem; border:1px solid rgba(96,165,250,0.16);">
+                        <span style="background:rgba(59,130,246,0.12); color:#e2e8f0; padding:{% if item.key == 'markov' %}0.26rem 0.46rem{% else %}0.35rem 0.55rem{% endif %}; border-radius:999px; font-size:{% if item.key == 'markov' %}0.74rem{% else %}0.8rem{% endif %}; border:1px solid rgba(96,165,250,0.16);">
                             {{ weight.label }} {{ weight.value }}
                         </span>
                         {% endfor %}

@@ -112,37 +112,9 @@
 {% if markov_panel %}
 <div class="card" style="margin-bottom:1rem;">
     <div class="card-header">
-        <h2 class="card-title">🔗 马尔科夫回测面板</h2>
+        <h2 class="card-title">🔗 马尔科夫配置</h2>
     </div>
     <div class="region-stats-grid">
-        {% for item in markov_panel.regions %}
-        <div class="region-stat-card">
-            <div class="region-stat-head">
-                <div class="region-stat-title">{{ item.label }}回测</div>
-                <div class="region-stat-total">第 {{ item.rank or '-' }} 名</div>
-            </div>
-            <div class="region-stat-body">
-                <div class="region-stat-item">
-                    <div class="region-stat-value">{{ item.top1 }}%</div>
-                    <div class="region-stat-label">特码命中</div>
-                </div>
-                <div class="region-stat-item">
-                    <div class="region-stat-value">{{ item.top6 }}%</div>
-                    <div class="region-stat-label">六码覆盖</div>
-                </div>
-                <div class="region-stat-item">
-                    <div class="region-stat-value">{{ item.zodiac }}%</div>
-                    <div class="region-stat-label">生肖命中</div>
-                </div>
-                <div class="region-stat-item">
-                    <div class="region-stat-value">{{ item.total }}</div>
-                    <div class="region-stat-label">样本</div>
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    <div class="region-stats-grid" style="margin-top:1rem;">
         {% for config in markov_panel.configs %}
         <div class="region-stat-card">
             <div class="region-stat-head">
@@ -167,9 +139,9 @@
                     <div class="region-stat-label">衰减</div>
                 </div>
             </div>
-            <div style="margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.4rem;">
+            <div class="markov-weight-row">
                 {% for label, value in config.weights.items() %}
-                <span style="padding:0.28rem 0.55rem; border-radius:999px; background:rgba(15,118,110,0.16); color:#99f6e4; border:1px solid rgba(45,212,191,0.2); font-size:0.8rem;">{{ label }} {{ value or '-' }}</span>
+                <span class="markov-weight-pill">{{ label }} {{ value or '-' }}</span>
                 {% endfor %}
             </div>
         </div>
@@ -438,6 +410,27 @@
     margin-top: 0.2rem;
     font-size: 0.78rem;
     color: #94a3b8;
+}
+
+.markov-weight-row {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+    overflow-x: auto;
+    padding-bottom: 0.1rem;
+    scrollbar-width: thin;
+}
+
+.markov-weight-pill {
+    flex: 0 0 auto;
+    padding: 0.28rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(15, 118, 110, 0.16);
+    color: #99f6e4;
+    border: 1px solid rgba(45, 212, 191, 0.2);
+    font-size: 0.8rem;
+    white-space: nowrap;
 }
 
 .ml-record-card {

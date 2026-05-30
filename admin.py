@@ -221,9 +221,6 @@ def _build_strategy_visual_weights(strategy, config):
                 'second_order',
                 'phase_transition',
                 'failure',
-                'hot',
-                'trend',
-                'normal',
             )
             weights = OrderedDict(
                 (key, weights[key])
