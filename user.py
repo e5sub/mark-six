@@ -258,6 +258,15 @@ def _decorate_markov_config_snapshot(config):
         history_copy["strength_label"] = _translate_ml_promotion_strength(
             history_copy.get("strength")
         )
+        preferred = dict(history_copy.get("preferred") or {})
+        parts = []
+        if preferred.get("window"):
+            parts.append(f"参考{preferred.get('window')}期")
+        if preferred.get("transition_decay"):
+            parts.append(f"近期偏重{preferred.get('transition_decay')}")
+        if preferred.get("source_special_weight"):
+            parts.append(f"特号权重{preferred.get('source_special_weight')}")
+        history_copy["profile_label"] = " / ".join(parts) or "马尔科夫配置"
         history_items.append(history_copy)
     snapshot["promotion_history"] = history_items
     return snapshot
@@ -990,24 +999,6 @@ def _get_strategy_predictions_page(user_id, strategy, page=1, region='', period=
     ).offset(start_index).limit(records_per_page).all()
 
     items = [_decorate_ml_prediction(item) for item in items]
-    prediction_data_cache = {}
-    for item in items:
-        item_region = getattr(item, 'region', '')
-        item_data = None
-        if getattr(item, 'strategy', '') == 'ml':
-            if item_region not in prediction_data_cache:
-                try:
-                    from app import _get_prediction_data
-                    prediction_data_cache[item_region], _ = _get_prediction_data(
-                        item_region,
-                        datetime.now().year,
-                    )
-                except Exception as e:
-                    print(f"用户侧缓存机器学习开奖记录失败: {e}")
-                    prediction_data_cache[item_region] = []
-            item_data = prediction_data_cache.get(item_region)
-        item.display_prediction_text = _hydrate_user_prediction_text(item, prediction_data=item_data)
-        item.display_model_meta = _hydrate_user_prediction_model_meta(item, prediction_data=item_data)
     return SimpleNamespace(
         items=items,
         page=current_page,
@@ -1729,14 +1720,35 @@ def ml_records():
     start_date = request.args.get('start_date', '')
     end_date = request.args.get('end_date', '')
 
+    initial_records_html = ""
     try:
-        _build_ml_prediction_query(
+        predictions = _get_ml_predictions_page(
             session['user_id'],
+            page=page,
             region=region,
             period=period,
             result=result,
             start_date=start_date,
             end_date=end_date,
+        )
+        zodiac_map = _get_ml_zodiac_map()
+
+        def get_number_zodiac_cached(number):
+            try:
+                return zodiac_map.get(int(number), "")
+            except (TypeError, ValueError):
+                return ""
+
+        initial_records_html = render_template(
+            'user/_ml_records_list.html',
+            predictions=predictions,
+            region=region,
+            period=period,
+            result=result,
+            start_date=start_date,
+            end_date=end_date,
+            get_number_color=get_number_color,
+            get_number_zodiac=get_number_zodiac_cached,
         )
     except ValueError as exc:
         flash(str(exc), 'error')
@@ -1750,6 +1762,7 @@ def ml_records():
         start_date=start_date,
         end_date=end_date,
         initial_page=page,
+        initial_records_html=initial_records_html,
         **_get_ml_stats(session['user_id']),
     )
 
@@ -1826,7 +1839,6 @@ def ml_records():
         PredictionRecord.id.desc()
     ).offset(start_index).limit(records_per_page).all()
 
-    prediction_data_cache = {}
     for prediction in paged_predictions:
         prediction.display_actual_special_zodiac = (
             prediction.actual_special_zodiac or ''
@@ -1849,24 +1861,6 @@ def ml_records():
                 or prediction.normal_numbers.endswith(',' + prediction.actual_special_number)
                 or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers
             )
-        )
-        prediction_region = getattr(prediction, 'region', '')
-        prediction_data = None
-        if getattr(prediction, 'strategy', '') == 'ml':
-            if prediction_region not in prediction_data_cache:
-                try:
-                    from app import _get_prediction_data
-                    prediction_data_cache[prediction_region], _ = _get_prediction_data(
-                        prediction_region,
-                        datetime.now().year,
-                    )
-                except Exception as e:
-                    print(f"用户侧缓存机器学习开奖记录失败: {e}")
-                    prediction_data_cache[prediction_region] = []
-            prediction_data = prediction_data_cache.get(prediction_region)
-        prediction.display_prediction_text = _hydrate_user_prediction_text(
-            prediction,
-            prediction_data=prediction_data,
         )
     predictions = SimpleNamespace(
         items=paged_predictions,
@@ -2070,15 +2064,40 @@ def markov_records():
     start_date = request.args.get('start_date', '')
     end_date = request.args.get('end_date', '')
 
+    initial_records_html = ""
     try:
-        _build_strategy_prediction_query(
+        predictions = _get_strategy_predictions_page(
             session['user_id'],
             'markov',
+            page=page,
             region=region,
             period=period,
             result=result,
             start_date=start_date,
             end_date=end_date,
+        )
+        zodiac_map = _get_ml_zodiac_map()
+
+        def get_number_zodiac_cached(number):
+            try:
+                return zodiac_map.get(int(number), "")
+            except (TypeError, ValueError):
+                return ""
+
+        initial_records_html = render_template(
+            'user/_ml_records_list.html',
+            predictions=predictions,
+            region=region,
+            period=period,
+            result=result,
+            start_date=start_date,
+            end_date=end_date,
+            get_number_color=get_number_color,
+            get_number_zodiac=get_number_zodiac_cached,
+            records_endpoint='user.markov_records',
+            records_empty_title='暂无马尔科夫记录',
+            records_empty_text='先去首页生成一次马尔科夫预测，这里会自动保存。',
+            records_empty_icon='🔗',
         )
     except ValueError as exc:
         flash(str(exc), 'error')
@@ -2092,6 +2111,7 @@ def markov_records():
         start_date=start_date,
         end_date=end_date,
         initial_page=page,
+        initial_records_html=initial_records_html,
         record_page_title='马尔科夫',
         record_page_icon='🔗',
         record_total_label='马尔科夫',

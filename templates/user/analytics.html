@@ -127,6 +127,20 @@
                         固化状态 {{ current[strategy_key].promotion_strength_label or '观察中' }}，
                         学习把握度 {{ current[strategy_key].profile_learning_confidence or 0 }}%，
                         学习样本 {{ current[strategy_key].profile_learning_samples or 0 }}
+                        {% if current[strategy_key].promotion_history %}
+                        <div style="margin-top:0.45rem; display:grid; gap:0.3rem;">
+                            {% for history in current[strategy_key].promotion_history[:1] %}
+                            <div style="padding:0.38rem 0.5rem; border-radius:8px; background:rgba(30,41,59,0.92); border:1px solid rgba(148,163,184,0.12); color:#dbe4f0;">
+                                {{ history.timestamp[:16].replace('T', ' ') if history.timestamp else '' }} ·
+                                {{ history.strength_label or '观察中' }} ·
+                                {{ history.profile_label or '马尔科夫配置' }}
+                                {% if history.backtest_rank %}
+                                · 模拟第 {{ history.backtest_rank }} 名
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
                         {% else %}
                         参考期数 {{ current[strategy_key].window or '-' }}，
                         平码候选池 {{ current[strategy_key].pool or '-' }}，

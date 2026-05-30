@@ -171,12 +171,12 @@
         </form>
     </div>
 
-    <div id="mlRecordsLoading" class="ml-loading-state">
+    <div id="mlRecordsLoading" class="ml-loading-state" {% if initial_records_html %}style="display:none;"{% endif %}>
         <div class="ml-loading-spinner"></div>
         <div class="ml-loading-text">{{ records_loading_text }}</div>
     </div>
     <div id="mlRecordsError" class="empty-state" style="display:none;"></div>
-    <div id="mlRecordsContainer" data-initial-page="{{ initial_page or 1 }}"></div>
+    <div id="mlRecordsContainer" data-initial-page="{{ initial_page or 1 }}" data-initial-loaded="{{ '1' if initial_records_html else '0' }}">{{ initial_records_html|safe }}</div>
     {# legacy server-rendered block kept below temporarily disabled #}
     {% if false %}
     <div class="ml-record-list">
@@ -762,7 +762,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const initialPage = parseInt(container.dataset.initialPage || '1', 10) || 1;
-    loadRecords(initialPage, false);
+    if (container.dataset.initialLoaded !== '1') {
+        loadRecords(initialPage, false);
+    } else {
+        setLoading(false);
+    }
 });
 </script>
 
