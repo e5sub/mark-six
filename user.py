@@ -40,6 +40,7 @@ MARKOV_LEARNING_DEFAULT_CONFIG = {
     "pool": 16,
     "special_pool": 9,
     "transition_decay": 0.985,
+    "transition_min_samples": 3,
     "source_special_weight": 1.28,
     "promotion_strength": "hold",
     "profile_learning_confidence": 0.0,
@@ -49,7 +50,14 @@ MARKOV_LEARNING_DEFAULT_CONFIG = {
     "prev_accuracy": 0.0,
     "prev_total": 0,
     "accuracy_delta": 0.0,
-    "weights": {},
+    "weights": {
+        "transition": 1.35,
+        "second_order": 0.72,
+        "phase_transition": 0.55,
+        "attribute_transition": 0.42,
+        "failure": 0.48,
+        "feedback": 0.85,
+    },
 }
 
 def _strategy_label_map():
@@ -1378,12 +1386,12 @@ def _get_markov_panel_data():
             "learning_confidence": round(float(config.get("profile_learning_confidence") or 0.0) * 100, 1),
             "cooldown": config.get("promotion_next_allowed_at", ""),
             "weights": {
-                "一阶": weights.get("transition"),
-                "二阶": weights.get("second_order"),
-                "阶段": weights.get("phase_transition"),
-                "属性": weights.get("attribute_transition"),
-                "失败惩罚": weights.get("failure"),
-                "反馈": weights.get("feedback"),
+                "最近号码接续": weights.get("transition"),
+                "连续两期参考": weights.get("second_order"),
+                "冷热阶段": weights.get("phase_transition"),
+                "号码形态": weights.get("attribute_transition"),
+                "避开常错组合": weights.get("failure"),
+                "历史反馈": weights.get("feedback"),
             },
         })
 
