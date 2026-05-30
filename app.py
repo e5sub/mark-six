@@ -1088,7 +1088,7 @@ def _sync_runtime_database_schema():
             'show_normal_numbers': 'BOOLEAN DEFAULT 0',
         },
         'prediction_record': {
-            'prediction_metadata': 'TEXT',
+            'prediction_metadata': 'MEDIUMTEXT' if dialect in ('mysql', 'mariadb') else 'TEXT',
         },
         'manual_bet_records': {
             'bettor_name': 'VARCHAR(50)',
@@ -1113,6 +1113,40 @@ def _sync_runtime_database_schema():
                     print(f"Added missing column {table_name}.{column_name} for {dialect}")
             except Exception as e:
                 print(f"Failed to add missing column {table_name}.{column_name}: {e}")
+
+    if dialect in ('mysql', 'mariadb'):
+        mysql_text_columns = {
+            'prediction_record': {
+                'prediction_text': 'MEDIUMTEXT',
+                'prediction_metadata': 'MEDIUMTEXT',
+            },
+            'backtest_runs': {
+                'payload': 'MEDIUMTEXT',
+            },
+            'system_config': {
+                'value': 'MEDIUMTEXT',
+            },
+        }
+
+        for table_name, columns in mysql_text_columns.items():
+            if table_name not in existing_tables:
+                continue
+            try:
+                existing_columns = {column['name'] for column in inspector.get_columns(table_name)}
+            except Exception:
+                existing_columns = set()
+            for column_name, ddl in columns.items():
+                if column_name not in existing_columns:
+                    continue
+                try:
+                    _execute_ddl(
+                        f"ALTER TABLE {_quote_identifier(table_name)} "
+                        f"MODIFY COLUMN {_quote_identifier(column_name)} {ddl}"
+                    )
+                    if _should_log_startup():
+                        print(f"Widened {table_name}.{column_name} to {ddl} for {dialect}")
+                except Exception as e:
+                    print(f"Failed to widen {table_name}.{column_name}: {e}")
 
     def _index_ddl(table_name, index_name, columns, unique=False):
         unique_sql = 'UNIQUE ' if unique else ''

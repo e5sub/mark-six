@@ -2,10 +2,12 @@
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 import uuid
 import hashlib
 
 db = SQLAlchemy()
+LargeText = db.Text().with_variant(MEDIUMTEXT(), 'mysql').with_variant(MEDIUMTEXT(), 'mariadb')
 
 class User(db.Model):
     __table_args__ = (
@@ -272,7 +274,7 @@ class PredictionRecord(db.Model):
     normal_numbers = db.Column(db.String(50), nullable=False)  # 正码，逗号分隔
     special_number = db.Column(db.String(10), nullable=False)  # 特码
     special_zodiac = db.Column(db.String(10))  # 特码生肖
-    prediction_text = db.Column(db.Text)  # AI预测文本
+    prediction_text = db.Column(LargeText)  # AI预测文本
     created_at = db.Column(db.DateTime, default=datetime.now)
     
     # 预测准确率相关字段
@@ -282,7 +284,7 @@ class PredictionRecord(db.Model):
     accuracy_score = db.Column(db.Float)  # 准确率分数(0-1)
     is_result_updated = db.Column(db.Boolean, default=False)  # 是否已更新开奖结果
 
-    prediction_metadata = db.Column(db.Text)
+    prediction_metadata = db.Column(LargeText)
 
     def __repr__(self):
         return f'<PredictionRecord {self.region}-{self.period}>'
@@ -301,7 +303,7 @@ class BacktestRun(db.Model):
     region = db.Column(db.String(10))
     strategies = db.Column(db.String(255))
     periods_evaluated = db.Column(db.Integer, default=0)
-    payload = db.Column(db.Text)
+    payload = db.Column(LargeText)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
     def __repr__(self):
@@ -411,7 +413,7 @@ class SystemConfig(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(100), unique=True, nullable=False)
-    value = db.Column(db.Text)
+    value = db.Column(LargeText)
     description = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.now)
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
