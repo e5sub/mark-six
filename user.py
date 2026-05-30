@@ -229,29 +229,39 @@ def _calculate_accuracy_summary(query):
         PredictionRecord.actual_special_number != None
     )
 
-    special_hit_expr = case(
-        (PredictionRecord.special_number == PredictionRecord.actual_special_number, 1),
-        else_=0
-    )
-    normal_hit_expr = case(
-        (
-            db.and_(
-                PredictionRecord.special_number != PredictionRecord.actual_special_number,
-                _secondary_hit_expr(),
-            ),
-            1
-        ),
-        else_=0
-    )
-    agg = base_query.with_entities(
-        func.count().label('total'),
-        func.sum(special_hit_expr).label('special_hits'),
-        func.sum(normal_hit_expr).label('normal_hits'),
-    ).first()
+    rows = base_query.with_entities(
+        PredictionRecord.special_number,
+        PredictionRecord.actual_special_number,
+        PredictionRecord.normal_numbers,
+        PredictionRecord.special_zodiac,
+        PredictionRecord.actual_special_zodiac,
+    ).all()
 
-    total = agg.total or 0
-    special_hits = agg.special_hits or 0
-    normal_hits = agg.normal_hits or 0
+    total = len(rows)
+    special_hits = 0
+    normal_hits = 0
+    for row in rows:
+        special_number = str(row.special_number or '').strip()
+        actual_special = str(row.actual_special_number or '').strip()
+        if not actual_special:
+            continue
+        if special_number == actual_special:
+            special_hits += 1
+            continue
+
+        normal_numbers = {
+            item.strip()
+            for item in str(row.normal_numbers or '').split(',')
+            if item.strip()
+        }
+        zodiac_hit = (
+            bool(row.special_zodiac)
+            and bool(row.actual_special_zodiac)
+            and str(row.special_zodiac).strip() == str(row.actual_special_zodiac).strip()
+        )
+        if actual_special in normal_numbers or zodiac_hit:
+            normal_hits += 1
+
     correct = special_hits + normal_hits
 
     return {
