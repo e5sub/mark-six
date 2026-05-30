@@ -13,8 +13,12 @@ from collections import OrderedDict
 user_bp = Blueprint('user', __name__, url_prefix='/user')
 
 _BACKTEST_REFRESH_INTERVAL_SECONDS = 180
+_ML_STATS_CACHE_TTL_SECONDS = 60
+_ML_STREAK_SCAN_LIMIT = 300
 _backtest_refresh_lock = threading.Lock()
 _backtest_refresh_state = {}
+_ml_stats_cache_lock = threading.Lock()
+_ml_stats_cache = {}
 
 STRATEGY_META = [
     {"key": "hot", "label": "热门", "icon": "🔥"},
@@ -876,7 +880,6 @@ def _decorate_ml_prediction(prediction):
             or (',' + prediction.actual_special_number + ',') in prediction.normal_numbers
         )
     )
-    prediction.display_prediction_text = _hydrate_user_prediction_text(prediction)
     return prediction
 
 def _get_ml_predictions_page(user_id, page=1, region='', period='', result='', start_date='', end_date=''):
@@ -888,26 +891,14 @@ def _get_ml_predictions_page(user_id, page=1, region='', period='', result='', s
         start_date=start_date,
         end_date=end_date,
     )
-    deduped_prediction_ids = query.with_entities(
-        func.max(PredictionRecord.id).label('id')
-    ).group_by(
-        PredictionRecord.region,
-        PredictionRecord.period,
-        PredictionRecord.strategy,
-    ).subquery()
 
     records_per_page = 12
-    total_records = db.session.query(func.count()).select_from(
-        deduped_prediction_ids
-    ).scalar() or 0
+    total_records = query.count()
     total_pages = max(1, (total_records + records_per_page - 1) // records_per_page)
     current_page = min(max(page, 1), total_pages)
     start_index = (current_page - 1) * records_per_page
 
-    items = PredictionRecord.query.join(
-        deduped_prediction_ids,
-        PredictionRecord.id == deduped_prediction_ids.c.id
-    ).order_by(
+    items = query.order_by(
         PredictionRecord.created_at.desc(),
         PredictionRecord.id.desc()
     ).offset(start_index).limit(records_per_page).all()
@@ -926,7 +917,33 @@ def _get_ml_predictions_page(user_id, page=1, region='', period='', result='', s
     )
 
 def _get_ml_stats(user_id):
-    def _load_deduped_resolved_rows(region=None):
+    cache_key = int(user_id)
+    now = time.time()
+    with _ml_stats_cache_lock:
+        cached = _ml_stats_cache.get(cache_key)
+        if cached and now - cached.get('created_at', 0) < _ML_STATS_CACHE_TTL_SECONDS:
+            return cached['data']
+
+    def _row_exact_hit(row):
+        return str(row.special_number or '').strip() == str(row.actual_special_number or '').strip()
+
+    def _row_secondary_hit(row):
+        actual_special = str(row.actual_special_number or '').strip()
+        if not actual_special:
+            return False
+        normal_numbers = {
+            item.strip()
+            for item in str(row.normal_numbers or '').split(',')
+            if item.strip()
+        }
+        zodiac_hit = (
+            bool(row.special_zodiac)
+            and bool(row.actual_special_zodiac)
+            and str(row.special_zodiac).strip() == str(row.actual_special_zodiac).strip()
+        )
+        return actual_special in normal_numbers or zodiac_hit
+
+    def _load_recent_resolved_rows(region=None, limit=_ML_STREAK_SCAN_LIMIT):
         base_query = PredictionRecord.query.filter(
             PredictionRecord.user_id == user_id,
             PredictionRecord.strategy == 'ml',
@@ -947,43 +964,37 @@ def _get_ml_stats(user_id):
         return PredictionRecord.query.join(
             deduped_ids,
             PredictionRecord.id == deduped_ids.c.id
+        ).with_entities(
+            PredictionRecord.region,
+            PredictionRecord.special_number,
+            PredictionRecord.actual_special_number,
+            PredictionRecord.normal_numbers,
+            PredictionRecord.special_zodiac,
+            PredictionRecord.actual_special_zodiac,
+            PredictionRecord.created_at,
+            PredictionRecord.id,
         ).order_by(
             PredictionRecord.created_at.desc(),
             PredictionRecord.id.desc()
-        ).all()
+        ).limit(limit).all()
+
+    recent_rows = _load_recent_resolved_rows()
 
     def _calculate_current_special_hit_streak(region=None):
-        rows = _load_deduped_resolved_rows(region)
+        rows = recent_rows if not region else [row for row in recent_rows if row.region == region]
         streak = 0
         for row in rows:
-            if str(row.special_number or '').strip() == str(row.actual_special_number or '').strip():
+            if _row_exact_hit(row):
                 streak += 1
             else:
                 break
         return streak
 
     def _calculate_current_miss_streak(region=None):
-        rows = _load_deduped_resolved_rows(region)
+        rows = recent_rows if not region else [row for row in recent_rows if row.region == region]
         streak = 0
         for row in rows:
-            exact_hit = str(row.special_number or '').strip() == str(row.actual_special_number or '').strip()
-            normal_hit = bool(
-                row.normal_numbers
-                and row.actual_special_number
-                and (
-                    row.normal_numbers.startswith(str(row.actual_special_number) + ',')
-                    or row.normal_numbers.endswith(',' + str(row.actual_special_number))
-                    or (',' + str(row.actual_special_number) + ',') in row.normal_numbers
-                )
-            )
-            zodiac_hit = bool(
-                row.special_zodiac
-                and row.actual_special_zodiac
-                and str(row.special_zodiac).strip()
-                and str(row.actual_special_zodiac).strip()
-                and str(row.special_zodiac).strip() == str(row.actual_special_zodiac).strip()
-            )
-            if exact_hit or normal_hit or zodiac_hit:
+            if _row_exact_hit(row) or _row_secondary_hit(row):
                 break
             streak += 1
         return streak
@@ -1058,7 +1069,7 @@ def _get_ml_stats(user_id):
             'normal_hit_rate': round((region_normal_hits / region_updated * 100), 2) if region_updated > 0 else 0,
         })
 
-    return {
+    data = {
         'total_ml_predictions': total_ml_predictions,
         'updated_predictions': updated_predictions,
         'special_hit_count': special_hit_predictions,
@@ -1071,6 +1082,12 @@ def _get_ml_stats(user_id):
         'normal_hit_rate': round(normal_hit_rate, 2),
         'region_ml_stats': region_ml_stats,
     }
+    with _ml_stats_cache_lock:
+        _ml_stats_cache[cache_key] = {
+            'created_at': now,
+            'data': data,
+        }
+    return data
 
 @user_bp.route('/predictions')
 @login_required
