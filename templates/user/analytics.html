@@ -90,7 +90,7 @@
             <div class="learning-title">{{ title }}</div>
             {% set current = learning_snapshot.get(region_key, {}) %}
             {% if current %}
-                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml'] if current.get(strategy_key) %}
+                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'markov', 'ml'] if current.get(strategy_key) %}
                 <div class="learning-row">
                     <div class="learning-name">{{ strategy_label_map.get(strategy_key, strategy_key) }}：{{ current[strategy_key].last_accuracy }}%</div>
                     <div class="learning-meta">
@@ -117,6 +117,16 @@
                             {% endfor %}
                         </div>
                         {% endif %}
+                        {% elif strategy_key == 'markov' %}
+                        参考期数 {{ current[strategy_key].window or '-' }}，
+                        平码候选池 {{ current[strategy_key].pool or '-' }}，
+                        特码候选池 {{ current[strategy_key].special_pool or '-' }}，
+                        转移衰减 {{ current[strategy_key].transition_decay or '-' }}，
+                        特号源权重 {{ current[strategy_key].source_special_weight or '-' }}
+                        <br>
+                        固化状态 {{ current[strategy_key].promotion_strength or 'hold' }}，
+                        学习把握度 {{ current[strategy_key].profile_learning_confidence or 0 }}%，
+                        学习样本 {{ current[strategy_key].profile_learning_samples or 0 }}
                         {% else %}
                         参考期数 {{ current[strategy_key].window or '-' }}，
                         平码候选池 {{ current[strategy_key].pool or '-' }}，

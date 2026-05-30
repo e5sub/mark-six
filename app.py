@@ -569,6 +569,7 @@ def _describe_database_target(database_uri):
 
 STRATEGY_LABELS = {
     'ml': '机器学习预测',
+    'markov': '马尔可夫预测',
     'balanced': '均衡预测',
     'ai': 'AI智能预测',
     'hot': '热门预测',
@@ -583,6 +584,7 @@ STRATEGY_ICON_MAP = {
     'trend': 'chart-line',
     'hybrid': 'sliders-h',
     'balanced': 'balance-scale',
+    'markov': 'project-diagram',
     'ml': 'flask',
     'ai': 'robot',
 }
@@ -1042,7 +1044,7 @@ def _ensure_period_unique_special(
 def _get_email_strategy_display(prediction):
     return _get_strategy_label(prediction.strategy)
 
-LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
+LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]
 _DRAWS_API_CACHE_TTL_SECONDS = 60
 _draws_api_cache_lock = threading.Lock()
 _draws_api_cache = {}
@@ -2377,6 +2379,19 @@ def _default_strategy_config(strategy):
             "last_accuracy": 0.0,
             "last_total": 0
         },
+        "markov": {
+            "window": 80,
+            "pool": 18,
+            "special_pool": 10,
+            "transition_decay": 0.985,
+            "source_special_weight": 1.28,
+            "transition_min_samples": 3,
+            "promotion_cooldown_hours": 18,
+            "promotion_min_gain": 0.45,
+            "weights": {"transition": 1.35, "second_order": 0.72, "phase_transition": 0.55, "attribute_transition": 0.42, "special_transition": 1.10, "failure": 0.48, "hot": 0.22, "trend": 0.36, "normal": 0.22, "overdue": 0.16, "feedback": 0.85, "color": 0.18, "zodiac": 0.18, "parity": 0.16},
+            "last_accuracy": 0.0,
+            "last_total": 0
+        },
         "hybrid": {
             "window": 50,
             "pool": 16,
@@ -3340,6 +3355,232 @@ def _promote_ml_region_profile(region, persist=True):
     return config
 
 
+def _learn_markov_region_profile(region, limit=180):
+    query = PredictionRecord.query.filter_by(
+        region=region,
+        strategy="markov",
+        is_result_updated=True,
+    ).filter(PredictionRecord.actual_special_number != None)
+    predictions = query.order_by(PredictionRecord.created_at.desc()).limit(limit).all()
+
+    window_scores = Counter()
+    pool_scores = Counter()
+    special_pool_scores = Counter()
+    decay_scores = Counter()
+    source_weight_scores = Counter()
+    transition_weight_scores = Counter()
+    special_transition_weight_scores = Counter()
+    second_order_weight_scores = Counter()
+    phase_transition_weight_scores = Counter()
+    attribute_transition_weight_scores = Counter()
+    failure_weight_scores = Counter()
+    total_quality = 0.0
+    signal_count = 0
+
+    for idx, prediction in enumerate(predictions):
+        metadata = _deserialize_prediction_metadata(
+            getattr(prediction, "prediction_metadata", "")
+        )
+        if metadata.get("markov_window") is not None:
+            signal_count += 1
+        recency_weight = max(0.25, 1.0 - (idx / max(limit, 1)) * 0.7)
+        quality = max(0.05, _score_prediction_outcome(prediction)) * recency_weight
+        total_quality += quality
+
+        def add_numeric(counter, value, precision=0, scale=1.0):
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                return
+            if numeric <= 0:
+                return
+            key = round(numeric, int(precision))
+            counter[key] += quality * scale
+
+        add_numeric(window_scores, metadata.get("markov_window"), 0)
+        add_numeric(pool_scores, metadata.get("markov_pool"), 0)
+        add_numeric(special_pool_scores, metadata.get("markov_special_pool"), 0)
+        add_numeric(decay_scores, metadata.get("markov_transition_decay"), 4)
+        add_numeric(source_weight_scores, metadata.get("markov_source_special_weight"), 3)
+
+        weights = metadata.get("markov_weights") or {}
+        if isinstance(weights, dict):
+            add_numeric(transition_weight_scores, weights.get("transition"), 2)
+            add_numeric(special_transition_weight_scores, weights.get("special_transition"), 2)
+            add_numeric(second_order_weight_scores, weights.get("second_order"), 2)
+            add_numeric(phase_transition_weight_scores, weights.get("phase_transition"), 2)
+            add_numeric(attribute_transition_weight_scores, weights.get("attribute_transition"), 2)
+            add_numeric(failure_weight_scores, weights.get("failure"), 2)
+
+    confidence = _clamp(signal_count / 24.0, 0.0, 1.0) * _clamp(total_quality / 10.0, 0.35, 1.0)
+
+    def best_numeric(counter, default):
+        ranked = _rank_weighted_preferences(counter, limit=1)
+        if not ranked:
+            return default
+        return ranked[0]
+
+    preferred = {} if signal_count <= 0 else {
+        "window": int(best_numeric(window_scores, 80)),
+        "pool": int(best_numeric(pool_scores, 18)),
+        "special_pool": int(best_numeric(special_pool_scores, 10)),
+        "transition_decay": float(best_numeric(decay_scores, 0.985)),
+        "source_special_weight": float(best_numeric(source_weight_scores, 1.28)),
+        "transition_weight": float(best_numeric(transition_weight_scores, 1.35)),
+        "special_transition_weight": float(best_numeric(special_transition_weight_scores, 1.10)),
+        "second_order_weight": float(best_numeric(second_order_weight_scores, 0.72)),
+        "phase_transition_weight": float(best_numeric(phase_transition_weight_scores, 0.55)),
+        "attribute_transition_weight": float(best_numeric(attribute_transition_weight_scores, 0.42)),
+        "failure_weight": float(best_numeric(failure_weight_scores, 0.48)),
+    }
+    return {
+        "preferred_config": preferred,
+        "confidence": round(confidence, 4),
+        "samples": signal_count,
+    }
+
+
+def _promote_markov_region_profile(region, persist=True):
+    config = _load_strategy_config("markov", region)
+    cooldown_hours = _safe_float(config.get("promotion_cooldown_hours"), 18.0)
+    last_promoted_at = str(config.get("promoted_at") or "").strip()
+    if last_promoted_at and cooldown_hours > 0:
+        try:
+            last_time = datetime.fromisoformat(last_promoted_at)
+            if datetime.now() - last_time < timedelta(hours=cooldown_hours):
+                config["promotion_skipped_reason"] = "cooldown"
+                config["promotion_next_allowed_at"] = (last_time + timedelta(hours=cooldown_hours)).isoformat(timespec="seconds")
+                if persist:
+                    _save_strategy_config("markov", region, config)
+                return config
+        except Exception:
+            pass
+    previous = {
+        "window": config.get("window"),
+        "pool": config.get("pool"),
+        "special_pool": config.get("special_pool"),
+        "transition_decay": config.get("transition_decay"),
+        "source_special_weight": config.get("source_special_weight"),
+    }
+    learned_profile = _learn_markov_region_profile(region)
+    preferred = dict(learned_profile.get("preferred_config") or {})
+    learning_confidence = float(learned_profile.get("confidence") or 0.0)
+
+    backtest_payload = _load_latest_auto_backtest_payload(region)
+    ranking = backtest_payload.get("ranking") or []
+    markov_rank = next((idx + 1 for idx, item in enumerate(ranking) if item.get("strategy") == "markov"), 0)
+    markov_entry = next((item for item in ranking if item.get("strategy") == "markov"), {})
+    leader_entry = ranking[0] if ranking else {}
+    markov_top1 = float(markov_entry.get("top1_hit_rate") or 0.0)
+    markov_top6 = float(markov_entry.get("top6_hit_rate") or 0.0)
+    leader_top1 = float(leader_entry.get("top1_hit_rate") or 0.0)
+    leader_top6 = float(leader_entry.get("top6_hit_rate") or 0.0)
+    close_to_leader = (
+        markov_rank == 1 or (
+            ranking and
+            (leader_top1 - markov_top1) <= 1.8 and
+            (leader_top6 - markov_top6) <= 3.0
+        )
+    )
+    previous_score = _safe_float(config.get("promotion_backtest_top1"), 0.0) + (_safe_float(config.get("promotion_backtest_top6"), 0.0) * 0.35)
+    current_score = markov_top1 + (markov_top6 * 0.35)
+    min_gain = _safe_float(config.get("promotion_min_gain"), 0.45)
+
+    promotion_strength = "hold"
+    if close_to_leader and learning_confidence >= 0.42 and (previous_score <= 0 or current_score >= previous_score + min_gain):
+        promotion_strength = "promoted"
+    elif learning_confidence >= 0.28:
+        promotion_strength = "watch"
+
+    if preferred and promotion_strength in ("promoted", "watch"):
+        blend = 0.72 if promotion_strength == "promoted" else 0.42
+
+        def blended_int(key, low, high):
+            base = int(config.get(key) or _default_strategy_config("markov").get(key) or low)
+            target = int(preferred.get(key) or base)
+            config[key] = _clamp(int(round(base * (1.0 - blend) + target * blend)), low, high)
+
+        def blended_float(key, low, high, precision):
+            base = float(config.get(key) or _default_strategy_config("markov").get(key) or low)
+            target = float(preferred.get(key) or base)
+            config[key] = round(_clamp(base * (1.0 - blend) + target * blend, low, high), precision)
+
+        blended_int("window", 24, 160)
+        blended_int("pool", 8, 24)
+        blended_int("special_pool", 6, 14)
+        blended_float("transition_decay", 0.965, 0.995, 4)
+        blended_float("source_special_weight", 1.0, 1.7, 3)
+
+        weights = dict(config.get("weights") or {})
+        weights["transition"] = round(_clamp(
+            float(weights.get("transition") or 1.35) * (1.0 - blend) + float(preferred.get("transition_weight") or 1.35) * blend,
+            0.75,
+            1.85,
+        ), 2)
+        weights["special_transition"] = round(_clamp(
+            float(weights.get("special_transition") or 1.1) * (1.0 - blend) + float(preferred.get("special_transition_weight") or 1.1) * blend,
+            0.65,
+            1.65,
+        ), 2)
+        weights["second_order"] = round(_clamp(
+            float(weights.get("second_order") or 0.72) * (1.0 - blend) + float(preferred.get("second_order_weight") or 0.72) * blend,
+            0.0,
+            1.35,
+        ), 2)
+        weights["phase_transition"] = round(_clamp(
+            float(weights.get("phase_transition") or 0.55) * (1.0 - blend) + float(preferred.get("phase_transition_weight") or 0.55) * blend,
+            0.0,
+            1.25,
+        ), 2)
+        weights["attribute_transition"] = round(_clamp(
+            float(weights.get("attribute_transition") or 0.42) * (1.0 - blend) + float(preferred.get("attribute_transition_weight") or 0.42) * blend,
+            0.0,
+            1.1,
+        ), 2)
+        weights["failure"] = round(_clamp(
+            float(weights.get("failure") or 0.48) * (1.0 - blend) + float(preferred.get("failure_weight") or 0.48) * blend,
+            0.0,
+            1.2,
+        ), 2)
+        config["weights"] = weights
+
+    config["preferred_markov_config"] = preferred
+    config["profile_learning_confidence"] = round(learning_confidence, 4)
+    config["profile_learning_samples"] = int(learned_profile.get("samples") or 0)
+    config["promotion_strength"] = promotion_strength
+    config["promotion_backtest_rank"] = markov_rank
+    config["promotion_backtest_top1"] = round(markov_top1, 2)
+    config["promotion_backtest_top6"] = round(markov_top6, 2)
+    config["promoted_at"] = datetime.now().isoformat()
+
+    current = {
+        "window": config.get("window"),
+        "pool": config.get("pool"),
+        "special_pool": config.get("special_pool"),
+        "transition_decay": config.get("transition_decay"),
+        "source_special_weight": config.get("source_special_weight"),
+    }
+    if current != previous or promotion_strength != str(config.get("previous_promotion_strength") or ""):
+        history = list(config.get("promotion_history") or [])
+        history.insert(0, {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "region": region,
+            "strength": promotion_strength,
+            "previous": previous,
+            "current": current,
+            "backtest_rank": markov_rank,
+            "top1_hit_rate": round(markov_top1, 2),
+            "top6_hit_rate": round(markov_top6, 2),
+            "learning_confidence": round(learning_confidence * 100, 2),
+        })
+        config["promotion_history"] = history[:8]
+    config["previous_promotion_strength"] = promotion_strength
+
+    if persist:
+        _save_strategy_config("markov", region, config)
+    return config
+
+
 def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phase_label=None):
     candidates = list(LOCAL_STRATEGY_KEYS)
     current_phase_label = str(phase_label or "").strip()
@@ -4051,6 +4292,45 @@ def _tune_strategy_config(strategy, region):
         config["pool"] = _clamp(int(12 + local_top6 * 8 + local_top1 * 5), 10, 24)
         config["special_pool"] = _clamp(int(7 + local_top1 * 6), 6, 14)
         config["trend_window"] = _clamp(int(8 + local_top1 * 16 + local_top6 * 6), 8, 30)
+    elif strategy == "markov":
+        config["window"] = _clamp(int(54 + local_top6 * 70 + local_top1 * 34), 36, 150)
+        config["pool"] = _clamp(int(13 + local_top6 * 9 + local_top1 * 5), 10, 24)
+        config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
+        config["transition_decay"] = round(_clamp(0.972 + local_top1 * 0.022 + local_top6 * 0.01, 0.965, 0.995), 4)
+        config["source_special_weight"] = round(_clamp(1.12 + local_top1 * 0.38, 1.08, 1.55), 3)
+        learned_profile = _learn_markov_region_profile(region)
+        learned_confidence = _clamp(float(learned_profile.get("confidence") or 0.0), 0.0, 1.0)
+        preferred_markov = dict(learned_profile.get("preferred_config") or {})
+        if preferred_markov and learned_confidence >= 0.25:
+            blend = _clamp(learned_confidence * 0.45, 0.12, 0.45)
+            config["window"] = _clamp(
+                int(round(config["window"] * (1.0 - blend) + int(preferred_markov.get("window") or config["window"]) * blend)),
+                36,
+                160,
+            )
+            config["pool"] = _clamp(
+                int(round(config["pool"] * (1.0 - blend) + int(preferred_markov.get("pool") or config["pool"]) * blend)),
+                10,
+                24,
+            )
+            config["special_pool"] = _clamp(
+                int(round(config["special_pool"] * (1.0 - blend) + int(preferred_markov.get("special_pool") or config["special_pool"]) * blend)),
+                6,
+                14,
+            )
+            config["transition_decay"] = round(_clamp(
+                config["transition_decay"] * (1.0 - blend) + float(preferred_markov.get("transition_decay") or config["transition_decay"]) * blend,
+                0.965,
+                0.995,
+            ), 4)
+            config["source_special_weight"] = round(_clamp(
+                config["source_special_weight"] * (1.0 - blend) + float(preferred_markov.get("source_special_weight") or config["source_special_weight"]) * blend,
+                1.0,
+                1.7,
+            ), 3)
+        config["preferred_markov_config"] = preferred_markov
+        config["profile_learning_confidence"] = round(learned_confidence, 4)
+        config["profile_learning_samples"] = int(learned_profile.get("samples") or 0)
     elif strategy == "ai":
         config["temperature"] = round(_clamp(0.42 - accuracy * 0.18, 0.18, 0.45), 2)
         config["history_window"] = _clamp(int(12 + (0.5 - accuracy) * 6), 8, 18)
@@ -4214,6 +4494,38 @@ def _tune_strategy_config(strategy, region):
         elif strategy == "hybrid":
             weights["feedback"] = round(_clamp(weights["feedback"] + 0.10, 0.5, 1.45), 2)
             weights["parity"] = round(_clamp(weights["parity"] + 0.04, 0.12, 0.32), 2)
+        elif strategy == "markov":
+            weights["transition"] = round(_clamp(1.05 + learning_strength * 0.28 + accuracy * 0.24, 1.0, 1.65), 2)
+            weights["special_transition"] = round(_clamp(0.82 + learning_strength * 0.22 + accuracy * 0.22, 0.75, 1.45), 2)
+            weights["second_order"] = round(_clamp(0.44 + learning_strength * 0.18 + local_top6 * 0.34, 0.25, 1.2), 2)
+            weights["phase_transition"] = round(_clamp(0.34 + learning_strength * 0.14 + local_top1 * 0.28, 0.15, 1.05), 2)
+            weights["attribute_transition"] = round(_clamp(0.26 + learning_strength * 0.1 + local_top6 * 0.18, 0.12, 0.9), 2)
+            weights["failure"] = round(_clamp(0.34 + (1 - accuracy) * 0.24 + learning_strength * 0.08, 0.22, 1.0), 2)
+            preferred_markov = dict(config.get("preferred_markov_config") or {})
+            learned_confidence = _clamp(float(config.get("profile_learning_confidence") or 0.0), 0.0, 1.0)
+            if preferred_markov and learned_confidence >= 0.25:
+                blend = _clamp(learned_confidence * 0.35, 0.1, 0.35)
+                weights["transition"] = round(_clamp(
+                    weights["transition"] * (1.0 - blend) + float(preferred_markov.get("transition_weight") or weights["transition"]) * blend,
+                    0.75,
+                    1.85,
+                ), 2)
+                weights["special_transition"] = round(_clamp(
+                    weights["special_transition"] * (1.0 - blend) + float(preferred_markov.get("special_transition_weight") or weights["special_transition"]) * blend,
+                    0.65,
+                    1.65,
+                ), 2)
+                for weight_key, pref_key, low, high in (
+                    ("second_order", "second_order_weight", 0.0, 1.35),
+                    ("phase_transition", "phase_transition_weight", 0.0, 1.25),
+                    ("attribute_transition", "attribute_transition_weight", 0.0, 1.1),
+                    ("failure", "failure_weight", 0.0, 1.2),
+                ):
+                    weights[weight_key] = round(_clamp(
+                        weights[weight_key] * (1.0 - blend) + float(preferred_markov.get(pref_key) or weights[weight_key]) * blend,
+                        low,
+                        high,
+                    ), 2)
         config["weights"] = weights
         if strategy in ("hot", "cold", "trend", "balanced", "hybrid"):
             config["phase_weight_learning"] = _build_local_phase_learning_map(strategy, weights, phase_hit_rates)
@@ -4230,7 +4542,7 @@ def _tune_strategy_config(strategy, region):
     _save_strategy_config(strategy, region, config)
 
 def update_strategy_configs(region):
-    strategies = ["hot", "cold", "trend", "balanced", "hybrid", "ml", "ai"]
+    strategies = ["hot", "cold", "trend", "balanced", "hybrid", "markov", "ml", "ai"]
     for strategy in strategies:
         try:
             _tune_strategy_config(strategy, region)
@@ -4240,6 +4552,10 @@ def update_strategy_configs(region):
         _promote_ml_region_profile(region, persist=True)
     except Exception as e:
         print(f"ML profile promotion failed for {region}: {e}")
+    try:
+        _promote_markov_region_profile(region, persist=True)
+    except Exception as e:
+        print(f"Markov profile promotion failed for {region}: {e}")
 
 def _get_number_to_zodiac_map(year):
     number_to_zodiac = {}
@@ -4978,6 +5294,570 @@ def _build_local_recommendation_text(strategy, config, normal, special, feedback
     )
 
 
+def _extract_draw_numbers(record, include_special=True):
+    numbers = []
+    for raw_number in list((record or {}).get("no") or []):
+        try:
+            parsed = int(str(raw_number).strip())
+        except (TypeError, ValueError):
+            continue
+        if 1 <= parsed <= 49:
+            numbers.append(parsed)
+    if include_special:
+        try:
+            special = int(str((record or {}).get("sno") or "").strip())
+        except (TypeError, ValueError):
+            special = 0
+        if 1 <= special <= 49:
+            numbers.append(special)
+    return _dedupe_keep_order(numbers)
+
+
+def _safe_draw_special(record):
+    try:
+        value = int(str((record or {}).get("sno") or "").strip())
+    except (TypeError, ValueError):
+        return 0
+    return value if 1 <= value <= 49 else 0
+
+
+def _markov_zone(number):
+    try:
+        value = int(number)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 16:
+        return "low"
+    if value <= 33:
+        return "mid"
+    return "high"
+
+
+def _markov_tail(number):
+    try:
+        return str(int(number) % 10)
+    except (TypeError, ValueError):
+        return ""
+
+
+def _markov_attribute_state(number, zodiac_map=None):
+    if not number:
+        return {}
+    key = str(number)
+    return {
+        "color": _get_color_zh(number) or "",
+        "parity": _get_parity_zh(number) or "",
+        "zone": _markov_zone(number),
+        "tail": _markov_tail(number),
+        "zodiac": (zodiac_map or {}).get(key, ""),
+    }
+
+
+def _score_markov_attribute_transition(candidate, latest_special, attribute_profile, zodiac_map=None):
+    if not latest_special or not attribute_profile:
+        return 0.0
+    source_state = _markov_attribute_state(latest_special, zodiac_map=zodiac_map)
+    candidate_state = _markov_attribute_state(candidate, zodiac_map=zodiac_map)
+    total = 0.0
+    for attr, source_value in source_state.items():
+        if not source_value:
+            continue
+        targets = ((attribute_profile.get(attr) or {}).get(source_value) or {})
+        target_value = candidate_state.get(attr)
+        if target_value:
+            total += float(targets.get(target_value, 0.0) or 0.0)
+    return round(total / 5.0, 6)
+
+
+def _build_markov_failure_profile(region, limit=180):
+    predictions = _load_learning_scope_predictions(region, "markov", limit=limit, minimum_samples=0)
+    candidate_scores = Counter()
+    source_scores = Counter()
+    samples = 0
+    for idx, pred in enumerate(predictions):
+        if not getattr(pred, "is_result_updated", False) or not getattr(pred, "actual_special_number", None):
+            continue
+        samples += 1
+        recency_weight = max(0.2, 1.0 - (idx / max(limit, 1)) * 0.75)
+        quality = _score_prediction_outcome(pred)
+        metadata = _deserialize_prediction_metadata(getattr(pred, "prediction_metadata", ""))
+        predicted_special = str(getattr(pred, "special_number", "") or "").strip()
+        normal_numbers = [item for item in _parse_csv_list(getattr(pred, "normal_numbers", "")) if item]
+        latest_sources = [str(item) for item in (metadata.get("markov_latest_sources") or [])]
+        top_numbers = [str((item or {}).get("number")) for item in (metadata.get("markov_top_transitions") or []) if (item or {}).get("number")]
+        signal_numbers = _dedupe_keep_order([predicted_special] + normal_numbers + top_numbers)
+        if quality >= 0.58:
+            for number in signal_numbers:
+                candidate_scores[str(number)] += quality * recency_weight
+            for source in latest_sources:
+                source_scores[str(source)] += quality * recency_weight * 0.45
+        else:
+            for number in signal_numbers:
+                candidate_scores[str(number)] -= (1.0 - quality) * recency_weight
+            for source in latest_sources:
+                source_scores[str(source)] -= (1.0 - quality) * recency_weight * 0.55
+    return {
+        "candidate": _normalize_signed_metric_map({str(i): candidate_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "source": _normalize_signed_metric_map({str(i): source_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "samples": samples,
+        "confidence": _feedback_confidence(samples, full_confidence=60),
+    }
+
+
+def _blend_markov_with_anchor_weights(region, weights):
+    resolved = dict(weights or {})
+    markov_accuracy, markov_total = _calculate_strategy_accuracy(region, "markov", limit=36)
+    anchors = []
+    for strategy in ("ml", "hybrid", "balanced"):
+        accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=36)
+        if total > 0:
+            anchors.append((accuracy, total))
+    if markov_total <= 0 or not anchors:
+        return resolved, {"active": False, "reason": "insufficient_samples"}
+    anchor_accuracy = sum(acc * min(total, 36) for acc, total in anchors) / max(sum(min(total, 36) for _, total in anchors), 1)
+    gap = anchor_accuracy - markov_accuracy
+    confidence = _clamp(markov_total / 18.0, 0.2, 1.0)
+    if gap <= 0.015:
+        resolved["transition"] = round(_clamp(float(resolved.get("transition", 1.0)) + 0.08 * confidence, 0.75, 1.9), 2)
+        resolved["second_order"] = round(_clamp(float(resolved.get("second_order", 0.72)) + 0.06 * confidence, 0.0, 1.35), 2)
+        return resolved, {"active": True, "mode": "markov_strong", "gap": round(gap * 100, 2)}
+    if gap >= 0.06:
+        resolved["transition"] = round(_clamp(float(resolved.get("transition", 1.0)) - 0.24 * confidence, 0.65, 1.5), 2)
+        resolved["second_order"] = round(_clamp(float(resolved.get("second_order", 0.72)) - 0.16 * confidence, 0.0, 1.0), 2)
+        resolved["phase_transition"] = round(_clamp(float(resolved.get("phase_transition", 0.55)) - 0.1 * confidence, 0.0, 1.0), 2)
+        resolved["feedback"] = round(_clamp(float(resolved.get("feedback", 0.85)) + 0.16 * confidence, 0.45, 1.45), 2)
+        resolved["normal"] = round(_clamp(float(resolved.get("normal", 0.22)) + 0.08 * confidence, 0.12, 0.55), 2)
+        return resolved, {"active": True, "mode": "anchor_guard", "gap": round(gap * 100, 2)}
+    return resolved, {"active": False, "mode": "neutral", "gap": round(gap * 100, 2)}
+
+
+def _markov_probability(numerator, denominator, min_samples=3):
+    denominator = float(denominator or 0.0)
+    if denominator <= 0:
+        return 0.0
+    confidence = _clamp(denominator / max(float(min_samples or 1), 1.0), 0.15, 1.0)
+    return (float(numerator or 0.0) / denominator) * confidence
+
+
+def _build_markov_ml_distillation(region):
+    ml_feedback = _build_prediction_feedback(region, "ml", limit=160)
+    confidence = float(ml_feedback.get("confidence") or 0.0)
+    return {
+        "special": ml_feedback.get("special") or {},
+        "normal": ml_feedback.get("normal") or {},
+        "confidence": confidence,
+        "samples": int(ml_feedback.get("samples") or 0),
+    }
+
+
+def _score_markov_combo_shape(numbers, data, region, year):
+    selected = [int(number) for number in (numbers or []) if str(number).isdigit()]
+    if not selected:
+        return {"score": 0.0, "diagnostics": {}}
+    recent = list(data or [])[:36]
+    if not recent:
+        return {"score": 0.0, "diagnostics": {}}
+    zone_counts = Counter()
+    color_counts = Counter()
+    parity_counts = Counter()
+    tail_spreads = []
+    for record in recent:
+        draw_numbers = _extract_draw_numbers(record, include_special=False)
+        if not draw_numbers:
+            continue
+        zone_counts[len(set(_markov_zone(number) for number in draw_numbers if _markov_zone(number)))] += 1
+        color_counts[len(set(_get_color_zh(number) for number in draw_numbers if _get_color_zh(number)))] += 1
+        parity_counts[len(set(_get_parity_zh(number) for number in draw_numbers if _get_parity_zh(number)))] += 1
+        tail_spreads.append(len(set(int(number) % 10 for number in draw_numbers)))
+
+    zone_spread = len(set(_markov_zone(number) for number in selected if _markov_zone(number)))
+    color_spread = len(set(_get_color_zh(number) for number in selected if _get_color_zh(number)))
+    parity_spread = len(set(_get_parity_zh(number) for number in selected if _get_parity_zh(number)))
+    tail_spread = len(set(int(number) % 10 for number in selected))
+    avg_tail_spread = (sum(tail_spreads) / len(tail_spreads)) if tail_spreads else tail_spread
+    score = 0.0
+    score += 0.18 if zone_counts and zone_spread == zone_counts.most_common(1)[0][0] else -0.04
+    score += 0.14 if color_counts and color_spread == color_counts.most_common(1)[0][0] else -0.03
+    score += 0.1 if parity_counts and parity_spread == parity_counts.most_common(1)[0][0] else -0.02
+    score += max(-0.08, 0.12 - abs(tail_spread - avg_tail_spread) * 0.035)
+    return {
+        "score": round(score, 6),
+        "diagnostics": {
+            "zone_spread": zone_spread,
+            "color_spread": color_spread,
+            "parity_spread": parity_spread,
+            "tail_spread": tail_spread,
+            "avg_tail_spread": round(avg_tail_spread, 2),
+        },
+    }
+
+
+def _build_markov_transition_profile(data, window=80, decay=0.985, source_special_weight=1.28, year=None, min_samples=3):
+    ordered = list(reversed((data or [])[:max(2, int(window or 80))]))
+    transitions = {number: Counter() for number in range(1, 50)}
+    special_transitions = {number: Counter() for number in range(1, 50)}
+    second_order_transitions = Counter()
+    second_order_totals = Counter()
+    phase_transitions = {}
+    phase_totals = {}
+    attribute_transitions = {
+        "color": {},
+        "parity": {},
+        "zone": {},
+        "tail": {},
+        "zodiac": {},
+    }
+    source_totals = Counter()
+    special_source_totals = Counter()
+    zodiac_map = _get_number_to_zodiac_map(year or _infer_draw_year(data))
+
+    for idx in range(1, len(ordered)):
+        previous_previous = ordered[idx - 2] if idx >= 2 else None
+        previous = ordered[idx - 1]
+        current = ordered[idx]
+        source_numbers = _extract_draw_numbers(previous, include_special=True)
+        target_numbers = _extract_draw_numbers(current, include_special=True)
+        previous_special = _safe_draw_special(previous)
+        current_special = _safe_draw_special(current)
+        if not source_numbers or not target_numbers:
+            continue
+
+        recency_weight = float(decay or 0.985) ** max(0, len(ordered) - idx - 1)
+        phase_history = list(reversed(ordered[max(0, idx - 12):idx]))
+        phase_label = str(_classify_ai_market_phase(phase_history, window=min(12, max(4, len(phase_history)))).get("label") or "neutral")
+        if phase_label not in phase_transitions:
+            phase_transitions[phase_label] = {number: Counter() for number in range(1, 50)}
+            phase_totals[phase_label] = Counter()
+        for source in source_numbers:
+            source_weight = recency_weight * (float(source_special_weight or 1.0) if source == previous_special else 1.0)
+            source_totals[source] += source_weight
+            phase_totals[phase_label][source] += source_weight
+            for target in target_numbers:
+                transitions[source][target] += source_weight
+                phase_transitions[phase_label][source][target] += source_weight
+            if 1 <= current_special <= 49:
+                special_source_totals[source] += source_weight
+                special_transitions[source][current_special] += source_weight
+
+        if previous_previous:
+            prior_sources = _extract_draw_numbers(previous_previous, include_special=True)
+            for first_source in prior_sources:
+                for second_source in source_numbers:
+                    pair = (int(first_source), int(second_source))
+                    pair_weight = recency_weight * (1.18 if second_source == previous_special else 1.0)
+                    second_order_totals[pair] += pair_weight
+                    for target in target_numbers:
+                        second_order_transitions[(pair, int(target))] += pair_weight
+
+        if previous_special and current_special:
+            previous_state = _markov_attribute_state(previous_special, zodiac_map=zodiac_map)
+            current_state = _markov_attribute_state(current_special, zodiac_map=zodiac_map)
+            for attr, source_value in previous_state.items():
+                target_value = current_state.get(attr)
+                if not source_value or not target_value:
+                    continue
+                attr_bucket = attribute_transitions.setdefault(attr, {})
+                attr_bucket.setdefault(source_value, Counter())[target_value] += recency_weight
+
+    latest_sources = _extract_draw_numbers(data[0], include_special=True) if data else []
+    latest_second_sources = _extract_draw_numbers(data[1], include_special=True) if len(data or []) > 1 else []
+    latest_special = _safe_draw_special(data[0]) if data else 0
+    latest_phase = str(_classify_ai_market_phase(list(data or [])[:12], window=min(12, max(4, len(data or [])))).get("label") or "neutral")
+    transition_scores = {}
+    special_transition_scores = {}
+    second_order_scores = {}
+    phase_transition_scores = {}
+    for candidate in range(1, 50):
+        total = 0.0
+        special_total = 0.0
+        second_total = 0.0
+        phase_total = 0.0
+        for source in latest_sources:
+            total += _markov_probability(transitions[source].get(candidate, 0.0), source_totals.get(source, 0.0), min_samples=min_samples)
+            special_total += _markov_probability(special_transitions[source].get(candidate, 0.0), special_source_totals.get(source, 0.0), min_samples=min_samples)
+            if latest_phase in phase_transitions:
+                phase_total += _markov_probability(phase_transitions[latest_phase][source].get(candidate, 0.0), phase_totals[latest_phase].get(source, 0.0), min_samples=min_samples)
+        for first_source in latest_second_sources:
+            for second_source in latest_sources:
+                pair = (int(first_source), int(second_source))
+                second_total += _markov_probability(second_order_transitions.get((pair, candidate), 0.0), second_order_totals.get(pair, 0.0), min_samples=min_samples)
+        transition_scores[str(candidate)] = total
+        special_transition_scores[str(candidate)] = special_total
+        second_order_scores[str(candidate)] = second_total
+        phase_transition_scores[str(candidate)] = phase_total
+
+    attribute_profile = {}
+    for attr, source_map in attribute_transitions.items():
+        attribute_profile[attr] = {}
+        for source_value, counter in source_map.items():
+            total = sum(counter.values()) or 1.0
+            attribute_profile[attr][source_value] = {
+                target_value: round(value / total, 6)
+                for target_value, value in counter.items()
+            }
+
+    normalized_transition = _normalize_metric_map(transition_scores)
+    normalized_second = _normalize_metric_map(second_order_scores)
+    normalized_phase = _normalize_metric_map(phase_transition_scores)
+    top_support = {}
+    for candidate in range(1, 50):
+        candidate_support = []
+        for source in latest_sources:
+            source_probability = _markov_probability(transitions[source].get(candidate, 0.0), source_totals.get(source, 0.0), min_samples=min_samples)
+            if source_probability > 0:
+                candidate_support.append({
+                    "type": "one_step",
+                    "source": source,
+                    "target": candidate,
+                    "score": round(source_probability * 100, 2),
+                    "samples": round(float(source_totals.get(source, 0.0) or 0.0), 2),
+                })
+        for first_source in latest_second_sources:
+            for second_source in latest_sources:
+                pair = (int(first_source), int(second_source))
+                pair_probability = _markov_probability(second_order_transitions.get((pair, candidate), 0.0), second_order_totals.get(pair, 0.0), min_samples=min_samples)
+                if pair_probability > 0:
+                    candidate_support.append({
+                        "type": "two_step",
+                        "source": [first_source, second_source],
+                        "target": candidate,
+                        "score": round(pair_probability * 100, 2),
+                        "samples": round(float(second_order_totals.get(pair, 0.0) or 0.0), 2),
+                    })
+        candidate_support.sort(key=lambda item: item.get("score", 0.0), reverse=True)
+        top_support[str(candidate)] = candidate_support[:4]
+
+    return {
+        "latest_sources": latest_sources,
+        "latest_second_sources": latest_second_sources,
+        "latest_phase": latest_phase,
+        "latest_special": latest_special,
+        "transition_scores": normalized_transition,
+        "special_transition_scores": _normalize_metric_map(special_transition_scores),
+        "second_order_scores": normalized_second,
+        "phase_transition_scores": normalized_phase,
+        "attribute_profile": attribute_profile,
+        "support_chains": top_support,
+        "transition_samples": sum(1 for counter in transitions.values() if counter),
+    }
+
+
+def _predict_with_markov(data, region, variation_key=None):
+    if not data:
+        return _build_default_baseline_prediction()
+
+    config = _load_strategy_config("markov", region)
+    window = _clamp(int(config.get("window") or 80), 12, 160)
+    pool_size = _clamp(int(config.get("pool") or 18), 8, 24)
+    special_pool_size = _clamp(int(config.get("special_pool") or 10), 6, 14)
+    transition_min_samples = _clamp(int(config.get("transition_min_samples") or 3), 1, 12)
+    weights = dict(config.get("weights") or {})
+    weights, markov_guard = _blend_markov_with_anchor_weights(region, weights)
+    recent_data = data[:window]
+    trend_window = min(18, len(recent_data))
+    trend_data = recent_data[:trend_window] if trend_window > 0 else recent_data
+
+    year = _infer_draw_year(recent_data)
+    number_to_zodiac = _get_number_to_zodiac_map(year)
+    transition_profile = _build_markov_transition_profile(
+        recent_data,
+        window=window,
+        decay=float(config.get("transition_decay") or 0.985),
+        source_special_weight=float(config.get("source_special_weight") or 1.28),
+        year=year,
+        min_samples=transition_min_samples,
+    )
+    transition_norm = transition_profile.get("transition_scores") or {}
+    special_transition_norm = transition_profile.get("special_transition_scores") or {}
+    second_order_norm = transition_profile.get("second_order_scores") or {}
+    phase_transition_norm = transition_profile.get("phase_transition_scores") or {}
+    attribute_profile = transition_profile.get("attribute_profile") or {}
+    hot_norm = _normalize_metric_map(analyze_special_number_frequency(recent_data))
+    trend_norm = _normalize_metric_map(analyze_special_number_frequency(trend_data))
+    normal_norm = _normalize_metric_map(_build_number_frequency(recent_data))
+    overdue_norm = _normalize_metric_map(_build_overdue_scores(recent_data))
+    feedback = _build_prediction_feedback(region, "markov")
+    failure_profile = _build_markov_failure_profile(region)
+    ml_distillation = _build_markov_ml_distillation(region) if markov_guard.get("mode") == "anchor_guard" else {"confidence": 0.0, "samples": 0, "special": {}, "normal": {}}
+    feedback_confidence = float(feedback.get("confidence") or 0.0)
+    failure_confidence = float(failure_profile.get("confidence") or 0.0)
+    ml_distill_confidence = float(ml_distillation.get("confidence") or 0.0)
+    color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
+        recent_data,
+        region,
+        feedback,
+        year,
+        apply_recent_zodiac_cooldown=True,
+    )
+    latest_numbers = set(_extract_draw_numbers(recent_data[0], include_special=True) if recent_data else [])
+    preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
+
+    def attribute_score(number):
+        return (
+            float(weights.get("color", 0.0)) * color_pref.get(_get_color_zh(number), 0.0) +
+            float(weights.get("zodiac", 0.0)) * zodiac_pref.get(number_to_zodiac.get(str(number), ""), 0.0) +
+            float(weights.get("parity", 0.0)) * parity_pref.get(_get_parity_zh(number), 0.0)
+        )
+
+    def repeat_penalty(number):
+        return -0.18 if number in latest_numbers else 0.0
+
+    number_scores = {}
+    special_scores = {}
+    for number in range(1, 50):
+        key = str(number)
+        feedback_score = (
+            (feedback.get("special", {}).get(key, 0.5) - 0.5) * 0.66 +
+            (feedback.get("normal", {}).get(key, 0.5) - 0.5) * 0.34
+        ) * feedback_confidence
+        ml_distill_score = (
+            ((ml_distillation.get("special") or {}).get(key, 0.5) - 0.5) * 0.58 +
+            ((ml_distillation.get("normal") or {}).get(key, 0.5) - 0.5) * 0.42
+        ) * ml_distill_confidence
+        attr = attribute_score(number)
+        attribute_transition_score = _score_markov_attribute_transition(
+            number,
+            transition_profile.get("latest_special"),
+            attribute_profile,
+            zodiac_map=number_to_zodiac,
+        )
+        failure_adjustment = (float((failure_profile.get("candidate") or {}).get(key, 0.5)) - 0.5) * 2.0 * failure_confidence
+        score = (
+            float(weights.get("transition", 1.0)) * transition_norm.get(key, 0.0) +
+            float(weights.get("second_order", 0.0)) * second_order_norm.get(key, 0.0) +
+            float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) +
+            float(weights.get("attribute_transition", 0.0)) * attribute_transition_score +
+            float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
+            float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
+            float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
+            float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
+            float(weights.get("feedback", 0.0)) * feedback_score +
+            (0.42 if markov_guard.get("mode") == "anchor_guard" else 0.12) * ml_distill_score +
+            float(weights.get("failure", 0.0)) * failure_adjustment +
+            attr +
+            repeat_penalty(number)
+        )
+        number_scores[number] = round(score, 6)
+        parity_bonus = 0.08 if preferred_parity and _get_parity_zh(number) == preferred_parity else 0.0
+        special_scores[number] = round(
+            score +
+            float(weights.get("special_transition", 0.0)) * special_transition_norm.get(key, 0.0) +
+            float(weights.get("second_order", 0.0)) * second_order_norm.get(key, 0.0) * 0.35 +
+            float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) * 0.25 +
+            (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence * 0.32 +
+            parity_bonus,
+            6,
+        )
+
+    overall_rank = _rank_numbers(number_scores)
+    bucket_counts = _resolve_local_bucket_counts(config.get("bucket_counts") or [2, 2, 2], "neutral")
+    low_bucket = [n for n in overall_rank if n <= 16]
+    mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
+    high_bucket = [n for n in overall_rank if n >= 34]
+    normal = []
+    normal += _take_personalized_ranked(low_bucket, bucket_counts[0], variation_key=variation_key, window_size=max(pool_size // 2, 6))
+    normal += _take_personalized_ranked(mid_bucket, bucket_counts[1], variation_key=variation_key, exclude=normal, window_size=max(pool_size // 2, 6))
+    normal += _take_personalized_ranked(high_bucket, bucket_counts[2], variation_key=variation_key, exclude=normal, window_size=max(pool_size // 2, 6))
+    if len(normal) < 6:
+        normal += _take_personalized_ranked(overall_rank[:pool_size * 2], 6 - len(normal), variation_key=variation_key, exclude=normal, window_size=max(pool_size * 2, 12))
+    normal = _rebalance_selected_numbers_by_parity(sorted(normal), overall_rank, number_scores, parity_pref, count=6)
+    combo_profile = _score_markov_combo_shape(normal, recent_data, region, year)
+    combo_score = float(combo_profile.get("score") or 0.0)
+    if combo_score < -0.02:
+        combo_candidates = {
+                number: number_scores.get(number, 0.0) + _score_markov_combo_shape(
+                    _dedupe_keep_order([item for item in normal if item != normal[-1]] + [number]),
+                    recent_data,
+                    region,
+                    year,
+                ).get("score", 0.0)
+                for number in overall_rank[:max(pool_size * 2, 18)]
+                if number not in normal
+            }
+        combo_rank = _rank_numbers(
+            combo_candidates,
+            candidates=list(combo_candidates.keys()),
+        )
+        if combo_rank and normal:
+            normal = sorted(_dedupe_keep_order(normal[:-1] + [combo_rank[0]])[:6])
+            combo_profile = _score_markov_combo_shape(normal, recent_data, region, year)
+
+    remaining_numbers = [number for number in range(1, 50) if number not in normal]
+    special_rank = _rank_numbers(special_scores, candidates=remaining_numbers)
+    special_candidates = special_rank[:special_pool_size] or [number for number in overall_rank if number not in normal]
+    special_pick = _take_personalized_ranked(special_candidates, 1, variation_key=variation_key, window_size=max(special_pool_size // 2, 2))
+    special_num = special_pick[0] if special_pick else special_candidates[0]
+    support_chains = (transition_profile.get("support_chains") or {}).get(str(special_num), [])
+    explanation_bits = [
+        "一阶/二阶号码转移",
+        f"{transition_profile.get('latest_phase', 'neutral')}阶段分层",
+        "区间/尾数/波色/单双属性转移",
+        "失败样本惩罚",
+    ]
+    if markov_guard.get("active"):
+        explanation_bits.append("近期表现动态回退" if markov_guard.get("mode") == "anchor_guard" else "近期表现强化")
+    chain_text = ""
+    if support_chains:
+        chain_parts = []
+        for item in support_chains[:3]:
+            if item.get("type") == "two_step":
+                source = item.get("source") or []
+                chain_parts.append(f"{source[0]}+{source[1]}->{special_num}")
+            else:
+                chain_parts.append(f"{item.get('source')}->{special_num}")
+        chain_text = "；主要转移链路：" + "、".join(chain_parts)
+
+    recommendation_text = _build_special_focus_text(
+        str(special_num),
+        normal,
+        strategy_name=_get_strategy_label("markov"),
+        accuracy=round(float(config.get("last_accuracy") or 0.0) * 100, 1),
+        samples=max(int(feedback.get("samples") or 0), int(transition_profile.get("transition_samples") or 0)),
+        confidence=round(max(number_scores.get(special_num, 0.0), special_scores.get(special_num, 0.0)) * 20, 1),
+        extra_reason="本期综合" + "、".join(explanation_bits) + chain_text + "。",
+    )
+    return {
+        "normal": sorted(normal),
+        "special": {"number": str(special_num), "sno_zodiac": number_to_zodiac.get(str(special_num), "")},
+        "recommendation_text": recommendation_text,
+        "model_meta": {
+            "markov_window": window,
+            "markov_pool": pool_size,
+            "markov_special_pool": special_pool_size,
+            "markov_transition_decay": round(float(config.get("transition_decay") or 0.985), 4),
+            "markov_transition_min_samples": transition_min_samples,
+            "markov_source_special_weight": round(float(config.get("source_special_weight") or 1.28), 3),
+            "markov_weights": dict(weights),
+            "markov_guard": dict(markov_guard),
+            "markov_latest_sources": transition_profile.get("latest_sources") or [],
+            "markov_latest_second_sources": transition_profile.get("latest_second_sources") or [],
+            "markov_latest_phase": transition_profile.get("latest_phase") or "neutral",
+            "markov_transition_samples": int(transition_profile.get("transition_samples") or 0),
+            "markov_failure_profile": {
+                "samples": int(failure_profile.get("samples") or 0),
+                "confidence": round(float(failure_profile.get("confidence") or 0.0) * 100, 2),
+            },
+            "markov_ml_distillation": {
+                "active": bool(markov_guard.get("mode") == "anchor_guard"),
+                "samples": int(ml_distillation.get("samples") or 0),
+                "confidence": round(float(ml_distillation.get("confidence") or 0.0) * 100, 2),
+            },
+            "markov_combo_profile": combo_profile,
+            "markov_support_chains": support_chains,
+            "special_candidates": list(special_candidates[:max(special_pool_size, 6)]),
+            "markov_top_transitions": [
+                {
+                    "number": number,
+                    "score": round(float(transition_norm.get(str(number), 0.0)) * 100, 2),
+                    "second_order_score": round(float(second_order_norm.get(str(number), 0.0)) * 100, 2),
+                    "phase_score": round(float(phase_transition_norm.get(str(number), 0.0)) * 100, 2),
+                }
+                for number in overall_rank[:10]
+            ],
+        },
+    }
+
+
 def _resolve_local_strategy_phase_profile(data, config=None):
     profile = _classify_ai_market_phase(
         data,
@@ -5305,7 +6185,7 @@ def _build_ai_candidate_context(data, region):
     special_support = Counter()
     normal_support = Counter()
     strategy_lines = []
-    for strategy in ("ml", "hybrid", "balanced", "trend"):
+    for strategy in ("ml", "markov", "hybrid", "balanced", "trend"):
         try:
             result = get_local_recommendations(strategy, data, region)
         except Exception:
@@ -5346,7 +6226,7 @@ def _build_ai_learning_context(data, region, history_window=10):
     color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(recent_data or data, region, feedback, year)
     recommended_strategy = _get_recommended_strategy(region)
     backtest_lines = []
-    for strategy in ("hot", "cold", "trend", "hybrid", "balanced", "ml"):
+    for strategy in ("hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"):
         window20_accuracy, window20_total = _calculate_strategy_accuracy(region, strategy, limit=20)
         window50_accuracy, window50_total = _calculate_strategy_accuracy(region, strategy, limit=50)
         backtest_lines.append(
@@ -6310,7 +7190,7 @@ def _build_ml_prediction_cache_key(region, data, config):
         for item in list(data or [])[:16]
     ]
     accuracy_signature = {}
-    for strategy in ("hybrid", "balanced", "trend", "hot", "cold"):
+    for strategy in ("hybrid", "balanced", "markov", "trend", "hot", "cold"):
         accuracy, total = _calculate_strategy_accuracy(normalized_region, strategy, limit=None)
         accuracy_signature[strategy] = {
             "accuracy": round(float(accuracy or 0.0), 6),
@@ -6587,6 +7467,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
         return _build_default_baseline_prediction()
     elif strategy == 'ml':
         return _predict_with_ml(data, region, variation_key=variation_key)
+    elif strategy == 'markov':
+        return _predict_with_markov(data, region, variation_key=variation_key)
     else:
         try:
             config = _load_strategy_config(strategy, region)
@@ -8925,11 +9807,11 @@ def save_draws_to_database(draws, region):
         print(f"保存开奖记录到数据库失败: {e}")
         db.session.rollback()
 
-AUTO_BACKTEST_STRATEGIES = ("ai", "ml", "hybrid", "balanced", "trend", "hot", "cold")
+AUTO_BACKTEST_STRATEGIES = ("ai", "ml", "markov", "hybrid", "balanced", "trend", "hot", "cold")
 AUTO_BACKTEST_MIN_HISTORY = 10
 AUTO_BACKTEST_LIMIT = 240
 AI_BACKTEST_MAX_PERIODS = 24
-POSTPROCESS_BACKTEST_STRATEGIES = ("ml", "hybrid", "balanced", "trend", "hot", "cold")
+POSTPROCESS_BACKTEST_STRATEGIES = ("ml", "markov", "hybrid", "balanced", "trend", "hot", "cold")
 POSTPROCESS_BACKTEST_LIMIT = 120
 
 
@@ -9305,6 +10187,10 @@ def refresh_auto_backtest_snapshot(region, draws=None, force=False, strategies=N
         _promote_ml_region_profile(region, persist=True)
     except Exception as e:
         print(f"ML auto-promotion after backtest failed for {region}: {e}")
+    try:
+        _promote_markov_region_profile(region, persist=True)
+    except Exception as e:
+        print(f"Markov auto-promotion after backtest failed for {region}: {e}")
     return record
 
 
@@ -9321,7 +10207,7 @@ def refresh_auto_backtest_snapshots(regions=None, force=False):
     return refreshed
 
 
-AUTO_OPTIMIZE_STRATEGIES = ("hot", "cold", "trend", "balanced", "hybrid", "ml", "ai")
+AUTO_OPTIMIZE_STRATEGIES = ("hot", "cold", "trend", "balanced", "hybrid", "markov", "ml", "ai")
 AUTO_OPTIMIZE_BACKTEST_PERIODS = 72
 
 
@@ -9382,27 +10268,44 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
     delta = level_map.get(level, level_map["balanced"])
     candidates = []
 
-    if strategy in {"hot", "cold", "trend", "balanced", "hybrid"}:
+    if strategy in {"hot", "cold", "trend", "balanced", "hybrid", "markov"}:
         base_window = int(config.get("window") or _default_strategy_config(strategy).get("window") or 12)
         base_pool = int(config.get("pool") or _default_strategy_config(strategy).get("pool") or 16)
         base_special = int(config.get("special_pool") or _default_strategy_config(strategy).get("special_pool") or 8)
+        window_high = 160 if strategy == "markov" else 96
         candidates.extend([
             {
-                "window": _clamp(base_window - delta["window"], 8, 96),
+                "window": _clamp(base_window - delta["window"], 8, window_high),
                 "pool": _clamp(base_pool + delta["pool"], 8, 24),
                 "special_pool": _clamp(base_special, 6, 14),
             },
             {
-                "window": _clamp(base_window + delta["window"], 8, 96),
+                "window": _clamp(base_window + delta["window"], 8, window_high),
                 "pool": _clamp(base_pool - delta["pool"], 8, 24),
                 "special_pool": _clamp(base_special + delta["special_pool"], 6, 14),
             },
             {
-                "window": _clamp(base_window, 8, 96),
+                "window": _clamp(base_window, 8, window_high),
                 "pool": _clamp(base_pool, 8, 24),
                 "special_pool": _clamp(base_special - delta["special_pool"], 6, 14),
             },
         ])
+        if strategy == "markov":
+            base_decay = float(config.get("transition_decay") or 0.985)
+            base_source_weight = float(config.get("source_special_weight") or 1.28)
+            base_weights = dict(config.get("weights") or {})
+            base_second = float(base_weights.get("second_order") or 0.72)
+            base_phase = float(base_weights.get("phase_transition") or 0.55)
+            base_attribute = float(base_weights.get("attribute_transition") or 0.42)
+            base_failure = float(base_weights.get("failure") or 0.48)
+            candidates.extend([
+                {"transition_decay": round(_clamp(base_decay - 0.006, 0.965, 0.995), 4), "window": _clamp(base_window, 24, 160), "pool": _clamp(base_pool + 1, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"transition_decay": round(_clamp(base_decay + 0.006, 0.965, 0.995), 4), "window": _clamp(base_window + delta["window"], 24, 160), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special + 1, 6, 14)},
+                {"source_special_weight": round(_clamp(base_source_weight + 0.12, 1.0, 1.7), 3), "window": _clamp(base_window, 24, 160), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"weights": {"second_order": round(_clamp(base_second + 0.16, 0.0, 1.35), 2), "phase_transition": round(_clamp(base_phase + 0.1, 0.0, 1.25), 2)}},
+                {"weights": {"attribute_transition": round(_clamp(base_attribute + 0.12, 0.0, 1.1), 2), "failure": round(_clamp(base_failure + 0.12, 0.0, 1.2), 2)}},
+                {"weights": {"second_order": round(_clamp(base_second - 0.12, 0.0, 1.35), 2), "failure": round(_clamp(base_failure + 0.18, 0.0, 1.2), 2)}},
+            ])
         if strategy == "trend":
             candidates.append({
                 "window": _clamp(base_window - max(2, delta["window"] // 2), 8, 48),
@@ -9933,7 +10836,7 @@ def generate_auto_predictions(data, region):
             db.session.commit()
 
         for user in auto_predict_users:
-            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+            strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else list(LOCAL_STRATEGY_KEYS)
             strategies = [strategy for strategy in strategies if strategy in LOCAL_STRATEGY_KEYS]
             if not strategies:
                 strategies = list(LOCAL_STRATEGY_KEYS)

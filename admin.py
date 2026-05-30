@@ -74,6 +74,11 @@ PREDICTION_STRATEGY_LABELS = {
     'ai': 'AI预测',
 }
 
+LEARNING_PANEL_TERM_LABELS['markov'] = '马尔可夫'
+LEARNING_PANEL_TERM_LABELS['transition'] = '转移概率'
+LEARNING_PANEL_TERM_LABELS['special_transition'] = '特码转移'
+PREDICTION_STRATEGY_LABELS['markov'] = '马尔可夫预测'
+
 def _normalize_visual_weights(weight_map):
     cleaned = OrderedDict()
     total = 0.0
@@ -1211,8 +1216,9 @@ def predictions():
             'trend': 3,
             'hybrid': 4,
             'balanced': 5,
-            'ml': 6,
-            'ai': 7,
+            'markov': 6,
+            'ml': 7,
+            'ai': 8,
         }
         
         personalized_enabled = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower() == 'true'

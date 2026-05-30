@@ -3461,6 +3461,7 @@ class _PredictScreenState extends State<PredictScreen> {
 
   final Map<String, String> _strategyLabels = const {
     'ml': '机器学习',
+    'markov': '马尔可夫',
     'hybrid': '综合',
     'balanced': '均衡',
     'hot': '热门',
@@ -3490,6 +3491,10 @@ class _PredictScreenState extends State<PredictScreen> {
       case 'balanced':
         return const LinearGradient(
           colors: [Color(0xFFFFC107), Color(0xFFFD7E14)],
+        );
+      case 'markov':
+        return const LinearGradient(
+          colors: [Color(0xFF0F766E), Color(0xFF2563EB)],
         );
       case 'ml':
         return const LinearGradient(
@@ -3892,6 +3897,8 @@ class _PredictScreenState extends State<PredictScreen> {
         return '机器学习分析';
       case 'ai':
         return 'AI分析';
+      case 'markov':
+        return '马尔可夫分析';
       default:
         return '分析说明';
     }
@@ -4525,6 +4532,8 @@ class _PredictScreenState extends State<PredictScreen> {
         return const Color(0xFF6A1B9A);
       case 'balanced':
         return const Color(0xFFFB8C00);
+      case 'markov':
+        return const Color(0xFF0F766E);
       case 'ml':
         return const Color(0xFF00897B);
       case 'ai':

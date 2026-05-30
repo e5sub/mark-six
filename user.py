@@ -29,10 +29,11 @@ STRATEGY_META = [
     {"key": "ml", "label": "机器学习", "icon": "🧪"},
     {"key": "ai", "label": "AI", "icon": "🤖"},
 ]
+STRATEGY_META.insert(5, {"key": "markov", "label": "马尔可夫", "icon": "🔗"})
 STRATEGY_KEYS = [item["key"] for item in STRATEGY_META]
 AUTO_STRATEGY_META = [item for item in STRATEGY_META if item["key"] != "ai"]
 
-LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
+LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]
 
 def _strategy_label_map():
     return {item["key"]: item["label"] for item in STRATEGY_META}
@@ -343,6 +344,9 @@ def _learning_snapshot():
                 "history_window": config.get("history_window"),
                 "feature_window": config.get("feature_window"),
                 "evaluation_window": config.get("evaluation_window"),
+                "transition_decay": config.get("transition_decay"),
+                "source_special_weight": config.get("source_special_weight"),
+                "preferred_markov_config": config.get("preferred_markov_config", {}),
                 "preferred_feature_profiles": config.get("preferred_feature_profiles", []),
                 "preferred_runtime_profiles": config.get("preferred_runtime_profiles", []),
                 "profile_learning_confidence": round(float(config.get("profile_learning_confidence") or 0.0) * 100, 1),
@@ -806,9 +810,21 @@ def _get_ml_zodiac_map():
         return {}
 
 def _build_ml_prediction_query(user_id, region='', period='', result='', start_date='', end_date=''):
+    return _build_strategy_prediction_query(
+        user_id,
+        'ml',
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def _build_strategy_prediction_query(user_id, strategy, region='', period='', result='', start_date='', end_date=''):
     query = PredictionRecord.query.filter_by(
         user_id=user_id,
-        strategy='ml',
+        strategy=strategy,
     )
 
     if region:
@@ -883,8 +899,22 @@ def _decorate_ml_prediction(prediction):
     return prediction
 
 def _get_ml_predictions_page(user_id, page=1, region='', period='', result='', start_date='', end_date=''):
-    query = _build_ml_prediction_query(
+    return _get_strategy_predictions_page(
         user_id,
+        'ml',
+        page=page,
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def _get_strategy_predictions_page(user_id, strategy, page=1, region='', period='', result='', start_date='', end_date=''):
+    query = _build_strategy_prediction_query(
+        user_id,
+        strategy,
         region=region,
         period=period,
         result=result,
@@ -904,6 +934,9 @@ def _get_ml_predictions_page(user_id, page=1, region='', period='', result='', s
     ).offset(start_index).limit(records_per_page).all()
 
     items = [_decorate_ml_prediction(item) for item in items]
+    for item in items:
+        item.display_prediction_text = _hydrate_user_prediction_text(item)
+        item.display_model_meta = _hydrate_user_prediction_model_meta(item)
     return SimpleNamespace(
         items=items,
         page=current_page,
@@ -1088,6 +1121,230 @@ def _get_ml_stats(user_id):
             'data': data,
         }
     return data
+
+
+def _get_strategy_stats(user_id, strategy):
+    def _row_exact_hit(row):
+        return str(row.special_number or '').strip() == str(row.actual_special_number or '').strip()
+
+    def _row_secondary_hit(row):
+        actual_special = str(row.actual_special_number or '').strip()
+        if not actual_special:
+            return False
+        normal_numbers = {
+            item.strip()
+            for item in str(row.normal_numbers or '').split(',')
+            if item.strip()
+        }
+        zodiac_hit = (
+            bool(row.special_zodiac)
+            and bool(row.actual_special_zodiac)
+            and str(row.special_zodiac).strip() == str(row.actual_special_zodiac).strip()
+        )
+        return actual_special in normal_numbers or zodiac_hit
+
+    def _load_recent_resolved_rows(region=None, limit=_ML_STREAK_SCAN_LIMIT):
+        base_query = PredictionRecord.query.filter(
+            PredictionRecord.user_id == user_id,
+            PredictionRecord.strategy == strategy,
+            PredictionRecord.is_result_updated.is_(True),
+            PredictionRecord.actual_special_number != None,
+        )
+        if region:
+            base_query = base_query.filter(PredictionRecord.region == region)
+
+        deduped_ids = base_query.with_entities(
+            func.max(PredictionRecord.id).label('id')
+        ).group_by(
+            PredictionRecord.region,
+            PredictionRecord.period,
+            PredictionRecord.strategy,
+        ).subquery()
+
+        return PredictionRecord.query.join(
+            deduped_ids,
+            PredictionRecord.id == deduped_ids.c.id
+        ).with_entities(
+            PredictionRecord.region,
+            PredictionRecord.special_number,
+            PredictionRecord.actual_special_number,
+            PredictionRecord.normal_numbers,
+            PredictionRecord.special_zodiac,
+            PredictionRecord.actual_special_zodiac,
+            PredictionRecord.created_at,
+            PredictionRecord.id,
+        ).order_by(
+            PredictionRecord.created_at.desc(),
+            PredictionRecord.id.desc()
+        ).limit(limit).all()
+
+    recent_rows = _load_recent_resolved_rows()
+
+    def _calculate_current_special_hit_streak(region=None):
+        rows = recent_rows if not region else [row for row in recent_rows if row.region == region]
+        streak = 0
+        for row in rows:
+            if _row_exact_hit(row):
+                streak += 1
+            else:
+                break
+        return streak
+
+    def _calculate_current_miss_streak(region=None):
+        rows = recent_rows if not region else [row for row in recent_rows if row.region == region]
+        streak = 0
+        for row in rows:
+            if _row_exact_hit(row) or _row_secondary_hit(row):
+                break
+            streak += 1
+        return streak
+
+    actual_special = PredictionRecord.actual_special_number
+    special_number = PredictionRecord.special_number
+    stats_row = db.session.query(
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
+    ).filter(
+        PredictionRecord.user_id == user_id,
+        PredictionRecord.strategy == strategy,
+    ).one()
+
+    total_predictions = stats_row[0] or 0
+    updated_predictions = stats_row[1] or 0
+    special_hit_predictions = stats_row[2] or 0
+    normal_hit_predictions = stats_row[3] or 0
+    wrong_predictions = stats_row[4] or 0
+    pending_predictions = max(total_predictions - updated_predictions, 0)
+
+    region_label_map = {'hk': '香港', 'macau': '澳门'}
+    region_rows = db.session.query(
+        PredictionRecord.region,
+        db.func.count(PredictionRecord.id),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
+    ).filter(
+        PredictionRecord.user_id == user_id,
+        PredictionRecord.strategy == strategy,
+        PredictionRecord.region.in_(tuple(region_label_map.keys())),
+    ).group_by(PredictionRecord.region).all()
+
+    region_stats_map = {
+        row[0]: {
+            'total': row[1] or 0,
+            'updated': row[2] or 0,
+            'special_hits': row[3] or 0,
+            'normal_hits': row[4] or 0,
+            'wrong_predictions': row[5] or 0,
+        }
+        for row in region_rows
+    }
+    region_strategy_stats = []
+    for region_key, region_label in region_label_map.items():
+        region_data = region_stats_map.get(region_key, {})
+        region_total = region_data.get('total', 0)
+        region_updated = region_data.get('updated', 0)
+        region_special_hits = region_data.get('special_hits', 0)
+        region_normal_hits = region_data.get('normal_hits', 0)
+        region_strategy_stats.append({
+            'region': region_key,
+            'label': region_label,
+            'total': region_total,
+            'updated': region_updated,
+            'special_hits': region_special_hits,
+            'normal_hits': region_normal_hits,
+            'wrong_predictions': region_data.get('wrong_predictions', 0),
+            'current_special_hit_streak': _calculate_current_special_hit_streak(region_key),
+            'current_miss_streak': _calculate_current_miss_streak(region_key),
+            'special_hit_rate': round((region_special_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+            'normal_hit_rate': round((region_normal_hits / region_updated * 100), 2) if region_updated > 0 else 0,
+        })
+
+    return {
+        'total_strategy_predictions': total_predictions,
+        'updated_predictions': updated_predictions,
+        'special_hit_count': special_hit_predictions,
+        'normal_hit_count': normal_hit_predictions,
+        'wrong_predictions': wrong_predictions,
+        'current_special_hit_streak': _calculate_current_special_hit_streak(),
+        'current_miss_streak': _calculate_current_miss_streak(),
+        'pending_predictions': pending_predictions,
+        'special_hit_rate': round((special_hit_predictions / updated_predictions * 100), 2) if updated_predictions > 0 else 0,
+        'normal_hit_rate': round((normal_hit_predictions / updated_predictions * 100), 2) if updated_predictions > 0 else 0,
+        'region_strategy_stats': region_strategy_stats,
+    }
+
+
+def _get_markov_panel_data():
+    regions = {}
+    try:
+        records = (
+            BacktestRun.query.filter(BacktestRun.name.like("auto-%"))
+            .order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+            .limit(12)
+            .all()
+        )
+    except Exception:
+        records = []
+
+    for record in records:
+        region = getattr(record, "region", "")
+        if region in regions:
+            continue
+        try:
+            payload = json.loads(record.payload or "{}")
+        except Exception:
+            payload = {}
+        markov_summary = (payload.get("strategy_results") or {}).get("markov") or {}
+        ranking = payload.get("ranking") or []
+        rank = next((idx + 1 for idx, item in enumerate(ranking) if item.get("strategy") == "markov"), 0)
+        regions[region] = {
+            "region": region,
+            "label": "香港" if region == "hk" else "澳门" if region == "macau" else region,
+            "rank": rank,
+            "total": markov_summary.get("total", 0),
+            "top1": markov_summary.get("top1_hit_rate", 0.0),
+            "top6": markov_summary.get("top6_hit_rate", 0.0),
+            "zodiac": markov_summary.get("zodiac_hit_rate", 0.0),
+            "windows": markov_summary.get("windows", []),
+            "latest_period": payload.get("latest_period", ""),
+            "generated_at": payload.get("generated_at", ""),
+        }
+
+    config_rows = []
+    for region in ("hk", "macau"):
+        config = _strategy_config(region, "markov")
+        weights = config.get("weights") or {}
+        config_rows.append({
+            "region": region,
+            "label": "香港" if region == "hk" else "澳门",
+            "window": config.get("window"),
+            "pool": config.get("pool"),
+            "special_pool": config.get("special_pool"),
+            "transition_decay": config.get("transition_decay"),
+            "transition_min_samples": config.get("transition_min_samples"),
+            "promotion_strength": config.get("promotion_strength", "hold"),
+            "learning_confidence": round(float(config.get("profile_learning_confidence") or 0.0) * 100, 1),
+            "cooldown": config.get("promotion_next_allowed_at", ""),
+            "weights": {
+                "一阶": weights.get("transition"),
+                "二阶": weights.get("second_order"),
+                "阶段": weights.get("phase_transition"),
+                "属性": weights.get("attribute_transition"),
+                "失败惩罚": weights.get("failure"),
+                "反馈": weights.get("feedback"),
+            },
+        })
+
+    return {
+        "regions": [regions[key] for key in ("hk", "macau") if key in regions],
+        "configs": config_rows,
+    }
+
 
 @user_bp.route('/predictions')
 @login_required
@@ -1708,6 +1965,112 @@ def ml_records_list():
         'total': predictions.total,
     })
 
+
+@user_bp.route('/markov-records')
+@login_required
+@active_required
+def markov_records():
+    user = User.query.get(session['user_id'])
+    page = request.args.get('page', 1, type=int)
+    region = request.args.get('region', '')
+    period = request.args.get('period', '')
+    result = request.args.get('result', '')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+
+    try:
+        _build_strategy_prediction_query(
+            session['user_id'],
+            'markov',
+            region=region,
+            period=period,
+            result=result,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except ValueError as exc:
+        flash(str(exc), 'error')
+
+    return render_template(
+        'user/ml_records.html',
+        user=user,
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+        initial_page=page,
+        record_page_title='马尔可夫',
+        record_page_icon='🔗',
+        record_total_label='马尔可夫',
+        record_region_suffix='马尔可夫',
+        records_endpoint='user.markov_records',
+        records_list_endpoint='user.markov_records_list',
+        records_empty_title='暂无马尔可夫记录',
+        records_empty_text='先去首页生成一次马尔可夫预测，这里就会自动保存。',
+        records_loading_text='正在加载马尔可夫记录...',
+        records_page_key='markov',
+        markov_panel=_get_markov_panel_data(),
+        **_get_strategy_stats(session['user_id'], 'markov'),
+    )
+
+
+@user_bp.route('/markov-records/list')
+@login_required
+@active_required
+def markov_records_list():
+    page = request.args.get('page', 1, type=int)
+    region = request.args.get('region', '')
+    period = request.args.get('period', '')
+    result = request.args.get('result', '')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+
+    try:
+        predictions = _get_strategy_predictions_page(
+            session['user_id'],
+            'markov',
+            page=page,
+            region=region,
+            period=period,
+            result=result,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+    zodiac_map = _get_ml_zodiac_map()
+
+    def get_number_zodiac_cached(number):
+        try:
+            return zodiac_map.get(int(number), "")
+        except (TypeError, ValueError):
+            return ""
+
+    html = render_template(
+        'user/_ml_records_list.html',
+        predictions=predictions,
+        region=region,
+        period=period,
+        result=result,
+        start_date=start_date,
+        end_date=end_date,
+        get_number_color=get_number_color,
+        get_number_zodiac=get_number_zodiac_cached,
+        records_endpoint='user.markov_records',
+        records_empty_title='暂无马尔可夫记录',
+        records_empty_text='先去首页生成一次马尔可夫预测，这里会自动保存。',
+        records_empty_icon='🔗',
+    )
+    return jsonify({
+        'success': True,
+        'html': html,
+        'page': predictions.page,
+        'pages': predictions.pages,
+        'total': predictions.total,
+    })
+
 @user_bp.route('/save-prediction', methods=['POST'])
 @login_required
 def save_prediction():
@@ -1881,7 +2244,7 @@ def save_prediction_settings():
             valid_strategies.append(strategy)
 
     if not valid_strategies:
-        valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+        valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'markov', 'ml']
 
     valid_regions = []
     for region in auto_prediction_regions:
@@ -1924,7 +2287,7 @@ def update_auto_prediction():
                 valid_strategies.append(strategy)
 
         if not valid_strategies:
-            valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml']
+            valid_strategies = ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'markov', 'ml']
 
         valid_regions = []
         for region in auto_prediction_regions:

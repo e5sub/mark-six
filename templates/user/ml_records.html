@@ -1,6 +1,18 @@
 {% extends "user/base.html" %}
 
-{% block page_title %}机器学习{% endblock %}
+{% set record_page_title = record_page_title|default('机器学习') %}
+{% set record_page_icon = record_page_icon|default('🧪') %}
+{% set record_total_label = record_total_label|default(record_page_title) %}
+{% set record_region_suffix = record_region_suffix|default(record_page_title) %}
+{% set records_endpoint = records_endpoint|default('user.ml_records') %}
+{% set records_list_endpoint = records_list_endpoint|default('user.ml_records_list') %}
+{% set records_empty_title = records_empty_title|default('暂无机器学习记录') %}
+{% set records_empty_text = records_empty_text|default('先去首页生成一次机器学习预测，这里就会自动保存。') %}
+{% set records_loading_text = records_loading_text|default('正在加载机器学习记录...') %}
+{% set total_strategy_predictions = total_strategy_predictions|default(total_ml_predictions) %}
+{% set region_strategy_stats = region_strategy_stats|default(region_ml_stats) %}
+
+{% block page_title %}{{ record_page_title }}{% endblock %}
 
 {% block content %}
 {% macro result_badge(prediction) -%}
@@ -19,9 +31,9 @@
 
 <div class="stats-grid ml-stats">
     <div class="stat-card">
-        <div class="stat-icon">🧪</div>
-        <div class="stat-number">{{ total_ml_predictions }}</div>
-        <div class="stat-label">机器学习</div>
+        <div class="stat-icon">{{ record_page_icon }}</div>
+        <div class="stat-number">{{ total_strategy_predictions }}</div>
+        <div class="stat-label">{{ record_total_label }}</div>
     </div>
     <div class="stat-card">
         <div class="stat-icon">🎯</div>
@@ -61,10 +73,10 @@
 </div>
 
 <div class="region-stats-grid">
-    {% for region_stat in region_ml_stats %}
+    {% for region_stat in region_strategy_stats %}
     <div class="region-stat-card">
         <div class="region-stat-head">
-            <div class="region-stat-title">{{ region_stat.label }}机器学习</div>
+            <div class="region-stat-title">{{ region_stat.label }}{{ record_region_suffix }}</div>
             <div class="region-stat-total">{{ region_stat.total }} 条</div>
         </div>
         <div class="region-stat-body">
@@ -97,9 +109,78 @@
     {% endfor %}
 </div>
 
+{% if markov_panel %}
+<div class="card" style="margin-bottom:1rem;">
+    <div class="card-header">
+        <h2 class="card-title">🔗 马尔可夫回测面板</h2>
+    </div>
+    <div class="region-stats-grid">
+        {% for item in markov_panel.regions %}
+        <div class="region-stat-card">
+            <div class="region-stat-head">
+                <div class="region-stat-title">{{ item.label }}回测</div>
+                <div class="region-stat-total">第 {{ item.rank or '-' }} 名</div>
+            </div>
+            <div class="region-stat-body">
+                <div class="region-stat-item">
+                    <div class="region-stat-value">{{ item.top1 }}%</div>
+                    <div class="region-stat-label">特码命中</div>
+                </div>
+                <div class="region-stat-item">
+                    <div class="region-stat-value">{{ item.top6 }}%</div>
+                    <div class="region-stat-label">六码覆盖</div>
+                </div>
+                <div class="region-stat-item">
+                    <div class="region-stat-value">{{ item.zodiac }}%</div>
+                    <div class="region-stat-label">生肖命中</div>
+                </div>
+                <div class="region-stat-item">
+                    <div class="region-stat-value">{{ item.total }}</div>
+                    <div class="region-stat-label">样本</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    <div class="region-stats-grid" style="margin-top:1rem;">
+        {% for config in markov_panel.configs %}
+        <div class="region-stat-card">
+            <div class="region-stat-head">
+                <div class="region-stat-title">{{ config.label }}配置</div>
+                <div class="region-stat-total">{{ config.promotion_strength }}</div>
+            </div>
+            <div class="region-stat-body">
+                <div class="region-stat-item">
+                    <div class="region-stat-value">{{ config.window or '-' }}</div>
+                    <div class="region-stat-label">窗口</div>
+                </div>
+                <div class="region-stat-item">
+                    <div class="region-stat-value">{{ config.transition_min_samples or '-' }}</div>
+                    <div class="region-stat-label">链路阈值</div>
+                </div>
+                <div class="region-stat-item">
+                    <div class="region-stat-value">{{ config.learning_confidence }}%</div>
+                    <div class="region-stat-label">学习把握</div>
+                </div>
+                <div class="region-stat-item">
+                    <div class="region-stat-value">{{ config.transition_decay or '-' }}</div>
+                    <div class="region-stat-label">衰减</div>
+                </div>
+            </div>
+            <div style="margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.4rem;">
+                {% for label, value in config.weights.items() %}
+                <span style="padding:0.28rem 0.55rem; border-radius:999px; background:rgba(15,118,110,0.16); color:#99f6e4; border:1px solid rgba(45,212,191,0.2); font-size:0.8rem;">{{ label }} {{ value or '-' }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">🧪 机器学习</h2>
+        <h2 class="card-title">{{ record_page_icon }} {{ record_page_title }}</h2>
         <form method="GET" class="inline-search-form">
             <div class="search-controls">
                 <select name="region" class="compact-select" title="地区">
@@ -118,14 +199,14 @@
                 <input type="date" name="start_date" value="{{ start_date }}" class="compact-input">
                 <input type="date" name="end_date" value="{{ end_date }}" class="compact-input">
                 <button type="submit" class="compact-btn btn-search" title="查询">🔍</button>
-                <a href="{{ url_for('user.ml_records') }}" class="compact-btn btn-reset" title="重置">↺</a>
+                <a href="{{ url_for(records_endpoint) }}" class="compact-btn btn-reset" title="重置">↺</a>
             </div>
         </form>
     </div>
 
     <div id="mlRecordsLoading" class="ml-loading-state">
         <div class="ml-loading-spinner"></div>
-        <div class="ml-loading-text">正在加载机器学习记录...</div>
+        <div class="ml-loading-text">{{ records_loading_text }}</div>
     </div>
     <div id="mlRecordsError" class="empty-state" style="display:none;"></div>
     <div id="mlRecordsContainer" data-initial-page="{{ initial_page or 1 }}"></div>
@@ -198,24 +279,24 @@
     {% if predictions.pages > 1 %}
     <div class="pagination-wrap">
         {% if predictions.has_prev %}
-        <a class="page-btn" href="{{ url_for('user.ml_records', page=predictions.prev_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}">上一页</a>
+        <a class="page-btn" href="{{ url_for(records_endpoint, page=predictions.prev_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}">上一页</a>
         {% endif %}
         <span class="page-info">第 {{ predictions.page }} / {{ predictions.pages }} 页</span>
         {% if predictions.has_next %}
-        <a class="page-btn" href="{{ url_for('user.ml_records', page=predictions.next_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}">下一页</a>
+        <a class="page-btn" href="{{ url_for(records_endpoint, page=predictions.next_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}">下一页</a>
         {% endif %}
     </div>
     {% endif %}
     {% elif false %}
     <div class="empty-state">
-        <div class="empty-icon">🧪</div>
-        <h3>暂无机器学习记录</h3>
-        <p>先去首页生成一次机器学习预测，这里就会自动保存。</p>
+        <div class="empty-icon">{{ record_page_icon }}</div>
+        <h3>{{ records_empty_title }}</h3>
+        <p>{{ records_empty_text }}</p>
         <a href="{{ url_for('index') }}" class="btn btn-primary">🎯 开始预测</a>
     </div>
     <div id="mlRecordsLoading" class="ml-loading-state">
         <div class="ml-loading-spinner"></div>
-        <div class="ml-loading-text">正在加载机器学习记录...</div>
+        <div class="ml-loading-text">{{ records_loading_text }}</div>
     </div>
     <div id="mlRecordsError" class="empty-state" style="display:none;"></div>
     <div id="mlRecordsContainer" data-initial-page="{{ initial_page or 1 }}"></div>
@@ -664,7 +745,7 @@ document.addEventListener('DOMContentLoaded', () => {
         errorBox.style.display = 'none';
 
         try {
-            const response = await fetch(`{{ url_for('user.ml_records_list') }}?${buildQuery(page)}`, {
+            const response = await fetch(`{{ url_for(records_list_endpoint) }}?${buildQuery(page)}`, {
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest'
                 }
@@ -676,7 +757,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             container.innerHTML = data.html || '';
             if (pushState) {
-                const nextUrl = `{{ url_for('user.ml_records') }}?${buildQuery(page)}`;
+                const nextUrl = `{{ url_for(records_endpoint) }}?${buildQuery(page)}`;
                 window.history.pushState({ page }, '', nextUrl);
             }
         } catch (error) {

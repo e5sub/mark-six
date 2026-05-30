@@ -133,7 +133,7 @@
             <div style="font-weight:700; margin-bottom:0.6rem; color:#f8fafc;">{{ title }}</div>
             {% set current = learning_snapshot.get(region_key, {}) %}
             {% if current %}
-                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'ml'] if current.get(strategy_key) %}
+                {% for strategy_key in ['hot', 'cold', 'trend', 'hybrid', 'balanced', 'markov', 'ml'] if current.get(strategy_key) %}
                 <div style="padding:0.55rem 0; border-top:1px dashed rgba(148,163,184,0.14);">
                     <div style="font-weight:600; color:#f8fafc;">{{ strategy_label_map.get(strategy_key, strategy_key) }}：{{ current[strategy_key].last_accuracy }}%</div>
                     <div style="font-size:0.84rem; color:#cbd5e1;">
@@ -155,6 +155,10 @@
                             {% endfor %}
                         </div>
                         {% endif %}
+                        {% elif strategy_key == 'markov' %}
+                        参考期数={{ current[strategy_key].window or '-' }}，平码候选池={{ current[strategy_key].pool or '-' }}，特码候选池={{ current[strategy_key].special_pool or '-' }}，转移衰减={{ current[strategy_key].transition_decay or '-' }}，特号源权重={{ current[strategy_key].source_special_weight or '-' }}
+                        <br>
+                        固化状态={{ current[strategy_key].promotion_strength or 'hold' }}，学习把握度={{ current[strategy_key].profile_learning_confidence or 0 }}%，学习样本={{ current[strategy_key].profile_learning_samples or 0 }}
                         {% else %}
                         参考期数={{ current[strategy_key].window or '-' }}，平码候选池={{ current[strategy_key].pool or '-' }}，特码候选池={{ current[strategy_key].special_pool or '-' }}，学习样本={{ current[strategy_key].last_total or 0 }}
                         {% endif %}

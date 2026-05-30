@@ -12,6 +12,11 @@
     {% endif %}
 {%- endmacro %}
 
+{% set records_endpoint = records_endpoint|default('user.ml_records') %}
+{% set records_empty_icon = records_empty_icon|default('🧪') %}
+{% set records_empty_title = records_empty_title|default('暂无机器学习记录') %}
+{% set records_empty_text = records_empty_text|default('先去首页生成一次机器学习预测，这里会自动保存。') %}
+
 {% if predictions.items %}
 <div class="ml-record-list">
     {% for prediction in predictions.items %}
@@ -72,6 +77,29 @@
                 {% endif %}
             </div>
         </div>
+        {% if prediction.display_prediction_text %}
+        <div class="ml-panel" style="margin-top:0.85rem;">
+            <div class="panel-title">分析说明</div>
+            <div style="white-space:pre-wrap; color:#cbd5e1; font-size:0.88rem; line-height:1.65;">{{ prediction.display_prediction_text }}</div>
+        </div>
+        {% endif %}
+        {% if prediction.strategy == 'markov' and prediction.display_model_meta and prediction.display_model_meta.markov_support_chains %}
+        <div class="ml-panel" style="margin-top:0.85rem;">
+            <div class="panel-title">转移链路</div>
+            <div style="display:flex; flex-wrap:wrap; gap:0.45rem;">
+                {% for chain in prediction.display_model_meta.markov_support_chains[:4] %}
+                <span style="padding:0.28rem 0.55rem; border-radius:999px; background:rgba(37,99,235,0.16); color:#bfdbfe; border:1px solid rgba(96,165,250,0.25); font-size:0.82rem;">
+                    {% if chain.type == 'two_step' and chain.source %}
+                        {{ chain.source[0] }} + {{ chain.source[1] }} → {{ chain.target }}
+                    {% else %}
+                        {{ chain.source }} → {{ chain.target }}
+                    {% endif %}
+                    · {{ chain.score }}%
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </div>
     {% endfor %}
 </div>
@@ -79,19 +107,19 @@
 {% if predictions.pages > 1 %}
 <div class="pagination-wrap">
     {% if predictions.has_prev %}
-    <a class="page-btn" href="{{ url_for('user.ml_records', page=predictions.prev_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}" data-ml-page="{{ predictions.prev_num }}">上一页</a>
+    <a class="page-btn" href="{{ url_for(records_endpoint, page=predictions.prev_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}" data-ml-page="{{ predictions.prev_num }}">上一页</a>
     {% endif %}
     <span class="page-info">第 {{ predictions.page }} / {{ predictions.pages }} 页</span>
     {% if predictions.has_next %}
-    <a class="page-btn" href="{{ url_for('user.ml_records', page=predictions.next_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}" data-ml-page="{{ predictions.next_num }}">下一页</a>
+    <a class="page-btn" href="{{ url_for(records_endpoint, page=predictions.next_num, region=region, period=period, result=result, start_date=start_date, end_date=end_date) }}" data-ml-page="{{ predictions.next_num }}">下一页</a>
     {% endif %}
 </div>
 {% endif %}
 {% else %}
 <div class="empty-state">
-    <div class="empty-icon">🧪</div>
-    <h3>暂无机器学习记录</h3>
-    <p>先去首页生成一次机器学习预测，这里会自动保存。</p>
+    <div class="empty-icon">{{ records_empty_icon }}</div>
+    <h3>{{ records_empty_title }}</h3>
+    <p>{{ records_empty_text }}</p>
     <a href="{{ url_for('index') }}" class="btn btn-primary">开始预测</a>
 </div>
 {% endif %}

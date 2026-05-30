@@ -1,4 +1,4 @@
-{% extends "admin/base.html" %}
+﻿{% extends "admin/base.html" %}
 
 {% block page_title %}预测记录管理{% endblock %}
 
@@ -61,6 +61,7 @@
     .cold-badge { background: linear-gradient(135deg, #54a0ff 0%, #2e86de 100%); }
     .trend-badge { background: linear-gradient(135deg, #48dbfb 0%, #0abde3 100%); }
     .hybrid-badge { background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%); }
+    .markov-badge { background: linear-gradient(135deg, #0f766e 0%, #2563eb 100%); }
     .ml-badge { background: linear-gradient(135deg, #00b894 0%, #00cec9 100%); }
 
     .result-badge {
@@ -433,13 +434,14 @@
         <div class="form-group">
             <label>策略:</label>
             <select name="strategy">
-                <option value="">全部</option>
+                <option value="" {% if not strategy_filter %}selected{% endif %}>全部</option>
                 <option value="ai" {% if strategy_filter == 'ai' %}selected{% endif %}>AI预测</option>
                 <option value="balanced" {% if strategy_filter == 'balanced' %}selected{% endif %}>均衡预测</option>
                 <option value="hot" {% if strategy_filter == 'hot' %}selected{% endif %}>热门预测</option>
                 <option value="cold" {% if strategy_filter == 'cold' %}selected{% endif %}>冷门预测</option>
                 <option value="trend" {% if strategy_filter == 'trend' %}selected{% endif %}>走势预测</option>
                 <option value="hybrid" {% if strategy_filter == 'hybrid' %}selected{% endif %}>综合预测</option>
+                <option value="markov" {% if strategy_filter == 'markov' %}selected{% endif %}>马尔可夫预测</option>
                 <option value="ml" {% if strategy_filter == 'ml' %}selected{% endif %}>机器学习</option>
             </select>
         </div>
@@ -572,6 +574,8 @@
                                             <span class="strategy-badge trend-badge">走势</span>
                                         {% elif prediction.strategy == 'hybrid' %}
                                             <span class="strategy-badge hybrid-badge">综合</span>
+                                        {% elif prediction.strategy == 'markov' %}
+                                            <span class="strategy-badge markov-badge">马尔可夫</span>
                                         {% elif prediction.strategy == 'ml' %}
                                             <span class="strategy-badge ml-badge">机器学习</span>
                                         {% else %}

@@ -113,7 +113,7 @@ def update_database():
         print("更新现有用户的自动预测策略设置...")
         cursor.execute('''
             UPDATE user 
-            SET auto_prediction_strategies = 'hot,cold,trend,hybrid,balanced,ml' 
+            SET auto_prediction_strategies = 'hot,cold,trend,hybrid,balanced,markov,ml' 
             WHERE auto_prediction_strategies IS NULL 
                OR auto_prediction_strategies = '' 
                OR auto_prediction_strategies = 'NULL'
@@ -125,7 +125,7 @@ def update_database():
         # 检查并创建 lottery_draws 表
         cursor.execute('''
             UPDATE user
-            SET auto_prediction_strategies = 'hot,cold,trend,hybrid,balanced,ml'
+            SET auto_prediction_strategies = 'hot,cold,trend,hybrid,balanced,markov,ml'
             WHERE auto_prediction_strategies LIKE '%smart%'
         ''')
         cleaned_smart_strategies = cursor.rowcount
@@ -355,7 +355,7 @@ def main():
     if success:
         print("\n数据库更新成功！")
         print("现在所有用户的自动预测设置都有正确的默认值：")
-        print("- 默认策略: hot,cold,trend,hybrid,balanced,ml (所有预测策略)")
+        print("- 默认策略: hot,cold,trend,hybrid,balanced,markov,ml (所有预测策略)")
         print("- 默认地区: hk,macau (香港和澳门)")
     else:
         print("\n数据库更新失败！请检查错误信息并重试。")

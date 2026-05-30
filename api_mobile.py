@@ -22,8 +22,8 @@ from auth import send_activation_request_notification
 
 mobile_api_bp = Blueprint("mobile_api", __name__, url_prefix="/api/mobile")
 
-STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "ml", "ai"]
-LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "ml"]
+STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml", "ai"]
+LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]
 _RED_BALLS = {1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46}
 _BLUE_BALLS = {3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48}
 
@@ -1678,7 +1678,7 @@ def _learning_summary():
     payload = {}
     for region in ("hk", "macau"):
         region_data = {}
-        for strategy in ["hot", "cold", "trend", "hybrid", "balanced", "ml"]:
+        for strategy in ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]:
             config = _strategy_config(region, strategy)
             if not config:
                 continue
@@ -1686,6 +1686,10 @@ def _learning_summary():
                 "window": config.get("window"),
                 "pool": config.get("pool"),
                 "special_pool": config.get("special_pool"),
+                "transition_decay": config.get("transition_decay"),
+                "source_special_weight": config.get("source_special_weight"),
+                "profile_learning_confidence": round(float(config.get("profile_learning_confidence") or 0.0) * 100, 1),
+                "profile_learning_samples": config.get("profile_learning_samples", 0),
                 "last_accuracy": round(float(config.get("last_accuracy") or 0.0) * 100, 1),
                 "last_total": config.get("last_total", 0),
             }
