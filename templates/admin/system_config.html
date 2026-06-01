@@ -3,318 +3,319 @@
 {% block page_title %}系统配置{% endblock %}
 
 {% block content %}
-<div class="card">
+<style>
+    .config-card {
+        padding: 1.25rem;
+    }
+
+    .config-card .card-header {
+        margin-bottom: 1rem;
+        padding-bottom: 0.85rem;
+    }
+
+    .config-actions {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .config-save {
+        border-radius: 8px;
+        padding: 0.65rem 1.1rem;
+    }
+
+    .config-layout {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+
+    .config-section {
+        background: rgba(15, 23, 42, 0.46);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        border-left: 4px solid var(--section-accent, #667eea);
+        border-radius: 8px;
+        padding: 1rem;
+        min-width: 0;
+    }
+
+    .config-section-wide {
+        grid-column: 1 / -1;
+    }
+
+    .config-section-title {
+        margin: 0 0 0.8rem 0;
+        color: var(--section-accent, #e2e8f0);
+        font-size: 1rem;
+        font-weight: 800;
+    }
+
+    .config-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+
+    .config-grid-three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .config-field {
+        min-width: 0;
+    }
+
+    .config-field-full {
+        grid-column: 1 / -1;
+    }
+
+    .config-field label:not(.admin-switch) {
+        display: block;
+        margin-bottom: 0.35rem;
+        color: #e5e7eb;
+        font-size: 0.84rem;
+        font-weight: 700;
+    }
+
+    .config-field .form-control {
+        min-height: 40px;
+        padding: 0.58rem 0.75rem;
+        border-radius: 8px;
+    }
+
+    .config-field textarea.form-control {
+        min-height: 74px;
+        resize: vertical;
+    }
+
+    .config-hint {
+        display: block;
+        margin-top: 0.35rem;
+        color: #94a3b8;
+        font-size: 0.78rem;
+        line-height: 1.45;
+    }
+
+    .config-switch-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.7rem;
+    }
+
+    .config-switch-item {
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        border-radius: 8px;
+        padding: 0.75rem;
+        background: rgba(30, 41, 59, 0.32);
+        min-width: 0;
+    }
+
+    .config-switch-item .admin-switch {
+        font-size: 0.9rem;
+    }
+
+    @media (max-width: 1100px) {
+        .config-layout,
+        .config-grid,
+        .config-grid-three,
+        .config-switch-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .config-section-wide {
+            grid-column: auto;
+        }
+    }
+</style>
+
+<div class="card config-card">
     <div class="card-header">
         <h2 class="card-title">⚙️ 配置管理</h2>
-        <button type="button" class="btn" onclick="saveAllConfigs()">保存所有配置</button>
+        <div class="config-actions">
+            <button type="button" class="btn config-save" onclick="saveAllConfigs()">保存所有配置</button>
+        </div>
     </div>
 
     <form id="configForm">
-        <div style="display: grid; gap: 2rem;">
-            <div style="background: rgba(102, 126, 234, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #667eea;">
-                <h3 style="margin: 0 0 1rem 0; color: #667eea; font-size: 1.2rem;">🤖 AI 配置</h3>
-
-                <div class="form-group">
-                    <label>AI API 密钥</label>
-                    <input type="password" name="ai_api_key" class="form-control"
-                           value="{{ configs.get('ai_api_key', '') }}"
-                           placeholder="请输入 AI API 密钥">
+        <div class="config-layout">
+            <section class="config-section" style="--section-accent: #667eea;">
+                <h3 class="config-section-title">🤖 AI 配置</h3>
+                <div class="config-grid">
+                    <div class="config-field config-field-full">
+                        <label>AI API 密钥</label>
+                        <input type="password" name="ai_api_key" class="form-control"
+                               value="{{ configs.get('ai_api_key', '') }}"
+                               placeholder="请输入 AI API 密钥">
+                    </div>
+                    <div class="config-field config-field-full">
+                        <label>AI API 地址</label>
+                        <input type="url" name="ai_api_url" class="form-control"
+                               value="{{ configs.get('ai_api_url', 'https://api.deepseek.com/v1/chat/completions') }}"
+                               placeholder="AI API 地址">
+                    </div>
+                    <div class="config-field">
+                        <label>AI 模型</label>
+                        <input type="text" name="ai_model" class="form-control"
+                               value="{{ configs.get('ai_model', 'deepseek-chat') }}"
+                               placeholder="AI 模型名称">
+                    </div>
                 </div>
+            </section>
 
-                <div class="form-group">
-                    <label>AI API 地址</label>
-                    <input type="url" name="ai_api_url" class="form-control"
-                           value="{{ configs.get('ai_api_url', 'https://api.deepseek.com/v1/chat/completions') }}"
-                           placeholder="AI API 地址">
+            <section class="config-section" style="--section-accent: #28a745;">
+                <h3 class="config-section-title">📧 邮件配置</h3>
+                <div class="config-grid">
+                    <div class="config-field config-field-full">
+                        <label class="admin-switch">
+                            <input type="checkbox" name="notify_email_enabled"
+                                   {{ 'checked' if configs.get('notify_email_enabled', 'true') == 'true' else '' }}>
+                            <span class="admin-switch-track" aria-hidden="true"></span>
+                            <span class="admin-switch-text">启用邮件推送</span>
+                        </label>
+                        <span class="config-hint">关闭后，系统不会发送预测和激活申请邮件。</span>
+                    </div>
+                    <div class="config-field">
+                        <label>SMTP 服务器</label>
+                        <input type="text" name="smtp_server" class="form-control"
+                               value="{{ configs.get('smtp_server', '') }}"
+                               placeholder="smtp.gmail.com">
+                    </div>
+                    <div class="config-field">
+                        <label>SMTP 端口</label>
+                        <input type="number" name="smtp_port" class="form-control"
+                               value="{{ configs.get('smtp_port', '587') }}"
+                               placeholder="587">
+                    </div>
+                    <div class="config-field">
+                        <label>SMTP 用户名</label>
+                        <input type="email" name="smtp_username" class="form-control"
+                               value="{{ configs.get('smtp_username', '') }}"
+                               placeholder="your-email@example.com">
+                    </div>
+                    <div class="config-field">
+                        <label>SMTP 密码</label>
+                        <input type="password" name="smtp_password" class="form-control"
+                               value="{{ configs.get('smtp_password', '') }}"
+                               placeholder="应用专用密码">
+                    </div>
+                    <div class="config-field config-field-full">
+                        <label>激活申请通知邮箱</label>
+                        <input type="text" name="activation_request_notify_emails" class="form-control"
+                               value="{{ configs.get('activation_request_notify_emails', '') }}"
+                               placeholder="多个邮箱用英文逗号分隔；留空则发给所有管理员账号邮箱">
+                    </div>
                 </div>
+            </section>
 
-                <div class="form-group">
-                    <label>AI 模型</label>
-                    <input type="text" name="ai_model" class="form-control"
-                           value="{{ configs.get('ai_model', 'deepseek-chat') }}"
-                           placeholder="AI 模型名称">
+            <section class="config-section" style="--section-accent: #ffc107;">
+                <h3 class="config-section-title">🎟️ 邀请系统配置</h3>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label>每日邀请码生成限制</label>
+                        <input type="number" name="invite_daily_limit" class="form-control"
+                               value="{{ configs.get('invite_daily_limit', '3') }}"
+                               min="1" max="50" placeholder="3">
+                    </div>
+                    <div class="config-field">
+                        <label>邀请码有效期（天）</label>
+                        <input type="number" name="invite_code_validity_days" class="form-control"
+                               value="{{ configs.get('invite_code_validity_days', '7') }}"
+                               min="1" max="365" placeholder="7">
+                    </div>
                 </div>
-            </div>
+            </section>
 
-            <div style="background: rgba(40, 167, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #28a745;">
-                <h3 style="margin: 0 0 1rem 0; color: #28a745; font-size: 1.2rem;">📧 邮件配置</h3>
-
-                <div class="form-group">
-                    <label class="admin-switch">
-                        <input type="checkbox" name="notify_email_enabled"
-                               {{ 'checked' if configs.get('notify_email_enabled', 'true') == 'true' else '' }}>
-                        <span class="admin-switch-track" aria-hidden="true"></span>
-                        <span class="admin-switch-text">启用邮件推送</span>
-                    </label>
-                    <small style="color: #666; display: block; margin-top: 0.4rem;">关闭后，系统不会发送预测和激活申请邮件。</small>
+            <section class="config-section" style="--section-accent: #dc3545;">
+                <h3 class="config-section-title">🔧 系统设置</h3>
+                <div class="config-grid">
+                    <div class="config-field">
+                        <label>系统名称</label>
+                        <input type="text" name="system_name" class="form-control"
+                               value="{{ configs.get('system_name', 'AI数据分析预测系统') }}"
+                               placeholder="AI数据分析预测系统">
+                    </div>
+                    <div class="config-field">
+                        <label>站点名称</label>
+                        <input type="text" name="site_name" class="form-control"
+                               value="{{ configs.get('site_name', 'AI数据分析预测系统') }}"
+                               placeholder="用于邮件和页面展示的站点名称">
+                    </div>
+                    <div class="config-field">
+                        <label>系统描述</label>
+                        <textarea name="system_description" class="form-control" rows="2"
+                                  placeholder="系统描述">{{ configs.get('system_description', '') }}</textarea>
+                    </div>
+                    <div class="config-field">
+                        <label>站点描述</label>
+                        <textarea name="site_description" class="form-control" rows="2"
+                                  placeholder="站点描述">{{ configs.get('site_description', '') }}</textarea>
+                    </div>
                 </div>
+            </section>
 
-                <div class="form-group">
-                    <label>SMTP 服务器</label>
-                    <input type="text" name="smtp_server" class="form-control"
-                           value="{{ configs.get('smtp_server', '') }}"
-                           placeholder="smtp.gmail.com">
+            <section class="config-section config-section-wide" style="--section-accent: #0ea5e9;">
+                <h3 class="config-section-title">🧩 功能开关与优化</h3>
+                <div class="config-grid config-grid-three">
+                    <div class="config-switch-grid config-field-full">
+                        <div class="config-switch-item">
+                            <label class="admin-switch">
+                                <input type="checkbox" name="allow_registration"
+                                       {{ 'checked' if configs.get('allow_registration', 'true') == 'true' else '' }}>
+                                <span class="admin-switch-track" aria-hidden="true"></span>
+                                <span class="admin-switch-text">允许用户注册</span>
+                            </label>
+                        </div>
+                        <div class="config-switch-item">
+                            <label class="admin-switch">
+                                <input type="checkbox" name="require_email_verification"
+                                       {{ 'checked' if configs.get('require_email_verification', 'false') == 'true' else '' }}>
+                                <span class="admin-switch-track" aria-hidden="true"></span>
+                                <span class="admin-switch-text">需要邮箱验证</span>
+                            </label>
+                        </div>
+                        <div class="config-switch-item">
+                            <label class="admin-switch">
+                                <input type="checkbox" name="enable_personalized_predictions"
+                                       {{ 'checked' if configs.get('enable_personalized_predictions', 'false') == 'true' else '' }}>
+                                <span class="admin-switch-track" aria-hidden="true"></span>
+                                <span class="admin-switch-text">按用户差异化预测</span>
+                            </label>
+                            <span class="config-hint">关闭后，同一期同策略所有用户使用统一号码。</span>
+                        </div>
+                        <div class="config-switch-item">
+                            <label class="admin-switch">
+                                <input type="checkbox" name="auto_optimize_enabled"
+                                       {{ 'checked' if configs.get('auto_optimize_enabled', 'false') == 'true' else '' }}>
+                                <span class="admin-switch-track" aria-hidden="true"></span>
+                                <span class="admin-switch-text">策略自动优化</span>
+                            </label>
+                            <span class="config-hint">每天晚间基于历史模拟择优调整策略参数。</span>
+                        </div>
+                    </div>
+
+                    <div class="config-field">
+                        <label>自动优化强度</label>
+                        <select name="auto_optimize_level" class="form-control">
+                            <option value="mild" {{ 'selected' if configs.get('auto_optimize_level', 'balanced') == 'mild' else '' }}>轻度</option>
+                            <option value="balanced" {{ 'selected' if configs.get('auto_optimize_level', 'balanced') == 'balanced' else '' }}>均衡</option>
+                            <option value="aggressive" {{ 'selected' if configs.get('auto_optimize_level', 'balanced') == 'aggressive' else '' }}>积极</option>
+                        </select>
+                    </div>
+                    <div class="config-field">
+                        <label>最小提升阈值</label>
+                        <input type="number" name="auto_optimize_min_gain" class="form-control"
+                               value="{{ configs.get('auto_optimize_min_gain', '0.6') }}"
+                               min="0.1" max="8" step="0.1" placeholder="0.6">
+                    </div>
                 </div>
-
-                <div class="form-group">
-                    <label>SMTP 端口</label>
-                    <input type="number" name="smtp_port" class="form-control"
-                           value="{{ configs.get('smtp_port', '587') }}"
-                           placeholder="587">
-                </div>
-
-                <div class="form-group">
-                    <label>SMTP 用户名</label>
-                    <input type="email" name="smtp_username" class="form-control"
-                           value="{{ configs.get('smtp_username', '') }}"
-                           placeholder="your-email@example.com">
-                </div>
-
-                <div class="form-group">
-                    <label>SMTP 密码</label>
-                    <input type="password" name="smtp_password" class="form-control"
-                           value="{{ configs.get('smtp_password', '') }}"
-                           placeholder="应用专用密码">
-                </div>
-
-                <div class="form-group">
-                    <label>激活申请通知邮箱</label>
-                    <input type="text" name="activation_request_notify_emails" class="form-control"
-                           value="{{ configs.get('activation_request_notify_emails', '') }}"
-                           placeholder="多个邮箱用英文逗号分隔；留空则发给所有管理员账号邮箱">
-                    <small style="color: #666;">当用户申请激活码时，系统会发送通知到这些邮箱。</small>
-                </div>
-            </div>
-
-            <div style="background: rgba(255, 193, 7, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #ffc107;">
-                <h3 style="margin: 0 0 1rem 0; color: #b88400; font-size: 1.2rem;">🎟️ 邀请系统配置</h3>
-
-                <div class="form-group">
-                    <label>每日邀请码生成限制</label>
-                    <input type="number" name="invite_daily_limit" class="form-control"
-                           value="{{ configs.get('invite_daily_limit', '3') }}"
-                           min="1" max="50" placeholder="3">
-                    <small style="color: #666;">每个用户每天最多可生成的邀请码数量</small>
-                </div>
-
-                <div class="form-group">
-                    <label>邀请码有效期（天）</label>
-                    <input type="number" name="invite_code_validity_days" class="form-control"
-                           value="{{ configs.get('invite_code_validity_days', '7') }}"
-                           min="1" max="365" placeholder="7">
-                    <small style="color: #666;">新生成的邀请码默认有效天数</small>
-                </div>
-            </div>
-
-            <div style="background: rgba(220, 53, 69, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #dc3545;">
-                <h3 style="margin: 0 0 1rem 0; color: #dc3545; font-size: 1.2rem;">🔧 系统设置</h3>
-
-                <div class="form-group">
-                    <label>系统名称</label>
-                    <input type="text" name="system_name" class="form-control"
-                           value="{{ configs.get('system_name', 'AI数据分析预测系统') }}"
-                           placeholder="AI数据分析预测系统">
-                </div>
-
-                <div class="form-group">
-                    <label>系统描述</label>
-                    <textarea name="system_description" class="form-control" rows="3"
-                              placeholder="系统描述">{{ configs.get('system_description', '') }}</textarea>
-                </div>
-
-                <div class="form-group">
-                    <label>站点名称</label>
-                    <input type="text" name="site_name" class="form-control"
-                           value="{{ configs.get('site_name', 'AI数据分析预测系统') }}"
-                           placeholder="用于邮件和页面展示的站点名称">
-                </div>
-
-                <div class="form-group">
-                    <label>站点描述</label>
-                    <textarea name="site_description" class="form-control" rows="3"
-                              placeholder="站点描述">{{ configs.get('site_description', '') }}</textarea>
-                </div>
-
-                <div class="form-group">
-                    <label class="admin-switch">
-                        <input type="checkbox" name="allow_registration"
-                               {{ 'checked' if configs.get('allow_registration', 'true') == 'true' else '' }}>
-                        <span class="admin-switch-track" aria-hidden="true"></span>
-                        <span class="admin-switch-text">允许用户注册</span>
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label class="admin-switch">
-                        <input type="checkbox" name="require_email_verification"
-                               {{ 'checked' if configs.get('require_email_verification', 'false') == 'true' else '' }}>
-                        <span class="admin-switch-track" aria-hidden="true"></span>
-                        <span class="admin-switch-text">需要邮箱验证</span>
-                    </label>
-                </div>
-
-                <div class="form-group">
-                    <label class="admin-switch">
-                        <input type="checkbox" name="enable_personalized_predictions"
-                               {{ 'checked' if configs.get('enable_personalized_predictions', 'false') == 'true' else '' }}>
-                        <span class="admin-switch-track" aria-hidden="true"></span>
-                        <span class="admin-switch-text">开启按用户差异化预测</span>
-                    </label>
-                    <small style="color: #666; display: block; margin-top: 0.4rem;">
-                        开启后，同一期同策略下不同用户会拿到不同号码；关闭后，所有用户使用统一号码。
-                    </small>
-                </div>
-
-                <div class="form-group">
-                    <label class="admin-switch">
-                        <input type="checkbox" name="auto_optimize_enabled"
-                               {{ 'checked' if configs.get('auto_optimize_enabled', 'false') == 'true' else '' }}>
-                        <span class="admin-switch-track" aria-hidden="true"></span>
-                        <span class="admin-switch-text">开启策略自动优化</span>
-                    </label>
-                    <small style="color: #666; display: block; margin-top: 0.4rem;">
-                        开启后，系统会基于历史模拟测试自动尝试调整热门、冷门、走势、综合、均衡、马尔科夫、机器学习和 AI 预测参数，只有效果明显更好才会生效。
-                    </small>
-                </div>
-
-                <div class="form-group">
-                    <label>自动优化强度</label>
-                    <select name="auto_optimize_level" class="form-control">
-                        <option value="mild" {{ 'selected' if configs.get('auto_optimize_level', 'balanced') == 'mild' else '' }}>轻度</option>
-                        <option value="balanced" {{ 'selected' if configs.get('auto_optimize_level', 'balanced') == 'balanced' else '' }}>均衡</option>
-                        <option value="aggressive" {{ 'selected' if configs.get('auto_optimize_level', 'balanced') == 'aggressive' else '' }}>积极</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label>最小提升阈值</label>
-                    <input type="number" name="auto_optimize_min_gain" class="form-control"
-                           value="{{ configs.get('auto_optimize_min_gain', '0.6') }}"
-                           min="0.1" max="8" step="0.1" placeholder="0.6">
-                    <small style="color: #666;">只有历史模拟综合评分提升达到这个阈值，系统才会自动应用新参数。</small>
-                </div>
-            </div>
-        </div>
-
-        <div style="text-align: center; margin-top: 2rem;">
-            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem;">保存所有配置</button>
+            </section>
         </div>
     </form>
-</div>
-
-<div class="card" style="margin-top: 1.5rem;">
-    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
-        <div>
-            <h2 class="card-title">🧠 预测策略参数面板</h2>
-            <div style="color:#aebbd3; font-size:0.92rem; margin-top:0.35rem;">查看香港和澳门各策略当前参数、学习权重、窗口与最近回测状态。策略学习优先使用本农历年历史样本，样本不足时自动补入上一农历年的最近记录。开启自动优化后，系统会在每天晚间自动跑历史模拟择优升级。</div>
-        </div>
-        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-            <button type="button" class="btn" onclick="retrainLearning('hk')">重算香港策略参数</button>
-            <button type="button" class="btn" onclick="retrainLearning('macau')">重算澳门策略参数</button>
-            <button type="button" class="btn" onclick="retrainLearning('all')">重算全部策略参数</button>
-        </div>
-    </div>
-
-    <div id="learning-panel" style="display:grid; gap:1.5rem;">
-        {% for region in learning_panel %}
-        <div style="background:rgba(15,23,42,0.82); border:1px solid rgba(148,163,184,0.18); border-radius:16px; padding:1.25rem;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; gap:0.75rem; flex-wrap:wrap;">
-                <h3 style="margin:0; color:#dbe7ff;">{{ region.region_label }}学习参数</h3>
-                <div style="color:#d7e2f2; font-size:0.88rem;">共 {{ region['items']|length }} 个策略</div>
-            </div>
-
-            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem;">
-                {% for item in region['items'] %}
-                <div style="background:rgba(15,23,42,0.94); border:1px solid rgba(148,163,184,0.12); border-radius:14px; padding:1rem; box-shadow:0 6px 18px rgba(2,6,23,0.2);">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; margin-bottom:0.75rem;">
-                        <div>
-                            <div style="font-size:1rem; font-weight:700; color:#f8fafc;">{{ item.label }}</div>
-                            <div style="font-size:0.82rem; color:#d5e0f2; margin-top:0.2rem;">{{ item.display_key }}</div>
-                        </div>
-                        <div style="text-align:right;">
-                            <div style="font-size:0.95rem; font-weight:700; color:#4a4fd8;">{{ item.last_accuracy }}%</div>
-                            <div style="font-size:0.8rem; color:#d5e0f2;">样本 {{ item.last_total }}</div>
-                        </div>
-                    </div>
-
-                    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.5rem; margin-bottom:0.85rem; font-size:0.86rem; color:#dbe7ff;">
-                        <div>变化：<strong style="color:{% if item.accuracy_delta >= 0 %}#28a745{% else %}#dc3545{% endif %};">{{ item.accuracy_delta }}%</strong></div>
-                        <div>池：<strong style="color:#f8fafc;">{{ item.pool or '-' }}</strong></div>
-                        <div>特码池：<strong style="color:#f8fafc;">{{ item.special_pool or '-' }}</strong></div>
-                        <div>窗口：<strong style="color:#f8fafc;">{{ item.window or item.history_window or '-' }}</strong></div>
-                        <div>趋势窗口：<strong style="color:#f8fafc;">{{ item.trend_window or '-' }}</strong></div>
-                        <div>特征窗口：<strong style="color:#f8fafc;">{{ item.feature_window or '-' }}</strong></div>
-                        <div>训练轮数：<strong style="color:#f8fafc;">{{ item.epochs or '-' }}</strong></div>
-                        <div>学习率：<strong style="color:#f8fafc;">{{ item.learning_rate or '-' }}</strong></div>
-                        {% if item.key == 'markov' %}
-                        <div>转移衰减：<strong style="color:#f8fafc;">{{ item.transition_decay or '-' }}</strong></div>
-                        <div>特号源权重：<strong style="color:#f8fafc;">{{ item.source_special_weight or '-' }}</strong></div>
-                        <div>最小转移样本：<strong style="color:#f8fafc;">{{ item.transition_min_samples or '-' }}</strong></div>
-                        {% endif %}
-                    </div>
-
-                    {% if item.bucket_counts %}
-                    <div style="font-size:0.84rem; color:#d5e0f2; margin-bottom:0.65rem;">分桶：{{ item.bucket_counts|join(' / ') }}</div>
-                    {% endif %}
-
-                    {% if item.mix_items %}
-                    <div style="font-size:0.84rem; color:#d5e0f2; margin-bottom:0.65rem;">
-                        混合：
-                        {% for mix_item in item.mix_items %}
-                        {{ mix_item.label }}={{ mix_item.value }}{% if not loop.last %}，{% endif %}
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-
-                    <div style="font-size:0.8rem; color:#d5e0f2; margin-bottom:0.65rem;">更新时间：{{ item.updated_at or '-' }}</div>
-
-                    {% if item.weights %}
-                    <div style="display:flex; flex-wrap:wrap; gap:{% if item.key == 'markov' %}0.32rem{% else %}0.45rem{% endif %};">
-                        {% for weight in item.weights %}
-                        <span style="background:rgba(59,130,246,0.12); color:#e2e8f0; padding:{% if item.key == 'markov' %}0.26rem 0.46rem{% else %}0.35rem 0.55rem{% endif %}; border-radius:999px; font-size:{% if item.key == 'markov' %}0.74rem{% else %}0.8rem{% endif %}; border:1px solid rgba(96,165,250,0.16);">
-                            {{ weight.label }} {{ weight.value }}
-                        </span>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <div style="font-size:0.84rem; color:#cbd5e1;">当前策略没有可视化权重。</div>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% else %}
-        <div style="padding:1rem; color:#aebbd3;">暂无学习参数数据。</div>
-        {% endfor %}
-    </div>
 </div>
 
 <script>
 function saveAllConfigs() {
     document.getElementById('configForm').dispatchEvent(new Event('submit'));
-}
-
-function retrainLearning(region) {
-    fetch('/admin/system_config/retrain_learning', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ region })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showToast(data.message, 'success');
-            setTimeout(() => window.location.reload(), 700);
-        } else {
-            showToast('学习参数重算失败：' + data.message, 'error');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showToast('学习参数重算失败：网络错误', 'error');
-    });
 }
 
 document.getElementById('configForm').addEventListener('submit', function(e) {

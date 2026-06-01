@@ -1043,13 +1043,27 @@ def system_config():
         return render_template(
             'admin/system_config.html',
             configs=configs,
-            learning_panel=_strategy_learning_panel_data(),
         )
     except Exception as e:
         flash(f'加载系统配置失败: {str(e)}', 'error')
         return render_template(
             'admin/system_config.html',
             configs=SYSTEM_CONFIG_DEFAULTS,
+        )
+
+
+@admin_bp.route('/strategy_params')
+@admin_required
+def strategy_params():
+    try:
+        return render_template(
+            'admin/strategy_params.html',
+            learning_panel=_strategy_learning_panel_data(),
+        )
+    except Exception as e:
+        flash(f'加载策略参数失败: {str(e)}', 'error')
+        return render_template(
+            'admin/strategy_params.html',
             learning_panel=[],
         )
 

@@ -4,7 +4,7 @@
 
 {% block content %}
 <!-- 快速操作 -->
-<div class="card-compact">
+<div class="card-compact auto-settings-card">
     <div class="card-header-compact">
         <h2 class="card-title-compact">🚀 快速操作</h2>
     </div>
@@ -283,7 +283,7 @@
     <form method="POST" action="{{ url_for('user.update_auto_prediction') }}" class="auto-prediction-form">
         <div class="setting-row">
             <!-- 功能开关 -->
-            <div class="setting-group">
+            <div class="setting-group setting-switches">
                 <label class="setting-label user-switch">
                     <input type="checkbox" name="auto_prediction_enabled" value="1" 
                            {{ 'checked' if user.auto_prediction_enabled else '' }}>
@@ -293,7 +293,7 @@
             </div>
             
             <!-- 预测策略 -->
-            <div class="setting-group">
+            <div class="setting-group setting-switches">
                 <label class="setting-label user-switch">
                     <input type="checkbox" name="show_normal_numbers" value="1"
                            {{ 'checked' if user.show_normal_numbers else '' }}>
@@ -302,7 +302,7 @@
                 </label>
             </div>
 
-            <div class="setting-group">
+            <div class="setting-group setting-options">
                 <span class="group-title">预测策略：</span>
                 <div class="checkbox-group">
                     {% for meta in auto_strategy_meta %}
@@ -316,7 +316,7 @@
             </div>
             
             <!-- 预测地区 -->
-            <div class="setting-group">
+            <div class="setting-group setting-regions">
                 <span class="group-title">预测地区：</span>
                 <div class="checkbox-group">
                     <label class="mini-checkbox">
@@ -333,7 +333,7 @@
             </div>
             
             <!-- 保存按钮 -->
-            <div class="setting-group">
+            <div class="setting-group setting-actions">
                 <button type="submit" class="save-btn">保存</button>
             </div>
         </div>
@@ -583,21 +583,34 @@
 }
 
 /* 自动预测设置 */
+.auto-settings-card .card-header-compact {
+    padding: 0.65rem 1rem;
+}
+
+.auto-settings-card .card-title-compact {
+    font-size: 0.95rem;
+}
+
 .auto-prediction-form {
-    padding: 1rem;
+    padding: 0.8rem 1rem;
 }
 
 .setting-row {
     display: grid;
-    grid-template-columns: auto 1fr 1fr auto;
-    gap: 1.5rem;
+    grid-template-columns: auto auto minmax(280px, 1fr) auto auto;
+    gap: 0.9rem;
     align-items: center;
 }
 
 .setting-group {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.setting-switches {
+    justify-content: center;
 }
 
 .setting-label {
@@ -614,30 +627,34 @@
 }
 
 .setting-text {
-    font-size: 0.9rem;
+    font-size: 0.86rem;
     color: #e5e7eb;
+    white-space: nowrap;
 }
 
 .group-title {
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     color: #94a3b8;
     font-weight: 600;
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.1rem;
 }
 
 .checkbox-group {
     display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.55rem;
 }
 
 .mini-checkbox {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.25rem;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: #e5e7eb;
+    white-space: nowrap;
+    min-height: 24px;
 }
 
 .mini-checkbox input[type="checkbox"] {
@@ -645,8 +662,17 @@
     height: 14px;
 }
 
+.setting-regions {
+    min-width: 92px;
+}
+
+.setting-actions {
+    align-items: flex-end;
+}
+
 .save-btn {
-    padding: 0.5rem 1rem;
+    min-width: 86px;
+    padding: 0.55rem 1rem;
     background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
     color: white;
     border: none;
@@ -660,6 +686,31 @@
 .save-btn:hover {
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+@media (max-width: 1100px) {
+    .setting-row {
+        grid-template-columns: repeat(2, minmax(0, auto)) 1fr auto;
+    }
+
+    .setting-options {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 760px) {
+    .setting-row {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+    }
+
+    .setting-actions {
+        align-items: stretch;
+    }
+
+    .save-btn {
+        width: 100%;
+    }
 }
 
 /* 警告卡片 */
