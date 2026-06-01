@@ -220,10 +220,10 @@
             </div>
             {% if item.has_data and item.top_items %}
             {% for rank in item.top_items %}
-            <div class="comparison-row">
+            <div class="comparison-row backtest-rank-row">
                 <div class="comparison-main">
                     <div class="comparison-title">{{ loop.index }}. {{ strategy_label_map.get(rank.strategy, rank.strategy) }}</div>
-                    <div class="comparison-meta">一码 {{ rank.top1_hit_rate }}% · 六码 {{ rank.top6_hit_rate }}% · {{ rank.total }} 期样本</div>
+                    <div class="comparison-meta backtest-rank-meta">一码 {{ rank.top1_hit_rate }}% · 六码 {{ rank.top6_hit_rate }}% · {{ rank.total }} 期样本</div>
                 </div>
             </div>
             {% endfor %}
@@ -615,6 +615,26 @@ document.addEventListener('DOMContentLoaded', function() {
     margin-top: 0.2rem;
 }
 
+.backtest-rank-row .comparison-main {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.backtest-rank-row .comparison-title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.backtest-rank-meta {
+    flex: 0 0 auto;
+    margin-top: 0;
+    text-align: right;
+    white-space: nowrap;
+}
+
 .comparison-side {
     text-align: right;
     flex-shrink: 0;
@@ -808,6 +828,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     .comparison-side {
         text-align: left;
+    }
+
+    .backtest-rank-row .comparison-main {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+
+    .backtest-rank-meta {
+        text-align: left;
+        white-space: normal;
     }
 }
 </style>
