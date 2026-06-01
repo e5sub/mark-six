@@ -1,5 +1,5 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
@@ -9,6 +9,7 @@ import json
 import threading
 import time
 from collections import OrderedDict
+from notification_service import get_user_notification_config, save_user_notification_config
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
 
@@ -834,6 +835,52 @@ def dashboard():
                           latest_backtests=latest_backtests,
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac)
+
+
+@user_bp.route('/notifications')
+@login_required
+def notifications():
+    user = _get_session_user()
+    page = max(request.args.get('page', 1, type=int), 1)
+    pagination = UserNotification.query.filter_by(user_id=user.id).order_by(
+        UserNotification.created_at.desc()
+    ).paginate(page=page, per_page=20, error_out=False)
+    unread_count = UserNotification.query.filter_by(user_id=user.id, is_read=False).count()
+    return render_template(
+        'user/notifications.html',
+        user=user,
+        notifications=pagination.items,
+        pagination=pagination,
+        unread_count=unread_count,
+    )
+
+
+@user_bp.route('/notifications/<int:notification_id>/read', methods=['POST'])
+@login_required
+def mark_notification_read(notification_id):
+    user = _get_session_user()
+    notification = UserNotification.query.filter_by(
+        id=notification_id,
+        user_id=user.id,
+    ).first_or_404()
+    notification.mark_read()
+    db.session.commit()
+    if request.is_json:
+        return jsonify({'success': True})
+    return redirect(url_for('user.notifications'))
+
+
+@user_bp.route('/notifications/read_all', methods=['POST'])
+@login_required
+def mark_all_notifications_read():
+    user = _get_session_user()
+    unread_items = UserNotification.query.filter_by(user_id=user.id, is_read=False).all()
+    for item in unread_items:
+        item.mark_read()
+    db.session.commit()
+    if request.is_json:
+        return jsonify({'success': True, 'updated': len(unread_items)})
+    return redirect(url_for('user.notifications'))
 
 # 号码属性计算函数
 RED_BALLS = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46]
@@ -2337,6 +2384,26 @@ def profile():
             flash(f'更新失败：{str(e)}', 'error')
     
     return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+
+
+@user_bp.route('/notification_settings', methods=['GET', 'POST'])
+@login_required
+def notification_settings():
+    user = User.query.get(session['user_id'])
+    if request.method == 'POST':
+        try:
+            save_user_notification_config(user, request.form)
+            flash('推送设置已保存', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'推送设置保存失败：{str(e)}', 'error')
+        return redirect(url_for('user.notification_settings'))
+
+    return render_template(
+        'user/notification_settings.html',
+        user=user,
+        notification_config=get_user_notification_config(user),
+    )
 
 @user_bp.route('/save_prediction_settings', methods=['POST'])
 @login_required

@@ -1,0 +1,88 @@
+{% extends "user/base.html" %}
+
+{% block page_title %}推送设置{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">推送设置</h2>
+    </div>
+
+    <form method="POST" action="{{ url_for('user.notification_settings') }}" style="display: grid; gap: 1.5rem;">
+        <div style="background: rgba(14, 165, 233, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #0ea5e9;">
+            <h3 style="margin: 0 0 1rem 0; color: #38bdf8; font-size: 1.1rem;">个人推送渠道</h3>
+
+            <div style="display: grid; gap: 1rem;">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="station_enabled"
+                               {{ 'checked' if notification_config.get('station_enabled', true) else '' }}>
+                        启用站内通知
+                    </label>
+                    <small style="color: #666; display: block; margin-top: 0.5rem;">开启后，通知会进入用户中心的通知中心。</small>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="webhook_enabled"
+                               {{ 'checked' if notification_config.get('webhook_enabled') else '' }}>
+                        启用 Webhook 推送
+                    </label>
+                    <input type="url" name="webhook_url" class="form-control"
+                           value="{{ notification_config.get('webhook_url', '') }}"
+                           placeholder="企业微信 / 飞书 / 钉钉 / 自定义 Webhook 地址">
+                    <small style="color: #666;">企业微信、飞书、钉钉机器人会自动使用对应文本格式。</small>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="telegram_enabled"
+                               {{ 'checked' if notification_config.get('telegram_enabled') else '' }}>
+                        启用 Telegram Bot 推送
+                    </label>
+                    <input type="password" name="telegram_bot_token" class="form-control"
+                           value="{{ notification_config.get('telegram_bot_token', '') }}"
+                           placeholder="Bot Token">
+                    <input type="text" name="telegram_chat_id" class="form-control"
+                           value="{{ notification_config.get('telegram_chat_id', '') }}"
+                           placeholder="Chat ID" style="margin-top: 0.6rem;">
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="pushplus_enabled"
+                               {{ 'checked' if notification_config.get('pushplus_enabled') else '' }}>
+                        启用 PushPlus 推送
+                    </label>
+                    <input type="password" name="pushplus_token" class="form-control"
+                           value="{{ notification_config.get('pushplus_token', '') }}"
+                           placeholder="PushPlus Token">
+                    <input type="text" name="pushplus_topic" class="form-control"
+                           value="{{ notification_config.get('pushplus_topic', '') }}"
+                           placeholder="群组编码，可留空" style="margin-top: 0.6rem;">
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="bark_enabled"
+                               {{ 'checked' if notification_config.get('bark_enabled') else '' }}>
+                        启用 Bark 推送
+                    </label>
+                    <input type="url" name="bark_server_url" class="form-control"
+                           value="{{ notification_config.get('bark_server_url', 'https://api.day.app') }}"
+                           placeholder="https://api.day.app">
+                    <input type="password" name="bark_device_key" class="form-control"
+                           value="{{ notification_config.get('bark_device_key', '') }}"
+                           placeholder="Bark Device Key" style="margin-top: 0.6rem;">
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: center;">
+            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem; background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);">
+                保存推送设置
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

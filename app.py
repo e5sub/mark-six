@@ -8,11 +8,8 @@ import os
 import copy
 import sys
 import requests
-import smtplib
 import threading
 from contextlib import contextmanager
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from collections import Counter
 import re
 from urllib.parse import quote_plus
@@ -31,6 +28,7 @@ from user import user_bp
 from activation_code_routes import activation_code_bp
 from invite_routes import invite_bp
 from api_mobile import mobile_api_bp
+from notification_service import notify_user
 
 # --- 配置信息 ---
 data_dir = os.path.join(os.getcwd(), 'data')
@@ -12549,22 +12547,20 @@ def handle_chat():
 
 def send_winning_notification_email(user, prediction, region):
     """发送预测命中通知邮件"""
-    # 获取SMTP配置
-    smtp_server = SystemConfig.get_config('smtp_server')
-    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
-    smtp_username = SystemConfig.get_config('smtp_username')
-    smtp_password = SystemConfig.get_config('smtp_password')
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
-    
-    # 检查SMTP配置是否完整
-    if not all([smtp_server, smtp_username, smtp_password]):
-        raise Exception('邮件服务未配置，请联系管理员')
-    
-    # 准备邮件内容
     region_name = '香港' if region == 'hk' else '澳门'
     strategy_name = _get_email_strategy_display(prediction)
     
     subject = f"恭喜您！{region_name}第{prediction.period}期特码预测命中"
+    text_content = (
+        f"尊敬的 {user.username}：\n"
+        f"恭喜您！您使用{strategy_name}对{region_name}六合彩第{prediction.period}期的特码预测已经命中。\n"
+        f"预测期数：{prediction.period}\n"
+        f"预测策略：{strategy_name}\n"
+        f"预测特码：{prediction.special_number}\n"
+        f"开奖特码：{prediction.actual_special_number}\n"
+        f"预测时间：{prediction.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
     
     # 构建HTML邮件内容
     html_content = f"""
@@ -12611,44 +12607,30 @@ def send_winning_notification_email(user, prediction, region):
     </html>
     """
     
-    # 创建邮件对象
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = smtp_username
-    msg['To'] = user.email
-    
-    # 添加HTML内容
-    msg.attach(MIMEText(html_content, 'html'))
-    
-    # 发送邮件
-    try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(smtp_username, smtp_password)
-        server.send_message(msg)
-        server.quit()
-        print(f"成功发送预测命中通知邮件给用户 {user.username} ({user.email})")
-    except Exception as e:
-        print(f"发送邮件失败: {e}")
-        raise
+    notify_user(
+        user,
+        subject,
+        text_content,
+        html_content=html_content,
+        event_type='winning',
+        email_subject=subject,
+    )
+    print(f"成功发送预测命中通知给用户 {user.username} ({user.email})")
 
 def send_combined_prediction_email(user, predictions, region, period, latest_draw=None):
     """发送新一期多策略预测合并的汇总推送邮件"""
-    smtp_server = SystemConfig.get_config('smtp_server')
-    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
-    smtp_username = SystemConfig.get_config('smtp_username')
-    smtp_password = SystemConfig.get_config('smtp_password')
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
-    
-    if not all([smtp_server, smtp_username, smtp_password]):
-        return
     
     region_name = '香港' if region == 'hk' else '澳门'
     subject = f"{site_name} - {region_name}六合彩第{period}期预测汇总已生成"
     
     rows_html = ""
+    text_rows = []
     for pred in predictions:
         strategy_name = _get_email_strategy_display(pred)
+        text_rows.append(
+            f"{strategy_name}: 平码 {pred.normal_numbers}; 特码 {pred.special_number} ({pred.special_zodiac})"
+        )
         rows_html += f"""
         <tr>
             <td style="padding: 12px; border-bottom: 1px solid #eee;"><strong>{strategy_name}</strong></td>
@@ -12672,6 +12654,12 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
             </p>
         </div>
         '''
+
+    text_content = (
+        f"尊敬的 {user.username}：\n"
+        f"系统已为您生成{region_name}六合彩第{period}期预测汇总。\n"
+        + "\n".join(text_rows)
+    )
 
     html_content = f"""
     <html>
@@ -12714,36 +12702,28 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
     </html>
     """
     
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = smtp_username
-    msg['To'] = user.email
-    msg.attach(MIMEText(html_content, 'html'))
-    
-    server = smtplib.SMTP(smtp_server, smtp_port)
-    server.starttls()
-    server.login(smtp_username, smtp_password)
-    server.send_message(msg)
-    server.quit()
+    notify_user(
+        user,
+        subject,
+        text_content,
+        html_content=html_content,
+        event_type='prediction_generated',
+        email_subject=subject,
+    )
 
 def send_combined_winning_email(user, predictions, region, draw_data=None):
     """发送合并后的特码命中通知邮件（如果有多个策略同时命中）"""
-    smtp_server = SystemConfig.get_config('smtp_server')
-    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
-    smtp_username = SystemConfig.get_config('smtp_username')
-    smtp_password = SystemConfig.get_config('smtp_password')
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
-    
-    if not all([smtp_server, smtp_username, smtp_password]):
-        return
     
     region_name = '香港' if region == 'hk' else '澳门'
     period = predictions[0].period
     subject = f"恭喜您！{region_name}第{period}期特码预测命中"
     
     rows_html = ""
+    text_rows = []
     for pred in predictions:
         strategy_name = _get_email_strategy_display(pred)
+        text_rows.append(f"{strategy_name}: 命中特码 {pred.special_number} ({pred.special_zodiac})")
         rows_html += f"""
         <div style="margin-bottom: 10px; padding: 12px; background-color: #f1f8e9; border-left: 4px solid #4CAF50; border-radius: 4px;">
             <strong style="color: #2e7d32;">{strategy_name}</strong> 命中特码：<span style="color: #e53935; font-weight: bold; font-size: 16px;">{pred.special_number} ({pred.special_zodiac})</span>
@@ -12762,6 +12742,13 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
             </p>
         </div>
         '''
+
+    text_content = (
+        f"尊敬的 {user.username}：\n"
+        f"恭喜您！您定制的{region_name}六合彩第{period}期预测命中特码 "
+        f"{predictions[0].actual_special_number} ({predictions[0].actual_special_zodiac})。\n"
+        + "\n".join(text_rows)
+    )
 
     html_content = f"""
     <html>
@@ -12795,17 +12782,14 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
     </html>
     """
     
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = smtp_username
-    msg['To'] = user.email
-    msg.attach(MIMEText(html_content, 'html'))
-    
-    server = smtplib.SMTP(smtp_server, smtp_port)
-    server.starttls()
-    server.login(smtp_username, smtp_password)
-    server.send_message(msg)
-    server.quit()
+    notify_user(
+        user,
+        subject,
+        text_content,
+        html_content=html_content,
+        event_type='winning',
+        email_subject=subject,
+    )
 
 # 全局请求前处理器，检查用户激活状态
 @app.before_request
@@ -12857,6 +12841,7 @@ def init_database():
             ('smtp_port', '587', 'SMTP端口'),
             ('smtp_username', '', 'SMTP用户名'),
             ('smtp_password', '', 'SMTP密码'),
+            ('notify_email_enabled', 'true', '启用邮件推送'),
         ]
         
         for key, value, description in configs:

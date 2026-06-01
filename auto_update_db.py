@@ -220,6 +220,34 @@ def update_database():
         else:
             print("backtest_runs table already exists")
 
+        if not check_table_exists(cursor, 'user_notification'):
+            print("Creating user_notification table...")
+            cursor.execute('''
+            CREATE TABLE user_notification (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                event_type VARCHAR(50) DEFAULT 'general',
+                title VARCHAR(160) NOT NULL,
+                content TEXT,
+                link_url VARCHAR(255),
+                is_read BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                read_at TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES user (id)
+            )
+            ''')
+            cursor.execute('''
+                CREATE INDEX ix_user_notification_user_created_at
+                ON user_notification (user_id, created_at)
+            ''')
+            cursor.execute('''
+                CREATE INDEX ix_user_notification_user_read
+                ON user_notification (user_id, is_read)
+            ''')
+            print("user_notification table created")
+        else:
+            print("user_notification table already exists")
+
         if check_table_exists(cursor, 'prediction_record'):
             print("Cleaning duplicate prediction_record rows...")
             cursor.execute('''

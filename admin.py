@@ -1001,6 +1001,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     'smtp_username': '',
     'smtp_password': '',
     'activation_request_notify_emails': '',
+    'notify_email_enabled': 'true',
     'site_name': 'AI数据分析预测系统',
     'site_description': '',
     'invite_daily_limit': '3',

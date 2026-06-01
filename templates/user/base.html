@@ -635,6 +635,8 @@
         <nav class="sidebar-nav">
             <a href="{{ url_for('user.dashboard') }}"><i>📊</i> 个人中心</a>
             <a href="{{ url_for('user.predictions') }}"><i>📋</i> 预测记录</a>
+            <a href="{{ url_for('user.notifications') }}"><i>🔔</i> 通知中心</a>
+            <a href="{{ url_for('user.notification_settings') }}"><i>⚙️</i> 推送设置</a>
             <a href="{{ url_for('user.ml_records') }}"><i>🧪</i> 机器学习</a>
             <a href="{{ url_for('user.markov_records') }}"><i>🔗</i> 马尔科夫</a>
             <a href="{{ url_for('user.analytics') }}" class="{% if request.endpoint == 'user.analytics' %}active{% endif %}"><i>📈</i> 统计分析</a>

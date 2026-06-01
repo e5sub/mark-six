@@ -2,11 +2,9 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from models import db, User, ActivationCode, ActivationCodeRequest, SystemConfig, InviteCode
 from werkzeug.security import generate_password_hash
 import uuid
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 import secrets
+from notification_service import has_email_config, notify_admins, send_html_email
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -17,10 +15,7 @@ def _is_config_enabled(key, default='false'):
 
 
 def _has_smtp_config():
-    smtp_server = SystemConfig.get_config('smtp_server')
-    smtp_username = SystemConfig.get_config('smtp_username')
-    smtp_password = SystemConfig.get_config('smtp_password')
-    return all([smtp_server, smtp_username, smtp_password])
+    return has_email_config()
 
 
 def _email_verification_required():
@@ -105,25 +100,7 @@ def _resolve_email_verification_user(token):
 
 
 def _send_html_email(email, subject, html_body):
-    smtp_server = SystemConfig.get_config('smtp_server')
-    smtp_port = int(SystemConfig.get_config('smtp_port', '587'))
-    smtp_username = SystemConfig.get_config('smtp_username')
-    smtp_password = SystemConfig.get_config('smtp_password')
-
-    if not all([smtp_server, smtp_username, smtp_password]):
-        raise Exception('邮件服务未配置，请联系管理员')
-
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = smtp_username
-    msg['To'] = email
-    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
-
-    server = smtplib.SMTP(smtp_server, smtp_port)
-    server.starttls()
-    server.login(smtp_username, smtp_password)
-    server.send_message(msg)
-    server.quit()
+    send_html_email(email, subject, html_body)
 
 
 def _get_admin_notification_emails():
@@ -155,12 +132,7 @@ def _get_admin_notification_emails():
 
 
 def send_activation_request_notification(request_record):
-    if not _has_smtp_config():
-        return False
-
     recipients = _get_admin_notification_emails()
-    if not recipients:
-        return False
 
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
     admin_url = url_for('admin.activation_codes', _external=True)
@@ -172,6 +144,16 @@ def send_activation_request_notification(request_record):
     )
     request_note = (getattr(request_record, 'request_note', '') or '').strip() or 'N/A'
     subject = f'{site_name} - New activation code request'
+    text_body = (
+        f"New activation code request\n"
+        f"Request ID: {request_record.id}\n"
+        f"Username: {request_record.username}\n"
+        f"Email: {request_record.email}\n"
+        f"Status: {request_record.status}\n"
+        f"Requested At: {created_at_text}\n"
+        f"Note: {request_note}\n"
+        f"{admin_url}"
+    )
     html_body = f"""
     <html>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -200,8 +182,14 @@ def send_activation_request_notification(request_record):
     </html>
     """
 
-    for email in recipients:
-        _send_html_email(email, subject, html_body)
+    notify_admins(
+        subject,
+        text_body,
+        html_content=html_body,
+        event_type='activation_request',
+        link_url=admin_url,
+        email_recipients=recipients,
+    )
     return True
 
 

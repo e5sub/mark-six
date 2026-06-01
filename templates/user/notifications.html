@@ -1,0 +1,62 @@
+{% extends "user/base.html" %}
+
+{% block page_title %}通知中心{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+        <div>
+            <h2 class="card-title" style="margin-bottom: 0.35rem;">通知中心</h2>
+            <div style="color: rgba(255,255,255,0.72); font-size: 0.92rem;">未读 {{ unread_count }} 条</div>
+        </div>
+        {% if unread_count %}
+        <form method="POST" action="{{ url_for('user.mark_all_notifications_read') }}">
+            <button type="submit" class="btn btn-sm">全部已读</button>
+        </form>
+        {% endif %}
+    </div>
+
+    <div style="display: grid; gap: 0.85rem;">
+        {% for item in notifications %}
+        <div style="border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 8px; padding: 1rem; background: {{ 'rgba(14,165,233,0.12)' if not item.is_read else 'rgba(15,23,42,0.38)' }};">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+                <div style="min-width: 0;">
+                    <div style="font-weight: 700; color: #fff; overflow-wrap: anywhere;">{{ item.title }}</div>
+                    <div style="margin-top: 0.45rem; color: rgba(255,255,255,0.78); white-space: pre-wrap; line-height: 1.65;">{{ item.content }}</div>
+                    <div style="margin-top: 0.65rem; color: rgba(255,255,255,0.52); font-size: 0.86rem;">
+                        {{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.created_at else '' }}
+                        {% if item.event_type %} · {{ item.event_type }}{% endif %}
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
+                    {% if item.link_url %}
+                    <a class="btn btn-sm" href="{{ item.link_url }}">查看</a>
+                    {% endif %}
+                    {% if not item.is_read %}
+                    <form method="POST" action="{{ url_for('user.mark_notification_read', notification_id=item.id) }}">
+                        <button type="submit" class="btn btn-sm">已读</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: 3rem 1rem; color: rgba(255,255,255,0.68);">
+            暂时没有通知
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if pagination.pages > 1 %}
+    <div style="display: flex; justify-content: center; gap: 0.75rem; margin-top: 1.5rem;">
+        {% if pagination.has_prev %}
+        <a class="btn btn-sm" href="{{ url_for('user.notifications', page=pagination.prev_num) }}">上一页</a>
+        {% endif %}
+        <span style="align-self: center; color: rgba(255,255,255,0.72);">第 {{ pagination.page }} / {{ pagination.pages }} 页</span>
+        {% if pagination.has_next %}
+        <a class="btn btn-sm" href="{{ url_for('user.notifications', page=pagination.next_num) }}">下一页</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

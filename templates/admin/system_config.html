@@ -40,6 +40,15 @@
                 <h3 style="margin: 0 0 1rem 0; color: #28a745; font-size: 1.2rem;">📧 邮件配置</h3>
 
                 <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="notify_email_enabled"
+                               {{ 'checked' if configs.get('notify_email_enabled', 'true') == 'true' else '' }}>
+                        启用邮件推送
+                    </label>
+                    <small style="color: #666; display: block; margin-top: 0.4rem;">关闭后，系统不会发送预测和激活申请邮件。</small>
+                </div>
+
+                <div class="form-group">
                     <label>SMTP 服务器</label>
                     <input type="text" name="smtp_server" class="form-control"
                            value="{{ configs.get('smtp_server', '') }}"
@@ -312,7 +321,8 @@ document.getElementById('configForm').addEventListener('submit', function(e) {
         'allow_registration',
         'require_email_verification',
         'enable_personalized_predictions',
-        'auto_optimize_enabled'
+        'auto_optimize_enabled',
+        'notify_email_enabled'
     ];
 
     for (const [key, value] of formData.entries()) {

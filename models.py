@@ -440,6 +440,33 @@ class SystemConfig(db.Model):
     def __repr__(self):
         return f'<SystemConfig {self.key}>'
 
+
+class UserNotification(db.Model):
+    __tablename__ = 'user_notification'
+    __table_args__ = (
+        db.Index('ix_user_notification_user_created_at', 'user_id', 'created_at'),
+        db.Index('ix_user_notification_user_read', 'user_id', 'is_read'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    event_type = db.Column(db.String(50), default='general')
+    title = db.Column(db.String(160), nullable=False)
+    content = db.Column(LargeText)
+    link_url = db.Column(db.String(255))
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    read_at = db.Column(db.DateTime)
+
+    user = db.relationship('User', backref=db.backref('notifications', lazy='dynamic'))
+
+    def mark_read(self):
+        self.is_read = True
+        self.read_at = datetime.now()
+
+    def __repr__(self):
+        return f'<UserNotification {self.user_id}:{self.title}>'
+
 class ZodiacSetting(db.Model):
     """生肖号码设置模型"""
     __tablename__ = 'zodiac_settings'
