@@ -37,8 +37,10 @@ data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
 _ML_PREDICTION_CACHE_TTL_SECONDS = 180
+_RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
+_runtime_analysis_cache_local = threading.local()
 _strategy_config_override_local = threading.local()
 _SYSTEM_LOG_FILE_PATH = os.path.join(data_dir, "system.log")
 _SYSTEM_LOG_RETENTION_DAYS = 30
@@ -301,6 +303,48 @@ def clear_system_logs():
 
 
 _install_system_log_tee()
+
+
+def _runtime_cache_bucket(name):
+    caches = getattr(_runtime_analysis_cache_local, "caches", None)
+    if caches is None:
+        caches = {}
+        _runtime_analysis_cache_local.caches = caches
+    return caches.setdefault(name, {})
+
+
+def _runtime_cache_get(name, key):
+    bucket = _runtime_cache_bucket(name)
+    value = bucket.get(key)
+    if value is None:
+        return None
+    return copy.deepcopy(value)
+
+
+def _runtime_cache_set(name, key, value, max_items=_RUNTIME_ANALYSIS_CACHE_MAX_ITEMS):
+    bucket = _runtime_cache_bucket(name)
+    if len(bucket) >= max(1, int(max_items or _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS)):
+        try:
+            bucket.pop(next(iter(bucket)))
+        except StopIteration:
+            pass
+    bucket[key] = copy.deepcopy(value)
+    return value
+
+
+def _runtime_draws_signature(data, limit=None):
+    selected = list(data or [])
+    if limit:
+        selected = selected[:max(0, int(limit or 0))]
+    return tuple(str(item.get("id") or "").strip() for item in selected)
+
+
+def _runtime_json_signature(value):
+    try:
+        payload = json.dumps(value or {}, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        payload = str(value or "")
+    return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
 def _load_or_create_secret_key():
     env_secret = os.environ.get("SECRET_KEY")
@@ -2413,6 +2457,8 @@ def _default_strategy_config(strategy):
             "epochs": 18,
             "learning_rate": 0.035,
             "l2": 0.0025,
+            "early_stopping_patience": 4,
+            "validation_floor": 0.88,
             "primary_feature_profile": "full",
             "primary_runtime_profile": "base",
             "blend_candidates": [0.55, 0.7, 0.82],
@@ -5499,6 +5545,17 @@ def _score_markov_combo_shape(numbers, data, region, year):
 
 def _build_markov_special_transition_profile(data, window=80, decay=0.985, year=None, min_samples=3):
     ordered = list(reversed((data or [])[:max(2, int(window or 80))]))
+    cache_key = (
+        _runtime_draws_signature(data, limit=max(2, int(window or 80))),
+        int(window or 80),
+        round(float(decay or 0.985), 6),
+        int(year or _infer_draw_year(data) or 0),
+        int(min_samples or 3),
+    )
+    cached = _runtime_cache_get("markov_special_profile", cache_key)
+    if cached is not None:
+        return cached
+
     direct_transitions = {number: Counter() for number in range(1, 50)}
     direct_totals = Counter()
     second_order_transitions = Counter()
@@ -5572,7 +5629,7 @@ def _build_markov_special_transition_profile(data, window=80, decay=0.985, year=
                 for target_value, value in counter.items()
             }
 
-    return {
+    return _runtime_cache_set("markov_special_profile", cache_key, {
         "latest_special": latest_special,
         "latest_previous_special": latest_previous_special,
         "direct_scores": _normalize_metric_map(direct_scores),
@@ -5582,11 +5639,23 @@ def _build_markov_special_transition_profile(data, window=80, decay=0.985, year=
         "second_order_confidence": round(second_order_confidence, 6),
         "direct_sample_total": round(direct_sample_total, 3),
         "second_order_sample_total": round(second_order_sample_total, 3),
-    }
+    })
 
 
 def _build_markov_transition_profile(data, window=80, decay=0.985, source_special_weight=1.28, year=None, min_samples=3):
     ordered = list(reversed((data or [])[:max(2, int(window or 80))]))
+    cache_key = (
+        _runtime_draws_signature(data, limit=max(2, int(window or 80))),
+        int(window or 80),
+        round(float(decay or 0.985), 6),
+        round(float(source_special_weight or 1.0), 6),
+        int(year or _infer_draw_year(data) or 0),
+        int(min_samples or 3),
+    )
+    cached = _runtime_cache_get("markov_transition_profile", cache_key)
+    if cached is not None:
+        return cached
+
     transitions = {number: Counter() for number in range(1, 50)}
     special_transitions = {number: Counter() for number in range(1, 50)}
     second_order_transitions = Counter()
@@ -5735,7 +5804,7 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
         candidate_support.sort(key=lambda item: item.get("score", 0.0), reverse=True)
         top_support[str(candidate)] = candidate_support[:4]
 
-    return {
+    return _runtime_cache_set("markov_transition_profile", cache_key, {
         "latest_sources": latest_sources,
         "latest_second_sources": latest_second_sources,
         "latest_phase": latest_phase,
@@ -5749,7 +5818,7 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
         "transition_samples": sum(1 for counter in transitions.values() if counter),
         "second_order_confidence": round(second_order_confidence, 6),
         "second_order_sample_total": round(second_order_sample_total, 3),
-    }
+    })
 
 
 def _predict_with_markov(data, region, variation_key=None):
@@ -6417,6 +6486,17 @@ def _sigmoid(value):
 
 def _build_ml_feature_table(history_data, region, feature_window=60, feedback=None):
     history = list(history_data or [])[:max(int(feature_window or 0), 10)]
+    feedback = feedback or _build_prediction_feedback(region, "ml")
+    cache_key = (
+        str(region or "").strip().lower(),
+        int(feature_window or 0),
+        _runtime_draws_signature(history, limit=max(int(feature_window or 0), 10)),
+        _runtime_json_signature(feedback or {}),
+    )
+    cached = _runtime_cache_get("ml_feature_table", cache_key)
+    if cached is not None:
+        return cached
+
     short_data = history[:min(len(history), 12)]
     medium_data = history[:min(len(history), 24)]
     long_data = history[:min(len(history), max(int(feature_window or 60), 30))]
@@ -6429,7 +6509,6 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
     recent_all = _normalize_metric_map(_build_number_frequency(short_data))
     year = _infer_draw_year(history)
     number_to_zodiac = _get_number_to_zodiac_map(year)
-    feedback = feedback or _build_prediction_feedback(region, "ml")
     color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
         long_data, region, feedback, year, apply_recent_zodiac_cooldown=True
     )
@@ -6497,7 +6576,7 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
             round(recent_gap_score, 6),
             round(interval_balance, 6),
         ]
-    return features
+    return _runtime_cache_set("ml_feature_table", cache_key, features)
 
 
 ML_FEATURE_PROFILES = {
@@ -6815,15 +6894,27 @@ def _estimate_ml_confidence(probability_map, blended_scores, special_num, model)
     margin = max(0.0, top_score - next_score)
     top1_rate = float(model.get("top1_hit_rate", 0.0))
     top6_rate = float(model.get("top6_hit_rate", 0.0))
+    final_top1_rate = float(model.get("final_top1_hit_rate", 0.0))
+    evaluation_draws = int(model.get("evaluation_draws", 0) or 0)
+    target_probability = float(model.get("avg_target_probability", 0.0) or 0.0)
+    calibration_score = float(model.get("calibration_score", 0.0) or 0.0)
+    validation_ratio = float(model.get("validation_ratio", 1.0) or 1.0)
     raw_probability = float(probability_map.get(special_num, 0.0))
+    sample_confidence = _clamp(evaluation_draws / 30.0, 0.35, 1.0)
+    stability_bonus = min(max(final_top1_rate - top1_rate, 0.0), 0.08) * 60.0
     confidence = (
         28.0 +
         min(top_score, 1.0) * 32.0 +
         min(margin, 1.0) * 140.0 +
         top1_rate * 18.0 +
         top6_rate * 10.0 +
-        min(raw_probability * 100.0, 8.0)
+        min(raw_probability * 100.0, 8.0) +
+        min(target_probability * 100.0, 5.0) +
+        calibration_score * 10.0 +
+        stability_bonus
     )
+    confidence *= sample_confidence
+    confidence *= _clamp(0.78 + validation_ratio * 0.22, 0.72, 1.04)
     return round(_clamp(confidence, 18.0, 92.0), 2)
 
 
@@ -6962,10 +7053,14 @@ def _score_ml_model(model):
     top1 = float(model.get("top1_hit_rate", 0.0))
     top6 = float(model.get("top6_hit_rate", 0.0))
     avg_target_probability = float(model.get("avg_target_probability", 0.0))
+    calibration_score = float(model.get("calibration_score", 0.0) or 0.0)
+    validation_ratio = float(model.get("validation_ratio", 1.0) or 1.0)
     evaluation_draws = int(model.get("evaluation_draws", 0) or 0)
     confidence = min(1.0, evaluation_draws / 20.0) if evaluation_draws > 0 else 0.0
     return round(
-        ((top1 * 1.85) + (top6 * 1.0) + (avg_target_probability * 0.35)) * max(confidence, 0.35),
+        ((top1 * 1.85) + (top6 * 1.0) + (avg_target_probability * 0.35) + (calibration_score * 0.08)) *
+        max(confidence, 0.35) *
+        _clamp(0.86 + validation_ratio * 0.14, 0.72, 1.02),
         6,
     )
 
@@ -6984,6 +7079,11 @@ def _optimize_ml_runtime_config(data, region, config):
     base_history = _clamp(int(base_config.get("history_window") or 120), 80, 240)
     base_feature = _clamp(int(base_config.get("feature_window") or 60), 30, 90)
     base_eval = _clamp(int(base_config.get("evaluation_window") or 30), 12, 60)
+    base_epochs = _clamp(int(base_config.get("epochs") or 18), 15, 30)
+    base_learning_rate = float(base_config.get("learning_rate") or 0.035)
+    base_l2 = float(base_config.get("l2") or 0.0025)
+    base_pool = _clamp(int(base_config.get("pool") or 18), 12, 24)
+    base_special_pool = _clamp(int(base_config.get("special_pool") or 8), 6, 12)
     primary_feature_profile = str(base_config.get("primary_feature_profile") or "full").strip() or "full"
     primary_runtime_profile = str(base_config.get("primary_runtime_profile") or "base").strip() or "base"
     preferred_feature_profiles = [
@@ -7004,14 +7104,14 @@ def _optimize_ml_runtime_config(data, region, config):
             "history_window": _clamp(base_history - 20, 80, 220),
             "feature_window": _clamp(base_feature - 8, 30, 80),
             "evaluation_window": _clamp(base_eval - 4, 12, 48),
-            "learning_rate": round(_clamp(float(base_config.get("learning_rate") or 0.035) + 0.008, 0.01, 0.08), 3),
+            "learning_rate": round(_clamp(base_learning_rate + 0.008, 0.01, 0.08), 3),
             "feature_profile": "compact_structure",
         }),
         ("context_bias", {
             "history_window": _clamp(base_history + 25, 100, 240),
             "feature_window": _clamp(base_feature + 8, 36, 90),
             "evaluation_window": _clamp(base_eval + 4, 18, 60),
-            "l2": round(_clamp(float(base_config.get("l2") or 0.0025) + 0.0008, 0.001, 0.005), 4),
+            "l2": round(_clamp(base_l2 + 0.0008, 0.001, 0.005), 4),
             "feature_profile": "compact_attributes",
         }),
         ("recency_trim", {
@@ -7019,6 +7119,25 @@ def _optimize_ml_runtime_config(data, region, config):
             "feature_window": _clamp(base_feature - 4, 30, 84),
             "evaluation_window": _clamp(base_eval, 12, 60),
             "feature_profile": "compact_recency",
+        }),
+        ("regularized", {
+            "history_window": _clamp(base_history + 12, 90, 240),
+            "feature_window": _clamp(base_feature, 30, 90),
+            "evaluation_window": _clamp(base_eval + 6, 18, 60),
+            "epochs": _clamp(base_epochs - 2, 15, 30),
+            "learning_rate": round(_clamp(base_learning_rate - 0.006, 0.01, 0.08), 3),
+            "l2": round(_clamp(base_l2 + 0.0012, 0.001, 0.006), 4),
+            "blend_candidates": [0.45, 0.6, 0.74],
+            "feature_profile": "full",
+        }),
+        ("blend_search", {
+            "history_window": _clamp(base_history, 80, 240),
+            "feature_window": _clamp(base_feature + 4, 30, 90),
+            "evaluation_window": _clamp(base_eval, 12, 60),
+            "blend_candidates": [0.5, 0.65, 0.78, 0.88],
+            "pool": _clamp(base_pool + 1, 12, 24),
+            "special_pool": _clamp(base_special_pool + 1, 6, 12),
+            "feature_profile": primary_feature_profile,
         }),
     ]
     normalized_specs = []
@@ -7075,6 +7194,11 @@ def _optimize_ml_runtime_config(data, region, config):
             "history_window": candidate_config.get("history_window"),
             "feature_window": candidate_config.get("feature_window"),
             "evaluation_window": candidate_config.get("evaluation_window"),
+            "epochs": candidate_config.get("epochs"),
+            "learning_rate": candidate_config.get("learning_rate"),
+            "l2": candidate_config.get("l2"),
+            "selected_blend": model.get("selected_blend"),
+            "validation_ratio": round(float(model.get("validation_ratio", 1.0) or 1.0), 4),
             "feature_profile": candidate_config.get("feature_profile", "full"),
         })
         if best is None or adjusted_runtime_score > best:
@@ -7094,6 +7218,8 @@ def _train_ml_number_model(data, region, config):
     l2 = float(config.get("l2") or 0.0025)
     evaluation_window = _clamp(int(config.get("evaluation_window") or 30), 12, 60)
     feature_profile = str(config.get("feature_profile") or "full").strip() or "full"
+    early_stopping_patience = _clamp(int(config.get("early_stopping_patience") or 4), 2, 8)
+    validation_floor = _clamp(float(config.get("validation_floor") or 0.88), 0.72, 0.98)
 
     recent_desc = list(data or [])[:history_window + feature_window + evaluation_window]
     chronological = list(reversed(recent_desc))
@@ -7156,6 +7282,55 @@ def _train_ml_number_model(data, region, config):
     top1_hits = 0
     top6_hits = 0
     target_probability_sum = 0.0
+
+    def evaluate_weight_snapshot(weights, bias):
+        if not weights:
+            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0, "steps": 0}
+        steps = 0
+        top1 = 0
+        top6 = 0
+        target_probability_total = 0.0
+        for eval_idx in range(eval_start, len(chronological)):
+            target_draw = chronological[eval_idx]
+            target_special = str(target_draw.get("sno") or "").strip()
+            if not target_special:
+                continue
+            feature_table = get_feature_table(eval_idx)
+            snapshot_weights = _ensure_ml_weight_vector(list(weights), feature_table)
+            score_pairs = _build_ml_score_pairs(feature_table, snapshot_weights, bias)
+            if not score_pairs:
+                continue
+            target_number = int(target_special)
+            probabilities = _softmax([item[2] for item in score_pairs])
+            ranked_numbers = [
+                int(item[0])
+                for item in sorted(score_pairs, key=lambda item: item[2], reverse=True)
+            ]
+            if ranked_numbers and ranked_numbers[0] == target_number:
+                top1 += 1
+            if target_number in ranked_numbers[:6]:
+                top6 += 1
+            target_probability_total += next(
+                (
+                    probabilities[row_idx]
+                    for row_idx, (key, _, _) in enumerate(score_pairs)
+                    if key == target_special
+                ),
+                0.0,
+            )
+            steps += 1
+        if steps <= 0:
+            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0, "steps": 0}
+        top1_rate = top1 / steps
+        top6_rate = top6 / steps
+        avg_target_probability = target_probability_total / steps
+        return {
+            "score": (top1_rate * 1.85) + top6_rate + (avg_target_probability * 0.35),
+            "top1": top1,
+            "top6": top6,
+            "target_probability": avg_target_probability,
+            "steps": steps,
+        }
 
     for idx in range(min_history, len(chronological)):
         target_draw = chronological[idx]
@@ -7267,9 +7442,17 @@ def _train_ml_number_model(data, region, config):
     fit_steps = 0
     gradient_updates = 0
     train_start = max(min_history, 1)
+    best_fit_weights = None
+    best_fit_bias = 0.0
+    best_validation_score = -1.0
+    stale_epochs = 0
+    learning_rate_scale = 1.0
+    epochs_completed = 0
+    stopped_early = False
+    validation_history = []
 
     for epoch in range(epochs):
-        step = learning_rate * (0.94 ** epoch)
+        step = learning_rate * learning_rate_scale * (0.94 ** epoch)
         for idx in range(train_start, len(chronological)):
             target_draw = chronological[idx]
             target_special = str(target_draw.get("sno") or "").strip()
@@ -7292,6 +7475,35 @@ def _train_ml_number_model(data, region, config):
             )
             fit_steps += 1
             gradient_updates += len(score_pairs)
+        epochs_completed = epoch + 1
+        validation_snapshot = evaluate_weight_snapshot(fit_weights, fit_bias)
+        validation_score = float(validation_snapshot.get("score") or 0.0)
+        validation_history.append({
+            "epoch": epochs_completed,
+            "score": round(validation_score, 6),
+            "top1": int(validation_snapshot.get("top1") or 0),
+            "top6": int(validation_snapshot.get("top6") or 0),
+            "steps": int(validation_snapshot.get("steps") or 0),
+            "learning_rate": round(step, 6),
+        })
+        if validation_score > best_validation_score + 0.00001:
+            best_validation_score = validation_score
+            best_fit_weights = list(fit_weights or [])
+            best_fit_bias = fit_bias
+            stale_epochs = 0
+        else:
+            stale_epochs += 1
+            learning_rate_scale *= 0.72
+
+        if best_validation_score > 0 and validation_score < best_validation_score * validation_floor:
+            stale_epochs += 1
+        if stale_epochs >= early_stopping_patience:
+            stopped_early = True
+            break
+
+    if best_fit_weights is not None:
+        fit_weights = best_fit_weights
+        fit_bias = best_fit_bias
 
     selected_blend = blend_candidates[0]
     best_score = -1.0
@@ -7310,11 +7522,32 @@ def _train_ml_number_model(data, region, config):
         "draw_samples": fit_steps,
         "evaluation_draws": evaluation_steps,
         "gradient_updates": gradient_updates,
+        "epochs_completed": epochs_completed,
+        "stopped_early": stopped_early,
+        "best_validation_score": round(max(best_validation_score, 0.0), 6),
+        "validation_ratio": round(
+            (
+                (validation_history[-1]["score"] / best_validation_score)
+                if validation_history and best_validation_score > 0 else 1.0
+            ),
+            6,
+        ),
+        "validation_history": validation_history[-6:],
         "history_window": history_window,
         "feature_window": feature_window,
         "evaluation_window": evaluation_window,
         "feature_profile": feature_profile,
         "avg_target_probability": round((target_probability_sum / evaluation_steps), 6) if evaluation_steps else 0.0,
+        "calibration_score": round(
+            _clamp(
+                ((target_probability_sum / evaluation_steps) if evaluation_steps else 0.0) * 12.0 +
+                ((top1_hits / evaluation_steps) if evaluation_steps else 0.0) * 0.45 +
+                ((top6_hits / evaluation_steps) if evaluation_steps else 0.0) * 0.25,
+                0.0,
+                1.0,
+            ),
+            6,
+        ),
         "top1_hit_rate": round((top1_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
         "top6_hit_rate": round((top6_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
         "final_top1_hit_rate": round((selected_final_stats.get("top1", 0) / evaluation_steps), 6) if evaluation_steps else 0.0,
@@ -7344,7 +7577,7 @@ def _build_ml_prediction_cache_key(region, data, config):
             "total": int(total or 0),
         }
     payload = {
-        "cache_version": 3,
+        "cache_version": 4,
         "region": normalized_region,
         "periods": head_periods,
         "draw_count": len(data or []),
@@ -7361,6 +7594,8 @@ def _build_ml_prediction_cache_key(region, data, config):
         "epochs": int(config.get("epochs") or 0),
         "learning_rate": float(config.get("learning_rate") or 0.0),
         "l2": float(config.get("l2") or 0.0),
+        "early_stopping_patience": int(config.get("early_stopping_patience") or 0),
+        "validation_floor": float(config.get("validation_floor") or 0.0),
         "pool": int(config.get("pool") or 0),
         "special_pool": int(config.get("special_pool") or 0),
         "bucket_counts": list(config.get("bucket_counts") or []),
@@ -7547,6 +7782,11 @@ def _predict_with_ml(data, region, variation_key=None):
         "draw_samples": model.get("draw_samples", 0),
         "evaluation_draws": model.get("evaluation_draws", 0),
         "gradient_updates": model.get("gradient_updates", 0),
+        "epochs_completed": model.get("epochs_completed", 0),
+        "stopped_early": bool(model.get("stopped_early", False)),
+        "best_validation_score": round(float(model.get("best_validation_score", 0.0)) * 100, 2),
+        "validation_ratio": round(float(model.get("validation_ratio", 1.0)) * 100, 2),
+        "validation_history": model.get("validation_history", []),
         "history_window": history_window,
         "feature_window": model.get("feature_window", 0),
         "evaluation_window": model.get("evaluation_window", 0),
@@ -7559,6 +7799,7 @@ def _predict_with_ml(data, region, variation_key=None):
         "top6_hit_rate": round(float(model.get("top6_hit_rate", 0.0)) * 100, 2),
         "final_top1_hit_rate": round(float(model.get("final_top1_hit_rate", 0.0)) * 100, 2),
         "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
+        "calibration_score": round(float(model.get("calibration_score", 0.0)) * 100, 2),
         "selected_blend": round(blend_weight * 100, 2),
         "normal_numbers": list(normal),
         "selected_special_number": str(special_num),
@@ -10527,6 +10768,8 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
         base_epochs = int(config.get("epochs") or 18)
         base_lr = float(config.get("learning_rate") or 0.035)
         base_l2 = float(config.get("l2") or 0.0025)
+        base_patience = int(config.get("early_stopping_patience") or 4)
+        base_validation_floor = float(config.get("validation_floor") or 0.88)
         candidates.extend([
             {
                 "history_window": _clamp(base_history - delta["history"], 80, 240),
@@ -10557,6 +10800,27 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
                 "epochs": _clamp(base_epochs, 12, 30),
                 "learning_rate": round(_clamp(base_lr, 0.01, 0.08), 3),
                 "l2": round(_clamp(base_l2, 0.001, 0.005), 4),
+            },
+            {
+                "history_window": _clamp(base_history + max(8, delta["history"] // 2), 80, 240),
+                "feature_window": _clamp(base_feature, 30, 90),
+                "evaluation_window": _clamp(base_eval + max(4, delta["eval"] // 2), 12, 60),
+                "epochs": _clamp(base_epochs - 1, 15, 30),
+                "learning_rate": round(_clamp(base_lr - delta["lr"] * 0.6, 0.01, 0.08), 3),
+                "l2": round(_clamp(base_l2 + delta["l2"] * 1.2, 0.001, 0.006), 4),
+                "blend_candidates": [0.45, 0.6, 0.74],
+                "early_stopping_patience": _clamp(base_patience - 1, 2, 8),
+                "validation_floor": round(_clamp(base_validation_floor + 0.03, 0.72, 0.98), 2),
+            },
+            {
+                "history_window": _clamp(base_history, 80, 240),
+                "feature_window": _clamp(base_feature + max(3, delta["feature"] // 2), 30, 90),
+                "evaluation_window": _clamp(base_eval, 12, 60),
+                "pool": _clamp(base_pool + 1, 12, 24),
+                "special_pool": _clamp(base_special + 1, 6, 12),
+                "blend_candidates": [0.5, 0.65, 0.78, 0.88],
+                "early_stopping_patience": _clamp(base_patience + 1, 2, 8),
+                "validation_floor": round(_clamp(base_validation_floor - 0.04, 0.72, 0.98), 2),
             },
         ])
     elif strategy == "ai":
@@ -10608,6 +10872,19 @@ def _build_strategy_backtest_summary(region, strategy, draws=None, config_overri
     if len(chronological) <= 1:
         return {"total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0, "windows": []}
 
+    cache_key = (
+        str(region or "").strip().lower(),
+        str(strategy or "").strip(),
+        _runtime_draws_signature(chronological, limit=AUTO_BACKTEST_LIMIT),
+        _runtime_json_signature(_load_strategy_config(strategy, region)),
+        _runtime_json_signature(config_override or {}),
+        int(min_history or 0),
+        int(max_periods or 0),
+    )
+    cached = _runtime_cache_get("strategy_backtest_summary", cache_key)
+    if cached is not None:
+        return cached
+
     effective_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
     start_idx = effective_min_history
     if max_periods:
@@ -10630,7 +10907,7 @@ def _build_strategy_backtest_summary(region, strategy, draws=None, config_overri
             entries.append(_evaluate_backtest_prediction(result, target_draw))
     summary = _summarize_backtest_entries(entries)
     summary["periods_evaluated"] = len(entries)
-    return summary
+    return _runtime_cache_set("strategy_backtest_summary", cache_key, summary)
 
 
 def _apply_auto_optimized_config(region, strategy, base_config, override, baseline_summary, best_summary, baseline_score, best_score, source="manual"):
