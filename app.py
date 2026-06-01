@@ -1570,6 +1570,8 @@ def _sync_runtime_database_schema():
         'user': {
             'auto_prediction_regions': "VARCHAR(20) DEFAULT 'hk,macau'",
             'show_normal_numbers': 'BOOLEAN DEFAULT 0',
+            'github_id': 'VARCHAR(64)',
+            'github_username': 'VARCHAR(120)',
         },
         'prediction_record': {
             'prediction_metadata': 'MEDIUMTEXT' if dialect in ('mysql', 'mariadb') else 'TEXT',
@@ -1597,6 +1599,22 @@ def _sync_runtime_database_schema():
                     print(f"Added missing column {table_name}.{column_name} for {dialect}")
             except Exception as e:
                 print(f"Failed to add missing column {table_name}.{column_name}: {e}")
+
+    if 'user' in existing_tables:
+        try:
+            user_indexes = {index.get('name') for index in inspector.get_indexes('user')}
+        except Exception:
+            user_indexes = set()
+        if 'ix_user_github_id' not in user_indexes:
+            try:
+                _execute_ddl(
+                    f"CREATE UNIQUE INDEX ix_user_github_id "
+                    f"ON {_quote_identifier('user')} ({_quote_identifier('github_id')})"
+                )
+                if _should_log_startup():
+                    print(f"Added missing index user.github_id for {dialect}")
+            except Exception as e:
+                print(f"Failed to add missing index user.github_id: {e}")
 
     if dialect in ('mysql', 'mariadb'):
         mysql_text_columns = {
