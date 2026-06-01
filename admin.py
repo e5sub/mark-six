@@ -516,10 +516,10 @@ def dashboard():
         ai_accuracy = calculate_accuracy('ai')
         
         # 最近注册的用户
-        recent_users = User.query.order_by(User.created_at.desc()).limit(6).all()
+        recent_users = User.query.order_by(User.created_at.desc()).limit(4).all()
         
         # 最近的预测记录
-        recent_predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).limit(6).all()
+        recent_predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).limit(4).all()
         
         # 为预测记录添加用户名
         for pred in recent_predictions:
@@ -535,7 +535,7 @@ def dashboard():
             User.activation_expires_at.isnot(None),
             User.activation_expires_at >= now,
             User.activation_expires_at <= expiring_cutoff
-        ).order_by(User.activation_expires_at.asc()).limit(6).all()
+        ).order_by(User.activation_expires_at.asc()).limit(4).all()
 
         total_invite_codes = InviteCode.query.count()
         used_invite_codes = InviteCode.query.filter_by(is_used=True).count()

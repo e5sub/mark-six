@@ -190,7 +190,7 @@
 }
 
 .panel {
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
     overflow: hidden;
 }
 
@@ -199,7 +199,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 1rem 1.15rem;
+    padding: 0.75rem 1rem;
     border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
@@ -278,6 +278,7 @@
 
 .content-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
 }
 
 .span-2 {
@@ -285,7 +286,9 @@
 }
 
 .list-wrap {
-    padding: 0.35rem 1.15rem 1rem;
+    padding: 0.25rem 1rem 0.65rem;
+    max-height: 240px;
+    overflow-y: auto;
 }
 
 .list-item {
@@ -293,7 +296,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 0.85rem 0;
+    padding: 0.55rem 0;
     border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
@@ -304,36 +307,37 @@
 .list-title {
     color: #f8fafc;
     font-weight: 700;
+    font-size: 0.92rem;
 }
 
 .list-sub {
-    margin-top: 0.2rem;
+    margin-top: 0.12rem;
     color: #94a3b8;
-    font-size: 0.83rem;
+    font-size: 0.78rem;
 }
 
 .list-side {
     color: #cbd5e1;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     white-space: nowrap;
 }
 
 .inline-chip {
     display: inline-flex;
     align-items: center;
-    padding: 0.15rem 0.45rem;
-    margin-left: 0.4rem;
+    padding: 0.1rem 0.4rem;
+    margin-left: 0.3rem;
     border-radius: 999px;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     color: #dbeafe;
     background: rgba(37, 99, 235, 0.18);
     border: 1px solid rgba(59, 130, 246, 0.18);
 }
 
 .empty-state {
-    padding: 1rem 0;
+    padding: 0.75rem 0;
     color: #94a3b8;
-    font-size: 0.9rem;
+    font-size: 0.84rem;
 }
 
 @media (max-width: 900px) {
