@@ -43,6 +43,22 @@ def check_index_exists(cursor, index_name):
     )
     return cursor.fetchone() is not None
 
+
+def ensure_system_config(cursor, key, value, description):
+    cursor.execute("SELECT id FROM system_config WHERE key = ?", (key,))
+    if cursor.fetchone():
+        print(f"system_config {key} already exists")
+        return
+    cursor.execute(
+        """
+        INSERT INTO system_config (key, value, description)
+        VALUES (?, ?, ?)
+        """,
+        (key, value, description),
+    )
+    print(f"Added system_config {key}")
+
+
 def update_database():
     """更新数据库结构和数据"""
     if _using_mysql():
@@ -58,6 +74,11 @@ def update_database():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+
+        if check_table_exists(cursor, 'system_config'):
+            ensure_system_config(cursor, 'enable_turnstile', 'false', '启用 Cloudflare Turnstile 人机验证')
+            ensure_system_config(cursor, 'turnstile_site_key', '', 'Cloudflare Turnstile 站点密钥')
+            ensure_system_config(cursor, 'turnstile_secret_key', '', 'Cloudflare Turnstile 私钥')
         
         # 检查并添加 auto_prediction_regions 字段
         if not check_column_exists(cursor, 'user', 'auto_prediction_regions'):

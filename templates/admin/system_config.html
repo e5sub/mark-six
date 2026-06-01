@@ -98,7 +98,7 @@
 
     .config-switch-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.7rem;
     }
 
@@ -172,7 +172,14 @@
                             <span class="admin-switch-track" aria-hidden="true"></span>
                             <span class="admin-switch-text">启用邮件推送</span>
                         </label>
-                        <span class="config-hint">关闭后，系统不会发送预测和激活申请邮件。</span>
+                    </div>
+                    <div class="config-field config-field-full">
+                        <label class="admin-switch">
+                            <input type="checkbox" name="require_email_verification"
+                                   {{ 'checked' if configs.get('require_email_verification', 'false') == 'true' else '' }}>
+                            <span class="admin-switch-track" aria-hidden="true"></span>
+                            <span class="admin-switch-text">需要邮箱验证</span>
+                        </label>
                     </div>
                     <div class="config-field">
                         <label>SMTP 服务器</label>
@@ -253,6 +260,32 @@
                 </div>
             </section>
 
+            <section class="config-section" style="--section-accent: #22c55e;">
+                <h3 class="config-section-title">🛡️ 人机验证配置</h3>
+                <div class="config-grid">
+                    <div class="config-field config-field-full">
+                        <label class="admin-switch">
+                            <input type="checkbox" name="enable_turnstile"
+                                   {{ 'checked' if configs.get('enable_turnstile', 'false') == 'true' else '' }}>
+                            <span class="admin-switch-track" aria-hidden="true"></span>
+                            <span class="admin-switch-text">启用人机验证</span>
+                        </label>
+                    </div>
+                    <div class="config-field">
+                        <label>Turnstile Site Key</label>
+                        <input type="text" name="turnstile_site_key" class="form-control"
+                               value="{{ configs.get('turnstile_site_key', '') }}"
+                               placeholder="Cloudflare Turnstile 站点密钥">
+                    </div>
+                    <div class="config-field">
+                        <label>Turnstile Secret Key</label>
+                        <input type="password" name="turnstile_secret_key" class="form-control"
+                               value="{{ configs.get('turnstile_secret_key', '') }}"
+                               placeholder="Cloudflare Turnstile 私钥">
+                    </div>
+                </div>
+            </section>
+
             <section class="config-section config-section-wide" style="--section-accent: #0ea5e9;">
                 <h3 class="config-section-title">🧩 功能开关与优化</h3>
                 <div class="config-grid config-grid-three">
@@ -263,14 +296,6 @@
                                        {{ 'checked' if configs.get('allow_registration', 'true') == 'true' else '' }}>
                                 <span class="admin-switch-track" aria-hidden="true"></span>
                                 <span class="admin-switch-text">允许用户注册</span>
-                            </label>
-                        </div>
-                        <div class="config-switch-item">
-                            <label class="admin-switch">
-                                <input type="checkbox" name="require_email_verification"
-                                       {{ 'checked' if configs.get('require_email_verification', 'false') == 'true' else '' }}>
-                                <span class="admin-switch-track" aria-hidden="true"></span>
-                                <span class="admin-switch-text">需要邮箱验证</span>
                             </label>
                         </div>
                         <div class="config-switch-item">
@@ -326,6 +351,7 @@ document.getElementById('configForm').addEventListener('submit', function(e) {
     const checkboxKeys = [
         'allow_registration',
         'require_email_verification',
+        'enable_turnstile',
         'enable_personalized_predictions',
         'auto_optimize_enabled',
         'notify_email_enabled'

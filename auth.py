@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash
 import uuid
 from datetime import datetime, timedelta
 import secrets
+import requests
 from notification_service import has_email_config, notify_admins, send_html_email
 
 auth_bp = Blueprint('auth', __name__)
@@ -29,7 +30,46 @@ def _has_admin_account():
 def _render_auth_template(template_name, **context):
     context.setdefault('require_email_verification', _email_verification_required())
     context.setdefault('admin_setup_required', not _has_admin_account())
+    context.setdefault('turnstile_site_key', _turnstile_site_key())
     return render_template(template_name, **context)
+
+
+def _turnstile_site_key():
+    if not _is_config_enabled('enable_turnstile', 'false'):
+        return ''
+    site_key = str(SystemConfig.get_config('turnstile_site_key', '') or '').strip()
+    secret_key = str(SystemConfig.get_config('turnstile_secret_key', '') or '').strip()
+    return site_key if site_key and secret_key else ''
+
+
+def _turnstile_enabled():
+    return bool(_turnstile_site_key())
+
+
+def _verify_turnstile_response(token):
+    if not _turnstile_enabled():
+        return True, ''
+    if not token:
+        return False, '请先完成人机验证'
+
+    secret_key = str(SystemConfig.get_config('turnstile_secret_key', '') or '').strip()
+    try:
+        response = requests.post(
+            'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+            data={
+                'secret': secret_key,
+                'response': token,
+                'remoteip': request.headers.get('CF-Connecting-IP') or request.remote_addr or '',
+            },
+            timeout=8,
+        )
+        payload = response.json() if response.ok else {}
+    except Exception as e:
+        return False, f'人机验证暂时不可用，请稍后再试：{e}'
+
+    if payload.get('success') is True:
+        return True, ''
+    return False, '人机验证失败，请刷新页面后重试'
 
 
 def _email_verification_status_key(user_id):
@@ -242,6 +282,12 @@ def register():
         confirm_password = request.form.get('confirm_password')
         invite_code = request.form.get('invite_code', '').strip()
         require_email_verification = _email_verification_required()
+        turnstile_ok, turnstile_message = _verify_turnstile_response(
+            request.form.get('cf-turnstile-response', '')
+        )
+        if not turnstile_ok:
+            flash(turnstile_message, 'error')
+            return _render_auth_template('auth/register.html')
         
         # 验证输入
         if not all([username, email, password, confirm_password]):
@@ -329,6 +375,12 @@ def login():
     if request.method == 'POST':
         username_or_email = request.form.get('username')
         password = request.form.get('password')
+        turnstile_ok, turnstile_message = _verify_turnstile_response(
+            request.form.get('cf-turnstile-response', '')
+        )
+        if not turnstile_ok:
+            flash(turnstile_message, 'error')
+            return _render_auth_template('auth/login.html')
         
         if not username_or_email or not password:
             flash('请输入用户名/邮箱和密码', 'error')
@@ -481,15 +533,21 @@ def request_activation_code():
 def forgot_password():
     if request.method == 'POST':
         email = request.form.get('email')
+        turnstile_ok, turnstile_message = _verify_turnstile_response(
+            request.form.get('cf-turnstile-response', '')
+        )
+        if not turnstile_ok:
+            flash(turnstile_message, 'error')
+            return _render_auth_template('auth/forgot_password.html')
         
         if not email:
             flash('请输入邮箱地址', 'error')
-            return render_template('auth/forgot_password.html')
+            return _render_auth_template('auth/forgot_password.html')
         
         user = User.query.filter_by(email=email).first()
         if not user:
             flash('该邮箱地址未注册', 'error')
-            return render_template('auth/forgot_password.html')
+            return _render_auth_template('auth/forgot_password.html')
         
         # 生成重置令牌
         reset_token = secrets.token_urlsafe(32)
@@ -505,11 +563,11 @@ def forgot_password():
             flash('重置密码链接已发送到您的邮箱，请查收', 'success')
         except Exception as e:
             flash(f'邮件发送失败：{str(e)}', 'error')
-            return render_template('auth/forgot_password.html')
+            return _render_auth_template('auth/forgot_password.html')
         
         return redirect(url_for('auth.login'))
     
-    return render_template('auth/forgot_password.html')
+    return _render_auth_template('auth/forgot_password.html')
 
 @auth_bp.route('/reset_password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
