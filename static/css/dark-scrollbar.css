@@ -1,0 +1,33 @@
+:root {
+    scrollbar-color: rgba(100, 116, 139, 0.82) rgba(15, 23, 42, 0.92);
+    scrollbar-width: thin;
+}
+
+* {
+    scrollbar-color: rgba(100, 116, 139, 0.82) rgba(15, 23, 42, 0.92);
+    scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.92);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(71, 85, 105, 0.95), rgba(100, 116, 139, 0.95));
+    border: 2px solid rgba(15, 23, 42, 0.92);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(96, 165, 250, 0.95), rgba(59, 130, 246, 0.95));
+}
+
+::-webkit-scrollbar-corner {
+    background: rgba(15, 23, 42, 0.92);
+}
