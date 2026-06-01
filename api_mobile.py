@@ -4,6 +4,7 @@ from collections import OrderedDict
 
 from flask import Blueprint, jsonify, request, session
 from sqlalchemy import func, case, or_
+from sqlalchemy.orm import load_only
 
 from models import (
     ActivationCode,
@@ -1474,6 +1475,8 @@ def api_predictions():
     result = request.args.get("result", "").strip()
     include_zodiacs = request.args.get("include_zodiacs", "").strip() == "1"
     include_summaries = request.args.get("include_summaries", "1").strip() != "0"
+    include_details = request.args.get("include_details", "1").strip() != "0"
+    include_total = request.args.get("include_total", "1").strip() != "0"
     year_param = request.args.get("year", "").strip()
 
     query = PredictionRecord.query.filter_by(user_id=user.id)
@@ -1508,7 +1511,27 @@ def api_predictions():
         elif result == "pending":
             query = query.filter(PredictionRecord.is_result_updated.is_(False))
 
-    total = query.count()
+    total = query.count() if include_total else None
+
+    if not include_details:
+        query = query.options(
+            load_only(
+                PredictionRecord.id,
+                PredictionRecord.user_id,
+                PredictionRecord.region,
+                PredictionRecord.strategy,
+                PredictionRecord.period,
+                PredictionRecord.normal_numbers,
+                PredictionRecord.special_number,
+                PredictionRecord.special_zodiac,
+                PredictionRecord.actual_special_number,
+                PredictionRecord.actual_special_zodiac,
+                PredictionRecord.accuracy_score,
+                PredictionRecord.is_result_updated,
+                PredictionRecord.created_at,
+            )
+        )
+
     records = (
         query.order_by(PredictionRecord.created_at.desc())
         .offset((page - 1) * page_size)
@@ -1523,6 +1546,26 @@ def api_predictions():
             _ = int(year_param) if year_param else None
         except (ValueError, TypeError):
             pass
+
+    missing_draw_keys = {
+        (record.region, record.period)
+        for record in records
+        if record.actual_special_number and not record.actual_special_zodiac
+    }
+    if missing_draw_keys:
+        draw_filters = [
+            db.and_(LotteryDraw.region == region_key, LotteryDraw.draw_id == period_key)
+            for region_key, period_key in missing_draw_keys
+        ]
+        if draw_filters:
+            draws = LotteryDraw.query.filter(db.or_(*draw_filters)).all()
+            found_draws = {
+                (draw.region, draw.draw_id): draw
+                for draw in draws
+            }
+            draw_cache.update(found_draws)
+            for key in missing_draw_keys:
+                draw_cache.setdefault(key, False)
 
     items = []
     updated_records = []
@@ -1559,28 +1602,28 @@ def api_predictions():
         if actual_special_zodiac and not record.actual_special_zodiac:
             record.actual_special_zodiac = actual_special_zodiac
             updated_records.append(record)
-        items.append(
-            {
-                "id": record.id,
-                "region": record.region,
-                "strategy": record.strategy,
-                "period": record.period,
-                "normal_numbers": normal_numbers,
-                "normal_zodiacs": normal_zodiacs,
-                "special_number": record.special_number,
-                "special_zodiac": mapped_special,
-                "prediction_text": _hydrate_mobile_prediction_text(record),
-                "prediction_metadata": _hydrate_mobile_prediction_metadata(record),
-                "actual_special_number": record.actual_special_number,
-                "actual_special_zodiac": actual_special_zodiac,
-                "accuracy_score": record.accuracy_score,
-                "is_result_updated": record.is_result_updated,
-                "result": _prediction_result(record),
-                "created_at": record.created_at.isoformat()
-                if record.created_at
-                else None,
-            }
-        )
+        item = {
+            "id": record.id,
+            "region": record.region,
+            "strategy": record.strategy,
+            "period": record.period,
+            "normal_numbers": normal_numbers,
+            "normal_zodiacs": normal_zodiacs,
+            "special_number": record.special_number,
+            "special_zodiac": mapped_special,
+            "actual_special_number": record.actual_special_number,
+            "actual_special_zodiac": actual_special_zodiac,
+            "accuracy_score": record.accuracy_score,
+            "is_result_updated": record.is_result_updated,
+            "result": _prediction_result(record),
+            "created_at": record.created_at.isoformat()
+            if record.created_at
+            else None,
+        }
+        if include_details:
+            item["prediction_text"] = _hydrate_mobile_prediction_text(record)
+            item["prediction_metadata"] = _hydrate_mobile_prediction_metadata(record)
+        items.append(item)
 
     if updated_records:
         try:

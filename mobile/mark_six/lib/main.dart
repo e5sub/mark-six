@@ -4473,6 +4473,8 @@ class _PredictScreenState extends State<PredictScreen> {
         region: _region,
         includeZodiacs: true,
         includeSummaries: false,
+        includeDetails: false,
+        includeTotal: false,
         year: _currentYear,
       );
       final items = (res['items'] as List<dynamic>? ?? [])

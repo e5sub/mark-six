@@ -207,6 +207,8 @@ class ApiClient {
     String? result,
     bool includeZodiacs = false,
     bool includeSummaries = true,
+    bool includeDetails = true,
+    bool includeTotal = true,
     String? year,
   }) async {
     final response = await get('/api/mobile/predictions', queryParameters: {
@@ -217,6 +219,8 @@ class ApiClient {
       if (result != null && result.isNotEmpty) 'result': result,
       if (includeZodiacs) 'include_zodiacs': '1',
       if (!includeSummaries) 'include_summaries': '0',
+      if (!includeDetails) 'include_details': '0',
+      if (!includeTotal) 'include_total': '0',
       if (year != null && year.isNotEmpty) 'year': year,
     });
     return _ensureJsonMap(response.data);
