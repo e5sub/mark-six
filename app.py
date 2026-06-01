@@ -21,6 +21,7 @@ from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.engine import make_url
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # 导入用户系统模块
 from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord, BacktestRun
@@ -522,6 +523,9 @@ app.config["SESSION_COOKIE_SECURE"] = (
     if _session_cookie_secure is not None
     else os.environ.get("FLASK_ENV", "").lower() == "production"
 )
+_trust_proxy_headers = os.environ.get("TRUST_PROXY_HEADERS", "").lower() in ("1", "true", "yes")
+if _trust_proxy_headers:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
 _SECURITY_RATE_LIMITS = {}
 _SECURITY_RATE_LIMITS_LOCK = threading.Lock()
