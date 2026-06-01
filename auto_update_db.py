@@ -8,16 +8,165 @@
 import os
 import sqlite3
 from datetime import datetime
+from urllib.parse import quote_plus
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 # 数据库文件路径
 DB_PATH = os.path.join(os.getcwd(), 'data', 'lottery_system.db')
 DB_TYPE = os.environ.get("DB_TYPE", "sqlite").lower()
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
+
+MYSQL_CHARSET = "utf8mb4"
+
 def _using_mysql():
     if DB_TYPE in ("mysql", "mariadb"):
         return True
     return DATABASE_URL.lower().startswith("mysql")
+
+
+def _build_mysql_database_uri():
+    if DATABASE_URL:
+        return DATABASE_URL
+
+    host = os.environ.get("DB_HOST", "localhost")
+    port = os.environ.get("DB_PORT", "3306")
+    name = os.environ.get("DB_NAME", "mark_six")
+    user = quote_plus(os.environ.get("DB_USER", "root"))
+    password = quote_plus(os.environ.get("DB_PASSWORD", ""))
+    return f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset={MYSQL_CHARSET}"
+
+
+def _mysql_table_exists(connection, table_name):
+    result = connection.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = :table_name
+            """
+        ),
+        {"table_name": table_name},
+    ).scalar()
+    return bool(result)
+
+
+def _mysql_column_exists(connection, table_name, column_name):
+    result = connection.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = :table_name
+              AND COLUMN_NAME = :column_name
+            """
+        ),
+        {"table_name": table_name, "column_name": column_name},
+    ).scalar()
+    return bool(result)
+
+
+def _mysql_index_exists(connection, table_name, index_name):
+    result = connection.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = :table_name
+              AND INDEX_NAME = :index_name
+            """
+        ),
+        {"table_name": table_name, "index_name": index_name},
+    ).scalar()
+    return bool(result)
+
+
+def _mysql_ensure_system_config(connection, key, value, description):
+    if not _mysql_table_exists(connection, "system_config"):
+        return
+    connection.execute(
+        text(
+            """
+            INSERT INTO system_config (`key`, `value`, description)
+            SELECT :key, :value, :description
+            WHERE NOT EXISTS (
+                SELECT 1 FROM system_config WHERE `key` = :key
+            )
+            """
+        ),
+        {"key": key, "value": value, "description": description},
+    )
+
+
+def _update_mysql_database():
+    database_uri = _build_mysql_database_uri()
+    backend = (make_url(database_uri).get_backend_name() or "").lower()
+    if backend not in ("mysql", "mariadb"):
+        print(f"Unsupported MySQL update backend: {backend}")
+        return False
+
+    engine = create_engine(database_uri, pool_pre_ping=True, pool_recycle=280)
+    try:
+        with engine.begin() as connection:
+            print("Updating MySQL/MariaDB database schema...")
+
+            configs = [
+                ("enable_turnstile", "false", "启用 Cloudflare Turnstile 人机验证"),
+                ("turnstile_site_key", "", "Cloudflare Turnstile 站点密钥"),
+                ("turnstile_secret_key", "", "Cloudflare Turnstile 私钥"),
+                ("enable_github_login", "false", "启用 GitHub 登录"),
+                ("github_client_id", "", "GitHub OAuth Client ID"),
+                ("github_client_secret", "", "GitHub OAuth Client Secret"),
+            ]
+            for key, value, description in configs:
+                _mysql_ensure_system_config(connection, key, value, description)
+
+            if _mysql_table_exists(connection, "user"):
+                user_columns = {
+                    "auto_prediction_regions": "VARCHAR(20) DEFAULT 'hk,macau'",
+                    "show_normal_numbers": "BOOLEAN DEFAULT 0",
+                    "github_id": "VARCHAR(64)",
+                    "github_username": "VARCHAR(120)",
+                }
+                for column_name, ddl in user_columns.items():
+                    if not _mysql_column_exists(connection, "user", column_name):
+                        connection.execute(text(f"ALTER TABLE `user` ADD COLUMN `{column_name}` {ddl}"))
+                        print(f"Added user.{column_name}")
+                    else:
+                        print(f"user.{column_name} already exists")
+
+                if not _mysql_index_exists(connection, "user", "ix_user_github_id"):
+                    connection.execute(text("CREATE UNIQUE INDEX ix_user_github_id ON `user` (`github_id`)"))
+                    print("Created ix_user_github_id")
+                else:
+                    print("ix_user_github_id already exists")
+
+            if _mysql_table_exists(connection, "prediction_record"):
+                if not _mysql_column_exists(connection, "prediction_record", "prediction_metadata"):
+                    connection.execute(text("ALTER TABLE prediction_record ADD COLUMN prediction_metadata MEDIUMTEXT"))
+                    print("Added prediction_record.prediction_metadata")
+                else:
+                    print("prediction_record.prediction_metadata already exists")
+
+            if _mysql_table_exists(connection, "manual_bet_records"):
+                if not _mysql_column_exists(connection, "manual_bet_records", "bettor_name"):
+                    connection.execute(text("ALTER TABLE manual_bet_records ADD COLUMN bettor_name VARCHAR(50)"))
+                    print("Added manual_bet_records.bettor_name")
+                else:
+                    print("manual_bet_records.bettor_name already exists")
+
+        print("MySQL/MariaDB database update completed.")
+        return True
+    except Exception as e:
+        print(f"MySQL/MariaDB database update failed: {e}")
+        return False
+    finally:
+        engine.dispose()
 
 def check_database_exists():
     """检查数据库是否存在"""
@@ -62,8 +211,7 @@ def ensure_system_config(cursor, key, value, description):
 def update_database():
     """更新数据库结构和数据"""
     if _using_mysql():
-        print("MySQL configured, skipping sqlite auto update.")
-        return True
+        return _update_mysql_database()
     if not check_database_exists():
         print(f"数据库文件不存在: {DB_PATH}")
         print("请先运行 create_db.py 创建数据库")

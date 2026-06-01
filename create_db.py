@@ -23,6 +23,21 @@ DB_TYPE = os.environ.get("DB_TYPE", "sqlite").lower()
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 if DB_TYPE in ("mysql", "mariadb") or DATABASE_URL.lower().startswith("mysql"):
+    print("检测到 MySQL/MariaDB 配置，执行数据库结构更新。")
+    try:
+        import auto_update_db
+
+        update_success = auto_update_db.update_database()
+        if update_success:
+            print("MySQL/MariaDB 数据库结构更新完成。")
+            sys.exit(0)
+        print("MySQL/MariaDB 数据库结构更新失败，请检查数据库连接配置。")
+        sys.exit(1)
+    except Exception as e:
+        print(f"MySQL/MariaDB 数据库结构更新失败: {e}")
+        sys.exit(1)
+
+if False and (DB_TYPE in ("mysql", "mariadb") or DATABASE_URL.lower().startswith("mysql")):
     print("⚠ 检测到 MySQL/MariaDB 配置，跳过 SQLite 数据库创建。")
     sys.exit(0)
 
