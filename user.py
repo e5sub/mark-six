@@ -2,7 +2,7 @@
 from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from functools import wraps
 import json
@@ -77,6 +77,42 @@ def _get_prediction_display_info(prediction):
         "key": prediction.strategy,
         "label": _strategy_label_map().get(prediction.strategy, prediction.strategy)
     }
+
+
+def _format_datetime_ymdhm(value):
+    return value.strftime("%Y-%m-%d %H:%M")
+
+
+def _compute_next_hk_draw_time(now=None):
+    now = now or datetime.now()
+    draw_hour = 21
+    draw_minute = 32
+    draw_days = {1, 3, 5}
+    today_draw = datetime(now.year, now.month, now.day, draw_hour, draw_minute)
+    if now.weekday() in draw_days and now < today_draw:
+        return today_draw
+    for i in range(1, 8):
+        candidate = now + timedelta(days=i)
+        if candidate.weekday() in draw_days:
+            return datetime(candidate.year, candidate.month, candidate.day, draw_hour, draw_minute)
+    return today_draw + timedelta(days=2)
+
+
+def _compute_next_macau_draw_time(now=None):
+    now = now or datetime.now()
+    draw_time = datetime(now.year, now.month, now.day, 21, 32)
+    return draw_time if now < draw_time else draw_time + timedelta(days=1)
+
+
+def _get_next_draw_time_label(region):
+    normalized_region = str(region or "").strip().lower()
+    now = datetime.now()
+    if normalized_region == "hk":
+        cached = SystemConfig.get_config("hk_next_draw_time", "").strip()
+        return cached or _format_datetime_ymdhm(_compute_next_hk_draw_time(now))
+    if normalized_region == "macau":
+        return _format_datetime_ymdhm(_compute_next_macau_draw_time(now))
+    return ""
 
 
 def _sanitize_auto_prediction_strategies(user):
@@ -1597,6 +1633,7 @@ def predictions():
                 'grouper': prediction.period,
                 'region': prediction.region,
                 'draw_date': draw_date_map.get((str(prediction.region or '').strip(), str(prediction.period or '').strip()), ''),
+                'next_draw_time': _get_next_draw_time_label(prediction.region),
                 'list': []
             }
             grouped_predictions_map[period_key] = group
