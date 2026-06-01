@@ -515,28 +515,6 @@ def dashboard():
         balanced_accuracy = calculate_accuracy('balanced')
         ai_accuracy = calculate_accuracy('ai')
         
-        # 最近注册的用户
-        recent_users = User.query.order_by(User.created_at.desc()).limit(4).all()
-        
-        # 最近的预测记录
-        recent_predictions = PredictionRecord.query.order_by(PredictionRecord.created_at.desc()).limit(4).all()
-        
-        # 为预测记录添加用户名
-        for pred in recent_predictions:
-            if pred.user_id:
-                user = User.query.get(pred.user_id)
-                pred.username = user.username if user else '已删除用户'
-            else:
-                pred.username = '未知用户'
-        
-        # 获取邀请统计数据
-        expiring_users = User.query.filter(
-            User.is_active.is_(True),
-            User.activation_expires_at.isnot(None),
-            User.activation_expires_at >= now,
-            User.activation_expires_at <= expiring_cutoff
-        ).order_by(User.activation_expires_at.asc()).limit(4).all()
-
         total_invite_codes = InviteCode.query.count()
         used_invite_codes = InviteCode.query.filter_by(is_used=True).count()
         unused_invite_codes = total_invite_codes - used_invite_codes
@@ -598,9 +576,6 @@ def dashboard():
             'total_invite_codes': total_invite_codes,
             'used_invite_codes': used_invite_codes,
             'unused_invite_codes': unused_invite_codes,
-            'recent_users': recent_users,
-            'recent_predictions': recent_predictions,
-            'expiring_users': expiring_users,
             'actionable_cards': actionable_cards,
             'invite_stats': invite_stats
         }
@@ -627,9 +602,6 @@ def dashboard():
             'total_invite_codes': 0,
             'used_invite_codes': 0,
             'unused_invite_codes': 0,
-            'recent_users': [],
-            'recent_predictions': [],
-            'expiring_users': [],
             'actionable_cards': [],
             'invite_stats': {
                 'total_invite_codes': 0,
