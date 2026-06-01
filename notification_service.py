@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 import json
+import ipaddress
 import smtplib
+import socket
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from urllib.parse import urlparse
 
 import requests
 
@@ -69,6 +72,36 @@ def _plain_text(value):
     return str(value or '').replace('<br>', '\n').replace('<br/>', '\n')
 
 
+def _is_public_http_url(raw_url):
+    try:
+        parsed = urlparse(str(raw_url or '').strip())
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            return False
+        host = parsed.hostname.strip().lower()
+        if host == 'localhost' or host.endswith('.localhost'):
+            return False
+
+        try:
+            addresses = socket.getaddrinfo(host, None)
+        except socket.gaierror:
+            return False
+
+        for item in addresses:
+            ip = ipaddress.ip_address(item[4][0])
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
+                return False
+        return True
+    except Exception:
+        return False
+
+
 def has_email_config():
     return all([
         _get_config('smtp_server'),
@@ -106,6 +139,8 @@ def _send_webhook(title, content, event_type='general', user=None, link_url=None
     webhook_url = (config.get('webhook_url') or '').strip()
     if not webhook_url:
         return False
+    if not _is_public_http_url(webhook_url):
+        raise ValueError('Webhook URL must be a public http(s) URL')
 
     text = _plain_text(content)
     payload = {
@@ -181,6 +216,8 @@ def _send_bark(title, content, link_url=None, config=None):
     device_key = (config.get('bark_device_key') or '').strip()
     if not server_url or not device_key:
         return False
+    if not _is_public_http_url(server_url):
+        raise ValueError('Bark server URL must be a public http(s) URL')
 
     payload = {'title': title, 'body': _plain_text(content)}
     if link_url:

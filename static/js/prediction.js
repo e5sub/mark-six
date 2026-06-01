@@ -115,6 +115,52 @@ function sanitizeAiRecommendationText(text) {
     return sanitized;
 }
 
+function sanitizeMarkdownHtml(html) {
+    if (window.DOMPurify) {
+        return window.DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+    }
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    template.content.querySelectorAll('script, iframe, object, embed, link, meta, style').forEach(node => node.remove());
+    template.content.querySelectorAll('*').forEach(node => {
+        [...node.attributes].forEach(attr => {
+            const name = attr.name.toLowerCase();
+            const value = String(attr.value || '').trim().toLowerCase();
+            if (name.startsWith('on') || value.startsWith('javascript:')) {
+                node.removeAttribute(attr.name);
+            }
+        });
+    });
+    return template.innerHTML;
+}
+
+function renderSafeMarkdown(text) {
+    const raw = window.marked ? window.marked.parse(String(text || '')) : String(text || '');
+    return sanitizeMarkdownHtml(raw);
+}
+
+function loadScriptOnce(src, globalName, callback) {
+    if (globalName && window[globalName]) {
+        callback();
+        return;
+    }
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+        existing.addEventListener('load', callback, { once: true });
+        return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = callback;
+    document.head.appendChild(script);
+}
+
+function ensureMarkdownTools(callback) {
+    loadScriptOnce('https://fastly.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js', 'DOMPurify', () => {
+        loadScriptOnce('https://fastly.jsdelivr.net/npm/marked/marked.min.js', 'marked', callback);
+    });
+}
+
 // 处理流式响应
 function handleStreamingResponse(response, strategy) {
     const reader = response.body.getReader();
@@ -567,23 +613,10 @@ function displayFinalResult(data, strategy) {
     // 显示AI分析文本
     if (data.recommendation_text) {
         data.recommendation_text = sanitizeAiRecommendationText(data.recommendation_text);
-        // 添加marked.js库（如果页面中还没有）
-        if (!window.marked) {
-            const script = document.createElement('script');
-            script.src = 'https://fastly.jsdelivr.net/npm/marked/marked.min.js';
-            document.head.appendChild(script);
-
-            // 等待脚本加载完成
-            script.onload = function() {
-                renderMarkdown();
-            };
-        } else {
-            renderMarkdown();
-        }
+        ensureMarkdownTools(renderMarkdown);
 
         function renderMarkdown() {
-            // 使用marked解析Markdown文本
-            const parsedContent = window.marked ? window.marked.parse(data.recommendation_text) : data.recommendation_text;
+            const parsedContent = renderSafeMarkdown(data.recommendation_text);
 
             html += `
                 <div style="margin-top: 20px; text-align: left; background: rgba(15, 23, 42, 0.88); color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14);">
@@ -747,23 +780,11 @@ function displayPrediction(data, strategy) {
     
     // 显示AI分析文本
     if (data.recommendation_text) {
-        // 添加marked.js库（如果页面中还没有）
-        if (!window.marked) {
-            const script = document.createElement('script');
-            script.src = 'https://fastly.jsdelivr.net/npm/marked/marked.min.js';
-            document.head.appendChild(script);
-            
-            // 等待脚本加载完成
-            script.onload = function() {
-                renderMarkdown();
-            };
-        } else {
-            renderMarkdown();
-        }
+        data.recommendation_text = sanitizeAiRecommendationText(data.recommendation_text);
+        ensureMarkdownTools(renderMarkdown);
         
         function renderMarkdown() {
-            // 使用marked解析Markdown文本
-            const parsedContent = window.marked ? window.marked.parse(data.recommendation_text) : data.recommendation_text;
+            const parsedContent = renderSafeMarkdown(data.recommendation_text);
             
             html += `
                 <div style="margin-top: 20px; text-align: left; background: rgba(15, 23, 42, 0.88); color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.14);">

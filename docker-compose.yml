@@ -6,8 +6,9 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - FLASK_ENV=production
+      - FLASK_DEBUG=0
       - PYTHONUNBUFFERED=1
-      - SECRET_KEY=your-secure-secret-key-change-this  # 设置安全密钥
+      - SECRET_KEY=${SECRET_KEY:?请先设置随机 SECRET_KEY}
       - ENABLE_SCHEDULER=1
       # MySQL support (optional)
       # - DB_TYPE=mysql

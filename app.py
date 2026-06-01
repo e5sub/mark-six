@@ -12,7 +12,7 @@ import threading
 from contextlib import contextmanager
 from collections import Counter
 import re
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from datetime import datetime, timedelta
 import time
 from sqlalchemy import create_engine, event, inspect
@@ -451,6 +451,104 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
 app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+_session_cookie_secure = os.environ.get("SESSION_COOKIE_SECURE")
+app.config["SESSION_COOKIE_SECURE"] = (
+    _session_cookie_secure.lower() in ("1", "true", "yes")
+    if _session_cookie_secure is not None
+    else os.environ.get("FLASK_ENV", "").lower() == "production"
+)
+
+_SECURITY_RATE_LIMITS = {}
+_SECURITY_RATE_LIMITS_LOCK = threading.Lock()
+
+
+def _client_rate_key(scope):
+    user_id = session.get("user_id")
+    remote_addr = request.headers.get("X-Forwarded-For", request.remote_addr or "")
+    remote_addr = remote_addr.split(",", 1)[0].strip()
+    return f"{scope}:user:{user_id}" if user_id else f"{scope}:ip:{remote_addr}"
+
+
+def _rate_limited(scope, limit, window_seconds):
+    now = time.time()
+    key = _client_rate_key(scope)
+    with _SECURITY_RATE_LIMITS_LOCK:
+        bucket = [
+            timestamp
+            for timestamp in _SECURITY_RATE_LIMITS.get(key, [])
+            if now - timestamp < window_seconds
+        ]
+        if len(bucket) >= limit:
+            _SECURITY_RATE_LIMITS[key] = bucket
+            return True
+        bucket.append(now)
+        _SECURITY_RATE_LIMITS[key] = bucket
+    return False
+
+
+def _same_origin_request():
+    expected_host = request.host
+    for header_name in ("Origin", "Referer"):
+        raw_value = request.headers.get(header_name)
+        if not raw_value:
+            continue
+        parsed = urlparse(raw_value)
+        if parsed.netloc and parsed.netloc != expected_host:
+            return False
+    return True
+
+
+def _json_auth_error(message, status=401, code="auth_required"):
+    return jsonify({"success": False, "error": code, "message": message}), status
+
+
+def _require_active_session_json():
+    user_id = session.get("user_id")
+    if not user_id:
+        return None, _json_auth_error("请先登录", 401, "auth_required")
+    user = User.query.get(user_id)
+    if not user:
+        session.clear()
+        return None, _json_auth_error("登录状态已失效，请重新登录", 401, "auth_required")
+    user.check_and_update_activation_status()
+    session["is_active"] = bool(user.is_active)
+    if not user.is_active:
+        return None, _json_auth_error("账号未激活或已过期", 403, "activation_required")
+    return user, None
+
+
+def _require_admin_session_json():
+    user_id = session.get("user_id")
+    if not user_id:
+        return None, _json_auth_error("请先登录", 401, "auth_required")
+    user = User.query.get(user_id)
+    if not user or not user.is_admin:
+        return None, _json_auth_error("需要管理员权限", 403, "admin_required")
+    return user, None
+
+
+@app.before_request
+def security_request_guards():
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not _same_origin_request():
+        if request.path.startswith("/api/"):
+            return _json_auth_error("跨站请求已被拦截", 403, "csrf_blocked")
+        return ("跨站请求已被拦截", 403)
+
+    if request.method == "POST" and request.endpoint in {"auth.login", "auth.register"}:
+        if _rate_limited(request.endpoint, 8, 300):
+            return ("请求过于频繁，请稍后再试", 429)
+
+    if request.method == "POST" and request.endpoint in {"auth.forgot_password", "auth.reset_password"}:
+        if _rate_limited(request.endpoint, 5, 900):
+            return ("请求过于频繁，请稍后再试", 429)
+
+    if request.endpoint == "unified_predict_api":
+        if _rate_limited("api.predict", 30, 300):
+            return _json_auth_error("预测请求过于频繁，请稍后再试", 429, "rate_limited")
+
+    if request.endpoint == "handle_chat" and request.method == "POST":
+        if _rate_limited("api.chat", 20, 300):
+            return _json_auth_error("聊天请求过于频繁，请稍后再试", 429, "rate_limited")
 
 
 def _safe_system_config(key, default=""):
@@ -11881,6 +11979,10 @@ def generate_prediction_for_user(user, region, period, strategy, data):
 
 @app.route('/api/predict')
 def unified_predict_api():
+    user, auth_error = _require_active_session_json()
+    if auth_error:
+        return auth_error
+
     # 预测按当前农历生肖年取数；生肖映射仍由 /api/get_zodiacs 单独处理。
     region, strategy, year = request.args.get('region', 'hk'), request.args.get('strategy', 'balanced'), request.args.get('year', str(datetime.now().year))
     stream_response = request.args.get('stream') == '1'
@@ -11893,8 +11995,8 @@ def unified_predict_api():
     resolved_strategy = strategy
     
     # 检查用户是否登录和激活（对于需要保存记录的功能）
-    user_id = session.get('user_id')
-    is_active = session.get('is_active', False)
+    user_id = user.id
+    is_active = True
     
     # 获取下一期期数（使用最近一期的下一期）
     if data:
@@ -12315,6 +12417,10 @@ def _start_draw_postprocess_async(regions, current_year, source="manual-postproc
 
 @app.route('/api/update_data', methods=['POST'])
 def update_data_api():
+    _, auth_error = _require_admin_session_json()
+    if auth_error:
+        return auth_error
+
     payload = request.get_json(silent=True) or {}
     region = payload.get('region', 'all')
     try:
@@ -12525,10 +12631,14 @@ def chat_page():
 
 @app.route('/api/chat', methods=['POST'])
 def handle_chat():
+    _, auth_error = _require_active_session_json()
+    if auth_error:
+        return auth_error
+
     ai_config = get_ai_config()
     if not ai_config['api_key'] or "你的" in ai_config['api_key']:
         return jsonify({"reply": "错误：管理员尚未配置AI API Key，无法使用聊天功能。"}), 400
-    user_message = request.json.get("message")
+    user_message = (request.get_json(silent=True) or {}).get("message")
     if not user_message:
         return jsonify({"reply": "错误：未能获取到您发送的消息。"}), 400
     system_prompt = "你是一个精通香港和澳门六合彩数据分析的AI助手，知识渊博，回答友好。请根据用户的提问，提供相关的历史知识、数据规律或普遍性建议。不要提供具体的投资建议。"
@@ -13070,7 +13180,8 @@ if __name__ == '__main__':
     
     try:
         # 启动Flask应用
-        app.run(debug=True, port=5000)
+        debug_enabled = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+        app.run(debug=debug_enabled, port=5000)
     except (KeyboardInterrupt, SystemExit):
         # 关闭定时任务
         if scheduler and scheduler.running:

@@ -9,6 +9,7 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <!-- 添加 Markdown 解析库 -->
     <script src="https://fastly.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://fastly.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
     <!-- 添加代码高亮库 -->
     <link rel="stylesheet" href="https://fastly.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.css">
     <script src="https://fastly.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
@@ -1214,7 +1215,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (done) {
                         if (aiMessageDiv && messageContent) {
                             // 最后进行Markdown解析和代码高亮
-                            messageContent.innerHTML = marked.parse(fullText);
+                            messageContent.innerHTML = DOMPurify.sanitize(marked.parse(fullText), { USE_PROFILES: { html: true } });
                             messageContent.querySelectorAll('pre code').forEach((block) => {
                                 hljs.highlightElement(block);
                             });
@@ -1319,7 +1320,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // 如果是AI消息且不是打字指示器，使用Markdown解析
         if (sender === 'ai' && !isTyping) {
-            messageContent.innerHTML = marked.parse(text);
+            messageContent.innerHTML = DOMPurify.sanitize(marked.parse(text), { USE_PROFILES: { html: true } });
             // 处理完成后应用代码高亮
             messageContent.querySelectorAll('pre code').forEach((block) => {
                 hljs.highlightElement(block);
