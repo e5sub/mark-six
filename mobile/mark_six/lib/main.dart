@@ -5306,98 +5306,103 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return '${value.toStringAsFixed(0)}元';
   }
 
-  Widget _buildStakeBadge(double amount) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: const Color(0x1622C55E),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0x334ADE80)),
-      ),
-      child: Text(
-        _formatYuan(amount),
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF15803D),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProfitBadge(double? amount) {
-    final value = amount ?? 0;
-    final isPending = amount == null;
-    final isWin = value > 0;
-    final isLose = value < 0;
-    final background = isPending
-        ? const Color(0x1494A3B8)
-        : isWin
-            ? const Color(0x1622C55E)
-            : isLose
-                ? const Color(0x16EF4444)
-                : const Color(0x1494A3B8);
-    final foreground = isPending
-        ? const Color(0xFF64748B)
-        : isWin
-            ? const Color(0xFF15803D)
-            : isLose
-                ? const Color(0xFFDC2626)
-                : const Color(0xFF64748B);
-    final text = isPending
-        ? '-'
-        : isWin
-            ? '+${_formatYuan(value)}'
-            : _formatYuan(value);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: foreground.withOpacity(0.18)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-          color: foreground,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBetSummaryWrap({
-    required double stake,
-    required double? profit,
+  Widget _buildProfileSectionHeader({
+    required IconData icon,
+    required String title,
+    Color color = const Color(0xFF0B6B4F),
+    Widget? trailing,
   }) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 8,
+    return Row(
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              '总下注：',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            _buildStakeBadge(stake),
-          ],
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: color, size: 20),
         ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              '总盈亏：',
-              style: TextStyle(fontWeight: FontWeight.w700),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
             ),
-            const SizedBox(width: 6),
-            _buildProfitBadge(profit),
-          ],
+          ),
         ),
+        if (trailing != null) trailing,
       ],
+    );
+  }
+
+  Widget _buildMetricTile({
+    required String label,
+    required String value,
+    required Color color,
+    IconData? icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 15, color: color),
+                const SizedBox(width: 5),
+              ],
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricGrid(List<Widget> children) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 10.0;
+        final itemWidth = (constraints.maxWidth - spacing) / 2;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: children
+              .map((child) => SizedBox(width: itemWidth, child: child))
+              .toList(),
+        );
+      },
     );
   }
 
@@ -5617,20 +5622,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        const Text(
-                          '特码准确率',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        _buildProfileSectionHeader(
+                          icon: Icons.track_changes,
+                          title: '特码准确率',
+                          color: const Color(0xFF2563EB),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
                         if (_overall != null) ...[
-                          Text('特码命中率：${_overall!.accuracy}%'),
-                          Text('平码/生肖命中率：${_overall!.normalHitRate}%'),
-                          Text('总预测次数：${_overall!.total}'),
-                          Text('特码命中：${_overall!.specialHits}'),
-                          Text('平码/生肖命中：${_overall!.normalHits}'),
+                          _buildMetricGrid([
+                            _buildMetricTile(
+                              label: '特码命中率',
+                              value: '${_overall!.accuracy}%',
+                              color: const Color(0xFF2563EB),
+                              icon: Icons.center_focus_strong,
+                            ),
+                            _buildMetricTile(
+                              label: '平码/生肖命中率',
+                              value: '${_overall!.normalHitRate}%',
+                              color: const Color(0xFF0B6B4F),
+                              icon: Icons.grid_view,
+                            ),
+                            _buildMetricTile(
+                              label: '总预测次数',
+                              value: _overall!.total.toString(),
+                              color: const Color(0xFF7C3AED),
+                              icon: Icons.analytics_outlined,
+                            ),
+                            _buildMetricTile(
+                              label: '累计命中',
+                              value:
+                                  '${_overall!.specialHits}/${_overall!.normalHits}',
+                              color: const Color(0xFFF97316),
+                              icon: Icons.done_all,
+                            ),
+                          ]),
                         ] else
                           const Text('暂无数据'),
                       ],
@@ -5649,39 +5674,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                '盈亏报表',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              onPressed:
-                                  _loadingBetSummary ? null : _loadBetSummary,
-                              icon: const Icon(Icons.refresh),
-                            ),
-                          ],
+                        _buildProfileSectionHeader(
+                          icon: Icons.account_balance_wallet_outlined,
+                          title: '盈亏报表',
+                          color: const Color(0xFF0B6B4F),
+                          trailing: IconButton(
+                            onPressed:
+                                _loadingBetSummary ? null : _loadBetSummary,
+                            icon: const Icon(Icons.refresh),
+                          ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
                         if (_betSummary != null) ...[
-                          Text('已结算：${_betSummary!['settled_count'] ?? 0}'),
-                          Text('待结算：${_betSummary!['pending_count'] ?? 0}'),
-                          _buildBetSummaryWrap(
-                            stake: ((_betSummary!['total_stake'] as num?) ?? 0)
-                                .toDouble(),
-                            profit: ((_betSummary!['total_profit'] as num?) ?? 0)
-                                .toDouble(),
-                          ),
-                          Text(
-                            '赢/输/平：${_betSummary!['win_count'] ?? 0}/'
-                            '${_betSummary!['lose_count'] ?? 0}/'
-                            '${_betSummary!['draw_count'] ?? 0}',
-                          ),
+                          _buildMetricGrid([
+                            _buildMetricTile(
+                              label: '总下注',
+                              value: _formatYuan(
+                                ((_betSummary!['total_stake'] as num?) ?? 0)
+                                    .toDouble(),
+                              ),
+                              color: const Color(0xFF0B6B4F),
+                              icon: Icons.payments_outlined,
+                            ),
+                            _buildMetricTile(
+                              label: '总盈亏',
+                              value: _formatYuan(
+                                ((_betSummary!['total_profit'] as num?) ?? 0)
+                                    .toDouble(),
+                              ),
+                              color:
+                                  (((_betSummary!['total_profit'] as num?) ?? 0)
+                                              .toDouble() <
+                                          0)
+                                      ? const Color(0xFFDC2626)
+                                      : const Color(0xFF2563EB),
+                              icon: Icons.show_chart,
+                            ),
+                            _buildMetricTile(
+                              label: '已结算 / 待结算',
+                              value:
+                                  '${_betSummary!['settled_count'] ?? 0}/${_betSummary!['pending_count'] ?? 0}',
+                              color: const Color(0xFF7C3AED),
+                              icon: Icons.fact_check_outlined,
+                            ),
+                            _buildMetricTile(
+                              label: '赢 / 输 / 平',
+                              value:
+                                  '${_betSummary!['win_count'] ?? 0}/${_betSummary!['lose_count'] ?? 0}/${_betSummary!['draw_count'] ?? 0}',
+                              color: const Color(0xFFF97316),
+                              icon: Icons.emoji_events_outlined,
+                            ),
+                          ]),
                         ] else
                           const Text('暂无数据'),
                       ],
