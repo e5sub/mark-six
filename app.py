@@ -337,6 +337,13 @@ def _runtime_cache_set(name, key, value, max_items=_RUNTIME_ANALYSIS_CACHE_MAX_I
     return value
 
 
+def _clear_runtime_analysis_caches():
+    try:
+        _runtime_analysis_cache_local.caches = {}
+    except Exception:
+        pass
+
+
 def _runtime_draws_signature(data, limit=None):
     selected = list(data or [])
     if limit:
@@ -350,6 +357,25 @@ def _runtime_json_signature(value):
     except TypeError:
         payload = str(value or "")
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
+def _prediction_cache_meta(region, data):
+    normalized_region = str(region or "").strip().lower()
+    latest_period = ""
+    for item in list(data or [])[:16]:
+        latest_period = str((item or {}).get("id") or "").strip()
+        if latest_period:
+            break
+    return normalized_region, latest_period
+
+
+def _prediction_cache_ttl_seconds(default_ttl):
+    try:
+        if not _personalized_predictions_enabled():
+            return None
+    except Exception:
+        pass
+    return int(default_ttl or 0)
 
 
 def _build_ai_prediction_cache_key(region, data, tuned, ai_config, prompt, temperature, sample_count, candidate_count):
@@ -378,14 +404,45 @@ def _build_ai_prediction_cache_key(region, data, tuned, ai_config, prompt, tempe
     return hashlib.md5(fingerprint.encode("utf-8")).hexdigest()
 
 
+def _prune_stale_ai_prediction_cache(region, latest_period):
+    normalized_region = str(region or "").strip().lower()
+    latest_period = str(latest_period or "").strip()
+    if not normalized_region or not latest_period:
+        return
+    with _ai_prediction_cache_lock:
+        stale_keys = [
+            key
+            for key, item in _ai_prediction_cache.items()
+            if str(item.get("region") or "").strip().lower() == normalized_region
+            and str(item.get("latest_period") or "").strip() != latest_period
+        ]
+        for key in stale_keys:
+            _ai_prediction_cache.pop(key, None)
+
+
+def _clear_ai_prediction_cache(region=None):
+    normalized_region = str(region or "").strip().lower()
+    with _ai_prediction_cache_lock:
+        if not normalized_region:
+            _ai_prediction_cache.clear()
+            return
+        for key in [
+            key
+            for key, item in _ai_prediction_cache.items()
+            if str(item.get("region") or "").strip().lower() == normalized_region
+        ]:
+            _ai_prediction_cache.pop(key, None)
+
+
 def _get_cached_ai_prediction(cache_key):
     now = time.time()
+    ttl_seconds = _prediction_cache_ttl_seconds(_AI_PREDICTION_CACHE_TTL_SECONDS)
     with _ai_prediction_cache_lock:
         cached = _ai_prediction_cache.get(cache_key)
         if not cached:
             return None
         cached_at = float(cached.get("cached_at") or 0.0)
-        if now - cached_at > _AI_PREDICTION_CACHE_TTL_SECONDS:
+        if ttl_seconds is not None and now - cached_at > ttl_seconds:
             _ai_prediction_cache.pop(cache_key, None)
             return None
         cached["last_used_at"] = now
@@ -398,23 +455,25 @@ def _get_cached_ai_prediction(cache_key):
     return result
 
 
-def _store_cached_ai_prediction(cache_key, result):
+def _store_cached_ai_prediction(cache_key, result, region=None, latest_period=None):
     if not isinstance(result, dict) or result.get("error"):
         return result
     now = time.time()
+    ttl_seconds = _prediction_cache_ttl_seconds(_AI_PREDICTION_CACHE_TTL_SECONDS)
     cached_result = copy.deepcopy(result)
     meta = dict(cached_result.get("model_meta") or {})
     meta["ai_cache_hit"] = False
     meta["ai_cached_at"] = datetime.now().isoformat(timespec="seconds")
     cached_result["model_meta"] = meta
     with _ai_prediction_cache_lock:
-        expired_keys = [
-            key
-            for key, item in _ai_prediction_cache.items()
-            if now - float(item.get("cached_at") or 0.0) > _AI_PREDICTION_CACHE_TTL_SECONDS
-        ]
-        for key in expired_keys:
-            _ai_prediction_cache.pop(key, None)
+        if ttl_seconds is not None:
+            expired_keys = [
+                key
+                for key, item in _ai_prediction_cache.items()
+                if now - float(item.get("cached_at") or 0.0) > ttl_seconds
+            ]
+            for key in expired_keys:
+                _ai_prediction_cache.pop(key, None)
         if len(_ai_prediction_cache) >= 64:
             oldest_key = min(
                 _ai_prediction_cache.keys(),
@@ -424,6 +483,8 @@ def _store_cached_ai_prediction(cache_key, result):
         _ai_prediction_cache[cache_key] = {
             "cached_at": now,
             "last_used_at": now,
+            "region": str(region or "").strip().lower(),
+            "latest_period": str(latest_period or "").strip(),
             "result": cached_result,
         }
     return copy.deepcopy(cached_result)
@@ -1376,7 +1437,6 @@ def _get_email_strategy_display(prediction):
     return _get_strategy_label(prediction.strategy)
 
 LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]
-_DRAWS_API_CACHE_TTL_SECONDS = 60
 _draws_api_cache_lock = threading.Lock()
 _draws_api_cache = {}
 
@@ -8206,6 +8266,46 @@ def _build_ml_prediction_cache_key(region, data, config):
     return hashlib.md5(fingerprint.encode("utf-8")).hexdigest()
 
 
+def _ml_prediction_cache_meta(region, data):
+    return _prediction_cache_meta(region, data)
+
+
+def _prune_stale_ml_prediction_cache(region, latest_period):
+    normalized_region = str(region or "").strip().lower()
+    latest_period = str(latest_period or "").strip()
+    if not normalized_region or not latest_period:
+        return
+    with _ml_prediction_cache_lock:
+        stale_keys = [
+            key
+            for key, item in _ml_prediction_cache.items()
+            if str(item.get("region") or "").strip().lower() == normalized_region
+            and str(item.get("latest_period") or "").strip() != latest_period
+        ]
+        for key in stale_keys:
+            _ml_prediction_cache.pop(key, None)
+
+
+def _clear_ml_prediction_cache(region=None):
+    normalized_region = str(region or "").strip().lower()
+    with _ml_prediction_cache_lock:
+        if not normalized_region:
+            _ml_prediction_cache.clear()
+            for event in _ml_prediction_build_events.values():
+                event.set()
+            _ml_prediction_build_events.clear()
+            return
+        for key in [
+            key
+            for key, item in _ml_prediction_cache.items()
+            if str(item.get("region") or "").strip().lower() == normalized_region
+        ]:
+            _ml_prediction_cache.pop(key, None)
+        for event in _ml_prediction_build_events.values():
+            event.set()
+        _ml_prediction_build_events.clear()
+
+
 def _get_cached_ml_prediction_artifacts(cache_key):
     now = time.time()
     ttl_seconds = _ml_prediction_cache_ttl_seconds()
@@ -8222,15 +8322,10 @@ def _get_cached_ml_prediction_artifacts(cache_key):
 
 
 def _ml_prediction_cache_ttl_seconds():
-    try:
-        if not _personalized_predictions_enabled():
-            return None
-    except Exception:
-        pass
-    return _ML_PREDICTION_CACHE_TTL_SECONDS
+    return _prediction_cache_ttl_seconds(_ML_PREDICTION_CACHE_TTL_SECONDS)
 
 
-def _store_cached_ml_prediction_artifacts(cache_key, artifacts):
+def _store_cached_ml_prediction_artifacts(cache_key, artifacts, region=None, latest_period=None):
     now = time.time()
     ttl_seconds = _ml_prediction_cache_ttl_seconds()
     with _ml_prediction_cache_lock:
@@ -8250,6 +8345,8 @@ def _store_cached_ml_prediction_artifacts(cache_key, artifacts):
             _ml_prediction_cache.pop(oldest_key, None)
         _ml_prediction_cache[cache_key] = {
             "cached_at": now,
+            "region": str(region or "").strip().lower(),
+            "latest_period": str(latest_period or "").strip(),
             "artifacts": copy.deepcopy(artifacts),
         }
 
@@ -8324,6 +8421,8 @@ def _build_ml_prediction_artifacts(data, region):
     enriched_data, supplemental_draws = _ensure_ml_prediction_history(data, region)
     config = _load_strategy_config("ml", region)
     cache_key = _build_ml_prediction_cache_key(region, enriched_data, config)
+    cache_region, cache_latest_period = _ml_prediction_cache_meta(region, enriched_data)
+    _prune_stale_ml_prediction_cache(cache_region, cache_latest_period)
     cached_artifacts = _get_cached_ml_prediction_artifacts(cache_key)
     if cached_artifacts is not None:
         return cached_artifacts
@@ -8347,7 +8446,12 @@ def _build_ml_prediction_artifacts(data, region):
             region,
             config,
         )
-        _store_cached_ml_prediction_artifacts(cache_key, artifacts)
+        _store_cached_ml_prediction_artifacts(
+            cache_key,
+            artifacts,
+            region=cache_region,
+            latest_period=cache_latest_period,
+        )
         return artifacts
     finally:
         _finish_ml_prediction_build(cache_key)
@@ -9827,6 +9931,7 @@ def _run_ai_prediction_pipeline(
     budget_seconds = _resolve_ai_latency_budget_seconds(tuned, stream_mode=stream_mode)
     use_cache = not stream_mode and not str(initial_response_text or "").strip()
     cache_key = ""
+    cache_region, cache_latest_period = _prediction_cache_meta(region, data)
     if use_cache:
         cache_key = _build_ai_prediction_cache_key(
             region,
@@ -9838,6 +9943,7 @@ def _run_ai_prediction_pipeline(
             sample_count,
             candidate_count,
         )
+        _prune_stale_ai_prediction_cache(cache_region, cache_latest_period)
         cached_result = _get_cached_ai_prediction(cache_key)
         if cached_result is not None:
             return cached_result
@@ -9920,7 +10026,12 @@ def _run_ai_prediction_pipeline(
         budget_exhausted=budget_exhausted,
     )
     if use_cache and cache_key:
-        result = _store_cached_ai_prediction(cache_key, result)
+        result = _store_cached_ai_prediction(
+            cache_key,
+            result,
+            region=cache_region,
+            latest_period=cache_latest_period,
+        )
     return result
 
 
@@ -10797,10 +10908,9 @@ def _load_draw_page_from_db(region, year, page, page_size):
 
 
 def _get_draws_cache(cache_key):
-    now = time.time()
     with _draws_api_cache_lock:
         cached = _draws_api_cache.get(cache_key)
-        if cached and now - cached.get('created_at', 0) < _DRAWS_API_CACHE_TTL_SECONDS:
+        if cached:
             return copy.deepcopy(cached['data'])
     return None
 
@@ -10813,6 +10923,33 @@ def _set_draws_cache(cache_key, data):
             'created_at': time.time(),
             'data': copy.deepcopy(data),
         }
+
+
+def _clear_draws_cache(region=None):
+    normalized_region = str(region or "").strip().lower()
+    with _draws_api_cache_lock:
+        if not normalized_region:
+            _draws_api_cache.clear()
+            return
+        for key in [
+            key
+            for key in _draws_api_cache.keys()
+            if isinstance(key, tuple) and str(key[0] or "").strip().lower() == normalized_region
+        ]:
+            _draws_api_cache.pop(key, None)
+
+
+def _clear_draw_dependent_caches(region=None):
+    _clear_draws_cache(region)
+    _clear_ai_prediction_cache(region)
+    _clear_ml_prediction_cache(region)
+    _clear_runtime_analysis_caches()
+    try:
+        from user import clear_user_runtime_caches
+        clear_user_runtime_caches()
+    except Exception:
+        pass
+
 
 def _filter_draws_by_zodiac_year(draws, zodiac_year):
     try:
@@ -10896,9 +11033,30 @@ def _get_prediction_data(region, year):
     return filtered, target_zodiac_year
 
 
+def _latest_draw_cache_marker(region):
+    try:
+        record = (
+            LotteryDraw.query.filter_by(region=region)
+            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+            .first()
+        )
+    except Exception:
+        return None
+    if not record:
+        return None
+    return (
+        str(record.draw_id or "").strip(),
+        str(record.draw_date or "").strip(),
+        str(record.normal_numbers or "").strip(),
+        str(record.special_number or "").strip(),
+        str(record.special_zodiac or "").strip(),
+    )
+
+
 def save_draws_to_database(draws, region):
     """保存开奖记录到数据库"""
     try:
+        before_latest = _latest_draw_cache_marker(region)
         count = 0
         for draw in draws:
             # 调用LotteryDraw模型的save_draw方法保存记录
@@ -10908,6 +11066,9 @@ def save_draws_to_database(draws, region):
                 if settled:
                     print(f"已自动结算{settled}条手动下注记录，期号: {draw.get('id')}")
         
+        after_latest = _latest_draw_cache_marker(region)
+        if count and before_latest != after_latest:
+            _clear_draw_dependent_caches(region)
         print(f"成功保存{count}条{region}地区的开奖记录到数据库")
     except Exception as e:
         print(f"保存开奖记录到数据库失败: {e}")

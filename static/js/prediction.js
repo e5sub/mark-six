@@ -447,6 +447,21 @@ function getMlPromotionStrengthLabel(value) {
     return labels[value] || value || '观察中';
 }
 
+function formatMlRuntimeSearchWindow(item) {
+    const historyWindow = Number(item?.history_window || 0);
+    const featureWindow = Number(item?.feature_window || 0);
+    const parts = [];
+    if (historyWindow > 0) {
+        parts.push(`回看${historyWindow}期`);
+    }
+    if (featureWindow > 0) {
+        parts.push(`取近${featureWindow}期特征`);
+    }
+    const featureProfile = item?.feature_profile || 'full';
+    parts.push(getMlFeatureProfileLabel(featureProfile));
+    return parts.join(' · ');
+}
+
 function renderPredictionInsights(data, strategy) {
     const sections = [];
 
@@ -460,7 +475,7 @@ function renderPredictionInsights(data, strategy) {
                     <div>${getMlRuntimeProfileLabel(item.profile)}</div>
                     <div>${item.top1_hit_rate}%</div>
                     <div>${item.top6_hit_rate}%</div>
-                    <div>${item.history_window}/${item.feature_window}${item.feature_profile && item.feature_profile !== 'full' ? ` · ${getMlFeatureProfileLabel(item.feature_profile)}` : ''}</div>
+                    <div>${formatMlRuntimeSearchWindow(item)}</div>
                 </div>
             `).join('')
             : '<div style="font-size:0.82rem; color:#dbe4f0;">样本还少，先按基础方式来算。</div>';
@@ -508,41 +523,63 @@ function renderPredictionInsights(data, strategy) {
                 `;
             }).join('')
             : '';
+        const metricItems = [
+            ['一码命中过', `${meta.top1_hit_rate ?? 0}%`],
+            ['六码命中过', `${meta.top6_hit_rate ?? 0}%`],
+            ['本期参考分', `${meta.special_probability ?? 0}%`],
+            ['参考样本', `${meta.evaluation_draws ?? meta.draw_samples ?? 0}期`],
+            ['本次偏向', getMlRuntimeProfileLabel(meta.runtime_profile)],
+            ['综合分', meta.runtime_score ?? 0],
+            ['本次取舍', getMlFeatureProfileLabel(meta.feature_profile)],
+            ['学习状态', getMlPromotionStrengthLabel(meta.promotion_strength)],
+        ];
+        const metricCards = metricItems.map(([label, value]) => `
+            <div style="min-width:0; padding:10px 12px; border-radius:8px; background:rgba(30, 41, 59, 0.62); border:1px solid rgba(148, 163, 184, 0.14);">
+                <div style="font-size:0.72rem; color:#91a4bd; font-weight:700;">${label}</div>
+                <div style="margin-top:4px; font-size:0.96rem; line-height:1.25; color:#f8fafc; font-weight:850; overflow-wrap:anywhere;">${value}</div>
+            </div>
+        `).join('');
+        const detailItems = [
+            displayCopy.primary_config,
+            displayCopy.preferred_features,
+            displayCopy.preferred_runtimes,
+            displayCopy.color_preference,
+            displayCopy.parity_preference,
+            displayCopy.six_reference,
+            displayCopy.final_selection_backtest,
+            displayCopy.special_selection_reason,
+            displayCopy.selected_strategies,
+            displayCopy.weight_summary,
+        ].filter(Boolean);
+        const detailRows = detailItems.map(text => `
+            <div style="display:flex; align-items:flex-start; gap:8px; min-width:0; color:#cbd5e1; font-size:0.82rem; line-height:1.65;">
+                <span style="width:5px; height:5px; flex:0 0 auto; margin-top:0.62em; border-radius:999px; background:#38bdf8;"></span>
+                <span style="min-width:0; overflow-wrap:anywhere;">${text}</span>
+            </div>
+        `).join('');
+        const specialVotesRow = displayCopy.special_votes
+            ? `<div style="margin-top:10px; padding:9px 11px; border-radius:8px; background:rgba(14, 165, 233, 0.10); border:1px solid rgba(56, 189, 248, 0.18); color:#dbeafe; font-size:0.82rem; line-height:1.55;">${displayCopy.special_votes}</div>`
+            : '';
 
         sections.push(`
             <div style="margin-top: 18px; display:grid; gap:12px;">
-                <div style="padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(45, 212, 191, 0.18);">
-                    <div style="font-size: 0.95rem; font-weight: 700; color: #f8fafc; margin-bottom: 10px;">机器学习说明</div>
-                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; font-size:0.85rem; color:#dbe4f0;">
-                        <div><strong>一码参考</strong><br>${meta.top1_hit_rate ?? 0}%</div>
-                        <div><strong>覆盖参考</strong><br>${meta.top6_hit_rate ?? 0}%</div>
-                        <div><strong>本期参考分</strong><br>${meta.special_probability ?? 0}%</div>
-                        <div><strong>参考样本</strong><br>${meta.evaluation_draws ?? meta.draw_samples ?? 0}期</div>
-                        <div><strong>本次偏向</strong><br>${getMlRuntimeProfileLabel(meta.runtime_profile)}</div>
-                        <div><strong>综合分</strong><br>${meta.runtime_score ?? 0}</div>
-                        <div><strong>本次取舍</strong><br>${getMlFeatureProfileLabel(meta.feature_profile)}</div>
-                        <div><strong>学习状态</strong><br>${getMlPromotionStrengthLabel(meta.promotion_strength)}</div>
+                <div style="padding: 16px; border-radius: 12px; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(45, 212, 191, 0.18); text-align:left;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+                        <div style="font-size: 0.96rem; font-weight: 850; color: #f8fafc;">机器学习说明</div>
+                        <div style="font-size:0.74rem; color:#93c5fd; font-weight:750;">本期系统试算结果</div>
                     </div>
-                    ${displayCopy.primary_config ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.primary_config}</div>` : ''}
-                    ${displayCopy.preferred_features ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.preferred_features}</div>` : ''}
-                    ${displayCopy.preferred_runtimes ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.preferred_runtimes}</div>` : ''}
-                    ${displayCopy.color_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.color_preference}</div>` : ''}
-                    ${displayCopy.parity_preference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.parity_preference}</div>` : ''}
-                    ${displayCopy.six_reference ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.six_reference}</div>` : ''}
-                    ${displayCopy.final_selection_backtest ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.final_selection_backtest}</div>` : ''}
-                    ${displayCopy.special_selection_reason ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.special_selection_reason}</div>` : ''}
-                    ${displayCopy.selected_strategies ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.selected_strategies}</div>` : ''}
-                    ${displayCopy.weight_summary ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.weight_summary}</div>` : ''}
-                    ${weightReasonRows ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;"><strong>这些策略为什么参与参考：</strong>${displayCopy.weight_reason_summary ? `<div style="margin-top:4px; color:#9fb1c8;">${displayCopy.weight_reason_summary}</div>` : ''}<div style="margin-top:8px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
-                    ${displayCopy.special_votes ? `<div style="margin-top:10px; font-size:0.82rem; color:#dbe4f0;">${displayCopy.special_votes}</div>` : ''}
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap:8px;">${metricCards}</div>
+                    ${detailRows ? `<div style="margin-top:12px; display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:4px 18px;">${detailRows}</div>` : ''}
+                    ${weightReasonRows ? `<div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(148, 163, 184, 0.14);"><div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; color:#f8fafc;"><strong style="font-size:0.86rem;">策略参考来源</strong>${displayCopy.weight_reason_summary ? `<span style="font-size:0.76rem; color:#9fb1c8;">${displayCopy.weight_reason_summary}</span>` : ''}</div><div style="margin-top:9px; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px;">${weightReasonRows}</div></div>` : ''}
+                    ${specialVotesRow}
                 </div>
                 <div style="padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(96, 165, 250, 0.18);">
                     <div style="font-size: 0.92rem; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">系统试算记录</div>
                     <div style="display:grid; grid-template-columns: 1.1fr 0.8fr 0.8fr 0.8fr; gap:8px; font-size:0.78rem; color:#dbe4f0; font-weight:700; padding-bottom:6px;">
                         <div>偏向</div>
                         <div>一码</div>
-                        <div>覆盖命中</div>
-                        <div>参考期数</div>
+                        <div>六码命中</div>
+                        <div>试算范围</div>
                     </div>
                     ${searchRows}
                 </div>

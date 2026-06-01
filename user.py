@@ -21,6 +21,14 @@ _backtest_refresh_state = {}
 _ml_stats_cache_lock = threading.Lock()
 _ml_stats_cache = {}
 
+
+def clear_user_runtime_caches():
+    with _ml_stats_cache_lock:
+        _ml_stats_cache.clear()
+    with _backtest_refresh_lock:
+        _backtest_refresh_state.clear()
+
+
 STRATEGY_META = [
     {"key": "hot", "label": "热门", "icon": "🔥"},
     {"key": "cold", "label": "冷门", "icon": "🧊"},
