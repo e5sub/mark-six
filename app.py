@@ -8,7 +8,9 @@ import os
 import copy
 import sys
 import requests
+import secrets
 import threading
+import hmac
 from contextlib import contextmanager
 from collections import Counter
 import re
@@ -498,6 +500,40 @@ def _same_origin_request():
     return True
 
 
+def _get_csrf_token():
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+
+def _request_csrf_token():
+    return (
+        request.headers.get("X-CSRFToken")
+        or request.headers.get("X-CSRF-Token")
+        or request.form.get("csrf_token")
+        or request.form.get("_csrf_token")
+        or ""
+    )
+
+
+def _csrf_exempt_endpoint():
+    endpoint = request.endpoint or ""
+    path = request.path or ""
+    return (
+        endpoint.startswith("static")
+        or endpoint.startswith("mobile_api.")
+        or path.startswith("/api/mobile/")
+    )
+
+
+def _csrf_token_valid():
+    expected = session.get("_csrf_token")
+    supplied = _request_csrf_token()
+    return bool(expected and supplied and hmac.compare_digest(str(expected), str(supplied)))
+
+
 def _json_auth_error(message, status=401, code="auth_required"):
     return jsonify({"success": False, "error": code, "message": message}), status
 
@@ -534,6 +570,12 @@ def security_request_guards():
             return _json_auth_error("跨站请求已被拦截", 403, "csrf_blocked")
         return ("跨站请求已被拦截", 403)
 
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not _csrf_exempt_endpoint():
+        if not _csrf_token_valid():
+            if request.path.startswith("/api/") or request.is_json:
+                return _json_auth_error("CSRF token 无效或缺失", 403, "csrf_blocked")
+            return ("CSRF token 无效或缺失", 403)
+
     if request.method == "POST" and request.endpoint in {"auth.login", "auth.register"}:
         if _rate_limited(request.endpoint, 8, 300):
             return ("请求过于频繁，请稍后再试", 429)
@@ -549,6 +591,64 @@ def security_request_guards():
     if request.endpoint == "handle_chat" and request.method == "POST":
         if _rate_limited("api.chat", 20, 300):
             return _json_auth_error("聊天请求过于频繁，请稍后再试", 429, "rate_limited")
+
+
+_CSRF_AUTO_SCRIPT = """
+<meta name="csrf-token" content="{token}">
+<script>
+(function() {{
+  var token = "{token}";
+  function isUnsafe(method) {{
+    return !["GET", "HEAD", "OPTIONS", "TRACE"].includes(String(method || "GET").toUpperCase());
+  }}
+  document.addEventListener("submit", function(event) {{
+    var form = event.target;
+    if (!form || !form.method || !isUnsafe(form.method)) return;
+    if (!form.querySelector('input[name="csrf_token"]')) {{
+      var input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "csrf_token";
+      input.value = token;
+      form.appendChild(input);
+    }}
+  }}, true);
+  if (window.fetch && !window.fetch.__csrfPatched) {{
+    var originalFetch = window.fetch;
+    var patchedFetch = function(input, init) {{
+      init = init || {{}};
+      var method = init.method || (input && input.method) || "GET";
+      if (isUnsafe(method)) {{
+        var headers = new Headers(init.headers || (input && input.headers) || {{}});
+        if (!headers.has("X-CSRFToken")) headers.set("X-CSRFToken", token);
+        init.headers = headers;
+      }}
+      return originalFetch(input, init);
+    }};
+    patchedFetch.__csrfPatched = true;
+    window.fetch = patchedFetch;
+  }}
+}})();
+</script>
+"""
+
+
+@app.after_request
+def inject_csrf_helpers(response):
+    try:
+        if request.method != "GET":
+            return response
+        if not response.mimetype or "text/html" not in response.mimetype:
+            return response
+        body = response.get_data(as_text=True)
+        if "</head>" not in body or 'name="csrf-token"' in body:
+            return response
+        token = _get_csrf_token()
+        body = body.replace("</head>", _CSRF_AUTO_SCRIPT.format(token=token) + "\n</head>", 1)
+        response.set_data(body)
+        response.headers["Content-Length"] = str(len(response.get_data()))
+    except Exception as e:
+        print(f"注入 CSRF 脚本失败: {e}")
+    return response
 
 
 def _safe_system_config(key, default=""):
