@@ -2872,6 +2872,93 @@ def _calculate_strategy_hit_rate_windows(region, strategy, windows=(12, 36, 72))
     }
 
 
+def _score_strategy_window_rates(summary):
+    aggregate = dict((summary or {}).get("aggregate") or {})
+    return round(
+        _safe_float(aggregate.get("top1"), 0.0) * 100.0 +
+        _safe_float(aggregate.get("top6"), 0.0) * 35.0 +
+        _safe_float(aggregate.get("zodiac"), 0.0) * 15.0,
+        4,
+    )
+
+
+def _build_config_rollback_snapshot(config):
+    snapshot = copy.deepcopy(dict(config or {}))
+    snapshot.pop("rollback_guard", None)
+    snapshot.pop("auto_rollback_history", None)
+    snapshot.pop("auto_rollback_last_at", None)
+    snapshot.pop("auto_rollback_last_reason", None)
+    return snapshot
+
+
+def _maybe_rollback_strategy_config(strategy, region, config):
+    guard = dict((config or {}).get("rollback_guard") or {})
+    if not guard.get("active"):
+        return {"rolled_back": False, "config": config}
+
+    previous_config = guard.get("previous_config")
+    if not isinstance(previous_config, dict) or not previous_config:
+        return {"rolled_back": False, "config": config}
+
+    stats = _calculate_strategy_hit_rate_windows(region, strategy, windows=(12, 36, 72))
+    aggregate = dict(stats.get("aggregate") or {})
+    total = int(aggregate.get("total") or 0)
+    min_samples = int(guard.get("min_samples") or 8)
+    if total < min_samples:
+        guard["last_checked_at"] = datetime.now().isoformat(timespec="seconds")
+        guard["last_check_skipped"] = "insufficient_samples"
+        config["rollback_guard"] = guard
+        return {"rolled_back": False, "config": config}
+
+    baseline_score = _safe_float(guard.get("baseline_score"), 0.0)
+    current_score = _score_strategy_window_rates(stats)
+    tolerance = _safe_float(guard.get("drop_tolerance"), 0.8)
+    degraded = current_score < (baseline_score - tolerance)
+    consecutive = int(guard.get("consecutive_degrade") or 0)
+    consecutive = consecutive + 1 if degraded else 0
+    patience = int(guard.get("patience") or 3)
+
+    guard.update({
+        "last_checked_at": datetime.now().isoformat(timespec="seconds"),
+        "last_score": round(current_score, 4),
+        "last_total": total,
+        "last_degraded": bool(degraded),
+        "consecutive_degrade": consecutive,
+        "last_window_rates": stats,
+    })
+
+    if consecutive < patience:
+        config["rollback_guard"] = guard
+        return {"rolled_back": False, "config": config}
+
+    restored = copy.deepcopy(previous_config)
+    restored["last_accuracy"] = round(_safe_float(aggregate.get("top1"), 0.0), 4)
+    restored["last_total"] = total
+    restored["updated_at"] = datetime.now().isoformat()
+    restored["rollback_guard"] = {
+        "active": False,
+        "rolled_back_from_score": round(current_score, 4),
+        "baseline_score": round(baseline_score, 4),
+        "rolled_back_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    history = list((config or {}).get("auto_rollback_history") or [])
+    history.insert(0, {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "region": region,
+        "strategy": strategy,
+        "baseline_score": round(baseline_score, 4),
+        "current_score": round(current_score, 4),
+        "consecutive_degrade": consecutive,
+        "patience": patience,
+        "total": total,
+    })
+    restored["auto_rollback_history"] = history[:8]
+    restored["auto_rollback_last_at"] = datetime.now().isoformat(timespec="seconds")
+    restored["auto_rollback_last_reason"] = "performance_degraded"
+    _save_strategy_config(strategy, region, restored)
+    return {"rolled_back": True, "config": restored}
+
+
 def _load_region_draw_history(region, limit=None):
     query = LotteryDraw.query.filter_by(region=region).order_by(
         LotteryDraw.draw_date.desc(),
@@ -4271,6 +4358,10 @@ def _select_ml_ensemble_strategies(region, slots=3, persist=True):
 def _tune_strategy_config(strategy, region):
     accuracy, total = _calculate_strategy_accuracy(region, strategy)
     config = _load_strategy_config(strategy, region)
+    rollback_result = _maybe_rollback_strategy_config(strategy, region, config)
+    if rollback_result.get("rolled_back"):
+        return
+    config = rollback_result.get("config") or config
     previous_accuracy = float(config.get("last_accuracy") or 0.0)
     previous_total = int(config.get("last_total") or 0)
 
@@ -10936,6 +11027,20 @@ def _apply_auto_optimized_config(region, strategy, base_config, override, baseli
     updated["auto_optimize_last_baseline_score"] = round(baseline_score, 4)
     updated["auto_optimize_last_gain"] = gain
     updated["auto_optimize_last_periods"] = int(best_summary.get("periods_evaluated", 0) or 0)
+    updated["rollback_guard"] = {
+        "active": True,
+        "previous_config": _build_config_rollback_snapshot(base_config),
+        "baseline_score": round(baseline_score, 4),
+        "applied_score": round(best_score, 4),
+        "applied_gain": gain,
+        "applied_at": now_text,
+        "source": source,
+        "patience": int(updated.get("rollback_patience") or 3),
+        "min_samples": int(updated.get("rollback_min_samples") or 8),
+        "drop_tolerance": round(float(updated.get("rollback_drop_tolerance") or 0.8), 4),
+        "consecutive_degrade": 0,
+        "last_checked_at": "",
+    }
     history = list(updated.get("auto_optimize_history") or [])
     history.insert(0, {
         "timestamp": now_text,
