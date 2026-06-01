@@ -101,6 +101,11 @@
             </div>
         </div>
 
+        <div class="period-draw-time">
+            <span class="period-draw-time-label">开奖时间</span>
+            <span class="period-draw-time-value">{{ period_group.draw_date or '待开奖' }}</span>
+        </div>
+
         <div class="period-draw-summary">
             <div class="period-draw-label">
                 {% if first.is_result_updated and first.actual_special_number %}
@@ -618,6 +623,30 @@
     color: #94a3b8;
 }
 
+.period-draw-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 180px;
+    padding: 0.48rem 0.72rem;
+    border-radius: 12px;
+    background: rgba(30, 41, 59, 0.62);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    color: #cbd5e1;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.period-draw-time-label {
+    color: #94a3b8;
+    font-size: 0.76rem;
+}
+
+.period-draw-time-value {
+    color: #e2e8f0;
+    white-space: nowrap;
+}
+
 .period-draw-summary {
     display: flex;
     align-items: center;
@@ -1002,6 +1031,11 @@
     }
 
     .period-draw-summary {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .period-draw-time {
         width: 100%;
         justify-content: space-between;
     }

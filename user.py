@@ -1,5 +1,5 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
@@ -1551,6 +1551,23 @@ def predictions():
         seen_prediction_keys.add(unique_key)
         deduped_predictions.append(prediction)
 
+    draw_date_map = {}
+    lookup_regions = {str(item.region or '').strip() for item in deduped_predictions if item.region}
+    lookup_periods = {str(item.period or '').strip() for item in deduped_predictions if item.period}
+    if lookup_regions and lookup_periods:
+        try:
+            draw_rows = LotteryDraw.query.filter(
+                LotteryDraw.region.in_(lookup_regions),
+                LotteryDraw.draw_id.in_(lookup_periods),
+            ).all()
+            draw_date_map = {
+                (str(row.region or '').strip(), str(row.draw_id or '').strip()): str(row.draw_date or '').strip()
+                for row in draw_rows
+            }
+        except Exception as e:
+            print(f"加载预测记录开奖时间失败: {e}")
+            draw_date_map = {}
+
     for prediction in deduped_predictions:
         prediction.display_actual_special_zodiac = (
             prediction.actual_special_zodiac or ''
@@ -1579,6 +1596,7 @@ def predictions():
             group = {
                 'grouper': prediction.period,
                 'region': prediction.region,
+                'draw_date': draw_date_map.get((str(prediction.region or '').strip(), str(prediction.period or '').strip()), ''),
                 'list': []
             }
             grouped_predictions_map[period_key] = group
