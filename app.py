@@ -2386,9 +2386,10 @@ def _default_strategy_config(strategy):
             "transition_decay": 0.985,
             "source_special_weight": 1.28,
             "transition_min_samples": 3,
+            "repeat_penalty": -0.18,
             "promotion_cooldown_hours": 18,
             "promotion_min_gain": 0.45,
-            "weights": {"transition": 1.35, "second_order": 0.72, "phase_transition": 0.55, "attribute_transition": 0.42, "special_transition": 1.10, "failure": 0.48, "hot": 0.22, "trend": 0.36, "normal": 0.22, "overdue": 0.16, "feedback": 0.85, "color": 0.18, "zodiac": 0.18, "parity": 0.16},
+            "weights": {"transition": 1.35, "second_order": 0.72, "phase_transition": 0.55, "attribute_transition": 0.42, "special_transition": 1.10, "special_chain": 0.62, "special_attribute": 0.28, "failure": 0.48, "hot": 0.22, "trend": 0.36, "normal": 0.22, "overdue": 0.16, "feedback": 0.85, "color": 0.18, "zodiac": 0.18, "parity": 0.16},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -5432,11 +5433,15 @@ def _blend_markov_with_anchor_weights(region, weights):
 
 
 def _markov_probability(numerator, denominator, min_samples=3):
+    numerator = float(numerator or 0.0)
     denominator = float(denominator or 0.0)
     if denominator <= 0:
         return 0.0
-    confidence = _clamp(denominator / max(float(min_samples or 1), 1.0), 0.15, 1.0)
-    return (float(numerator or 0.0) / denominator) * confidence
+    prior_strength = max(float(min_samples or 1), 1.0)
+    uniform_probability = 1.0 / 49.0
+    smoothed = (numerator + uniform_probability * prior_strength) / (denominator + prior_strength)
+    confidence = _clamp(denominator / (denominator + prior_strength), 0.15, 1.0)
+    return smoothed * confidence
 
 
 def _build_markov_ml_distillation(region):
@@ -5489,6 +5494,94 @@ def _score_markov_combo_shape(numbers, data, region, year):
             "tail_spread": tail_spread,
             "avg_tail_spread": round(avg_tail_spread, 2),
         },
+    }
+
+
+def _build_markov_special_transition_profile(data, window=80, decay=0.985, year=None, min_samples=3):
+    ordered = list(reversed((data or [])[:max(2, int(window or 80))]))
+    direct_transitions = {number: Counter() for number in range(1, 50)}
+    direct_totals = Counter()
+    second_order_transitions = Counter()
+    second_order_totals = Counter()
+    attribute_transitions = {
+        "color": {},
+        "parity": {},
+        "zone": {},
+        "tail": {},
+        "zodiac": {},
+    }
+    zodiac_map = _get_number_to_zodiac_map(year or _infer_draw_year(data))
+
+    for idx in range(1, len(ordered)):
+        previous_previous = ordered[idx - 2] if idx >= 2 else None
+        previous_special = _safe_draw_special(ordered[idx - 1])
+        current_special = _safe_draw_special(ordered[idx])
+        if not previous_special or not current_special:
+            continue
+
+        recency_weight = float(decay or 0.985) ** max(0, len(ordered) - idx - 1)
+        direct_totals[previous_special] += recency_weight
+        direct_transitions[previous_special][current_special] += recency_weight
+
+        previous_state = _markov_attribute_state(previous_special, zodiac_map=zodiac_map)
+        current_state = _markov_attribute_state(current_special, zodiac_map=zodiac_map)
+        for attr, source_value in previous_state.items():
+            target_value = current_state.get(attr)
+            if not source_value or not target_value:
+                continue
+            attr_bucket = attribute_transitions.setdefault(attr, {})
+            attr_bucket.setdefault(source_value, Counter())[target_value] += recency_weight
+
+        if previous_previous:
+            first_special = _safe_draw_special(previous_previous)
+            if first_special:
+                pair = (int(first_special), int(previous_special))
+                pair_weight = recency_weight * 1.12
+                second_order_totals[pair] += pair_weight
+                second_order_transitions[(pair, int(current_special))] += pair_weight
+
+    latest_special = _safe_draw_special(data[0]) if data else 0
+    latest_previous_special = _safe_draw_special(data[1]) if len(data or []) > 1 else 0
+    direct_sample_total = float(direct_totals.get(latest_special, 0.0) or 0.0)
+    pair = (int(latest_previous_special), int(latest_special)) if latest_previous_special and latest_special else None
+    second_order_sample_total = float(second_order_totals.get(pair, 0.0) or 0.0) if pair else 0.0
+    direct_confidence = _clamp(direct_sample_total / max(float(min_samples or 1), 1.0), 0.0, 1.0)
+    second_order_confidence = _clamp(second_order_sample_total / max(float(min_samples or 1) * 2.0, 1.0), 0.0, 1.0)
+
+    direct_scores = {}
+    second_order_scores = {}
+    for candidate in range(1, 50):
+        direct_scores[str(candidate)] = _markov_probability(
+            direct_transitions[latest_special].get(candidate, 0.0),
+            direct_totals.get(latest_special, 0.0),
+            min_samples=min_samples,
+        ) if latest_special else 0.0
+        second_order_scores[str(candidate)] = _markov_probability(
+            second_order_transitions.get((pair, candidate), 0.0),
+            second_order_totals.get(pair, 0.0),
+            min_samples=min_samples,
+        ) if pair else 0.0
+
+    attribute_profile = {}
+    for attr, source_map in attribute_transitions.items():
+        attribute_profile[attr] = {}
+        for source_value, counter in source_map.items():
+            total = sum(counter.values()) or 1.0
+            attribute_profile[attr][source_value] = {
+                target_value: round(value / total, 6)
+                for target_value, value in counter.items()
+            }
+
+    return {
+        "latest_special": latest_special,
+        "latest_previous_special": latest_previous_special,
+        "direct_scores": _normalize_metric_map(direct_scores),
+        "second_order_scores": _normalize_metric_map(second_order_scores),
+        "attribute_profile": attribute_profile,
+        "direct_confidence": round(direct_confidence, 6),
+        "second_order_confidence": round(second_order_confidence, 6),
+        "direct_sample_total": round(direct_sample_total, 3),
+        "second_order_sample_total": round(second_order_sample_total, 3),
     }
 
 
@@ -5563,6 +5656,21 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
     latest_second_sources = _extract_draw_numbers(data[1], include_special=True) if len(data or []) > 1 else []
     latest_special = _safe_draw_special(data[0]) if data else 0
     latest_phase = str(_classify_ai_market_phase(list(data or [])[:12], window=min(12, max(4, len(data or [])))).get("label") or "neutral")
+    second_order_sample_total = 0.0
+    second_order_pair_count = 0
+    for first_source in latest_second_sources:
+        for second_source in latest_sources:
+            pair = (int(first_source), int(second_source))
+            pair_samples = float(second_order_totals.get(pair, 0.0) or 0.0)
+            if pair_samples > 0:
+                second_order_sample_total += pair_samples
+                second_order_pair_count += 1
+    second_order_avg_samples = second_order_sample_total / max(second_order_pair_count, 1)
+    second_order_confidence = _clamp(
+        second_order_avg_samples / max(float(min_samples or 1) * 2.0, 1.0),
+        0.0,
+        1.0,
+    )
     transition_scores = {}
     special_transition_scores = {}
     second_order_scores = {}
@@ -5639,6 +5747,8 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
         "attribute_profile": attribute_profile,
         "support_chains": top_support,
         "transition_samples": sum(1 for counter in transitions.values() if counter),
+        "second_order_confidence": round(second_order_confidence, 6),
+        "second_order_sample_total": round(second_order_sample_total, 3),
     }
 
 
@@ -5667,11 +5777,24 @@ def _predict_with_markov(data, region, variation_key=None):
         year=year,
         min_samples=transition_min_samples,
     )
+    special_profile = _build_markov_special_transition_profile(
+        recent_data,
+        window=window,
+        decay=float(config.get("transition_decay") or 0.985),
+        year=year,
+        min_samples=transition_min_samples,
+    )
     transition_norm = transition_profile.get("transition_scores") or {}
     special_transition_norm = transition_profile.get("special_transition_scores") or {}
     second_order_norm = transition_profile.get("second_order_scores") or {}
     phase_transition_norm = transition_profile.get("phase_transition_scores") or {}
     attribute_profile = transition_profile.get("attribute_profile") or {}
+    second_order_confidence = float(transition_profile.get("second_order_confidence") or 0.0)
+    special_direct_norm = special_profile.get("direct_scores") or {}
+    special_second_order_norm = special_profile.get("second_order_scores") or {}
+    special_attribute_profile = special_profile.get("attribute_profile") or {}
+    special_direct_confidence = float(special_profile.get("direct_confidence") or 0.0)
+    special_second_order_confidence = float(special_profile.get("second_order_confidence") or 0.0)
     hot_norm = _normalize_metric_map(analyze_special_number_frequency(recent_data))
     trend_norm = _normalize_metric_map(analyze_special_number_frequency(trend_data))
     normal_norm = _normalize_metric_map(_build_number_frequency(recent_data))
@@ -5700,7 +5823,7 @@ def _predict_with_markov(data, region, variation_key=None):
         )
 
     def repeat_penalty(number):
-        return -0.18 if number in latest_numbers else 0.0
+        return float(config.get("repeat_penalty", -0.18) or -0.18) if number in latest_numbers else 0.0
 
     number_scores = {}
     special_scores = {}
@@ -5721,10 +5844,16 @@ def _predict_with_markov(data, region, variation_key=None):
             attribute_profile,
             zodiac_map=number_to_zodiac,
         )
+        special_attribute_transition_score = _score_markov_attribute_transition(
+            number,
+            special_profile.get("latest_special"),
+            special_attribute_profile,
+            zodiac_map=number_to_zodiac,
+        )
         failure_adjustment = (float((failure_profile.get("candidate") or {}).get(key, 0.5)) - 0.5) * 2.0 * failure_confidence
         score = (
             float(weights.get("transition", 1.0)) * transition_norm.get(key, 0.0) +
-            float(weights.get("second_order", 0.0)) * second_order_norm.get(key, 0.0) +
+            float(weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) +
             float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) +
             float(weights.get("attribute_transition", 0.0)) * attribute_transition_score +
             float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
@@ -5742,7 +5871,12 @@ def _predict_with_markov(data, region, variation_key=None):
         special_scores[number] = round(
             score +
             float(weights.get("special_transition", 0.0)) * special_transition_norm.get(key, 0.0) +
-            float(weights.get("second_order", 0.0)) * second_order_norm.get(key, 0.0) * 0.35 +
+            float(weights.get("special_chain", 0.0)) * (
+                special_direct_confidence * special_direct_norm.get(key, 0.0) +
+                special_second_order_confidence * special_second_order_norm.get(key, 0.0) * 0.72
+            ) +
+            float(weights.get("special_attribute", 0.0)) * special_direct_confidence * special_attribute_transition_score +
+            float(weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) * 0.35 +
             float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) * 0.25 +
             (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence * 0.32 +
             parity_bonus,
@@ -5829,12 +5963,23 @@ def _predict_with_markov(data, region, variation_key=None):
             "markov_transition_decay": round(float(config.get("transition_decay") or 0.985), 4),
             "markov_transition_min_samples": transition_min_samples,
             "markov_source_special_weight": round(float(config.get("source_special_weight") or 1.28), 3),
+            "markov_repeat_penalty": round(float(config.get("repeat_penalty", -0.18) or -0.18), 3),
             "markov_weights": dict(weights),
             "markov_guard": dict(markov_guard),
             "markov_latest_sources": transition_profile.get("latest_sources") or [],
             "markov_latest_second_sources": transition_profile.get("latest_second_sources") or [],
             "markov_latest_phase": transition_profile.get("latest_phase") or "neutral",
             "markov_transition_samples": int(transition_profile.get("transition_samples") or 0),
+            "markov_second_order_confidence": round(second_order_confidence * 100, 2),
+            "markov_second_order_sample_total": transition_profile.get("second_order_sample_total") or 0,
+            "markov_special_profile": {
+                "direct_confidence": round(special_direct_confidence * 100, 2),
+                "second_order_confidence": round(special_second_order_confidence * 100, 2),
+                "direct_sample_total": special_profile.get("direct_sample_total") or 0,
+                "second_order_sample_total": special_profile.get("second_order_sample_total") or 0,
+                "latest_special": special_profile.get("latest_special") or 0,
+                "latest_previous_special": special_profile.get("latest_previous_special") or 0,
+            },
             "markov_failure_profile": {
                 "samples": int(failure_profile.get("samples") or 0),
                 "confidence": round(float(failure_profile.get("confidence") or 0.0) * 100, 2),
@@ -10249,6 +10394,37 @@ def _score_auto_optimize_summary(summary):
     return round(base_score + recency_bonus, 4)
 
 
+def _score_auto_optimize_window(window):
+    window = dict(window or {})
+    return round(
+        _safe_float(window.get("top1_hit_rate"), 0.0) * 1.0 +
+        _safe_float(window.get("top6_hit_rate"), 0.0) * 0.35 +
+        _safe_float(window.get("zodiac_hit_rate"), 0.0) * 0.15,
+        4,
+    )
+
+
+def _passes_markov_window_consistency_gate(baseline_summary, candidate_summary, min_gain):
+    baseline_windows = list((baseline_summary or {}).get("windows") or [])
+    candidate_windows = list((candidate_summary or {}).get("windows") or [])
+    paired_windows = [
+        (baseline, candidate)
+        for baseline, candidate in zip(baseline_windows, candidate_windows)
+        if int(baseline.get("total") or 0) >= 10 and int(candidate.get("total") or 0) >= 10
+    ]
+    if len(paired_windows) < 2:
+        return True
+
+    gains = [
+        _score_auto_optimize_window(candidate) - _score_auto_optimize_window(baseline)
+        for baseline, candidate in paired_windows
+    ]
+    required_improved_windows = min(2, len(gains))
+    improved_windows = sum(1 for gain in gains if gain >= 0.05)
+    worst_allowed_drop = -max(float(min_gain or 0.0), 0.8)
+    return improved_windows >= required_improved_windows and min(gains) >= worst_allowed_drop
+
+
 def _dedupe_auto_optimize_candidates(candidates):
     deduped = []
     seen = set()
@@ -10295,7 +10471,13 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
         if strategy == "markov":
             base_decay = float(config.get("transition_decay") or 0.985)
             base_source_weight = float(config.get("source_special_weight") or 1.28)
+            base_min_samples = int(config.get("transition_min_samples") or 3)
+            base_repeat_penalty = float(config.get("repeat_penalty", -0.18) or -0.18)
             base_weights = dict(config.get("weights") or {})
+            base_transition = float(base_weights.get("transition") or 1.35)
+            base_special_transition = float(base_weights.get("special_transition") or 1.1)
+            base_special_chain = float(base_weights.get("special_chain") or 0.62)
+            base_special_attribute = float(base_weights.get("special_attribute") or 0.28)
             base_second = float(base_weights.get("second_order") or 0.72)
             base_phase = float(base_weights.get("phase_transition") or 0.55)
             base_attribute = float(base_weights.get("attribute_transition") or 0.42)
@@ -10304,6 +10486,13 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
                 {"transition_decay": round(_clamp(base_decay - 0.006, 0.965, 0.995), 4), "window": _clamp(base_window, 24, 160), "pool": _clamp(base_pool + 1, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
                 {"transition_decay": round(_clamp(base_decay + 0.006, 0.965, 0.995), 4), "window": _clamp(base_window + delta["window"], 24, 160), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special + 1, 6, 14)},
                 {"source_special_weight": round(_clamp(base_source_weight + 0.12, 1.0, 1.7), 3), "window": _clamp(base_window, 24, 160), "pool": _clamp(base_pool, 8, 24), "special_pool": _clamp(base_special, 6, 14)},
+                {"source_special_weight": round(_clamp(base_source_weight - 0.12, 1.0, 1.7), 3), "transition_min_samples": _clamp(base_min_samples + 1, 1, 12)},
+                {"transition_min_samples": _clamp(base_min_samples - 1, 1, 12), "repeat_penalty": round(_clamp(base_repeat_penalty + 0.04, -0.35, -0.04), 3)},
+                {"repeat_penalty": round(_clamp(base_repeat_penalty - 0.05, -0.35, -0.04), 3), "weights": {"feedback": round(_clamp(float(base_weights.get("feedback") or 0.85) + 0.08, 0.45, 1.45), 2)}},
+                {"weights": {"transition": round(_clamp(base_transition + 0.12, 0.65, 1.9), 2), "special_transition": round(_clamp(base_special_transition + 0.1, 0.65, 1.65), 2)}},
+                {"weights": {"transition": round(_clamp(base_transition - 0.12, 0.65, 1.9), 2), "special_transition": round(_clamp(base_special_transition - 0.08, 0.65, 1.65), 2), "normal": round(_clamp(float(base_weights.get("normal") or 0.22) + 0.06, 0.12, 0.55), 2)}},
+                {"weights": {"special_chain": round(_clamp(base_special_chain + 0.12, 0.0, 1.2), 2), "special_attribute": round(_clamp(base_special_attribute + 0.08, 0.0, 0.8), 2)}},
+                {"weights": {"special_chain": round(_clamp(base_special_chain - 0.1, 0.0, 1.2), 2), "special_transition": round(_clamp(base_special_transition + 0.08, 0.65, 1.65), 2)}},
                 {"weights": {"second_order": round(_clamp(base_second + 0.16, 0.0, 1.35), 2), "phase_transition": round(_clamp(base_phase + 0.1, 0.0, 1.25), 2)}},
                 {"weights": {"attribute_transition": round(_clamp(base_attribute + 0.12, 0.0, 1.1), 2), "failure": round(_clamp(base_failure + 0.12, 0.0, 1.2), 2)}},
                 {"weights": {"second_order": round(_clamp(base_second - 0.12, 0.0, 1.35), 2), "failure": round(_clamp(base_failure + 0.18, 0.0, 1.2), 2)}},
@@ -10448,10 +10637,15 @@ def _apply_auto_optimized_config(region, strategy, base_config, override, baseli
     updated = dict(base_config or {})
     changed_fields = {}
     for key, value in dict(override or {}).items():
-        if updated.get(key) == value:
+        current_value = updated.get(key)
+        if isinstance(current_value, dict) and isinstance(value, dict):
+            merged_value = {**current_value, **value}
+        else:
+            merged_value = value
+        if current_value == merged_value:
             continue
-        changed_fields[key] = {"from": updated.get(key), "to": value}
-        updated[key] = value
+        changed_fields[key] = {"from": current_value, "to": merged_value}
+        updated[key] = merged_value
 
     if not changed_fields:
         return False, updated
@@ -10499,6 +10693,8 @@ def auto_optimize_strategy(region, strategy, draws=None, source="manual"):
     for candidate in _build_auto_optimize_candidates(strategy, config, level=level):
         summary = _build_strategy_backtest_summary(region, strategy, draws=draws, config_override=candidate)
         score = _score_auto_optimize_summary(summary)
+        if strategy == "markov" and not _passes_markov_window_consistency_gate(baseline_summary, summary, min_gain):
+            continue
         if score > best_score:
             best_score = score
             best_summary = summary
