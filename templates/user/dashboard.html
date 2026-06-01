@@ -284,19 +284,21 @@
         <div class="setting-row">
             <!-- 功能开关 -->
             <div class="setting-group">
-                <label class="setting-label">
+                <label class="setting-label user-switch">
                     <input type="checkbox" name="auto_prediction_enabled" value="1" 
                            {{ 'checked' if user.auto_prediction_enabled else '' }}>
-                    <span class="setting-text">启用自动预测</span>
+                    <span class="user-switch-track" aria-hidden="true"></span>
+                    <span class="setting-text user-switch-text">启用自动预测</span>
                 </label>
             </div>
             
             <!-- 预测策略 -->
             <div class="setting-group">
-                <label class="setting-label">
+                <label class="setting-label user-switch">
                     <input type="checkbox" name="show_normal_numbers" value="1"
                            {{ 'checked' if user.show_normal_numbers else '' }}>
-                    <span class="setting-text">显示平码</span>
+                    <span class="user-switch-track" aria-hidden="true"></span>
+                    <span class="setting-text user-switch-text">显示平码</span>
                 </label>
             </div>
 
@@ -606,7 +608,7 @@
     font-weight: 500;
 }
 
-.setting-label input[type="checkbox"] {
+.setting-label:not(.user-switch) input[type="checkbox"] {
     width: 16px;
     height: 16px;
 }

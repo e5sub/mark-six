@@ -113,8 +113,10 @@
                 <input type="password" name="password" class="form-control" required>
             </div>
             <div class="form-group">
-                <label>
-                    <input type="checkbox" name="is_admin"> 管理员权限
+                <label class="admin-switch" style="color: #0f172a;">
+                    <input type="checkbox" name="is_admin">
+                    <span class="admin-switch-track" aria-hidden="true"></span>
+                    <span class="admin-switch-text" style="color: #0f172a;">管理员权限</span>
                 </label>
             </div>
             <div style="display: flex; gap: 1rem; justify-content: flex-end;">

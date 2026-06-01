@@ -333,19 +333,21 @@
             
             <div style="display: grid; gap: 1rem;">
                 <div class="form-group">
-                    <label>
+                    <label class="user-switch">
                         <input type="checkbox" name="auto_prediction_enabled" 
                                {{ 'checked' if user.auto_prediction_enabled else '' }}>
-                        启用自动预测功能
+                        <span class="user-switch-track" aria-hidden="true"></span>
+                        <span class="user-switch-text">启用自动预测功能</span>
                     </label>
                     <small style="color: #666; display: block; margin-top: 0.5rem;">启用后，系统将为每期自动生成预测结果</small>
                 </div>
                 
                 <div class="form-group">
-                    <label>
+                    <label class="user-switch">
                         <input type="checkbox" name="show_normal_numbers"
                                {{ 'checked' if user.show_normal_numbers else '' }}>
-                        显示平码
+                        <span class="user-switch-track" aria-hidden="true"></span>
+                        <span class="user-switch-text">显示平码</span>
                     </label>
                     <small style="color: #666; display: block; margin-top: 0.5rem;">默认仅展示特码，如需同时查看平码可在这里开启</small>
                 </div>

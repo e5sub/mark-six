@@ -84,21 +84,63 @@
     .notify-toggle {
         display: inline-flex;
         align-items: center;
-        gap: 0.55rem;
+        gap: 0.65rem;
         color: #e5e7eb;
         font-size: 0.9rem;
         font-weight: 700;
         white-space: nowrap;
-        padding: 0.4rem 0.55rem;
-        border-radius: 999px;
-        background: rgba(30, 41, 59, 0.72);
-        border: 1px solid rgba(148, 163, 184, 0.16);
+        cursor: pointer;
+        user-select: none;
     }
 
     .notify-toggle input {
-        width: 16px;
-        height: 16px;
-        accent-color: #38bdf8;
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .notify-switch {
+        position: relative;
+        width: 46px;
+        height: 26px;
+        border-radius: 999px;
+        background: rgba(51, 65, 85, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        flex: 0 0 auto;
+    }
+
+    .notify-switch::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #e2e8f0;
+        box-shadow: 0 2px 8px rgba(2, 6, 23, 0.35);
+        transition: transform 0.2s ease, background 0.2s ease;
+    }
+
+    .notify-toggle input:checked + .notify-switch {
+        background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+        border-color: rgba(125, 211, 252, 0.68);
+        box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.14);
+    }
+
+    .notify-toggle input:checked + .notify-switch::after {
+        transform: translateX(20px);
+        background: #ffffff;
+    }
+
+    .notify-toggle input:focus-visible + .notify-switch {
+        outline: 2px solid rgba(125, 211, 252, 0.9);
+        outline-offset: 3px;
+    }
+
+    .notify-toggle-text {
+        color: rgba(226, 232, 240, 0.92);
     }
 
     .notify-fields {
@@ -169,7 +211,6 @@
         <div class="notify-intro">
             <div>
                 <h2 class="notify-title">推送设置</h2>
-                <p class="notify-subtitle">配置预测汇总、命中提醒和管理员通知的个人接收渠道。邮件仍使用后台统一 SMTP 配置。</p>
             </div>
             <span class="notify-status">个人配置</span>
         </div>
@@ -184,7 +225,8 @@
                     <label class="notify-toggle">
                         <input type="checkbox" name="station_enabled"
                                {{ 'checked' if notification_config.get('station_enabled', true) else '' }}>
-                        启用
+                        <span class="notify-switch" aria-hidden="true"></span>
+                        <span class="notify-toggle-text">启用</span>
                     </label>
                 </div>
             </section>
@@ -198,7 +240,8 @@
                     <label class="notify-toggle">
                         <input type="checkbox" name="webhook_enabled"
                                {{ 'checked' if notification_config.get('webhook_enabled') else '' }}>
-                        启用
+                        <span class="notify-switch" aria-hidden="true"></span>
+                        <span class="notify-toggle-text">启用</span>
                     </label>
                 </div>
                 <div class="notify-fields">
@@ -220,7 +263,8 @@
                     <label class="notify-toggle">
                         <input type="checkbox" name="telegram_enabled"
                                {{ 'checked' if notification_config.get('telegram_enabled') else '' }}>
-                        启用
+                        <span class="notify-switch" aria-hidden="true"></span>
+                        <span class="notify-toggle-text">启用</span>
                     </label>
                 </div>
                 <div class="notify-fields">
@@ -248,7 +292,8 @@
                     <label class="notify-toggle">
                         <input type="checkbox" name="pushplus_enabled"
                                {{ 'checked' if notification_config.get('pushplus_enabled') else '' }}>
-                        启用
+                        <span class="notify-switch" aria-hidden="true"></span>
+                        <span class="notify-toggle-text">启用</span>
                     </label>
                 </div>
                 <div class="notify-fields">
@@ -276,7 +321,8 @@
                     <label class="notify-toggle">
                         <input type="checkbox" name="bark_enabled"
                                {{ 'checked' if notification_config.get('bark_enabled') else '' }}>
-                        启用
+                        <span class="notify-switch" aria-hidden="true"></span>
+                        <span class="notify-toggle-text">启用</span>
                     </label>
                 </div>
                 <div class="notify-fields">

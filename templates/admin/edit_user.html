@@ -10,91 +10,75 @@
         <h2 class="card-title">✏️ 编辑用户信息</h2>
         <a href="{{ url_for('admin.users') }}" class="btn btn-sm">返回用户列表</a>
     </div>
-    
+
     <form method="POST">
         <div class="form-group">
-            <label for="username">
-                <i>👤</i> 用户名
-            </label>
-            <input type="text" id="username" name="username" class="form-control" 
+            <label for="username">👤 用户名</label>
+            <input type="text" id="username" name="username" class="form-control"
                    value="{{ user.username }}" required>
         </div>
 
         <div class="form-group">
-            <label for="email">
-                <i>📧</i> 邮箱
-            </label>
-            <input type="email" id="email" name="email" class="form-control" 
+            <label for="email">📧 邮箱</label>
+            <input type="email" id="email" name="email" class="form-control"
                    value="{{ user.email }}" required>
         </div>
 
         <div class="form-group">
-            <label for="new_password">
-                <i>🔒</i> 新密码
-            </label>
-            <input type="password" id="new_password" name="new_password" class="form-control" 
+            <label for="new_password">🔐 新密码</label>
+            <input type="password" id="new_password" name="new_password" class="form-control"
                    placeholder="留空则不修改密码">
         </div>
 
-        <div class="form-group" style="display: flex; gap: 2rem;">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <input type="checkbox" id="is_active" name="is_active" class="form-check-input" 
+        <div class="form-group" style="display: flex; gap: 2rem; flex-wrap: wrap;">
+            <label for="is_active" class="admin-switch">
+                <input type="checkbox" id="is_active" name="is_active"
                        {{ 'checked' if user.is_active else '' }}
                        {% if user.username == 'admin' %}disabled{% endif %}>
-                <label for="is_active" class="form-check-label">
-                    <i>✅</i> 激活状态
-                </label>
-            </div>
-            
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <input type="checkbox" id="is_admin" name="is_admin" class="form-check-input" 
+                <span class="admin-switch-track" aria-hidden="true"></span>
+                <span class="admin-switch-text">✅ 激活状态</span>
+            </label>
+
+            <label for="is_admin" class="admin-switch">
+                <input type="checkbox" id="is_admin" name="is_admin"
                        {{ 'checked' if user.is_admin else '' }}>
-                <label for="is_admin" class="form-check-label">
-                    <i>👑</i> 管理员权限
-                </label>
-            </div>
+                <span class="admin-switch-track" aria-hidden="true"></span>
+                <span class="admin-switch-text">👑 管理员权限</span>
+            </label>
         </div>
 
         <div class="form-group">
-            <label for="activation_expires_at">
-                <i>📅</i> 激活过期时间
-            </label>
-            <input type="datetime-local" id="activation_expires_at" name="activation_expires_at" 
-                   class="form-control" 
+            <label for="activation_expires_at">📅 激活过期时间</label>
+            <input type="datetime-local" id="activation_expires_at" name="activation_expires_at"
+                   class="form-control"
                    value="{% if user.activation_expires_at %}{{ user.activation_expires_at.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
                    placeholder="留空表示永久激活">
-            <small style="color: #6c757d; font-size: 0.9rem; margin-top: 5px; display: block;">
-                <i>ℹ️</i> 留空表示永久激活，设置时间表示到期后用户将被停用
+            <small style="color: #94a3b8; font-size: 0.9rem; margin-top: 5px; display: block;">
+                ℹ️ 留空表示永久激活；设置时间表示到期后用户将被停用。
             </small>
         </div>
 
-        <div style="display: flex; gap: 1rem; margin-top: 2rem;">
-            <button type="submit" class="btn btn-success">
-                <i>💾</i> 保存修改
-            </button>
-            <a href="{{ url_for('admin.users') }}" class="btn">
-                <i>↩️</i> 返回用户列表
-            </a>
+        <div style="display: flex; gap: 1rem; margin-top: 2rem; flex-wrap: wrap;">
+            <button type="submit" class="btn btn-success">💾 保存修改</button>
+            <a href="{{ url_for('admin.users') }}" class="btn">↩️ 返回用户列表</a>
         </div>
     </form>
 </div>
 
 <script>
-    // 防止停用admin账号
     document.addEventListener('DOMContentLoaded', function() {
         const usernameField = document.getElementById('username');
         const isActiveCheckbox = document.getElementById('is_active');
-        
+
         if (usernameField.value === 'admin') {
             isActiveCheckbox.checked = true;
             isActiveCheckbox.disabled = true;
         }
-        
-        // 表单提交前检查
+
         document.querySelector('form').addEventListener('submit', function(e) {
             if (usernameField.value === 'admin' && !isActiveCheckbox.checked) {
                 e.preventDefault();
-                alert('不能停用admin账号！');
+                alert('不能停用 admin 账号');
             }
         });
     });
