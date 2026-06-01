@@ -36,11 +36,13 @@ from notification_service import notify_user
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
-_ML_PREDICTION_CACHE_TTL_SECONDS = 180
+_ML_PREDICTION_CACHE_TTL_SECONDS = 900
+_ML_PREDICTION_CACHE_MAX_ITEMS = 24
 _AI_PREDICTION_CACHE_TTL_SECONDS = 300
 _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
+_ml_prediction_build_events = {}
 _ai_prediction_cache = {}
 _ai_prediction_cache_lock = threading.Lock()
 _runtime_analysis_cache_local = threading.local()
@@ -2859,6 +2861,9 @@ def _ml_runtime_profile_label(value):
         "recent_bias": "更看近期走势",
         "context_bias": "更看号码属性",
         "recency_trim": "少看复杂走势",
+        "regularized": "更稳一点",
+        "blend_search": "多种算法混合试算",
+        "learned_feature_bias": "按近期学习结果微调",
     }
     key = str(value or "").strip()
     return mapping.get(key, key or "标准模式")
@@ -8203,42 +8208,70 @@ def _build_ml_prediction_cache_key(region, data, config):
 
 def _get_cached_ml_prediction_artifacts(cache_key):
     now = time.time()
+    ttl_seconds = _ml_prediction_cache_ttl_seconds()
     with _ml_prediction_cache_lock:
         cached = _ml_prediction_cache.get(cache_key)
         if not cached:
             return None
         cached_at = float(cached.get("cached_at") or 0.0)
-        if now - cached_at > _ML_PREDICTION_CACHE_TTL_SECONDS:
+        if ttl_seconds is not None and now - cached_at > ttl_seconds:
             _ml_prediction_cache.pop(cache_key, None)
             return None
         cached["cached_at"] = now
         return copy.deepcopy(cached.get("artifacts"))
 
 
+def _ml_prediction_cache_ttl_seconds():
+    try:
+        if not _personalized_predictions_enabled():
+            return None
+    except Exception:
+        pass
+    return _ML_PREDICTION_CACHE_TTL_SECONDS
+
+
 def _store_cached_ml_prediction_artifacts(cache_key, artifacts):
     now = time.time()
+    ttl_seconds = _ml_prediction_cache_ttl_seconds()
     with _ml_prediction_cache_lock:
-        expired_keys = [
-            key
-            for key, item in _ml_prediction_cache.items()
-            if now - float(item.get("cached_at") or 0.0) > _ML_PREDICTION_CACHE_TTL_SECONDS
-        ]
-        for key in expired_keys:
-            _ml_prediction_cache.pop(key, None)
+        if ttl_seconds is not None:
+            expired_keys = [
+                key
+                for key, item in _ml_prediction_cache.items()
+                if now - float(item.get("cached_at") or 0.0) > ttl_seconds
+            ]
+            for key in expired_keys:
+                _ml_prediction_cache.pop(key, None)
+        while len(_ml_prediction_cache) >= _ML_PREDICTION_CACHE_MAX_ITEMS:
+            oldest_key = min(
+                _ml_prediction_cache.keys(),
+                key=lambda key: float(_ml_prediction_cache[key].get("cached_at") or 0.0),
+            )
+            _ml_prediction_cache.pop(oldest_key, None)
         _ml_prediction_cache[cache_key] = {
             "cached_at": now,
             "artifacts": copy.deepcopy(artifacts),
         }
 
 
-def _build_ml_prediction_artifacts(data, region):
-    enriched_data, supplemental_draws = _ensure_ml_prediction_history(data, region)
-    config = _load_strategy_config("ml", region)
-    cache_key = _build_ml_prediction_cache_key(region, enriched_data, config)
-    cached_artifacts = _get_cached_ml_prediction_artifacts(cache_key)
-    if cached_artifacts is not None:
-        return cached_artifacts
+def _claim_ml_prediction_build(cache_key):
+    with _ml_prediction_cache_lock:
+        event = _ml_prediction_build_events.get(cache_key)
+        if event is not None:
+            return event, False
+        event = threading.Event()
+        _ml_prediction_build_events[cache_key] = event
+        return event, True
 
+
+def _finish_ml_prediction_build(cache_key):
+    with _ml_prediction_cache_lock:
+        event = _ml_prediction_build_events.pop(cache_key, None)
+        if event is not None:
+            event.set()
+
+
+def _build_uncached_ml_prediction_artifacts(enriched_data, supplemental_draws, region, config):
     runtime_config, model = _optimize_ml_runtime_config(enriched_data, region, config)
     feature_window = _clamp(int(runtime_config.get("feature_window") or 60), 30, 90)
     year = _infer_draw_year(enriched_data)
@@ -8269,7 +8302,7 @@ def _build_ml_prediction_artifacts(data, region):
         ensemble_signals,
     )
 
-    artifacts = {
+    return {
         "enriched_data": enriched_data,
         "supplemental_draws": supplemental_draws,
         "runtime_config": runtime_config,
@@ -8285,8 +8318,39 @@ def _build_ml_prediction_artifacts(data, region):
         "special_ranked_numbers": _rank_numbers(special_score_map),
         "normal_ranked_numbers": _rank_numbers(normal_score_map),
     }
-    _store_cached_ml_prediction_artifacts(cache_key, artifacts)
-    return artifacts
+
+
+def _build_ml_prediction_artifacts(data, region):
+    enriched_data, supplemental_draws = _ensure_ml_prediction_history(data, region)
+    config = _load_strategy_config("ml", region)
+    cache_key = _build_ml_prediction_cache_key(region, enriched_data, config)
+    cached_artifacts = _get_cached_ml_prediction_artifacts(cache_key)
+    if cached_artifacts is not None:
+        return cached_artifacts
+
+    build_event, should_build = _claim_ml_prediction_build(cache_key)
+    if not should_build:
+        build_event.wait()
+        cached_artifacts = _get_cached_ml_prediction_artifacts(cache_key)
+        if cached_artifacts is not None:
+            return cached_artifacts
+        build_event, should_build = _claim_ml_prediction_build(cache_key)
+
+    try:
+        cached_artifacts = _get_cached_ml_prediction_artifacts(cache_key)
+        if cached_artifacts is not None:
+            return cached_artifacts
+
+        artifacts = _build_uncached_ml_prediction_artifacts(
+            enriched_data,
+            supplemental_draws,
+            region,
+            config,
+        )
+        _store_cached_ml_prediction_artifacts(cache_key, artifacts)
+        return artifacts
+    finally:
+        _finish_ml_prediction_build(cache_key)
 
 
 def _predict_with_ml(data, region, variation_key=None):

@@ -421,6 +421,9 @@ function getMlRuntimeProfileLabel(value) {
         recent_bias: '更看近期走势',
         context_bias: '更看号码属性',
         recency_trim: '少看复杂走势',
+        regularized: '更稳一点',
+        blend_search: '多种算法混合试算',
+        learned_feature_bias: '按近期学习结果微调',
     };
     return labels[value] || value || '标准模式';
 }
