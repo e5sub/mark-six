@@ -4616,7 +4616,7 @@ class _PredictScreenState extends State<PredictScreen> {
         bottom: inlineSpecialOnly ? 0 : 12,
         right: 0,
       ),
-      padding: EdgeInsets.all(inlineSpecialOnly ? 8 : 12),
+      padding: EdgeInsets.all(inlineSpecialOnly ? 7 : 12),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
@@ -4697,7 +4697,7 @@ class _PredictScreenState extends State<PredictScreen> {
               ],
             ],
           ),
-          SizedBox(height: inlineSpecialOnly ? 8 : (showReferenceNumbers ? 12 : 10)),
+          SizedBox(height: inlineSpecialOnly ? 7 : (showReferenceNumbers ? 12 : 10)),
           if (showReferenceNumbers) ...[
             Text(
               '平码参考',
@@ -4729,8 +4729,8 @@ class _PredictScreenState extends State<PredictScreen> {
           Container(
             width: double.infinity,
             padding: EdgeInsets.symmetric(
-              horizontal: inlineSpecialOnly ? 6 : 10,
-              vertical: inlineSpecialOnly ? 8 : 12,
+              horizontal: inlineSpecialOnly ? 5 : 10,
+              vertical: inlineSpecialOnly ? 7 : 12,
             ),
             decoration: BoxDecoration(
               color: accentColor.withOpacity(0.06),
@@ -4745,8 +4745,8 @@ class _PredictScreenState extends State<PredictScreen> {
                             color: ballColor(item.specialNumber),
                             outlined: true,
                             highlight: true,
-                            ballSize: 34,
-                            numberFontSize: 13,
+                            ballSize: 30,
+                            numberFontSize: 12,
                             zodiacFontSize: 10,
                             gap: 2,
                           )
@@ -4798,6 +4798,109 @@ class _PredictScreenState extends State<PredictScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPredictionPeriodHeader({
+    required String period,
+    required String actualSpecialNumber,
+    required String actualSpecialZodiac,
+    required bool hit,
+  }) {
+    final hasResult = actualSpecialNumber.isNotEmpty;
+    final accentColor = hit ? const Color(0xFFE11D48) : const Color(0xFF334155);
+
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        Text(
+          '期号：$period',
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF1F2937),
+          ),
+        ),
+        if (hasResult) ...[
+          const Text(
+            '开奖结果：',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1F2937),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              gradient: hit
+                  ? const LinearGradient(
+                      colors: [Color(0xFFFF4D4F), Color(0xFFFFB020)],
+                    )
+                  : null,
+              color: hit ? null : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: hit ? Colors.white.withOpacity(0.7) : const Color(0xFFE2E8F0),
+              ),
+              boxShadow: hit
+                  ? const [
+                      BoxShadow(
+                        color: Color(0x55FF4D4F),
+                        blurRadius: 14,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : [],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (hit) ...[
+                  const Icon(Icons.auto_awesome, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  actualSpecialNumber,
+                  style: TextStyle(
+                    color: hit ? Colors.white : accentColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (actualSpecialZodiac.isNotEmpty)
+            Text(
+              '生肖：$actualSpecialZodiac',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1F2937),
+              ),
+            ),
+          if (hit)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFEEF2),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: const Color(0xFFFFC2D1)),
+              ),
+              child: const Text(
+                '命中',
+                style: TextStyle(
+                  color: Color(0xFFE11D48),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+        ],
+      ],
     );
   }
 
@@ -4957,31 +5060,37 @@ class _PredictScreenState extends State<PredictScreen> {
                             firstItem?.actualSpecialNumber ?? '';
                         final actualSpecialZodiac =
                             firstItem?.actualSpecialZodiac ?? '';
-                        final periodHeaderText = actualSpecialNumber.isEmpty
-                            ? '期号：$period'
-                            : actualSpecialZodiac.isNotEmpty
-                                ? '期号：$period  开奖结果：$actualSpecialNumber  生肖：$actualSpecialZodiac'
-                                : '期号：$period  开奖结果：$actualSpecialNumber';
+                        final periodHit =
+                            items.any((item) => item.result == 'special_hit');
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
+                            gradient: LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
-                              colors: [
-                                Color(0xFFF9FCFF),
-                                Color(0xFFF5FAF8),
-                              ],
+                              colors: periodHit
+                                  ? const [
+                                      Color(0xFFFFFBF2),
+                                      Color(0xFFFFF1F2),
+                                    ]
+                                  : const [
+                                      Color(0xFFF9FCFF),
+                                      Color(0xFFF5FAF8),
+                                    ],
                             ),
                             borderRadius: BorderRadius.circular(18),
                             border: Border.all(
-                              color: const Color(0xFFE2E8F0),
+                              color: periodHit
+                                  ? const Color(0xFFFFC2D1)
+                                  : const Color(0xFFE2E8F0),
                             ),
-                            boxShadow: const [
+                            boxShadow: [
                               BoxShadow(
-                                color: Color(0x12000000),
-                                blurRadius: 10,
+                                color: periodHit
+                                    ? const Color(0x24E11D48)
+                                    : const Color(0x12000000),
+                                blurRadius: periodHit ? 14 : 10,
                                 offset: Offset(0, 5),
                               ),
                             ],
@@ -4989,12 +5098,11 @@ class _PredictScreenState extends State<PredictScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                periodHeaderText,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                              _buildPredictionPeriodHeader(
+                                period: period,
+                                actualSpecialNumber: actualSpecialNumber,
+                                actualSpecialZodiac: actualSpecialZodiac,
+                                hit: periodHit,
                               ),
                               const SizedBox(height: 8),
                               if (_showNormalNumbers)
@@ -5008,7 +5116,7 @@ class _PredictScreenState extends State<PredictScreen> {
                                   builder: (context, constraints) {
                                     const spacing = 8.0;
                                     final cardWidth =
-                                        (constraints.maxWidth - spacing * 2) / 3;
+                                        (constraints.maxWidth - spacing * 3) / 4;
                                     return Align(
                                       alignment: Alignment.centerLeft,
                                       child: Wrap(
