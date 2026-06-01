@@ -1,5 +1,6 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, Response
 from functools import wraps
+from urllib.parse import urlparse
 from models import (
     db,
     User,
@@ -391,6 +392,16 @@ def admin_required(f):
             flash(f'权限检查失败: {str(e)}', 'error')
             return redirect(url_for('auth.login'))
     return decorated_function
+
+
+def _safe_redirect_back(default_endpoint):
+    referrer = request.referrer or ''
+    if referrer:
+        parsed = urlparse(referrer)
+        if not parsed.netloc or parsed.netloc == request.host:
+            return redirect(referrer)
+    return redirect(url_for(default_endpoint))
+
 
 def _strategy_learning_panel_data():
     from app import _load_strategy_config, _get_strategy_label
@@ -1613,14 +1624,14 @@ def delete_bet(bet_id):
         record = ManualBetRecord.query.get(bet_id)
         if not record:
             flash('下注记录不存在', 'error')
-            return redirect(request.referrer or url_for('admin.bets'))
+            return _safe_redirect_back('admin.bets')
         db.session.delete(record)
         db.session.commit()
         flash('下注记录删除成功', 'success')
     except Exception as e:
         db.session.rollback()
         flash(f'删除下注记录失败: {str(e)}', 'error')
-    return redirect(request.referrer or url_for('admin.bets'))
+    return _safe_redirect_back('admin.bets')
 
 @admin_bp.route('/prediction/<int:prediction_id>/delete', methods=['POST'])
 @admin_required

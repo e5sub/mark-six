@@ -510,6 +510,24 @@
             color: #e5e7eb !important;
             border-color: rgba(148, 163, 184, 0.18) !important;
         }
+
+        .main-content input:-webkit-autofill,
+        .main-content input:-webkit-autofill:hover,
+        .main-content input:-webkit-autofill:focus,
+        .main-content input:-webkit-autofill:active,
+        .main-content textarea:-webkit-autofill,
+        .main-content textarea:-webkit-autofill:hover,
+        .main-content textarea:-webkit-autofill:focus,
+        .main-content select:-webkit-autofill,
+        .main-content select:-webkit-autofill:hover,
+        .main-content select:-webkit-autofill:focus {
+            -webkit-text-fill-color: #e5e7eb !important;
+            caret-color: #e5e7eb !important;
+            box-shadow: 0 0 0 1000px #0f172a inset !important;
+            -webkit-box-shadow: 0 0 0 1000px #0f172a inset !important;
+            border-color: rgba(148, 163, 184, 0.22) !important;
+            transition: background-color 9999s ease-out, color 9999s ease-out !important;
+        }
         
         .invite-code {
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
