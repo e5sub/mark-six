@@ -3470,6 +3470,17 @@ class _PredictScreenState extends State<PredictScreen> {
     'ai': 'AI智能',
   };
 
+  final Map<String, IconData> _strategyIcons = const {
+    'ml': Icons.memory,
+    'markov': Icons.account_tree,
+    'hybrid': Icons.hub,
+    'balanced': Icons.balance,
+    'hot': Icons.local_fire_department,
+    'cold': Icons.ac_unit,
+    'trend': Icons.trending_up,
+    'ai': Icons.auto_awesome,
+  };
+
   LinearGradient? _strategyGradient(String key) {
     switch (key) {
       case 'hot':
@@ -3511,54 +3522,78 @@ class _PredictScreenState extends State<PredictScreen> {
   Widget _buildStrategyChip(String key, String label) {
     final selected = _strategy == key;
     final gradient = _strategyGradient(key);
-    final borderColor = gradient?.colors.first ?? Colors.grey.shade400;
+    final accentColor = gradient?.colors.first ?? const Color(0xFF0B6B4F);
     final activationValid = widget.appState.activationValid;
-    return GestureDetector(
-      onTap: () async {
-        if (_loading) return;
-        if (!activationValid) {
-          await _promptActivation();
-          return;
-        }
-        setState(() => _strategy = key);
-        _handlePredict();
-      },
-      child: Opacity(
-        opacity: activationValid ? 1 : 0.5,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            gradient: selected ? gradient : null,
-            color: selected ? null : Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: selected ? Colors.transparent : borderColor),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: borderColor.withOpacity(0.35),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ]
-                : [],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (selected)
-                const Padding(
-                  padding: EdgeInsets.only(right: 6),
-                  child: Icon(Icons.check, size: 16, color: Colors.white),
-                ),
-              Text(
-                label,
-                style: TextStyle(
-                  color: selected ? Colors.white : Colors.black87,
-                  fontWeight: FontWeight.w600,
-                ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () async {
+          if (_loading) return;
+          if (!activationValid) {
+            await _promptActivation();
+            return;
+          }
+          setState(() => _strategy = key);
+          _handlePredict();
+        },
+        child: Opacity(
+          opacity: activationValid ? 1 : 0.5,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            height: 54,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              gradient: selected ? gradient : null,
+              color: selected ? null : const Color(0xFFF7FAFC),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected ? Colors.transparent : const Color(0xFFE2E8F0),
               ),
-            ],
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: accentColor.withOpacity(0.22),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                  : [],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.white.withOpacity(0.18)
+                        : accentColor.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    _strategyIcons[key] ?? Icons.auto_graph,
+                    size: 18,
+                    color: selected ? Colors.white : accentColor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? Colors.white : const Color(0xFF1F2937),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (selected)
+                  const Icon(Icons.check_circle, size: 18, color: Colors.white),
+              ],
+            ),
           ),
         ),
       ),
@@ -4437,18 +4472,15 @@ class _PredictScreenState extends State<PredictScreen> {
         pageSize: 24,
         region: _region,
         includeZodiacs: true,
+        includeSummaries: false,
         year: _currentYear,
       );
       final items = (res['items'] as List<dynamic>? ?? [])
           .map((value) => PredictionItem.fromJson(value as Map<String, dynamic>))
           .toList();
-      final summaries = (res['region_summaries'] as List<dynamic>? ?? [])
-          .map((e) => e as Map<String, dynamic>)
-          .toList();
       if (!mounted) return;
       setState(() {
         _predictionRecords = items;
-        _regionSummaries = summaries;
         _showAllPredictionPeriods = false;
         for (final item in items) {
           if (item.normalZodiacs.isNotEmpty) {
@@ -4459,11 +4491,8 @@ class _PredictScreenState extends State<PredictScreen> {
           }
         }
       });
-      for (final item in items) {
-        if (!_recordNormalZodiacs.containsKey(item.id)) {
-          await _loadRecordZodiacs(item);
-        }
-      }
+      _loadPredictionSummaries();
+      _loadMissingRecordZodiacs(items);
     } catch (_) {
       if (!mounted) return;
       _showMessage('获取预测记录失败');
@@ -4474,8 +4503,34 @@ class _PredictScreenState extends State<PredictScreen> {
     }
   }
 
+  Future<void> _loadPredictionSummaries() async {
+    try {
+      final res = await ApiClient.instance.predictionSummaries(region: _region);
+      final summaries = (res['region_summaries'] as List<dynamic>? ?? [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      if (!mounted) return;
+      setState(() => _regionSummaries = summaries);
+    } catch (_) {}
+  }
+
+  Future<void> _loadMissingRecordZodiacs(List<PredictionItem> items) async {
+    final missing = items.where((item) {
+      final normal = _recordNormalZodiacs[item.id];
+      final hasNormal = normal != null && normal.length >= item.normalNumbers.length;
+      final hasSpecial = (_recordSpecialZodiacs[item.id] ?? item.specialZodiac).isNotEmpty;
+      return !hasNormal || !hasSpecial;
+    }).toList();
+    if (missing.isEmpty) return;
+    await Future.wait(missing.map(_loadRecordZodiacs));
+  }
+
   Future<void> _loadRecordZodiacs(PredictionItem item) async {
-    if (_recordNormalZodiacs.containsKey(item.id)) return;
+    final normal = _recordNormalZodiacs[item.id];
+    final hasNormal = normal != null && normal.length >= item.normalNumbers.length;
+    final hasSpecial = (_recordSpecialZodiacs[item.id] ?? item.specialZodiac).isNotEmpty;
+    if (hasNormal && hasSpecial) return;
     final numbers = [...item.normalNumbers, item.specialNumber]
         .where((value) => value.isNotEmpty)
         .toList();
@@ -5045,26 +5100,73 @@ class _PredictScreenState extends State<PredictScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Wrap(
-                        spacing: 8,
-                        children: _strategyLabels.entries.map((entry) {
-                          return _buildStrategyChip(entry.key, entry.value);
-                        }).toList(),
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0B6B4F),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          '预测策略',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    if (_loading)
-                      const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      Text(
-                        '点击策略自动生成预测',
-                        style: TextStyle(color: Colors.grey.shade600),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        const spacing = 10.0;
+                        final itemWidth =
+                            (constraints.maxWidth - spacing) / 2;
+                        return Wrap(
+                          spacing: spacing,
+                          runSpacing: spacing,
+                          children: _strategyLabels.entries.map((entry) {
+                            return SizedBox(
+                              width: itemWidth,
+                              child: _buildStrategyChip(
+                                entry.key,
+                                entry.value,
+                              ),
+                            );
+                          }).toList(),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: _loading
+                          ? const SizedBox(
+                              key: ValueKey('loading'),
+                              height: 24,
+                              child: Center(
+                                child: SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              _strategyLabels[_strategy] ?? '',
+                              key: ValueKey(_strategy),
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                       ),
                     if (!activationValid)
                       const Padding(

@@ -206,6 +206,7 @@ class ApiClient {
     String? strategy,
     String? result,
     bool includeZodiacs = false,
+    bool includeSummaries = true,
     String? year,
   }) async {
     final response = await get('/api/mobile/predictions', queryParameters: {
@@ -215,8 +216,17 @@ class ApiClient {
       if (strategy != null && strategy.isNotEmpty) 'strategy': strategy,
       if (result != null && result.isNotEmpty) 'result': result,
       if (includeZodiacs) 'include_zodiacs': '1',
+      if (!includeSummaries) 'include_summaries': '0',
       if (year != null && year.isNotEmpty) 'year': year,
     });
+    return _ensureJsonMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> predictionSummaries({String? region}) async {
+    final response = await get('/api/mobile/prediction_summaries',
+        queryParameters: {
+          if (region != null && region.isNotEmpty) 'region': region,
+        });
     return _ensureJsonMap(response.data);
   }
 

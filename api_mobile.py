@@ -1350,7 +1350,15 @@ def _build_region_summaries(user_id, region_filter=None):
     query = PredictionRecord.query.filter_by(user_id=user_id)
     if region_filter:
         query = query.filter_by(region=region_filter)
-    all_predictions = query.order_by(
+    all_predictions = query.with_entities(
+        PredictionRecord.region,
+        PredictionRecord.period,
+        PredictionRecord.special_number,
+        PredictionRecord.actual_special_number,
+        PredictionRecord.is_result_updated,
+        PredictionRecord.created_at,
+        PredictionRecord.id,
+    ).order_by(
         PredictionRecord.created_at.asc(), PredictionRecord.id.asc()
     ).all()
     
@@ -1437,6 +1445,21 @@ def _build_region_summaries(user_id, region_filter=None):
     return prediction_summary_cards
 
 
+@mobile_api_bp.route("/prediction_summaries", methods=["GET"])
+def api_prediction_summaries():
+    user, error = _require_active_user()
+    if error:
+        return error
+
+    region = request.args.get("region", "").strip()
+    return jsonify(
+        {
+            "success": True,
+            "region_summaries": _build_region_summaries(user.id, region),
+        }
+    )
+
+
 @mobile_api_bp.route("/predictions", methods=["GET"])
 def api_predictions():
     user, error = _require_active_user()
@@ -1450,6 +1473,7 @@ def api_predictions():
     strategy = request.args.get("strategy", "").strip()
     result = request.args.get("result", "").strip()
     include_zodiacs = request.args.get("include_zodiacs", "").strip() == "1"
+    include_summaries = request.args.get("include_summaries", "1").strip() != "0"
     year_param = request.args.get("year", "").strip()
 
     query = PredictionRecord.query.filter_by(user_id=user.id)
@@ -1571,7 +1595,9 @@ def api_predictions():
             "page_size": page_size,
             "total": total,
             "items": items,
-            "region_summaries": _build_region_summaries(user.id, region),
+            "region_summaries": (
+                _build_region_summaries(user.id, region) if include_summaries else []
+            ),
         }
     )
 
