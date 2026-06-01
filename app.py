@@ -37,9 +37,12 @@ data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
 _ML_PREDICTION_CACHE_TTL_SECONDS = 180
+_AI_PREDICTION_CACHE_TTL_SECONDS = 300
 _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
+_ai_prediction_cache = {}
+_ai_prediction_cache_lock = threading.Lock()
 _runtime_analysis_cache_local = threading.local()
 _strategy_config_override_local = threading.local()
 _SYSTEM_LOG_FILE_PATH = os.path.join(data_dir, "system.log")
@@ -345,6 +348,83 @@ def _runtime_json_signature(value):
     except TypeError:
         payload = str(value or "")
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
+
+
+def _build_ai_prediction_cache_key(region, data, tuned, ai_config, prompt, temperature, sample_count, candidate_count):
+    tuned_payload = {
+        key: value
+        for key, value in dict(tuned or {}).items()
+        if key not in {"updated_at", "auto_optimize_history", "auto_rollback_history", "auto_restore_history"}
+    }
+    ai_payload = {
+        "api_url": str((ai_config or {}).get("api_url") or ""),
+        "model": str((ai_config or {}).get("model") or ""),
+    }
+    payload = {
+        "cache_version": 1,
+        "region": str(region or "").strip().lower(),
+        "periods": _runtime_draws_signature(data, limit=18),
+        "draw_count": len(data or []),
+        "tuned": tuned_payload,
+        "ai": ai_payload,
+        "prompt_hash": hashlib.md5(str(prompt or "").encode("utf-8")).hexdigest(),
+        "temperature": round(float(temperature or 0.0), 4),
+        "sample_count": int(sample_count or 0),
+        "candidate_count": int(candidate_count or 0),
+    }
+    fingerprint = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.md5(fingerprint.encode("utf-8")).hexdigest()
+
+
+def _get_cached_ai_prediction(cache_key):
+    now = time.time()
+    with _ai_prediction_cache_lock:
+        cached = _ai_prediction_cache.get(cache_key)
+        if not cached:
+            return None
+        cached_at = float(cached.get("cached_at") or 0.0)
+        if now - cached_at > _AI_PREDICTION_CACHE_TTL_SECONDS:
+            _ai_prediction_cache.pop(cache_key, None)
+            return None
+        cached["last_used_at"] = now
+        result = copy.deepcopy(cached.get("result"))
+    if isinstance(result, dict):
+        meta = dict(result.get("model_meta") or {})
+        meta["ai_cache_hit"] = True
+        meta["ai_cache_age_seconds"] = round(now - cached_at, 2)
+        result["model_meta"] = meta
+    return result
+
+
+def _store_cached_ai_prediction(cache_key, result):
+    if not isinstance(result, dict) or result.get("error"):
+        return result
+    now = time.time()
+    cached_result = copy.deepcopy(result)
+    meta = dict(cached_result.get("model_meta") or {})
+    meta["ai_cache_hit"] = False
+    meta["ai_cached_at"] = datetime.now().isoformat(timespec="seconds")
+    cached_result["model_meta"] = meta
+    with _ai_prediction_cache_lock:
+        expired_keys = [
+            key
+            for key, item in _ai_prediction_cache.items()
+            if now - float(item.get("cached_at") or 0.0) > _AI_PREDICTION_CACHE_TTL_SECONDS
+        ]
+        for key in expired_keys:
+            _ai_prediction_cache.pop(key, None)
+        if len(_ai_prediction_cache) >= 64:
+            oldest_key = min(
+                _ai_prediction_cache.keys(),
+                key=lambda key: float(_ai_prediction_cache[key].get("last_used_at") or _ai_prediction_cache[key].get("cached_at") or 0.0),
+            )
+            _ai_prediction_cache.pop(oldest_key, None)
+        _ai_prediction_cache[cache_key] = {
+            "cached_at": now,
+            "last_used_at": now,
+            "result": cached_result,
+        }
+    return copy.deepcopy(cached_result)
 
 def _load_or_create_secret_key():
     env_secret = os.environ.get("SECRET_KEY")
@@ -5752,6 +5832,85 @@ def _score_markov_combo_shape(numbers, data, region, year):
     }
 
 
+def _build_local_trend_reversal_profile(short_norm, medium_norm, long_norm):
+    reversal_scores = {}
+    active_count = 0
+    for number in range(1, 50):
+        key = str(number)
+        short_value = float(short_norm.get(key, 0.0) or 0.0)
+        medium_value = float(medium_norm.get(key, 0.0) or 0.0)
+        long_value = float(long_norm.get(key, 0.0) or 0.0)
+        if medium_value <= 0 and long_value <= 0:
+            reversal_scores[key] = 0.0
+            continue
+        momentum_drop = max(0.0, medium_value - short_value)
+        long_support = max(medium_value, long_value)
+        score = _clamp(momentum_drop * 0.65 + max(0.0, long_support - short_value) * 0.25, 0.0, 0.42)
+        if score >= 0.08:
+            active_count += 1
+        reversal_scores[key] = round(score, 6)
+    return {
+        "scores": reversal_scores,
+        "active": active_count >= 3,
+        "active_count": active_count,
+    }
+
+
+def _build_local_cold_trap_profile(cold_norm, overdue_norm, medium_norm, normal_norm, feedback=None, feedback_confidence=0.0):
+    trap_scores = {}
+    active_count = 0
+    feedback = feedback or {}
+    for number in range(1, 50):
+        key = str(number)
+        cold_score = float(cold_norm.get(key, 0.0) or 0.0)
+        overdue_score = float(overdue_norm.get(key, 0.0) or 0.0)
+        medium_support = float(medium_norm.get(key, 0.0) or 0.0)
+        normal_support = float(normal_norm.get(key, 0.0) or 0.0)
+        learned_support = (
+            (float((feedback.get("special") or {}).get(key, 0.5) or 0.5) - 0.5) * 0.7 +
+            (float((feedback.get("normal") or {}).get(key, 0.5) or 0.5) - 0.5) * 0.3
+        ) * float(feedback_confidence or 0.0)
+        raw_trap = max(0.0, (cold_score * 0.55 + overdue_score * 0.45) - (medium_support * 0.42 + normal_support * 0.28 + max(0.0, learned_support) * 0.9))
+        score = _clamp(raw_trap, 0.0, 0.38)
+        if score >= 0.14:
+            active_count += 1
+        trap_scores[key] = round(score, 6)
+    return {
+        "scores": trap_scores,
+        "active": active_count >= 4,
+        "active_count": active_count,
+    }
+
+
+def _rebalance_local_combo_shape(selected_numbers, ranked_numbers, score_map, recent_data, region, year):
+    selected = sorted(_dedupe_keep_order([int(number) for number in selected_numbers if str(number).isdigit()])[:6])
+    if len(selected) < 6:
+        return selected, {"score": 0.0, "adjusted": False}
+    profile = _score_markov_combo_shape(selected, recent_data, region, year)
+    if float(profile.get("score") or 0.0) >= -0.02:
+        profile["adjusted"] = False
+        return selected, profile
+
+    best_numbers = selected
+    best_profile = profile
+    candidates = [number for number in ranked_numbers[:24] if number not in selected]
+    for replace_index, old_number in enumerate(list(selected)):
+        base = [number for number in selected if number != old_number]
+        for candidate in candidates:
+            trial = sorted(_dedupe_keep_order(base + [candidate])[:6])
+            if len(trial) < 6:
+                continue
+            trial_profile = _score_markov_combo_shape(trial, recent_data, region, year)
+            trial_score = float(trial_profile.get("score") or 0.0) + float(score_map.get(candidate, 0.0) or 0.0) * 0.015
+            best_score = float(best_profile.get("score") or 0.0)
+            if trial_score > best_score + 0.015:
+                best_numbers = trial
+                best_profile = trial_profile
+                best_profile["adjusted"] = True
+                best_profile["replaced"] = {"from": old_number, "to": candidate, "index": replace_index}
+    return sorted(best_numbers), best_profile
+
+
 def _build_markov_special_transition_profile(data, window=80, decay=0.985, year=None, min_samples=3):
     ordered = list(reversed((data or [])[:max(2, int(window or 80))]))
     cache_key = (
@@ -6325,6 +6484,25 @@ def _resolve_local_hybrid_mix(config, region, phase_label):
         "cold": (_safe_float(cold_stats.get("top1"), 0.0) * 1.0) + (_safe_float(cold_stats.get("top6"), 0.0) * 0.5),
         "trend": (_safe_float(trend_stats.get("top1"), 0.0) * 1.1) + (_safe_float(trend_stats.get("top6"), 0.0) * 0.45),
     }
+    anneal_profile = {}
+    for child_strategy, stats in (("hot", hot_stats), ("cold", cold_stats), ("trend", trend_stats)):
+        recent_stats = _calculate_strategy_hit_rates(region, child_strategy, limit=12)
+        base_score = scores.get(child_strategy, 0.0)
+        recent_score = (
+            _safe_float(recent_stats.get("top1"), 0.0) * 1.15 +
+            _safe_float(recent_stats.get("top6"), 0.0) * 0.45
+        )
+        sample_confidence = _clamp(int(recent_stats.get("total", 0) or 0) / 10.0, 0.25, 1.0)
+        degrade = max(0.0, base_score - recent_score)
+        anneal = _clamp(degrade * sample_confidence, 0.0, 0.16)
+        if anneal > 0:
+            scores[child_strategy] = max(0.0, base_score - anneal)
+        anneal_profile[child_strategy] = {
+            "base_score": round(base_score, 4),
+            "recent_score": round(recent_score, 4),
+            "anneal": round(anneal, 4),
+            "recent_total": int(recent_stats.get("total", 0) or 0),
+        }
     if phase_label == "hot":
         scores["hot"] += 0.08
         scores["trend"] += 0.03
@@ -6344,6 +6522,7 @@ def _resolve_local_hybrid_mix(config, region, phase_label):
     remaining -= 2
     if remaining > 0:
         mix[ranked[0][0]] += remaining
+    mix["_anneal_profile"] = anneal_profile
     return mix
 
 
@@ -8089,6 +8268,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             special_freq = analyze_special_number_frequency(recent_data)
             trend_freq = analyze_special_number_frequency(trend_data)
             short_freq = analyze_special_number_frequency(recent_data[:10] if len(recent_data) >= 10 else recent_data)
+            medium_freq = analyze_special_number_frequency(recent_data[:24] if len(recent_data) >= 24 else recent_data)
             all_freq = _build_number_frequency(recent_data)
             overdue = _build_overdue_scores(recent_data)
 
@@ -8097,6 +8277,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
 
             hot_norm = _normalize_metric_map(special_freq)
             trend_norm = _normalize_metric_map(trend_freq)
+            short_norm = _normalize_metric_map(short_freq)
+            medium_norm = _normalize_metric_map(medium_freq)
             normal_norm = _normalize_metric_map(all_freq)
             overdue_norm = _normalize_metric_map(overdue)
             cold_norm = {str(i): round(1.0 - hot_norm.get(str(i), 0.0), 4) for i in range(1, 50)}
@@ -8113,6 +8295,17 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 apply_recent_zodiac_cooldown=(strategy != "cold"),
             )
             feedback_confidence = float(feedback.get("confidence") or 0.0)
+            trend_reversal_profile = _build_local_trend_reversal_profile(short_norm, medium_norm, hot_norm)
+            trend_reversal_scores = trend_reversal_profile.get("scores") or {}
+            cold_trap_profile = _build_local_cold_trap_profile(
+                cold_norm,
+                overdue_norm,
+                medium_norm,
+                normal_norm,
+                feedback=feedback,
+                feedback_confidence=feedback_confidence,
+            )
+            cold_trap_scores = cold_trap_profile.get("scores") or {}
             recent_draw_number_hits = Counter()
             recent_draw_sets = []
             for item in recent_data[:6]:
@@ -8190,6 +8383,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 
                 attr_score = attribute_score(number)
                 penalty = overheat_penalty(number)
+                trend_reversal_penalty = trend_reversal_scores.get(key, 0.0) if strategy in ("trend", "hybrid") else 0.0
+                cold_trap_penalty = cold_trap_scores.get(key, 0.0) if strategy in ("cold", "hybrid") else 0.0
                 
                 score = (
                     float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) * hot_multiplier +
@@ -8198,7 +8393,9 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
                     float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
                     float(weights.get("feedback", 0.0)) * feedback_score * feedback_multiplier +
-                    (attr_score * attribute_multiplier) + (penalty * overheat_multiplier)
+                    (attr_score * attribute_multiplier) + (penalty * overheat_multiplier) -
+                    (trend_reversal_penalty * 0.85) -
+                    (cold_trap_penalty * 0.72)
                 )
                 
                 # 趋势共振：反馈好且属性契合且未过热时，指数级放大其基础权重
@@ -8220,7 +8417,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     cold_norm.get(str(number), 0.0) +
                     overdue_norm.get(str(number), 0.0) * 0.8 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.45) +
-                    attribute_score(number) + (overheat_penalty(number) * 0.5)
+                    attribute_score(number) + (overheat_penalty(number) * 0.5) -
+                    cold_trap_scores.get(str(number), 0.0)
                 )
                 for number in all_numbers
             })
@@ -8229,7 +8427,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     trend_norm.get(str(number), 0.0) * 1.1 +
                     hot_norm.get(str(number), 0.0) * 0.35 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.70) +
-                    attribute_score(number) + overheat_penalty(number)
+                    attribute_score(number) + overheat_penalty(number) -
+                    trend_reversal_scores.get(str(number), 0.0)
                 )
                 for number in all_numbers
             })
@@ -8249,6 +8448,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 ))
             elif strategy == 'hybrid':
                 mix = _resolve_local_hybrid_mix(config, region, str(phase_profile.get("label") or "neutral"))
+                hybrid_anneal_profile = dict(mix.pop("_anneal_profile", {}) or {})
                 template_mix = dict(runtime_profile.get("mix") or {})
                 if template_mix:
                     mix.update(template_mix)
@@ -8266,6 +8466,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     )
                 normal = sorted(normal)
             else:
+                hybrid_anneal_profile = {}
                 bucket_counts = _resolve_local_bucket_counts(
                     runtime_profile.get("bucket_counts") or config.get("bucket_counts") or [2, 2, 2],
                     str(phase_profile.get("label") or "neutral"),
@@ -8296,6 +8497,16 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 parity_pref,
                 count=6,
             )
+            combo_shape_profile = {"adjusted": False}
+            if strategy == "balanced":
+                normal, combo_shape_profile = _rebalance_local_combo_shape(
+                    normal,
+                    overall_rank,
+                    number_scores,
+                    recent_data,
+                    region,
+                    year,
+                )
             remaining_numbers = [number for number in all_numbers if number not in normal]
             
             preferred_parity = max(parity_pref.items(), key=lambda item: item[1])[0] if parity_pref else ""
@@ -8343,6 +8554,16 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     "local_strategy_profile": strategy_profile,
                     "local_phase_weight_profile": dict((((config or {}).get("phase_weight_learning") or {}).get(str(phase_profile.get("label") or "neutral")) or {})),
                     "local_strategy_handoff": strategy_handoff,
+                    "local_trend_reversal_profile": {
+                        "active": bool(trend_reversal_profile.get("active")),
+                        "active_count": int(trend_reversal_profile.get("active_count") or 0),
+                    },
+                    "local_cold_trap_profile": {
+                        "active": bool(cold_trap_profile.get("active")),
+                        "active_count": int(cold_trap_profile.get("active_count") or 0),
+                    },
+                    "local_combo_shape_profile": combo_shape_profile,
+                    "local_hybrid_anneal_profile": hybrid_anneal_profile if strategy == "hybrid" else {},
                 },
             }
         except Exception as e:
@@ -9335,6 +9556,23 @@ def _run_ai_prediction_pipeline(
 ):
     started_at = time.perf_counter()
     budget_seconds = _resolve_ai_latency_budget_seconds(tuned, stream_mode=stream_mode)
+    use_cache = not stream_mode and not str(initial_response_text or "").strip()
+    cache_key = ""
+    if use_cache:
+        cache_key = _build_ai_prediction_cache_key(
+            region,
+            data,
+            tuned,
+            ai_config,
+            prompt,
+            temperature,
+            sample_count,
+            candidate_count,
+        )
+        cached_result = _get_cached_ai_prediction(cache_key)
+        if cached_result is not None:
+            return cached_result
+
     responses = []
 
     initial_text = str(initial_response_text or "").strip()
@@ -9412,6 +9650,8 @@ def _run_ai_prediction_pipeline(
         budget_seconds=budget_seconds,
         budget_exhausted=budget_exhausted,
     )
+    if use_cache and cache_key:
+        result = _store_cached_ai_prediction(cache_key, result)
     return result
 
 
