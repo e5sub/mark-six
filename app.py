@@ -2885,10 +2885,22 @@ def _score_strategy_window_rates(summary):
 def _build_config_rollback_snapshot(config):
     snapshot = copy.deepcopy(dict(config or {}))
     snapshot.pop("rollback_guard", None)
+    snapshot.pop("auto_restore_guard", None)
     snapshot.pop("auto_rollback_history", None)
     snapshot.pop("auto_rollback_last_at", None)
     snapshot.pop("auto_rollback_last_reason", None)
+    snapshot.pop("auto_restore_history", None)
+    snapshot.pop("auto_restore_last_at", None)
+    snapshot.pop("auto_restore_last_reason", None)
     return snapshot
+
+
+def _load_backtest_draws_for_guard(region):
+    try:
+        return _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT)
+    except Exception:
+        db.session.rollback()
+        return []
 
 
 def _maybe_rollback_strategy_config(strategy, region, config):
@@ -2941,6 +2953,17 @@ def _maybe_rollback_strategy_config(strategy, region, config):
         "baseline_score": round(baseline_score, 4),
         "rolled_back_at": datetime.now().isoformat(timespec="seconds"),
     }
+    restored["auto_restore_guard"] = {
+        "active": True,
+        "candidate_config": _build_config_rollback_snapshot(config),
+        "current_config": _build_config_rollback_snapshot(restored),
+        "rolled_back_at": datetime.now().isoformat(timespec="seconds"),
+        "restore_margin": round(float(guard.get("restore_margin") or 0.9), 4),
+        "min_periods": int(guard.get("restore_min_periods") or 24),
+        "cooldown_checks": int(guard.get("restore_cooldown_checks") or 1),
+        "checks": 0,
+        "last_checked_at": "",
+    }
     history = list((config or {}).get("auto_rollback_history") or [])
     history.insert(0, {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -2957,6 +2980,97 @@ def _maybe_rollback_strategy_config(strategy, region, config):
     restored["auto_rollback_last_reason"] = "performance_degraded"
     _save_strategy_config(strategy, region, restored)
     return {"rolled_back": True, "config": restored}
+
+
+def _maybe_restore_rolled_back_strategy_config(strategy, region, config):
+    guard = dict((config or {}).get("auto_restore_guard") or {})
+    if not guard.get("active"):
+        return {"restored": False, "config": config}
+
+    candidate_config = guard.get("candidate_config")
+    if not isinstance(candidate_config, dict) or not candidate_config:
+        return {"restored": False, "config": config}
+
+    checks = int(guard.get("checks") or 0) + 1
+    cooldown_checks = int(guard.get("cooldown_checks") or 1)
+    guard["checks"] = checks
+    guard["last_checked_at"] = datetime.now().isoformat(timespec="seconds")
+    if checks <= cooldown_checks:
+        config["auto_restore_guard"] = guard
+        return {"restored": False, "config": config}
+
+    draws = _load_backtest_draws_for_guard(region)
+    if not draws:
+        config["auto_restore_guard"] = guard
+        return {"restored": False, "config": config}
+
+    current_summary = _build_strategy_backtest_summary(region, strategy, draws=draws)
+    candidate_summary = _build_strategy_backtest_summary(
+        region,
+        strategy,
+        draws=draws,
+        config_override=candidate_config,
+    )
+    min_periods = int(guard.get("min_periods") or 24)
+    current_periods = int(current_summary.get("periods_evaluated") or current_summary.get("total") or 0)
+    candidate_periods = int(candidate_summary.get("periods_evaluated") or candidate_summary.get("total") or 0)
+    if min(current_periods, candidate_periods) < min_periods:
+        guard["last_check_skipped"] = "insufficient_periods"
+        config["auto_restore_guard"] = guard
+        return {"restored": False, "config": config}
+
+    current_score = _score_auto_optimize_summary(current_summary)
+    candidate_score = _score_auto_optimize_summary(candidate_summary)
+    restore_margin = _safe_float(guard.get("restore_margin"), 0.9)
+    guard.update({
+        "last_current_score": round(current_score, 4),
+        "last_candidate_score": round(candidate_score, 4),
+        "last_periods": min(current_periods, candidate_periods),
+    })
+    if candidate_score < current_score + restore_margin:
+        config["auto_restore_guard"] = guard
+        return {"restored": False, "config": config}
+
+    restored = copy.deepcopy(candidate_config)
+    restored["updated_at"] = datetime.now().isoformat()
+    restored["auto_restore_guard"] = {
+        "active": False,
+        "restored_at": datetime.now().isoformat(timespec="seconds"),
+        "current_score": round(current_score, 4),
+        "candidate_score": round(candidate_score, 4),
+    }
+    restored["rollback_guard"] = {
+        "active": True,
+        "previous_config": _build_config_rollback_snapshot(config),
+        "baseline_score": round(current_score, 4),
+        "applied_score": round(candidate_score, 4),
+        "applied_gain": round(candidate_score - current_score, 4),
+        "applied_at": datetime.now().isoformat(timespec="seconds"),
+        "source": "auto_restore",
+        "patience": int(config.get("rollback_patience") or 3),
+        "min_samples": int(config.get("rollback_min_samples") or 8),
+        "drop_tolerance": round(float(config.get("rollback_drop_tolerance") or 0.8), 4),
+        "consecutive_degrade": 0,
+        "last_checked_at": "",
+    }
+    rollback_history = list((config or {}).get("auto_rollback_history") or [])
+    if rollback_history:
+        restored["auto_rollback_history"] = rollback_history[:8]
+    restore_history = list((config or {}).get("auto_restore_history") or [])
+    restore_history.insert(0, {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "region": region,
+        "strategy": strategy,
+        "current_score": round(current_score, 4),
+        "candidate_score": round(candidate_score, 4),
+        "gain": round(candidate_score - current_score, 4),
+        "periods": min(current_periods, candidate_periods),
+    })
+    restored["auto_restore_history"] = restore_history[:8]
+    restored["auto_restore_last_at"] = datetime.now().isoformat(timespec="seconds")
+    restored["auto_restore_last_reason"] = "candidate_recovered"
+    _save_strategy_config(strategy, region, restored)
+    return {"restored": True, "config": restored}
 
 
 def _load_region_draw_history(region, limit=None):
@@ -4362,6 +4476,10 @@ def _tune_strategy_config(strategy, region):
     if rollback_result.get("rolled_back"):
         return
     config = rollback_result.get("config") or config
+    restore_result = _maybe_restore_rolled_back_strategy_config(strategy, region, config)
+    if restore_result.get("restored"):
+        return
+    config = restore_result.get("config") or config
     previous_accuracy = float(config.get("last_accuracy") or 0.0)
     previous_total = int(config.get("last_total") or 0)
 
