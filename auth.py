@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, abort
+﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, abort
 from models import db, User, ActivationCode, ActivationCodeRequest, SystemConfig, InviteCode
 from werkzeug.security import generate_password_hash
 import uuid
@@ -386,7 +386,7 @@ def register():
         user.set_password(password)
         
         db.session.add(user)
-        db.session.flush()  # 获取用户ID但不提交事务
+        db.session.flush()  # 获取用户 ID，但暂不提交事务
         
         # 处理邀请码
         invite_success = False
@@ -397,7 +397,7 @@ def register():
                     success, message = invite_record.use_invite_code(user)
                     if success:
                         invite_success = True
-                        flash(f'注册成功！{message}，您已获得1天有效期。', 'success')
+                        flash(f'注册成功，{message}', 'success')
                     else:
                         flash(f'邀请码错误：{message}', 'error')
                         db.session.rollback()
@@ -430,7 +430,7 @@ def register():
             except Exception as e:
                 flash(f'注册成功，但验证邮件发送失败：{str(e)}', 'warning')
         elif not invite_success:
-            flash('注册成功！账号已自动激活 7 天。', 'success')
+            flash('注册成功，账号已自动激活 7 天。', 'success')
         
         return redirect(url_for('auth.login'))
     
@@ -473,7 +473,7 @@ def login():
             else:
                 return redirect(url_for('user.dashboard'))
         else:
-            flash('用户名/邮箱或密码错误', 'error')
+            flash('用户名、邮箱或密码错误', 'error')
     
     return _render_auth_template('auth/login.html')
 
@@ -503,7 +503,7 @@ def github_bind():
     config = _github_oauth_config()
     if not config:
         flash('GitHub 登录尚未配置', 'error')
-        return redirect(url_for('user.profile'))
+        return redirect(url_for('user.dashboard'))
     if 'user_id' not in session:
         flash('请先登录后再绑定 GitHub', 'error')
         return redirect(url_for('auth.login'))
@@ -578,20 +578,20 @@ def github_callback():
             return redirect(url_for('auth.login'))
         if not github_id:
             flash('GitHub 账号信息不完整，绑定失败', 'error')
-            return redirect(url_for('user.profile'))
+            return redirect(url_for('user.dashboard'))
         existing_user = User.query.filter(
             User.github_id == github_id,
             User.id != current_user.id,
         ).first()
         if existing_user:
             flash('这个 GitHub 账号已经绑定到其他用户', 'error')
-            return redirect(url_for('user.profile'))
+            return redirect(url_for('user.dashboard'))
 
         current_user.github_id = github_id
         current_user.github_username = github_login_name
         db.session.commit()
         flash('GitHub 账号绑定成功', 'success')
-        return redirect(url_for('user.profile'))
+        return redirect(url_for('user.dashboard'))
 
     user = User.query.filter_by(github_id=github_id).first() if github_id else None
     if not user:
@@ -698,7 +698,7 @@ def activate():
             if success:
                 db.session.commit()
                 session['is_active'] = True
-                flash('账号激活成功！现在可以使用全部功能了。', 'success')
+                flash('账号激活成功，现在可以使用全部功能了。', 'success')
                 return redirect(url_for('user.dashboard'))
             else:
                 flash(message, 'error')
@@ -768,7 +768,7 @@ def forgot_password():
         # 生成重置令牌
         reset_token = secrets.token_urlsafe(32)
         
-        # 将令牌存储到系统配置中，设置1小时过期
+        # 将令牌存储到系统配置中，设置 1 小时过期
         token_key = f"reset_token_{user.id}"
         token_data = f"{reset_token}|{(datetime.utcnow() + timedelta(hours=1)).isoformat()}"
         SystemConfig.set_config(token_key, token_data, "密码重置令牌")
@@ -841,18 +841,15 @@ def send_reset_email(email, username, token):
     """发送密码重置邮件"""
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
 
-    # 构建重置链接
     reset_url = url_for('auth.reset_password', token=token, _external=True)
-    
-    # 邮件内容
     subject = f'{site_name} - 密码重置'
     html_body = f"""
     <html>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #667eea;">密码重置请求</h2>
-            <p>亲爱的 {username}，</p>
-            <p>您请求重置 {site_name} 的密码。请点击下面的链接来重置您的密码：</p>
+            <p>亲爱的 {username}：</p>
+            <p>您正在重置 {site_name} 的密码。请点击下面的链接设置新密码：</p>
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{reset_url}" 
                    style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -869,7 +866,7 @@ def send_reset_email(email, username, token):
                 {reset_url}
             </p>
             <p style="color: #666; font-size: 14px;">
-                此链接将在1小时后过期。如果您没有请求重置密码，请忽略此邮件。
+                此链接将在 1 小时后过期。如果您没有请求重置密码，请忽略此邮件。
             </p>
             <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
             <p style="color: #999; font-size: 12px; text-align: center;">
