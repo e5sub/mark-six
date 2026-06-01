@@ -3,85 +3,301 @@
 {% block page_title %}推送设置{% endblock %}
 
 {% block content %}
+<style>
+    .notify-shell {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .notify-intro {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: flex-start;
+        padding-bottom: 1.25rem;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .notify-title {
+        margin: 0;
+        color: #f8fafc;
+        font-size: 1.35rem;
+        font-weight: 700;
+    }
+
+    .notify-subtitle {
+        margin: 0.45rem 0 0;
+        color: rgba(203, 213, 225, 0.82);
+        font-size: 0.95rem;
+        line-height: 1.65;
+    }
+
+    .notify-status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 32px;
+        padding: 0 0.85rem;
+        border-radius: 999px;
+        background: rgba(14, 165, 233, 0.14);
+        color: #bae6fd;
+        border: 1px solid rgba(56, 189, 248, 0.24);
+        white-space: nowrap;
+        font-size: 0.86rem;
+        font-weight: 700;
+    }
+
+    .notify-grid {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .notify-panel {
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(15, 23, 42, 0.48);
+        border-radius: 8px;
+        padding: 1rem;
+    }
+
+    .notify-panel-head {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1rem;
+        align-items: start;
+        margin-bottom: 1rem;
+    }
+
+    .notify-channel-name {
+        margin: 0;
+        color: #f8fafc;
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .notify-channel-note {
+        margin: 0.35rem 0 0;
+        color: rgba(203, 213, 225, 0.74);
+        font-size: 0.88rem;
+        line-height: 1.55;
+    }
+
+    .notify-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        color: #e5e7eb;
+        font-size: 0.9rem;
+        font-weight: 700;
+        white-space: nowrap;
+        padding: 0.4rem 0.55rem;
+        border-radius: 999px;
+        background: rgba(30, 41, 59, 0.72);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .notify-toggle input {
+        width: 16px;
+        height: 16px;
+        accent-color: #38bdf8;
+    }
+
+    .notify-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.85rem;
+    }
+
+    .notify-field-full {
+        grid-column: 1 / -1;
+    }
+
+    .notify-field label {
+        display: block;
+        margin-bottom: 0.45rem;
+        color: rgba(226, 232, 240, 0.88);
+        font-size: 0.86rem;
+        font-weight: 700;
+    }
+
+    .notify-field .form-control {
+        width: 100%;
+        min-height: 42px;
+        border-radius: 8px;
+    }
+
+    .notify-actions {
+        display: flex;
+        justify-content: flex-end;
+        padding-top: 0.25rem;
+    }
+
+    .notify-save {
+        min-width: 144px;
+        justify-content: center;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+    }
+
+    @media (max-width: 760px) {
+        .notify-intro,
+        .notify-panel-head {
+            grid-template-columns: 1fr;
+            display: grid;
+        }
+
+        .notify-status,
+        .notify-toggle {
+            justify-self: start;
+        }
+
+        .notify-fields {
+            grid-template-columns: 1fr;
+        }
+
+        .notify-actions {
+            justify-content: stretch;
+        }
+
+        .notify-save {
+            width: 100%;
+        }
+    }
+</style>
+
 <div class="card">
-    <div class="card-header">
-        <h2 class="card-title">推送设置</h2>
-    </div>
-
-    <form method="POST" action="{{ url_for('user.notification_settings') }}" style="display: grid; gap: 1.5rem;">
-        <div style="background: rgba(14, 165, 233, 0.05); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #0ea5e9;">
-            <h3 style="margin: 0 0 1rem 0; color: #38bdf8; font-size: 1.1rem;">个人推送渠道</h3>
-
-            <div style="display: grid; gap: 1rem;">
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="station_enabled"
-                               {{ 'checked' if notification_config.get('station_enabled', true) else '' }}>
-                        启用站内通知
-                    </label>
-                    <small style="color: #666; display: block; margin-top: 0.5rem;">开启后，通知会进入用户中心的通知中心。</small>
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="webhook_enabled"
-                               {{ 'checked' if notification_config.get('webhook_enabled') else '' }}>
-                        启用 Webhook 推送
-                    </label>
-                    <input type="url" name="webhook_url" class="form-control"
-                           value="{{ notification_config.get('webhook_url', '') }}"
-                           placeholder="企业微信 / 飞书 / 钉钉 / 自定义 Webhook 地址">
-                    <small style="color: #666;">企业微信、飞书、钉钉机器人会自动使用对应文本格式。</small>
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="telegram_enabled"
-                               {{ 'checked' if notification_config.get('telegram_enabled') else '' }}>
-                        启用 Telegram Bot 推送
-                    </label>
-                    <input type="password" name="telegram_bot_token" class="form-control"
-                           value="{{ notification_config.get('telegram_bot_token', '') }}"
-                           placeholder="Bot Token">
-                    <input type="text" name="telegram_chat_id" class="form-control"
-                           value="{{ notification_config.get('telegram_chat_id', '') }}"
-                           placeholder="Chat ID" style="margin-top: 0.6rem;">
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="pushplus_enabled"
-                               {{ 'checked' if notification_config.get('pushplus_enabled') else '' }}>
-                        启用 PushPlus 推送
-                    </label>
-                    <input type="password" name="pushplus_token" class="form-control"
-                           value="{{ notification_config.get('pushplus_token', '') }}"
-                           placeholder="PushPlus Token">
-                    <input type="text" name="pushplus_topic" class="form-control"
-                           value="{{ notification_config.get('pushplus_topic', '') }}"
-                           placeholder="群组编码，可留空" style="margin-top: 0.6rem;">
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" name="bark_enabled"
-                               {{ 'checked' if notification_config.get('bark_enabled') else '' }}>
-                        启用 Bark 推送
-                    </label>
-                    <input type="url" name="bark_server_url" class="form-control"
-                           value="{{ notification_config.get('bark_server_url', 'https://api.day.app') }}"
-                           placeholder="https://api.day.app">
-                    <input type="password" name="bark_device_key" class="form-control"
-                           value="{{ notification_config.get('bark_device_key', '') }}"
-                           placeholder="Bark Device Key" style="margin-top: 0.6rem;">
-                </div>
+    <form method="POST" action="{{ url_for('user.notification_settings') }}" class="notify-shell">
+        <div class="notify-intro">
+            <div>
+                <h2 class="notify-title">推送设置</h2>
+                <p class="notify-subtitle">配置预测汇总、命中提醒和管理员通知的个人接收渠道。邮件仍使用后台统一 SMTP 配置。</p>
             </div>
+            <span class="notify-status">个人配置</span>
         </div>
 
-        <div style="text-align: center;">
-            <button type="submit" class="btn" style="padding: 1rem 2rem; font-size: 1.1rem; background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);">
-                保存推送设置
-            </button>
+        <div class="notify-grid">
+            <section class="notify-panel">
+                <div class="notify-panel-head">
+                    <div>
+                        <h3 class="notify-channel-name">站内通知</h3>
+                        <p class="notify-channel-note">通知会进入用户中心的通知中心，不依赖任何第三方服务。</p>
+                    </div>
+                    <label class="notify-toggle">
+                        <input type="checkbox" name="station_enabled"
+                               {{ 'checked' if notification_config.get('station_enabled', true) else '' }}>
+                        启用
+                    </label>
+                </div>
+            </section>
+
+            <section class="notify-panel">
+                <div class="notify-panel-head">
+                    <div>
+                        <h3 class="notify-channel-name">Webhook</h3>
+                        <p class="notify-channel-note">支持企业微信、飞书、钉钉机器人，也可填写自定义 Webhook。</p>
+                    </div>
+                    <label class="notify-toggle">
+                        <input type="checkbox" name="webhook_enabled"
+                               {{ 'checked' if notification_config.get('webhook_enabled') else '' }}>
+                        启用
+                    </label>
+                </div>
+                <div class="notify-fields">
+                    <div class="notify-field notify-field-full">
+                        <label>Webhook 地址</label>
+                        <input type="url" name="webhook_url" class="form-control"
+                               value="{{ notification_config.get('webhook_url', '') }}"
+                               placeholder="https://...">
+                    </div>
+                </div>
+            </section>
+
+            <section class="notify-panel">
+                <div class="notify-panel-head">
+                    <div>
+                        <h3 class="notify-channel-name">Telegram Bot</h3>
+                        <p class="notify-channel-note">填写 Bot Token 和 Chat ID 后，系统会通过 Bot 发送文本提醒。</p>
+                    </div>
+                    <label class="notify-toggle">
+                        <input type="checkbox" name="telegram_enabled"
+                               {{ 'checked' if notification_config.get('telegram_enabled') else '' }}>
+                        启用
+                    </label>
+                </div>
+                <div class="notify-fields">
+                    <div class="notify-field">
+                        <label>Bot Token</label>
+                        <input type="password" name="telegram_bot_token" class="form-control"
+                               value="{{ notification_config.get('telegram_bot_token', '') }}"
+                               placeholder="123456:ABC...">
+                    </div>
+                    <div class="notify-field">
+                        <label>Chat ID</label>
+                        <input type="text" name="telegram_chat_id" class="form-control"
+                               value="{{ notification_config.get('telegram_chat_id', '') }}"
+                               placeholder="例如 123456789">
+                    </div>
+                </div>
+            </section>
+
+            <section class="notify-panel">
+                <div class="notify-panel-head">
+                    <div>
+                        <h3 class="notify-channel-name">PushPlus</h3>
+                        <p class="notify-channel-note">适合微信侧接收提醒；群组编码可留空。</p>
+                    </div>
+                    <label class="notify-toggle">
+                        <input type="checkbox" name="pushplus_enabled"
+                               {{ 'checked' if notification_config.get('pushplus_enabled') else '' }}>
+                        启用
+                    </label>
+                </div>
+                <div class="notify-fields">
+                    <div class="notify-field">
+                        <label>Token</label>
+                        <input type="password" name="pushplus_token" class="form-control"
+                               value="{{ notification_config.get('pushplus_token', '') }}"
+                               placeholder="PushPlus Token">
+                    </div>
+                    <div class="notify-field">
+                        <label>群组编码</label>
+                        <input type="text" name="pushplus_topic" class="form-control"
+                               value="{{ notification_config.get('pushplus_topic', '') }}"
+                               placeholder="可留空">
+                    </div>
+                </div>
+            </section>
+
+            <section class="notify-panel">
+                <div class="notify-panel-head">
+                    <div>
+                        <h3 class="notify-channel-name">Bark</h3>
+                        <p class="notify-channel-note">适合 iPhone 接收提醒；可使用官方服务或自建 Bark 服务。</p>
+                    </div>
+                    <label class="notify-toggle">
+                        <input type="checkbox" name="bark_enabled"
+                               {{ 'checked' if notification_config.get('bark_enabled') else '' }}>
+                        启用
+                    </label>
+                </div>
+                <div class="notify-fields">
+                    <div class="notify-field">
+                        <label>服务器地址</label>
+                        <input type="url" name="bark_server_url" class="form-control"
+                               value="{{ notification_config.get('bark_server_url', 'https://api.day.app') }}"
+                               placeholder="https://api.day.app">
+                    </div>
+                    <div class="notify-field">
+                        <label>Device Key</label>
+                        <input type="password" name="bark_device_key" class="form-control"
+                               value="{{ notification_config.get('bark_device_key', '') }}"
+                               placeholder="Bark Device Key">
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div class="notify-actions">
+            <button type="submit" class="btn notify-save">保存设置</button>
         </div>
     </form>
 </div>
