@@ -114,11 +114,18 @@
         font-size: 0.9rem;
     }
 
+    .mail-switch-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.7rem;
+    }
+
     @media (max-width: 1100px) {
         .config-layout,
         .config-grid,
         .config-grid-three,
-        .config-switch-grid {
+        .config-switch-grid,
+        .mail-switch-row {
             grid-template-columns: 1fr;
         }
 
@@ -165,21 +172,23 @@
             <section class="config-section" style="--section-accent: #28a745;">
                 <h3 class="config-section-title">📧 邮件配置</h3>
                 <div class="config-grid">
-                    <div class="config-field config-field-full">
-                        <label class="admin-switch">
-                            <input type="checkbox" name="notify_email_enabled"
-                                   {{ 'checked' if configs.get('notify_email_enabled', 'true') == 'true' else '' }}>
-                            <span class="admin-switch-track" aria-hidden="true"></span>
-                            <span class="admin-switch-text">启用邮件推送</span>
-                        </label>
-                    </div>
-                    <div class="config-field config-field-full">
-                        <label class="admin-switch">
-                            <input type="checkbox" name="require_email_verification"
-                                   {{ 'checked' if configs.get('require_email_verification', 'false') == 'true' else '' }}>
-                            <span class="admin-switch-track" aria-hidden="true"></span>
-                            <span class="admin-switch-text">需要邮箱验证</span>
-                        </label>
+                    <div class="config-field config-field-full mail-switch-row">
+                        <div class="config-switch-item">
+                            <label class="admin-switch">
+                                <input type="checkbox" name="notify_email_enabled"
+                                       {{ 'checked' if configs.get('notify_email_enabled', 'true') == 'true' else '' }}>
+                                <span class="admin-switch-track" aria-hidden="true"></span>
+                                <span class="admin-switch-text">启用邮件推送</span>
+                            </label>
+                        </div>
+                        <div class="config-switch-item">
+                            <label class="admin-switch">
+                                <input type="checkbox" name="require_email_verification"
+                                       {{ 'checked' if configs.get('require_email_verification', 'false') == 'true' else '' }}>
+                                <span class="admin-switch-track" aria-hidden="true"></span>
+                                <span class="admin-switch-text">需要邮箱验证</span>
+                            </label>
+                        </div>
                     </div>
                     <div class="config-field">
                         <label>SMTP 服务器</label>
@@ -286,6 +295,32 @@
                 </div>
             </section>
 
+            <section class="config-section" style="--section-accent: #64748b;">
+                <h3 class="config-section-title">🐙 GitHub 登录配置</h3>
+                <div class="config-grid">
+                    <div class="config-field config-field-full">
+                        <label class="admin-switch">
+                            <input type="checkbox" name="enable_github_login"
+                                   {{ 'checked' if configs.get('enable_github_login', 'false') == 'true' else '' }}>
+                            <span class="admin-switch-track" aria-hidden="true"></span>
+                            <span class="admin-switch-text">启用 GitHub 登录</span>
+                        </label>
+                    </div>
+                    <div class="config-field">
+                        <label>GitHub Client ID</label>
+                        <input type="text" name="github_client_id" class="form-control"
+                               value="{{ configs.get('github_client_id', '') }}"
+                               placeholder="GitHub OAuth App Client ID">
+                    </div>
+                    <div class="config-field">
+                        <label>GitHub Client Secret</label>
+                        <input type="password" name="github_client_secret" class="form-control"
+                               value="{{ configs.get('github_client_secret', '') }}"
+                               placeholder="GitHub OAuth App Client Secret">
+                    </div>
+                </div>
+            </section>
+
             <section class="config-section config-section-wide" style="--section-accent: #0ea5e9;">
                 <h3 class="config-section-title">🧩 功能开关与优化</h3>
                 <div class="config-grid config-grid-three">
@@ -352,6 +387,7 @@ document.getElementById('configForm').addEventListener('submit', function(e) {
         'allow_registration',
         'require_email_verification',
         'enable_turnstile',
+        'enable_github_login',
         'enable_personalized_predictions',
         'auto_optimize_enabled',
         'notify_email_enabled'

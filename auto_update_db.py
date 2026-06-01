@@ -79,6 +79,9 @@ def update_database():
             ensure_system_config(cursor, 'enable_turnstile', 'false', '启用 Cloudflare Turnstile 人机验证')
             ensure_system_config(cursor, 'turnstile_site_key', '', 'Cloudflare Turnstile 站点密钥')
             ensure_system_config(cursor, 'turnstile_secret_key', '', 'Cloudflare Turnstile 私钥')
+            ensure_system_config(cursor, 'enable_github_login', 'false', '启用 GitHub 登录')
+            ensure_system_config(cursor, 'github_client_id', '', 'GitHub OAuth Client ID')
+            ensure_system_config(cursor, 'github_client_secret', '', 'GitHub OAuth Client Secret')
         
         # 检查并添加 auto_prediction_regions 字段
         if not check_column_exists(cursor, 'user', 'auto_prediction_regions'):

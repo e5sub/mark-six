@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 import secrets
 import requests
+from urllib.parse import urlencode
 from notification_service import has_email_config, notify_admins, send_html_email
 
 auth_bp = Blueprint('auth', __name__)
@@ -31,6 +32,7 @@ def _render_auth_template(template_name, **context):
     context.setdefault('require_email_verification', _email_verification_required())
     context.setdefault('admin_setup_required', not _has_admin_account())
     context.setdefault('turnstile_site_key', _turnstile_site_key())
+    context.setdefault('github_login_enabled', _github_login_enabled())
     return render_template(template_name, **context)
 
 
@@ -70,6 +72,70 @@ def _verify_turnstile_response(token):
     if payload.get('success') is True:
         return True, ''
     return False, '人机验证失败，请刷新页面后重试'
+
+
+def _github_oauth_config():
+    if not _is_config_enabled('enable_github_login', 'false'):
+        return {}
+    client_id = str(SystemConfig.get_config('github_client_id', '') or '').strip()
+    client_secret = str(SystemConfig.get_config('github_client_secret', '') or '').strip()
+    if not client_id or not client_secret:
+        return {}
+    return {
+        'client_id': client_id,
+        'client_secret': client_secret,
+    }
+
+
+def _github_login_enabled():
+    return bool(_github_oauth_config())
+
+
+def _login_user_session(user):
+    user.check_and_update_activation_status()
+    user.last_login = datetime.utcnow()
+    user.login_count = (user.login_count or 0) + 1
+    db.session.commit()
+
+    session['user_id'] = user.id
+    session['username'] = user.username
+    session['is_admin'] = user.is_admin
+    session['is_active'] = user.is_active
+    session.permanent = True
+
+
+def _unique_github_username(login):
+    base = ''.join(ch for ch in str(login or 'github').strip() if ch.isalnum() or ch in ('_', '-'))
+    base = (base or 'github')[:70]
+    candidate = base
+    suffix = 1
+    while User.query.filter_by(username=candidate).first():
+        suffix += 1
+        candidate = f"{base[:70]}_{suffix}"
+    return candidate
+
+
+def _fetch_github_verified_email(access_token):
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'mark-six-web',
+    }
+    user_response = requests.get('https://api.github.com/user', headers=headers, timeout=12)
+    user_response.raise_for_status()
+    profile = user_response.json() or {}
+
+    email = str(profile.get('email') or '').strip().lower()
+    if email:
+        return profile, email
+
+    email_response = requests.get('https://api.github.com/user/emails', headers=headers, timeout=12)
+    email_response.raise_for_status()
+    emails = email_response.json() or []
+    primary = next((item for item in emails if item.get('primary') and item.get('verified') and item.get('email')), None)
+    verified = primary or next((item for item in emails if item.get('verified') and item.get('email')), None)
+    email = str((verified or {}).get('email') or '').strip().lower()
+    return profile, email
 
 
 def _email_verification_status_key(user_id):
@@ -400,17 +466,7 @@ def login():
                     flash(f'您的邮箱还未验证，且补发验证邮件失败：{str(e)}', 'error')
                 return _render_auth_template('auth/login.html')
 
-            user.check_and_update_activation_status()
-            # 更新登录统计信息
-            user.last_login = datetime.utcnow()
-            user.login_count = (user.login_count or 0) + 1
-            db.session.commit()
-            
-            session['user_id'] = user.id
-            session['username'] = user.username
-            session['is_admin'] = user.is_admin
-            session['is_active'] = user.is_active
-            session.permanent = True
+            _login_user_session(user)
             
             if user.is_admin:
                 return redirect(url_for('admin.dashboard'))
@@ -420,6 +476,100 @@ def login():
             flash('用户名/邮箱或密码错误', 'error')
     
     return _render_auth_template('auth/login.html')
+
+
+@auth_bp.route('/github/login')
+def github_login():
+    config = _github_oauth_config()
+    if not config:
+        flash('GitHub 登录尚未配置', 'error')
+        return redirect(url_for('auth.login'))
+
+    state = secrets.token_urlsafe(24)
+    session['github_oauth_state'] = state
+    query = urlencode({
+        'client_id': config['client_id'],
+        'redirect_uri': url_for('auth.github_callback', _external=True),
+        'scope': 'read:user user:email',
+        'state': state,
+        'allow_signup': 'true',
+    })
+    return redirect(f'https://github.com/login/oauth/authorize?{query}')
+
+
+@auth_bp.route('/github/callback')
+def github_callback():
+    config = _github_oauth_config()
+    if not config:
+        flash('GitHub 登录尚未配置', 'error')
+        return redirect(url_for('auth.login'))
+
+    state = request.args.get('state', '')
+    expected_state = session.pop('github_oauth_state', '')
+    if not state or not expected_state or not secrets.compare_digest(state, expected_state):
+        flash('GitHub 登录状态已失效，请重试', 'error')
+        return redirect(url_for('auth.login'))
+
+    code = request.args.get('code', '')
+    if not code:
+        flash('GitHub 授权失败，请重试', 'error')
+        return redirect(url_for('auth.login'))
+
+    try:
+        token_response = requests.post(
+            'https://github.com/login/oauth/access_token',
+            data={
+                'client_id': config['client_id'],
+                'client_secret': config['client_secret'],
+                'code': code,
+                'redirect_uri': url_for('auth.github_callback', _external=True),
+            },
+            headers={'Accept': 'application/json'},
+            timeout=12,
+        )
+        token_response.raise_for_status()
+        token_payload = token_response.json() or {}
+        access_token = str(token_payload.get('access_token') or '').strip()
+        if not access_token:
+            raise ValueError(token_payload.get('error_description') or 'missing access token')
+
+        profile, email = _fetch_github_verified_email(access_token)
+    except Exception as e:
+        flash(f'GitHub 登录失败：{e}', 'error')
+        return redirect(url_for('auth.login'))
+
+    if not email:
+        flash('GitHub 账号没有可用的已验证邮箱，无法登录', 'error')
+        return redirect(url_for('auth.login'))
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        if not _is_config_enabled('allow_registration', 'true'):
+            flash('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册', 'error')
+            return redirect(url_for('auth.login'))
+
+        first_admin = not _has_admin_account()
+        github_login_name = profile.get('login') or email.split('@', 1)[0]
+        user = User(
+            username=_unique_github_username(github_login_name),
+            email=email,
+            is_admin=first_admin,
+        )
+        user.set_password(secrets.token_urlsafe(32))
+        user.extend_activation(7)
+        user.is_active = True
+        user.auto_prediction_enabled = True
+        db.session.add(user)
+        db.session.commit()
+        _mark_email_verified(user)
+
+    if _email_verification_required() and not _is_email_verified(user):
+        _mark_email_verified(user)
+
+    _login_user_session(user)
+    if user.is_admin:
+        return redirect(url_for('admin.dashboard'))
+    return redirect(url_for('user.dashboard'))
 
 
 @auth_bp.route('/setup-admin', methods=['GET', 'POST'])

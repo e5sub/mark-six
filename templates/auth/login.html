@@ -265,6 +265,12 @@
             <button type="submit" class="btn btn-primary">
                 <i class="fas fa-sign-in-alt"></i> 登录
             </button>
+
+            {% if github_login_enabled %}
+            <a href="{{ url_for('auth.github_login') }}" class="btn btn-secondary">
+                <i class="fab fa-github"></i> 使用 GitHub 登录
+            </a>
+            {% endif %}
             
             <a href="{{ url_for('auth.register') }}" class="btn btn-secondary">
                 <i class="fas fa-user-plus"></i> 注册新账号
