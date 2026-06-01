@@ -5381,7 +5381,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final info = await PackageInfo.fromPlatform();
       if (!mounted) return;
-      setState(() => _appVersion = info.version);
+      setState(() => _appVersion = UpdateService.formatVersion(info.version));
     } catch (_) {}
   }
 
@@ -5878,6 +5878,13 @@ class UpdateService {
 
       final latestVersion = latest.version;
       if (_compareVersions(latestVersion, currentVersion) <= 0) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('已是最新版本 ${formatVersion(currentVersion)}'),
+            ),
+          );
+        }
         return;
       }
 
@@ -5885,8 +5892,11 @@ class UpdateService {
       final shouldUpdate = await showDialog<bool>(
             context: context,
             builder: (dialogContext) => AlertDialog(
-              title: const Text('发现新版本'),
-              content: Text('最新版本 $latestVersion，是否立即更新？'),
+              title: const Text('检测到新版本'),
+              content: Text(
+                '当前版本 ${formatVersion(currentVersion)}，'
+                '最新版本 ${formatVersion(latestVersion)}，是否立即更新？',
+              ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -5906,6 +5916,16 @@ class UpdateService {
     } catch (_) {
       // ignore update errors
     }
+  }
+
+  static String formatVersion(String version) {
+    final raw = version.split('+').first.trim();
+    if (raw.isEmpty) return '-';
+    final parts = raw.split('.').where((part) => part.isNotEmpty).toList();
+    while (parts.length > 2 && parts.last == '0') {
+      parts.removeLast();
+    }
+    return parts.join('.');
   }
 
   static Future<_ReleaseInfo?> _fetchLatestRelease() async {
