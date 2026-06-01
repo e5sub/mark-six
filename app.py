@@ -534,6 +534,14 @@ def _csrf_token_valid():
     return bool(expected and supplied and hmac.compare_digest(str(expected), str(supplied)))
 
 
+def _wants_json_response():
+    return (
+        request.is_json
+        or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in (request.headers.get("Accept") or "")
+    )
+
+
 def _json_auth_error(message, status=401, code="auth_required"):
     return jsonify({"success": False, "error": code, "message": message}), status
 
@@ -565,14 +573,15 @@ def _require_admin_session_json():
 
 @app.before_request
 def security_request_guards():
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not _same_origin_request():
-        if request.path.startswith("/api/"):
-            return _json_auth_error("跨站请求已被拦截", 403, "csrf_blocked")
-        return ("跨站请求已被拦截", 403)
-
     if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not _csrf_exempt_endpoint():
-        if not _csrf_token_valid():
-            if request.path.startswith("/api/") or request.is_json:
+        if _csrf_token_valid():
+            pass
+        elif not _same_origin_request():
+            if request.path.startswith("/api/") or _wants_json_response():
+                return _json_auth_error("跨站请求已被拦截", 403, "csrf_blocked")
+            return ("跨站请求已被拦截", 403)
+        else:
+            if request.path.startswith("/api/") or _wants_json_response():
                 return _json_auth_error("CSRF token 无效或缺失", 403, "csrf_blocked")
             return ("CSRF token 无效或缺失", 403)
 
