@@ -488,24 +488,94 @@ def _build_learning_comparison():
     comparisons = {}
     tracked = [item["key"] for item in STRATEGY_META if item["key"] in LOCAL_STRATEGIES or item["key"] == "ai"]
 
+    def _ranking_map_from_backtest(record):
+        if not record:
+            return {}
+        try:
+            payload = json.loads(record.payload or "{}")
+        except Exception:
+            payload = {}
+        ranking = payload.get("ranking") or []
+        result = {}
+        for item in ranking:
+            strategy = str((item or {}).get("strategy") or "").strip()
+            if not strategy:
+                continue
+            result[strategy] = {
+                "top1": float((item or {}).get("top1_hit_rate") or 0.0),
+                "top6": float((item or {}).get("top6_hit_rate") or 0.0),
+                "total": int((item or {}).get("total") or record.periods_evaluated or 0),
+            }
+        return result
+
+    def _latest_two_backtest_records(region):
+        records = (
+            BacktestRun.query.filter_by(region=region)
+            .order_by(BacktestRun.created_at.desc(), BacktestRun.id.desc())
+            .limit(8)
+            .all()
+        )
+        selected = []
+        seen_names = set()
+        for record in records:
+            name = str(record.name or "").strip()
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            try:
+                payload = json.loads(record.payload or "{}")
+            except Exception:
+                payload = {}
+            if int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0) <= 0:
+                continue
+            if not payload.get("ranking"):
+                continue
+            selected.append(record)
+            if len(selected) >= 2:
+                break
+        if not selected:
+            _kickoff_backtest_snapshot_refresh(region)
+        return selected
+
     for region, region_data in snapshots.items():
         items = []
+        backtest_records = _latest_two_backtest_records(region)
+        current_backtest = _ranking_map_from_backtest(backtest_records[0] if backtest_records else None)
+        previous_backtest = _ranking_map_from_backtest(backtest_records[1] if len(backtest_records) > 1 else None)
         for strategy in tracked:
             config = region_data.get(strategy)
-            if not config:
+            current_stats = current_backtest.get(strategy, {})
+            previous_stats = previous_backtest.get(strategy, {})
+            if not config and not current_stats:
                 continue
 
-            current_accuracy = float(config.get("last_accuracy") or 0.0)
-            previous_accuracy = float(config.get("prev_accuracy") or 0.0)
-            current_total = int(config.get("last_total") or 0)
-            previous_total = int(config.get("prev_total") or 0)
+            current_accuracy = float(
+                current_stats.get("top1")
+                if current_stats
+                else (config or {}).get("last_accuracy") or 0.0
+            )
+            previous_accuracy = float(
+                previous_stats.get("top1")
+                if previous_stats
+                else (0.0 if current_stats else (config or {}).get("prev_accuracy") or 0.0)
+            )
+            current_total = int(
+                current_stats.get("total")
+                if current_stats
+                else (config or {}).get("last_total") or 0
+            )
+            previous_total = int(
+                previous_stats.get("total")
+                if previous_stats
+                else (0 if current_stats else (config or {}).get("prev_total") or 0)
+            )
             delta = round(current_accuracy - previous_accuracy, 1) if previous_total > 0 else 0.0
 
             if current_total <= 0:
                 trend = "暂无样本"
                 trend_class = "neutral"
             elif previous_total <= 0:
-                trend = "刚开始学习"
+                trend = "等待上次快照" if current_stats else "刚开始学习"
                 trend_class = "neutral"
             elif delta >= 0.5:
                 trend = "最近变强"
