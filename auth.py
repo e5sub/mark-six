@@ -487,6 +487,30 @@ def github_login():
 
     state = secrets.token_urlsafe(24)
     session['github_oauth_state'] = state
+    session['github_oauth_mode'] = 'login'
+    query = urlencode({
+        'client_id': config['client_id'],
+        'redirect_uri': url_for('auth.github_callback', _external=True),
+        'scope': 'read:user user:email',
+        'state': state,
+        'allow_signup': 'true',
+    })
+    return redirect(f'https://github.com/login/oauth/authorize?{query}')
+
+
+@auth_bp.route('/github/bind')
+def github_bind():
+    config = _github_oauth_config()
+    if not config:
+        flash('GitHub 登录尚未配置', 'error')
+        return redirect(url_for('user.profile'))
+    if 'user_id' not in session:
+        flash('请先登录后再绑定 GitHub', 'error')
+        return redirect(url_for('auth.login'))
+
+    state = secrets.token_urlsafe(24)
+    session['github_oauth_state'] = state
+    session['github_oauth_mode'] = 'bind'
     query = urlencode({
         'client_id': config['client_id'],
         'redirect_uri': url_for('auth.github_callback', _external=True),
@@ -506,6 +530,7 @@ def github_callback():
 
     state = request.args.get('state', '')
     expected_state = session.pop('github_oauth_state', '')
+    oauth_mode = session.pop('github_oauth_mode', 'login')
     if not state or not expected_state or not secrets.compare_digest(state, expected_state):
         flash('GitHub 登录状态已失效，请重试', 'error')
         return redirect(url_for('auth.login'))
@@ -542,17 +567,47 @@ def github_callback():
         flash('GitHub 账号没有可用的已验证邮箱，无法登录', 'error')
         return redirect(url_for('auth.login'))
 
-    user = User.query.filter_by(email=email).first()
+    github_id = str(profile.get('id') or '').strip()
+    github_login_name = str(profile.get('login') or '').strip()
+
+    if oauth_mode == 'bind':
+        current_user_id = session.get('user_id')
+        current_user = User.query.get(current_user_id) if current_user_id else None
+        if not current_user:
+            flash('登录状态已失效，请重新登录后再绑定 GitHub', 'error')
+            return redirect(url_for('auth.login'))
+        if not github_id:
+            flash('GitHub 账号信息不完整，绑定失败', 'error')
+            return redirect(url_for('user.profile'))
+        existing_user = User.query.filter(
+            User.github_id == github_id,
+            User.id != current_user.id,
+        ).first()
+        if existing_user:
+            flash('这个 GitHub 账号已经绑定到其他用户', 'error')
+            return redirect(url_for('user.profile'))
+
+        current_user.github_id = github_id
+        current_user.github_username = github_login_name
+        db.session.commit()
+        flash('GitHub 账号绑定成功', 'success')
+        return redirect(url_for('user.profile'))
+
+    user = User.query.filter_by(github_id=github_id).first() if github_id else None
+    if not user:
+        user = User.query.filter_by(email=email).first()
     if not user:
         if not _is_config_enabled('allow_registration', 'true'):
             flash('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册', 'error')
             return redirect(url_for('auth.login'))
 
         first_admin = not _has_admin_account()
-        github_login_name = profile.get('login') or email.split('@', 1)[0]
+        github_login_name = github_login_name or email.split('@', 1)[0]
         user = User(
             username=_unique_github_username(github_login_name),
             email=email,
+            github_id=github_id or None,
+            github_username=github_login_name,
             is_admin=first_admin,
         )
         user.set_password(secrets.token_urlsafe(32))
@@ -562,6 +617,17 @@ def github_callback():
         db.session.add(user)
         db.session.commit()
         _mark_email_verified(user)
+    elif github_id and not user.github_id:
+        existing_user = User.query.filter(
+            User.github_id == github_id,
+            User.id != user.id,
+        ).first()
+        if existing_user:
+            flash('这个 GitHub 账号已经绑定到其他用户', 'error')
+            return redirect(url_for('auth.login'))
+        user.github_id = github_id
+        user.github_username = github_login_name
+        db.session.commit()
 
     if _email_verification_required() and not _is_email_verified(user):
         _mark_email_verified(user)

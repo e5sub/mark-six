@@ -75,6 +75,37 @@
     </form>
 </div>
 
+<!-- GitHub 账号 -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">GitHub 账号</h2>
+    </div>
+
+    <div style="background: rgba(36, 41, 47, 0.08); padding: 1.5rem; border-radius: 12px; border-left: 4px solid #24292f;">
+        {% if user.github_id %}
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+            <div>
+                <h3 style="margin: 0 0 0.35rem 0; color: #24292f; font-size: 1.1rem;">已绑定</h3>
+                <div style="color: #666;">{{ user.github_username or ('ID ' ~ user.github_id) }}</div>
+            </div>
+            <form method="POST" action="{{ url_for('user.unbind_github') }}" onsubmit="return confirm('确定要解绑 GitHub 账号吗？');">
+                <button type="submit" class="btn btn-danger btn-sm">解绑 GitHub</button>
+            </form>
+        </div>
+        {% elif github_login_enabled %}
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+            <div>
+                <h3 style="margin: 0 0 0.35rem 0; color: #24292f; font-size: 1.1rem;">未绑定</h3>
+                <div style="color: #666;">绑定后可以直接使用 GitHub 登录当前账号。</div>
+            </div>
+            <a href="{{ url_for('auth.github_bind') }}" class="btn btn-sm">绑定 GitHub</a>
+        </div>
+        {% else %}
+        <div style="color: #666;">GitHub 登录暂未启用。</div>
+        {% endif %}
+    </div>
+</div>
+
 <!-- 修改密码 -->
 <div class="card">
     <div class="card-header">

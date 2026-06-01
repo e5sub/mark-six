@@ -13,6 +13,7 @@ from models import (
     ManualBetRecord,
     LotteryDraw,
     BacktestRun,
+    UserNotification,
 )
 from datetime import datetime, timedelta
 import csv
@@ -338,6 +339,7 @@ def _validate_import_payload(payload):
 
 def _clear_all_data():
     delete_order = [
+        UserNotification,
         ManualBetRecord,
         PredictionRecord,
         ActivationCodeRequest,
@@ -950,17 +952,38 @@ def delete_user(user_id):
         if user.is_admin:
             admin_count = User.query.filter(User.is_admin.is_(True)).count()
             if admin_count <= 1:
-                flash('至少保留一个管理员账号，不能删除最后一个管理员', 'error')
-                return redirect(url_for('admin.users'))
+                return jsonify({
+                    'success': False,
+                    'message': '至少保留一个管理员账号，不能删除最后一个管理员'
+                }), 400
 
+        user_config_keys = [
+            f'reset_token_{user.id}',
+            f'email_verified_{user.id}',
+            f'email_verify_token_{user.id}',
+        ]
+        deleted_counts = {
+            'predictions': PredictionRecord.query.filter_by(user_id=user.id).delete(synchronize_session=False),
+            'manual_bets': ManualBetRecord.query.filter_by(user_id=user.id).delete(synchronize_session=False),
+            'notifications': UserNotification.query.filter_by(user_id=user.id).delete(synchronize_session=False),
+            'activation_requests': ActivationCodeRequest.query.filter_by(user_id=user.id).delete(synchronize_session=False),
+            'user_configs': SystemConfig.query.filter(
+                or_(
+                    SystemConfig.key.in_(user_config_keys),
+                    SystemConfig.key.like(f'user_notify_{user.id}_%'),
+                )
+            ).delete(synchronize_session=False),
+        }
         db.session.delete(user)
         db.session.commit()
-        flash('用户删除成功', 'success')
+        return jsonify({
+            'success': True,
+            'message': '用户删除成功',
+            'deleted_counts': deleted_counts
+        })
     except Exception as e:
         db.session.rollback()
-        flash(f'删除用户失败: {str(e)}', 'error')
-    
-    return redirect(url_for('admin.users'))
+        return jsonify({'success': False, 'message': f'删除用户失败: {str(e)}'}), 500
 
 @admin_bp.route('/activation_codes')
 @admin_required

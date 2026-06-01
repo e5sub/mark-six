@@ -99,6 +99,39 @@ def update_database():
             cursor.execute('''
                 ALTER TABLE user ADD COLUMN show_normal_numbers BOOLEAN DEFAULT 0
             ''')
+            print("show_normal_numbers column added")
+        else:
+            print("show_normal_numbers column already exists")
+
+        if not check_column_exists(cursor, 'user', 'github_id'):
+            print("Adding github_id column...")
+            cursor.execute('''
+                ALTER TABLE user ADD COLUMN github_id VARCHAR(64)
+            ''')
+            print("github_id column added")
+        else:
+            print("github_id column already exists")
+
+        if not check_column_exists(cursor, 'user', 'github_username'):
+            print("Adding github_username column...")
+            cursor.execute('''
+                ALTER TABLE user ADD COLUMN github_username VARCHAR(120)
+            ''')
+            print("github_username column added")
+        else:
+            print("github_username column already exists")
+
+        github_index_name = 'ix_user_github_id'
+        if not check_index_exists(cursor, github_index_name):
+            print("Creating github_id index...")
+            cursor.execute(f'''
+                CREATE UNIQUE INDEX {github_index_name}
+                ON user (github_id)
+            ''')
+            print("github_id index created")
+        else:
+            print("github_id index already exists")
+        if False:
             print("✓ show_normal_numbers 字段添加成功")
         else:
             print("show_normal_numbers 字段已存在")

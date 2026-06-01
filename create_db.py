@@ -52,6 +52,8 @@ CREATE TABLE user (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username VARCHAR(80) NOT NULL UNIQUE,
     email VARCHAR(120) NOT NULL UNIQUE,
+    github_id VARCHAR(64) UNIQUE,
+    github_username VARCHAR(120),
     password_hash VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT 0,
     is_admin BOOLEAN DEFAULT 0,
@@ -72,6 +74,11 @@ CREATE TABLE user (
 cursor.execute("""
 CREATE INDEX IF NOT EXISTS ix_user_created_at
 ON user (created_at)
+""")
+
+cursor.execute("""
+CREATE UNIQUE INDEX IF NOT EXISTS ix_user_github_id
+ON user (github_id)
 """)
 
 cursor.execute("""

@@ -10,6 +10,7 @@ import threading
 import time
 from collections import OrderedDict
 from notification_service import get_user_notification_config, save_user_notification_config
+from auth import _github_login_enabled
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
 
@@ -950,7 +951,8 @@ def dashboard():
                           learning_comparison=learning_comparison,
                           latest_backtests=latest_backtests,
                           get_number_color=get_number_color,
-                          get_number_zodiac=get_number_zodiac)
+                          get_number_zodiac=get_number_zodiac,
+                          github_login_enabled=_github_login_enabled())
 
 
 @user_bp.route('/notifications')
@@ -2476,6 +2478,7 @@ def check_prediction_exists():
 @login_required
 def profile():
     user = User.query.get(session['user_id'])
+    github_login_enabled = _github_login_enabled()
     if _sanitize_auto_prediction_strategies(user):
         try:
             db.session.commit()
@@ -2490,25 +2493,25 @@ def profile():
         
         if not user.check_password(current_password):
             flash('当前密码错误', 'error')
-            return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+            return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META, github_login_enabled=github_login_enabled)
             
         if new_email and new_email != user.email:
             if not user.is_admin:
                 flash('普通用户无权修改邮箱地址，如需修改请联系管理员', 'error')
-                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META, github_login_enabled=github_login_enabled)
             if User.query.filter_by(email=new_email).first():
                 flash('邮箱已被其他用户使用', 'error')
-                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META, github_login_enabled=github_login_enabled)
             user.email = new_email
         
         # 更新密码
         if new_password:
             if new_password != confirm_password:
                 flash('两次输入的新密码不一致', 'error')
-                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META, github_login_enabled=github_login_enabled)
             if len(new_password) < 6:
                 flash('新密码长度至少 6 位', 'error')
-                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+                return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META, github_login_enabled=github_login_enabled)
             user.set_password(new_password)
         
         try:
@@ -2518,7 +2521,29 @@ def profile():
             db.session.rollback()
             flash(f'更新失败：{str(e)}', 'error')
     
-    return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META)
+    return render_template('user/profile.html', user=user, strategy_meta=STRATEGY_META, auto_strategy_meta=AUTO_STRATEGY_META, github_login_enabled=github_login_enabled)
+
+
+@user_bp.route('/github/unbind', methods=['POST'])
+@login_required
+def unbind_github():
+    user = User.query.get(session['user_id'])
+    if not user:
+        flash('登录状态已失效，请重新登录', 'error')
+        return redirect(url_for('auth.login'))
+    if not getattr(user, 'github_id', None):
+        flash('当前账号还没有绑定 GitHub', 'error')
+        return redirect(url_for('user.profile'))
+
+    user.github_id = None
+    user.github_username = None
+    try:
+        db.session.commit()
+        flash('GitHub 账号已解绑', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'解绑失败：{str(e)}', 'error')
+    return redirect(url_for('user.profile'))
 
 
 @user_bp.route('/notification_settings', methods=['GET', 'POST'])

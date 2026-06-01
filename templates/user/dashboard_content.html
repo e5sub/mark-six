@@ -185,6 +185,21 @@
                             💾 保存基本信息
                         </button>
                     </form>
+
+                    <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid rgba(148, 163, 184, 0.25);">
+                        <h4 style="margin: 0 0 0.75rem 0; color: #24292f;">GitHub 账号</h4>
+                        {% if user.github_id %}
+                            <div style="color: #666; margin-bottom: 0.75rem;">已绑定：{{ user.github_username or ('ID ' ~ user.github_id) }}</div>
+                            <form method="POST" action="{{ url_for('user.unbind_github') }}" onsubmit="return confirm('确定要解绑 GitHub 账号吗？');">
+                                <button type="submit" class="btn btn-danger btn-sm">解绑 GitHub</button>
+                            </form>
+                        {% elif github_login_enabled %}
+                            <div style="color: #666; margin-bottom: 0.75rem;">绑定后可以直接使用 GitHub 登录当前账号。</div>
+                            <a href="{{ url_for('auth.github_bind') }}" class="btn btn-sm">绑定 GitHub</a>
+                        {% else %}
+                            <div style="color: #666;">GitHub 登录暂未启用。</div>
+                        {% endif %}
+                    </div>
                 </div>
                 
                 <!-- 密码修改 -->
