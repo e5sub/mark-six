@@ -26,6 +26,61 @@
             <span class="action-text">个人信息</span>
         </button>
     </div>
+
+    <form method="POST" action="{{ url_for('user.update_auto_prediction') }}" class="auto-prediction-form">
+        <div class="setting-row">
+            <div class="setting-group setting-switches">
+                <label class="setting-label user-switch">
+                    <input type="checkbox" name="auto_prediction_enabled" value="1"
+                           {{ 'checked' if user.auto_prediction_enabled else '' }}>
+                    <span class="user-switch-track" aria-hidden="true"></span>
+                    <span class="setting-text user-switch-text">启用自动预测</span>
+                </label>
+            </div>
+
+            <div class="setting-group setting-switches">
+                <label class="setting-label user-switch">
+                    <input type="checkbox" name="show_normal_numbers" value="1"
+                           {{ 'checked' if user.show_normal_numbers else '' }}>
+                    <span class="user-switch-track" aria-hidden="true"></span>
+                    <span class="setting-text user-switch-text">显示平码</span>
+                </label>
+            </div>
+
+            <div class="setting-group setting-options">
+                <span class="group-title">预测策略：</span>
+                <div class="checkbox-group">
+                    {% for meta in auto_strategy_meta %}
+                    <label class="mini-checkbox">
+                        <input type="checkbox" name="auto_prediction_strategies" value="{{ meta.key }}"
+                               {{ 'checked' if user.auto_prediction_strategies and meta.key in user.auto_prediction_strategies.split(',') else '' }}>
+                        <span>{{ meta.icon }}{{ meta.label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="setting-group setting-regions">
+                <span class="group-title">预测地区：</span>
+                <div class="checkbox-group">
+                    <label class="mini-checkbox">
+                        <input type="checkbox" name="auto_prediction_regions" value="hk"
+                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'hk' in user.auto_prediction_regions.split(',')) else '' }}>
+                        <span>香港</span>
+                    </label>
+                    <label class="mini-checkbox">
+                        <input type="checkbox" name="auto_prediction_regions" value="macau"
+                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'macau' in user.auto_prediction_regions.split(',')) else '' }}>
+                        <span>澳门</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="setting-group setting-actions">
+                <button type="submit" class="save-btn">保存</button>
+            </div>
+        </div>
+    </form>
 </div>
 
 <div class="stats-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;">
@@ -83,72 +138,6 @@
         </div>
         {% endfor %}
     </div>
-</div>
-
-<!-- 自动预测设置 - 紧凑版 -->
-<div class="card-compact">
-    <div class="card-header-compact">
-        <h2 class="card-title-compact">自动预测设置</h2>
-    </div>
-    
-    <form method="POST" action="{{ url_for('user.update_auto_prediction') }}" class="auto-prediction-form">
-        <div class="setting-row">
-            <!-- 功能开关 -->
-            <div class="setting-group setting-switches">
-                <label class="setting-label user-switch">
-                    <input type="checkbox" name="auto_prediction_enabled" value="1" 
-                           {{ 'checked' if user.auto_prediction_enabled else '' }}>
-                    <span class="user-switch-track" aria-hidden="true"></span>
-                    <span class="setting-text user-switch-text">启用自动预测</span>
-                </label>
-            </div>
-            
-            <!-- 预测策略 -->
-            <div class="setting-group setting-switches">
-                <label class="setting-label user-switch">
-                    <input type="checkbox" name="show_normal_numbers" value="1"
-                           {{ 'checked' if user.show_normal_numbers else '' }}>
-                    <span class="user-switch-track" aria-hidden="true"></span>
-                    <span class="setting-text user-switch-text">显示平码</span>
-                </label>
-            </div>
-
-            <div class="setting-group setting-options">
-                <span class="group-title">预测策略：</span>
-                <div class="checkbox-group">
-                    {% for meta in auto_strategy_meta %}
-                    <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_strategies" value="{{ meta.key }}" 
-                               {{ 'checked' if user.auto_prediction_strategies and meta.key in user.auto_prediction_strategies.split(',') else '' }}>
-                        <span>{{ meta.icon }}{{ meta.label }}</span>
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
-            
-            <!-- 预测地区 -->
-            <div class="setting-group setting-regions">
-                <span class="group-title">预测地区：</span>
-                <div class="checkbox-group">
-                    <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_regions" value="hk" 
-                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'hk' in user.auto_prediction_regions.split(',')) else '' }}>
-                        <span>香港</span>
-                    </label>
-                    <label class="mini-checkbox">
-                        <input type="checkbox" name="auto_prediction_regions" value="macau" 
-                               {{ 'checked' if not user.auto_prediction_regions or (user.auto_prediction_regions and 'macau' in user.auto_prediction_regions.split(',')) else '' }}>
-                        <span>澳门</span>
-                    </label>
-                </div>
-            </div>
-            
-            <!-- 保存按钮 -->
-            <div class="setting-group setting-actions">
-                <button type="submit" class="save-btn">保存</button>
-            </div>
-        </div>
-    </form>
 </div>
 
 <!-- 账户提醒 -->
@@ -397,7 +386,9 @@
 }
 
 .auto-prediction-form {
-    padding: 0.8rem 1rem;
+    margin: 0 1rem 1rem;
+    padding: 0.75rem 0 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .setting-row {
