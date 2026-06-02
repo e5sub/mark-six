@@ -28,7 +28,7 @@
 <div class="prediction-card-compact{% if inline_special_only %} inline-special-only{% endif %}">
     <div class="prediction-left">
         <div class="prediction-title-compact">
-            {{ '香港' if prediction.region == 'hk' else '澳门' }}数据 - 第{{ prediction.period }}期
+            {{ '香港' if prediction.region == 'hk' else '澳门' }} - 第{{ prediction.period }}期
             <span class="strategy-badge-compact strategy-{{ prediction.strategy }}">{{ strategy_badge(prediction.strategy) }}</span>
         </div>
         <div class="prediction-numbers-compact{% if inline_special_only %} special-only-numbers{% endif %}">
@@ -94,7 +94,7 @@
     <div class="period-compare-header">
         <div>
             <div class="period-compare-title">
-                {{ '香港' if first.region == 'hk' else '澳门' }}数据 - 第{{ period_group.grouper }}期
+                {{ '香港' if first.region == 'hk' else '澳门' }} - 第{{ period_group.grouper }}期
             </div>
             <div class="period-compare-subtitle">
                 共 {{ period_group.list|length }} 个策略结果

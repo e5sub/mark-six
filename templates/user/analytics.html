@@ -295,7 +295,7 @@
     <div class="region-analysis">
         <div class="region-item">
             <div class="region-header">
-                <span class="region-name">香港数据</span>
+                <span class="region-name">香港</span>
                 <span class="region-accuracy">{{ "%.1f"|format(region_stats.hk.accuracy or 0) }}%</span>
             </div>
             <div class="region-progress">
@@ -308,7 +308,7 @@
 
         <div class="region-item">
             <div class="region-header">
-                <span class="region-name">澳门数据</span>
+                <span class="region-name">澳门</span>
                 <span class="region-accuracy">{{ "%.1f"|format(region_stats.macau.accuracy or 0) }}%</span>
             </div>
             <div class="region-progress">
@@ -385,7 +385,7 @@
                     <span class="suggestion-icon">📍</span>
                     <div class="suggestion-content">
                         <h4>香港地区预测更稳定</h4>
-                        <p>您在香港数据的预测准确率为 {{ "%.1f"|format(region_stats.hk.accuracy) }}%，目前高于澳门，可优先关注香港数据。</p>
+                        <p>您在香港的预测准确率为 {{ "%.1f"|format(region_stats.hk.accuracy) }}%，目前高于澳门，可优先关注香港。</p>
                     </div>
                 </div>
                 {% elif region_stats.macau.accuracy > region_stats.hk.accuracy %}
@@ -393,7 +393,7 @@
                     <span class="suggestion-icon">📍</span>
                     <div class="suggestion-content">
                         <h4>澳门地区预测更稳定</h4>
-                        <p>您在澳门数据的预测准确率为 {{ "%.1f"|format(region_stats.macau.accuracy) }}%，目前高于香港，可优先关注澳门数据。</p>
+                        <p>您在澳门的预测准确率为 {{ "%.1f"|format(region_stats.macau.accuracy) }}%，目前高于香港，可优先关注澳门。</p>
                     </div>
                 </div>
                 {% endif %}
