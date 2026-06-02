@@ -42,7 +42,7 @@ class _MarkSixAppState extends State<MarkSixApp> {
       title: '彩票数据分析',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0B6B4F),
+          seedColor: const Color(0xFFB91C1C),
           secondary: const Color(0xFFF4B547),
         ),
         fontFamily: 'NotoSansSC',
@@ -728,7 +728,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0B6B4F), Color(0xFF0F9D58)],
+            colors: [Color(0xFFB91C1C), Color(0xFFE11D48)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -781,7 +781,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: double.infinity,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0B6B4F),
+                          backgroundColor: const Color(0xFFB91C1C),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
@@ -805,8 +805,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _githubLoading ? null : _handleGithubLogin,
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF0B6B4F),
-                            side: const BorderSide(color: Color(0xFF0B6B4F)),
+                            foregroundColor: const Color(0xFFB91C1C),
+                            side: const BorderSide(color: Color(0xFFB91C1C)),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -828,7 +828,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         TextButton(
                           style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF0B6B4F),
+                            foregroundColor: const Color(0xFFB91C1C),
                           ),
                           onPressed: () {
                             Navigator.of(context).push(
@@ -843,7 +843,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const Spacer(),
                         TextButton(
                           style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF0B6B4F),
+                            foregroundColor: const Color(0xFFB91C1C),
                           ),
                           onPressed: () {
                             Navigator.of(context).push(
@@ -1617,16 +1617,16 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: const Color(0x1622C55E),
+        color: const Color(0x1AF4B547),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0x334ADE80)),
+        border: Border.all(color: const Color(0x55F4B547)),
       ),
       child: Text(
         _formatYuan(amount),
         style: const TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
-          color: Color(0xFF15803D),
+          color: Color(0xFF92400E),
         ),
       ),
     );
@@ -1659,14 +1659,14 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     final background = isPending
         ? const Color(0x1494A3B8)
         : isWin
-            ? const Color(0x1622C55E)
+            ? const Color(0x182563EB)
             : isLose
                 ? const Color(0x16EF4444)
                 : const Color(0x1494A3B8);
     final foreground = isPending
         ? const Color(0xFF64748B)
         : isWin
-            ? const Color(0xFF15803D)
+            ? const Color(0xFF2563EB)
             : isLose
                 ? const Color(0xFFDC2626)
                 : const Color(0xFF64748B);
@@ -1823,7 +1823,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: status == 'settled'
-                      ? const Color(0xFFE8F5E9)
+                      ? const Color(0xFFEFF6FF)
                       : const Color(0xFFFFF3E0),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -1832,7 +1832,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   style: TextStyle(
                     fontSize: 12,
                     color: status == 'settled'
-                        ? const Color(0xFF0B6B4F)
+                        ? const Color(0xFF2563EB)
                         : Colors.orange,
                   ),
                 ),
@@ -2524,6 +2524,56 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     );
   }
 
+  Widget _buildRegionButton(String value, String label) {
+    final selected = _region == value;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          if (_region == value) return;
+          setState(() {
+            _region = value;
+            _latestDraw = null;
+            _nextPeriod = '';
+            _periodController.clear();
+            _clearPending();
+          });
+          _loadLatestDraw();
+          _loadManualBets();
+        },
+        child: Container(
+          height: 48,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFB91C1C) : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? const Color(0xFFB91C1C) : Colors.grey.shade300,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (selected) ...[
+                const Icon(Icons.check, size: 18, color: Colors.white),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : const Color(0xFF1F2937),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final activationValid = _activationValid;
@@ -2563,35 +2613,19 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     ),
                     const SizedBox(height: 12),
                   ],
+                  const Text(
+                    '地区',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
-                      Expanded(
-                        child: Text(
-                          '地区：${_region == 'hk' ? '香港' : '澳门'}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(value: 'hk', label: Text('香港')),
-                          ButtonSegment(value: 'macau', label: Text('澳门')),
-                        ],
-                        selected: {_region},
-                        onSelectionChanged: (value) {
-                          setState(() {
-                            _region = value.first;
-                            _latestDraw = null;
-                            _nextPeriod = '';
-                            _periodController.clear();
-                            _clearPending();
-                          });
-                          _loadLatestDraw();
-                          _loadManualBets();
-                        },
-                      ),
+                      _buildRegionButton('hk', '香港'),
+                      const SizedBox(width: 10),
+                      _buildRegionButton('macau', '澳门'),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -2672,26 +2706,40 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _zodiacOptions.map((zodiac) {
-                        final selected = _selectedZodiacs.contains(zodiac);
-                        return FilterChip(
-                          label: Text(zodiac),
-                          selected: selected,
-                          onSelected: (_) {
-                            setState(() {
-                              if (selected) {
-                                _selectedZodiacs.remove(zodiac);
-                              } else {
-                                _selectedZodiacs.add(zodiac);
-                              }
-                              _clearPending();
-                            });
-                          },
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        const columns = 6;
+                        const spacing = 8.0;
+                        final itemWidth =
+                            (constraints.maxWidth - spacing * (columns - 1)) /
+                                columns;
+                        return Wrap(
+                          spacing: spacing,
+                          runSpacing: spacing,
+                          children: _zodiacOptions.map((zodiac) {
+                            final selected = _selectedZodiacs.contains(zodiac);
+                            return SizedBox(
+                              width: itemWidth,
+                              child: FilterChip(
+                                label: Center(child: Text(zodiac)),
+                                selected: selected,
+                                showCheckmark: false,
+                                padding: EdgeInsets.zero,
+                                onSelected: (_) {
+                                  setState(() {
+                                    if (selected) {
+                                      _selectedZodiacs.remove(zodiac);
+                                    } else {
+                                      _selectedZodiacs.add(zodiac);
+                                    }
+                                    _clearPending();
+                                  });
+                                },
+                              ),
+                            );
+                          }).toList(),
                         );
-                      }).toList(),
+                      },
                     ),
                   ],
                   if (_betType == 'color') ...[
@@ -2701,32 +2749,46 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _colorOptions.map((color) {
-                        final selected = _selectedColors.contains(color);
-                        final chipColor = color == '红'
-                            ? const Color(0xFFE54B4B)
-                            : color == '蓝'
-                                ? const Color(0xFF2D6CDF)
-                                : const Color(0xFF36B37E);
-                        return FilterChip(
-                          label: Text(color),
-                          selected: selected,
-                          selectedColor: chipColor.withOpacity(0.15),
-                          onSelected: (_) {
-                            setState(() {
-                              if (selected) {
-                                _selectedColors.remove(color);
-                              } else {
-                                _selectedColors.add(color);
-                              }
-                              _clearPending();
-                            });
-                          },
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        const columns = 3;
+                        const spacing = 8.0;
+                        final itemWidth =
+                            (constraints.maxWidth - spacing * (columns - 1)) /
+                                columns;
+                        return Wrap(
+                          spacing: spacing,
+                          runSpacing: spacing,
+                          children: _colorOptions.map((color) {
+                            final selected = _selectedColors.contains(color);
+                            final chipColor = color == '红'
+                                ? const Color(0xFFE54B4B)
+                                : color == '蓝'
+                                    ? const Color(0xFF2D6CDF)
+                                    : const Color(0xFF36B37E);
+                            return SizedBox(
+                              width: itemWidth,
+                              child: FilterChip(
+                                label: Center(child: Text(color)),
+                                selected: selected,
+                                showCheckmark: false,
+                                selectedColor: chipColor.withOpacity(0.15),
+                                padding: EdgeInsets.zero,
+                                onSelected: (_) {
+                                  setState(() {
+                                    if (selected) {
+                                      _selectedColors.remove(color);
+                                    } else {
+                                      _selectedColors.add(color);
+                                    }
+                                    _clearPending();
+                                  });
+                                },
+                              ),
+                            );
+                          }).toList(),
                         );
-                      }).toList(),
+                      },
                     ),
                   ],
                   if (_betType == 'parity') ...[
@@ -2736,26 +2798,40 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _parityOptions.map((parity) {
-                        final selected = _selectedParity.contains(parity);
-                        return FilterChip(
-                          label: Text(parity),
-                          selected: selected,
-                          onSelected: (_) {
-                            setState(() {
-                              if (selected) {
-                                _selectedParity.remove(parity);
-                              } else {
-                                _selectedParity.add(parity);
-                              }
-                              _clearPending();
-                            });
-                          },
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        const columns = 2;
+                        const spacing = 8.0;
+                        final itemWidth =
+                            (constraints.maxWidth - spacing * (columns - 1)) /
+                                columns;
+                        return Wrap(
+                          spacing: spacing,
+                          runSpacing: spacing,
+                          children: _parityOptions.map((parity) {
+                            final selected = _selectedParity.contains(parity);
+                            return SizedBox(
+                              width: itemWidth,
+                              child: FilterChip(
+                                label: Center(child: Text(parity)),
+                                selected: selected,
+                                showCheckmark: false,
+                                padding: EdgeInsets.zero,
+                                onSelected: (_) {
+                                  setState(() {
+                                    if (selected) {
+                                      _selectedParity.remove(parity);
+                                    } else {
+                                      _selectedParity.add(parity);
+                                    }
+                                    _clearPending();
+                                  });
+                                },
+                              ),
+                            );
+                          }).toList(),
                         );
-                      }).toList(),
+                      },
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -3140,7 +3216,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                             Text(
                               item.win ? '中奖' : '未中',
                               style: TextStyle(
-                                color: item.win ? const Color(0xFF0B6B4F) : Colors.redAccent,
+                                color: item.win ? const Color(0xFF2563EB) : Colors.redAccent,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -3149,7 +3225,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                               _formatYuan(item.profit),
                               style: TextStyle(
                                 color: item.profit >= 0
-                                    ? const Color(0xFF0B6B4F)
+                                    ? const Color(0xFF2563EB)
                                     : Colors.redAccent,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -3387,6 +3463,47 @@ class _RecordsScreenState extends State<RecordsScreen> {
     _applyFilters();
   }
 
+  Widget _buildHeaderRegionButton(String value, String label) {
+    final selected = _region == value;
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: () {
+        if (_region == value) return;
+        setState(() => _region = value);
+        _fetch();
+        _fetchNextDrawTime();
+      },
+      child: Container(
+        height: 38,
+        constraints: const BoxConstraints(minWidth: 74),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white : Colors.white.withOpacity(0.16),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? Colors.white : Colors.white.withOpacity(0.38),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (selected) ...[
+              const Icon(Icons.check, size: 17, color: Color(0xFFB91C1C)),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? const Color(0xFFB91C1C) : Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSearchSheet() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -3534,7 +3651,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF0B6B4F), Color(0xFF0F9D58)],
+                colors: [Color(0xFFB91C1C), Color(0xFFE11D48)],
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: const [
@@ -3569,22 +3686,13 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     ),
                   ),
                 ),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'hk', label: Text('香港')),
-                    ButtonSegment(value: 'macau', label: Text('澳门')),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildHeaderRegionButton('hk', '香港'),
+                    const SizedBox(width: 8),
+                    _buildHeaderRegionButton('macau', '澳门'),
                   ],
-                  selected: {_region},
-                  onSelectionChanged: (value) {
-                    setState(() => _region = value.first);
-                    _fetch();
-                    _fetchNextDrawTime();
-                  },
-                  style: ButtonStyle(
-                    foregroundColor: WidgetStateProperty.all(Colors.white),
-                    backgroundColor:
-                        WidgetStateProperty.all(Colors.white24),
-                  ),
                 ),
               ],
             ),
@@ -3935,11 +4043,11 @@ class _PredictScreenState extends State<PredictScreen> {
         );
       case 'markov':
         return const LinearGradient(
-          colors: [Color(0xFF0F766E), Color(0xFF2563EB)],
+          colors: [Color(0xFF2563EB), Color(0xFFF4B547)],
         );
       case 'ml':
         return const LinearGradient(
-          colors: [Color(0xFF00897B), Color(0xFF26A69A)],
+          colors: [Color(0xFFB45309), Color(0xFFF4B547)],
         );
       case 'ai':
         return const LinearGradient(
@@ -3952,7 +4060,7 @@ class _PredictScreenState extends State<PredictScreen> {
   Widget _buildStrategyChip(String key, String label) {
     final selected = _strategy == key;
     final gradient = _strategyGradient(key);
-    final accentColor = gradient?.colors.first ?? const Color(0xFF0B6B4F);
+    final accentColor = gradient?.colors.first ?? const Color(0xFFB91C1C);
     final activationValid = widget.appState.activationValid;
     return Material(
       color: Colors.transparent,
@@ -4658,9 +4766,9 @@ class _PredictScreenState extends State<PredictScreen> {
       margin: const EdgeInsets.only(top: 16),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0x1400897B),
+        color: const Color(0x14B91C1C),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0x3300897B)),
+        border: Border.all(color: const Color(0x33B91C1C)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4999,7 +5107,7 @@ class _PredictScreenState extends State<PredictScreen> {
   Color _resultColor(String value) {
     switch (value) {
       case 'special_hit':
-        return const Color(0xFF0B6B4F);
+        return const Color(0xFF2563EB);
       case 'wrong':
         return Colors.redAccent;
       default:
@@ -5014,15 +5122,15 @@ class _PredictScreenState extends State<PredictScreen> {
       case 'cold':
         return const Color(0xFF1E88E5);
       case 'trend':
-        return const Color(0xFF43A047);
+        return const Color(0xFFB91C1C);
       case 'hybrid':
         return const Color(0xFF6A1B9A);
       case 'balanced':
         return const Color(0xFFFB8C00);
       case 'markov':
-        return const Color(0xFF0F766E);
+        return const Color(0xFF2563EB);
       case 'ml':
-        return const Color(0xFF00897B);
+        return const Color(0xFFB45309);
       case 'ai':
         return const Color(0xFF5E35B1);
       default:
@@ -5376,7 +5484,7 @@ class _PredictScreenState extends State<PredictScreen> {
                   padding: const EdgeInsets.only(left: 12, right: 12, top: 12, bottom: 8),
                   child: Row(
                     children: [
-                      const Icon(Icons.trending_up, color: Color(0xFF0B6B4F), size: 16),
+                      const Icon(Icons.trending_up, color: Color(0xFFB91C1C), size: 16),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
@@ -5397,9 +5505,9 @@ class _PredictScreenState extends State<PredictScreen> {
                     runSpacing: 12,
                     alignment: WrapAlignment.spaceEvenly,
                     children: [
-                      SizedBox(width: 58, child: _buildSummaryStatItem('当前连错', missStreak.toString(), missStreak > 0 ? Colors.redAccent : const Color(0xFF0B6B4F))),
+                      SizedBox(width: 58, child: _buildSummaryStatItem('当前连错', missStreak.toString(), missStreak > 0 ? Colors.redAccent : const Color(0xFF2563EB))),
                       SizedBox(width: 58, child: _buildSummaryStatItem('最高连错', maxMissStreak.toString(), Colors.redAccent)),
-                      SizedBox(width: 58, child: _buildSummaryStatItem('最高连中', maxHitStreak.toString(), const Color(0xFF0B6B4F))),
+                      SizedBox(width: 58, child: _buildSummaryStatItem('最高连中', maxHitStreak.toString(), const Color(0xFF2563EB))),
                       SizedBox(width: 58, child: _buildSummaryStatItem('累计中特', hitPeriods.toString(), const Color(0xFF2D6CDF))),
                       SizedBox(width: 58, child: _buildSummaryStatItem('特码命中率', '${accuracy}%', const Color(0xFF2D6CDF))),
                     ],
@@ -5646,7 +5754,7 @@ class _PredictScreenState extends State<PredictScreen> {
                           width: 4,
                           height: 18,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0B6B4F),
+                            color: const Color(0xFFB91C1C),
                             borderRadius: BorderRadius.circular(99),
                           ),
                         ),
@@ -5862,7 +5970,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildProfileSectionHeader({
     required IconData icon,
     required String title,
-    Color color = const Color(0xFF0B6B4F),
+    Color color = const Color(0xFFB91C1C),
     Widget? trailing,
   }) {
     return Row(
@@ -6134,7 +6242,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         backgroundColor:
                             activationValid
-                                ? Colors.green.shade100
+                                ? Colors.amber.shade100
                                 : activationExpired
                                     ? Colors.red.shade100
                                     : Colors.orange.shade100,
@@ -6217,7 +6325,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             _buildMetricTile(
                               label: '平码/生肖命中率',
                               value: '${_overall!.normalHitRate}%',
-                              color: const Color(0xFF0B6B4F),
+                              color: const Color(0xFFB91C1C),
                               icon: Icons.grid_view,
                             ),
                             _buildMetricTile(
@@ -6255,7 +6363,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _buildProfileSectionHeader(
                           icon: Icons.account_balance_wallet_outlined,
                           title: '盈亏报表',
-                          color: const Color(0xFF0B6B4F),
+                          color: const Color(0xFFB91C1C),
                           trailing: IconButton(
                             onPressed:
                                 _loadingBetSummary ? null : _loadBetSummary,
@@ -6271,7 +6379,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ((_betSummary!['total_stake'] as num?) ?? 0)
                                     .toDouble(),
                               ),
-                              color: const Color(0xFF0B6B4F),
+                              color: const Color(0xFFB91C1C),
                               icon: Icons.payments_outlined,
                             ),
                             _buildMetricTile(
