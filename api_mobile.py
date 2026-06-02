@@ -1,8 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
+import math
+import time
 from collections import OrderedDict
+import secrets
+from urllib.parse import urlencode
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, session, url_for
 from sqlalchemy import func, case, or_
 from sqlalchemy.orm import load_only
 
@@ -18,7 +22,14 @@ from models import (
     ZodiacSetting,
     db,
 )
-from auth import send_activation_request_notification
+from auth import (
+    _github_login_enabled,
+    _github_oauth_config,
+    _mobile_github_state_key,
+    _turnstile_site_key,
+    _verify_turnstile_response,
+    send_activation_request_notification,
+)
 
 
 mobile_api_bp = Blueprint("mobile_api", __name__, url_prefix="/api/mobile")
@@ -27,6 +38,16 @@ STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml", "
 LOCAL_STRATEGIES = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]
 _RED_BALLS = {1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46}
 _BLUE_BALLS = {3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48}
+_RATE_LIMITS = {}
+_MOBILE_CSRF_EXEMPT_ENDPOINTS = {
+    "mobile_api.api_auth_config",
+    "mobile_api.api_github_auth_url",
+    "mobile_api.api_github_success",
+    "mobile_api.api_github_complete",
+    "mobile_api.api_login",
+    "mobile_api.api_logout",
+    "mobile_api.api_register",
+}
 
 
 def _safe_json_loads(value):
@@ -130,7 +151,7 @@ def _parse_number_stakes(value):
                 amount = float(stake)
             except (TypeError, ValueError):
                 continue
-            if number > 0 and amount > 0:
+            if number > 0 and 0 < amount <= 10000000.0 and math.isfinite(amount):
                 result[number] = amount
         return result
     if isinstance(value, list):
@@ -143,7 +164,7 @@ def _parse_number_stakes(value):
                 amount = float(item.get("stake"))
             except (TypeError, ValueError):
                 continue
-            if number > 0 and amount > 0:
+            if number > 0 and 0 < amount <= 10000000.0 and math.isfinite(amount):
                 result[number] = amount
         return result
     if isinstance(value, str):
@@ -160,7 +181,7 @@ def _parse_number_stakes(value):
                 amount = float(stake_str.strip())
             except (TypeError, ValueError):
                 continue
-            if number > 0 and amount > 0:
+            if number > 0 and 0 < amount <= 10000000.0 and math.isfinite(amount):
                 result[number] = amount
         return result
     return {}
@@ -181,7 +202,7 @@ def _parse_common_stake_entries(value):
                 amount = float(amount_text.strip())
             except (TypeError, ValueError):
                 continue
-            if key and amount > 0:
+            if key and 0 < amount <= 10000000.0 and math.isfinite(amount):
                 entries.append((key, amount))
         return entries
     return []
@@ -196,7 +217,7 @@ def _build_common_stakes(items, amount):
         stake = float(amount)
     except (TypeError, ValueError):
         return []
-    if stake <= 0:
+    if stake <= 0 or stake > 10000000.0 or not math.isfinite(stake):
         return []
     entries = []
     for item in items:
@@ -280,6 +301,237 @@ def _json_error(message, status=400, code="bad_request"):
     return jsonify({"success": False, "error": code, "message": message}), status
 
 
+def _client_ip():
+    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",", 1)[0].strip()
+    return request.headers.get("CF-Connecting-IP") or forwarded or request.remote_addr or "unknown"
+
+
+def _rate_limited(key, limit, window_seconds):
+    now = time.time()
+    cutoff = now - window_seconds
+    attempts = [item for item in _RATE_LIMITS.get(key, []) if item >= cutoff]
+    if len(attempts) >= limit:
+        _RATE_LIMITS[key] = attempts
+        return True
+    attempts.append(now)
+    _RATE_LIMITS[key] = attempts
+    if len(_RATE_LIMITS) > 5000:
+        for existing_key in list(_RATE_LIMITS.keys())[:1000]:
+            _RATE_LIMITS[existing_key] = [
+                item for item in _RATE_LIMITS[existing_key] if item >= cutoff
+            ]
+            if not _RATE_LIMITS[existing_key]:
+                _RATE_LIMITS.pop(existing_key, None)
+    return False
+
+
+def _get_mobile_csrf_token():
+    token = session.get("_mobile_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_mobile_csrf_token"] = token
+    return token
+
+
+def _mobile_csrf_valid():
+    expected = session.get("_mobile_csrf_token")
+    supplied = request.headers.get("X-CSRF-Token") or ""
+    return bool(expected and supplied and secrets.compare_digest(str(expected), str(supplied)))
+
+
+@mobile_api_bp.before_request
+def _mobile_api_security_guards():
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    if request.endpoint in _MOBILE_CSRF_EXEMPT_ENDPOINTS:
+        return None
+    if not _mobile_csrf_valid():
+        return _json_error("CSRF token invalid or missing", status=403, code="csrf_blocked")
+    return None
+
+
+def _parse_int_arg(name, default, minimum=None, maximum=None):
+    raw = request.args.get(name, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} is invalid")
+    if minimum is not None:
+        value = max(value, minimum)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+def _parse_float_payload(payload, name, default=0.0, minimum=0.0, maximum=1000000.0):
+    raw = payload.get(name, default)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} is invalid")
+    if not math.isfinite(value):
+        raise ValueError(f"{name} is invalid")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{name} must be at most {maximum}")
+    return value
+
+
+def _parse_bool_payload(payload, name, default=False):
+    value = payload.get(name, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(default)
+
+
+def _validate_text_length(value, label, minimum=0, maximum=255, required=False):
+    text = str(value or "").strip()
+    if required and not text:
+        return text, f"{label} is required"
+    if text and len(text) < minimum:
+        return text, f"{label} must be at least {minimum} characters"
+    if len(text) > maximum:
+        return text, f"{label} must be at most {maximum} characters"
+    return text, ""
+
+
+def _user_payload(user):
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "is_active": user.is_active,
+        "show_normal_numbers": bool(user.show_normal_numbers),
+    }
+
+
+def _start_user_session(user):
+    user.check_and_update_activation_status()
+    user.last_login = datetime.utcnow()
+    user.login_count = (user.login_count or 0) + 1
+    db.session.commit()
+
+    session["user_id"] = user.id
+    session["username"] = user.username
+    session["is_admin"] = user.is_admin
+    session["is_active"] = user.is_active
+    session.permanent = True
+
+
+def _config_key(prefix, token):
+    return f"{prefix}{token}"
+
+
+def _pop_config_json(key):
+    config = SystemConfig.query.filter_by(key=key).first()
+    if not config:
+        return None
+    raw = config.value or ""
+    db.session.delete(config)
+    db.session.commit()
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _store_config_json(key, payload, description):
+    SystemConfig.set_config(
+        key,
+        json.dumps(payload, ensure_ascii=False),
+        description,
+    )
+
+
+def _github_mobile_html(title, message):
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>{title}</title></head>"
+        "<body style='font-family:system-ui,sans-serif;padding:24px;"
+        "text-align:center;color:#111827'>"
+        f"<h3>{title}</h3><p>{message}</p>"
+        "</body></html>"
+    )
+
+
+@mobile_api_bp.route("/auth_config", methods=["GET"])
+def api_auth_config():
+    return jsonify({
+        "success": True,
+        "turnstile_site_key": _turnstile_site_key(),
+        "github_login_enabled": _github_login_enabled(),
+    })
+
+
+@mobile_api_bp.route("/github/auth_url", methods=["GET"])
+def api_github_auth_url():
+    if _rate_limited(f"github_auth:{_client_ip()}", 20, 3600):
+        return _json_error("too many GitHub login attempts", status=429, code="rate_limited")
+
+    config = _github_oauth_config()
+    if not config:
+        return _json_error("GitHub 登录尚未配置", status=404, code="github_not_configured")
+
+    state = secrets.token_urlsafe(24)
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    _store_config_json(
+        _mobile_github_state_key(state),
+        {"state": state, "expires_at": expires_at.isoformat()},
+        "Mobile GitHub OAuth state",
+    )
+    query = urlencode({
+        "client_id": config["client_id"],
+        "redirect_uri": url_for("auth.github_callback", _external=True),
+        "scope": "read:user user:email",
+        "state": state,
+        "allow_signup": "true",
+    })
+    return jsonify({
+        "success": True,
+        "auth_url": f"https://github.com/login/oauth/authorize?{query}",
+        "state": state,
+    })
+
+
+@mobile_api_bp.route("/github/success", methods=["GET"])
+def api_github_success():
+    return _github_mobile_html("授权完成", "正在返回应用，请稍候...")
+
+
+@mobile_api_bp.route("/github/complete", methods=["POST"])
+def api_github_complete():
+    payload = request.get_json(silent=True) or {}
+    token = str(payload.get("token") or "").strip()
+    if not token:
+        return _json_error("missing GitHub login token")
+
+    login_payload = _pop_config_json(_config_key("mobile_github_login_", token))
+    try:
+        expires_at = datetime.fromisoformat((login_payload or {}).get("expires_at", ""))
+    except Exception:
+        expires_at = datetime.utcnow() - timedelta(seconds=1)
+    if not login_payload or datetime.utcnow() >= expires_at:
+        return _json_error("GitHub login token expired", status=401, code="github_token_expired")
+
+    user = User.query.get(login_payload.get("user_id"))
+    if not user:
+        return _json_error("GitHub user not found", status=404, code="user_not_found")
+
+    _start_user_session(user)
+    return jsonify({
+        "success": True,
+        "message": "login successful",
+        "csrf_token": _get_mobile_csrf_token(),
+        "user": _user_payload(user),
+    })
+
+
 def _get_current_user():
     user_id = session.get("user_id")
     if not user_id:
@@ -308,11 +560,31 @@ def _require_active_user():
 @mobile_api_bp.route("/register", methods=["POST"])
 def api_register():
     payload = request.get_json(silent=True) or {}
-    username = (payload.get("username") or "").strip()
-    email = (payload.get("email") or "").strip()
+    if _rate_limited(f"register:{_client_ip()}", 10, 3600):
+        return _json_error("too many registration attempts", status=429, code="rate_limited")
+
+    username, error = _validate_text_length(
+        payload.get("username"), "username", minimum=3, maximum=80, required=True
+    )
+    if error:
+        return _json_error(error)
+    email, error = _validate_text_length(
+        payload.get("email"), "email", minimum=6, maximum=120, required=True
+    )
+    if error:
+        return _json_error(error)
     password = payload.get("password") or ""
     confirm_password = payload.get("confirm_password") or ""
-    invite_code = (payload.get("invite_code") or "").strip()
+    invite_code, error = _validate_text_length(
+        payload.get("invite_code"), "invite_code", maximum=64
+    )
+    if error:
+        return _json_error(error)
+    turnstile_ok, turnstile_message = _verify_turnstile_response(
+        payload.get("turnstile_token") or ""
+    )
+    if not turnstile_ok:
+        return _json_error(turnstile_message, status=403, code="turnstile_failed")
 
     if not all([username, email, password, confirm_password]):
         return _json_error("missing required fields")
@@ -356,13 +628,7 @@ def api_register():
         {
             "success": True,
             "message": message,
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "is_active": user.is_active,
-                "show_normal_numbers": bool(user.show_normal_numbers),
-            },
+            "user": _user_payload(user),
         }
     )
 
@@ -370,8 +636,20 @@ def api_register():
 @mobile_api_bp.route("/login", methods=["POST"])
 def api_login():
     payload = request.get_json(silent=True) or {}
-    username_or_email = (payload.get("username") or "").strip()
+    username_or_email, error = _validate_text_length(
+        payload.get("username"), "username", minimum=3, maximum=120, required=True
+    )
+    if error:
+        return _json_error(error)
     password = payload.get("password") or ""
+    if _rate_limited(f"login:{_client_ip()}:{username_or_email.lower()}", 8, 600):
+        return _json_error("too many login attempts", status=429, code="rate_limited")
+
+    turnstile_ok, turnstile_message = _verify_turnstile_response(
+        payload.get("turnstile_token") or ""
+    )
+    if not turnstile_ok:
+        return _json_error(turnstile_message, status=403, code="turnstile_failed")
 
     if not username_or_email or not password:
         return _json_error("missing username/email or password")
@@ -382,27 +660,14 @@ def api_login():
     if not user or not user.check_password(password):
         return _json_error("invalid credentials", status=401, code="invalid_credentials")
 
-    user.last_login = datetime.utcnow()
-    user.login_count = (user.login_count or 0) + 1
-    db.session.commit()
-
-    session["user_id"] = user.id
-    session["username"] = user.username
-    session["is_admin"] = user.is_admin
-    session["is_active"] = user.is_active
-    session.permanent = True
+    _start_user_session(user)
 
     return jsonify(
         {
             "success": True,
             "message": "login successful",
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "is_active": user.is_active,
-                "show_normal_numbers": bool(user.show_normal_numbers),
-            },
+            "csrf_token": _get_mobile_csrf_token(),
+            "user": _user_payload(user),
         }
     )
 
@@ -444,12 +709,18 @@ def api_activate():
     user, error = _require_user()
     if error:
         return error
+    if _rate_limited(f"activate:{_client_ip()}:{user.id}", 10, 3600):
+        return _json_error("too many activation attempts", status=429, code="rate_limited")
 
     if user.is_active:
         return jsonify({"success": True, "message": "already activated", "is_active": True})
 
     payload = request.get_json(silent=True) or {}
-    activation_code = (payload.get("activation_code") or "").strip()
+    activation_code, error = _validate_text_length(
+        payload.get("activation_code"), "activation_code", maximum=64, required=True
+    )
+    if error:
+        return _json_error(error)
     if not activation_code:
         return _json_error("activation_code is required")
 
@@ -486,6 +757,8 @@ def api_request_activation_code():
     user, error = _require_user()
     if error:
         return error
+    if _rate_limited(f"activation_request:{_client_ip()}:{user.id}", 5, 3600):
+        return _json_error("too many activation requests", status=429, code="rate_limited")
 
     if user.is_active:
         return _json_error("account already activated")
@@ -498,7 +771,11 @@ def api_request_activation_code():
         return _json_error("pending activation request already exists")
 
     payload = request.get_json(silent=True) or {}
-    request_note = (payload.get("request_note") or "").strip()
+    request_note, error = _validate_text_length(
+        payload.get("request_note"), "request_note", maximum=500
+    )
+    if error:
+        return _json_error(error)
 
     request_record = ActivationCodeRequest(
         user_id=user.id,
@@ -529,23 +806,35 @@ def api_manual_bets():
         return error
 
     payload = request.get_json(silent=True) or {}
-    settle = payload.get("settle", True)
+    settle = _parse_bool_payload(payload, "settle", True)
     record_id = payload.get("record_id")
     if record_id is not None:
         try:
             record_id = int(record_id)
         except (TypeError, ValueError):
             return _json_error("record_id is invalid")
-    region = (payload.get("region") or "hk").strip()
-    period = (payload.get("period") or "").strip()
-    bettor_name = (payload.get("bettor_name") or "").strip()
-    if not period:
-        return _json_error("period is required")
+    region, error = _validate_text_length(
+        payload.get("region") or "hk", "region", maximum=10, required=True
+    )
+    if error:
+        return _json_error(error)
+    if region not in {"hk", "macau"}:
+        return _json_error("region is invalid")
+    period, error = _validate_text_length(
+        payload.get("period"), "period", maximum=20, required=True
+    )
+    if error:
+        return _json_error(error)
+    bettor_name, error = _validate_text_length(
+        payload.get("bettor_name"), "bettor_name", maximum=50
+    )
+    if error:
+        return _json_error(error)
 
-    bet_number = bool(payload.get("bet_number"))
-    bet_zodiac = bool(payload.get("bet_zodiac"))
-    bet_color = bool(payload.get("bet_color"))
-    bet_parity = bool(payload.get("bet_parity"))
+    bet_number = _parse_bool_payload(payload, "bet_number")
+    bet_zodiac = _parse_bool_payload(payload, "bet_zodiac")
+    bet_color = _parse_bool_payload(payload, "bet_color")
+    bet_parity = _parse_bool_payload(payload, "bet_parity")
 
     number_stakes = (
         _parse_number_stakes(payload.get("number_stakes"))
@@ -567,12 +856,15 @@ def api_manual_bets():
         _parse_list(payload.get("parity")) if bet_parity else []
     )
 
-    stake_special = float(payload.get("stake_special") or 0)
-    stake_common = float(payload.get("stake_common") or 0)
-    odds_number = float(payload.get("odds_number") or 0)
-    odds_zodiac = float(payload.get("odds_zodiac") or 0)
-    odds_color = float(payload.get("odds_color") or 0)
-    odds_parity = float(payload.get("odds_parity") or 0)
+    try:
+        stake_special = _parse_float_payload(payload, "stake_special", maximum=10000000.0)
+        stake_common = _parse_float_payload(payload, "stake_common", maximum=10000000.0)
+        odds_number = _parse_float_payload(payload, "odds_number", maximum=100000.0)
+        odds_zodiac = _parse_float_payload(payload, "odds_zodiac", maximum=100000.0)
+        odds_color = _parse_float_payload(payload, "odds_color", maximum=100000.0)
+        odds_parity = _parse_float_payload(payload, "odds_parity", maximum=100000.0)
+    except ValueError as e:
+        return _json_error(str(e))
 
     validation_error = _validate_bet_payload(
         bet_number,
@@ -1112,7 +1404,11 @@ def api_manual_bets_list():
     if error:
         return error
 
-    region = (request.args.get("region") or "").strip()
+    region, error = _validate_text_length(request.args.get("region"), "region", maximum=10)
+    if error:
+        return _json_error(error)
+    if region and region not in {"hk", "macau"}:
+        return _json_error("region is invalid")
     status = (request.args.get("status") or "").strip()
     limit = request.args.get("limit") or "20"
     try:
@@ -1171,27 +1467,34 @@ def api_manual_bets_summary():
     if error:
         return error
 
-    region = (request.args.get("region") or "").strip()
+    region, error = _validate_text_length(request.args.get("region"), "region", maximum=10)
+    if error:
+        return _json_error(error)
+    if region and region not in {"hk", "macau"}:
+        return _json_error("region is invalid")
     query = ManualBetRecord.query.filter_by(user_id=user.id)
     if region:
         query = query.filter_by(region=region)
 
-    records = query.all()
-    settled = [r for r in records if r.total_profit is not None]
-    pending = [r for r in records if r.total_profit is None]
-
-    total_stake = sum((r.total_stake or 0) for r in settled)
-    total_profit = sum((r.total_profit or 0) for r in settled)
-    win_count = sum(1 for r in settled if (r.total_profit or 0) > 0)
-    lose_count = sum(1 for r in settled if (r.total_profit or 0) < 0)
-    draw_count = sum(1 for r in settled if (r.total_profit or 0) == 0)
+    settled_query = query.filter(ManualBetRecord.total_profit.isnot(None))
+    pending_count = query.filter(ManualBetRecord.total_profit.is_(None)).count()
+    settled_count = settled_query.count()
+    totals = settled_query.with_entities(
+        func.coalesce(func.sum(ManualBetRecord.total_stake), 0),
+        func.coalesce(func.sum(ManualBetRecord.total_profit), 0),
+    ).first()
+    total_stake = float(totals[0] or 0)
+    total_profit = float(totals[1] or 0)
+    win_count = settled_query.filter(ManualBetRecord.total_profit > 0).count()
+    lose_count = settled_query.filter(ManualBetRecord.total_profit < 0).count()
+    draw_count = settled_query.filter(ManualBetRecord.total_profit == 0).count()
 
     return jsonify(
         {
             "success": True,
             "summary": {
-                "settled_count": len(settled),
-                "pending_count": len(pending),
+                "settled_count": settled_count,
+                "pending_count": pending_count,
                 "total_stake": total_stake,
                 "total_profit": total_profit,
                 "win_count": win_count,
@@ -1217,7 +1520,8 @@ def api_manual_bets_delete(record_id):
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return _json_error(f"delete failed: {e}", status=500, code="delete_failed")
+        print(f"Mobile manual bet delete failed: {e}")
+        return _json_error("delete failed", status=500, code="delete_failed")
 
     return jsonify({"success": True})
 
@@ -1231,6 +1535,7 @@ def api_me():
     return jsonify(
         {
             "success": True,
+            "csrf_token": _get_mobile_csrf_token(),
             "user": {
                 "id": user.id,
                 "username": user.username,
@@ -1252,7 +1557,7 @@ def api_update_prediction_display_settings():
         return error
 
     payload = request.get_json(silent=True) or {}
-    user.show_normal_numbers = bool(payload.get("show_normal_numbers", False))
+    user.show_normal_numbers = _parse_bool_payload(payload, "show_normal_numbers")
     db.session.commit()
 
     return jsonify(
@@ -1452,7 +1757,11 @@ def api_prediction_summaries():
     if error:
         return error
 
-    region = request.args.get("region", "").strip()
+    region, error = _validate_text_length(request.args.get("region"), "region", maximum=10)
+    if error:
+        return _json_error(error)
+    if region and region not in {"hk", "macau"}:
+        return _json_error("region is invalid")
     return jsonify(
         {
             "success": True,
@@ -1467,12 +1776,29 @@ def api_predictions():
     if error:
         return error
 
-    page = max(int(request.args.get("page", 1)), 1)
-    page_size = min(max(int(request.args.get("page_size", 20)), 1), 100)
-    region = request.args.get("region", "").strip()
-    period = request.args.get("period", "").strip()
-    strategy = request.args.get("strategy", "").strip()
-    result = request.args.get("result", "").strip()
+    try:
+        page = _parse_int_arg("page", 1, minimum=1, maximum=10000)
+        page_size = _parse_int_arg("page_size", 20, minimum=1, maximum=100)
+    except ValueError as e:
+        return _json_error(str(e))
+    region, error = _validate_text_length(request.args.get("region"), "region", maximum=10)
+    if error:
+        return _json_error(error)
+    if region and region not in {"hk", "macau"}:
+        return _json_error("region is invalid")
+    period, error = _validate_text_length(request.args.get("period"), "period", maximum=20)
+    if error:
+        return _json_error(error)
+    strategy, error = _validate_text_length(request.args.get("strategy"), "strategy", maximum=20)
+    if error:
+        return _json_error(error)
+    if strategy and strategy not in STRATEGY_KEYS:
+        return _json_error("strategy is invalid")
+    result, error = _validate_text_length(request.args.get("result"), "result", maximum=20)
+    if error:
+        return _json_error(error)
+    if result and result not in {"special_hit", "normal_hit", "wrong", "pending"}:
+        return _json_error("result is invalid")
     include_zodiacs = request.args.get("include_zodiacs", "").strip() == "1"
     include_summaries = request.args.get("include_summaries", "1").strip() != "0"
     include_details = request.args.get("include_details", "1").strip() != "0"

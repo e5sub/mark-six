@@ -8,8 +8,10 @@ import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import 'api_client.dart';
+import 'config.dart';
 import 'models.dart';
 
 void main() {
@@ -88,6 +90,8 @@ class _MarkSixAppState extends State<MarkSixApp> {
 class AppState extends ChangeNotifier {
   UserProfile? user;
   bool initialized = false;
+  String turnstileSiteKey = '';
+  bool githubLoginEnabled = false;
 
   bool get activationValid {
     final current = user;
@@ -100,9 +104,23 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     await ApiClient.instance.init();
+    await loadAuthConfig();
     await loadMe();
     initialized = true;
     notifyListeners();
+  }
+
+  Future<void> loadAuthConfig() async {
+    try {
+      final res = await ApiClient.instance.authConfig();
+      if (res['success'] == true) {
+        turnstileSiteKey = res['turnstile_site_key']?.toString() ?? '';
+        githubLoginEnabled = res['github_login_enabled'] == true;
+      }
+    } catch (_) {
+      turnstileSiteKey = '';
+      githubLoginEnabled = false;
+    }
   }
 
   Future<void> loadMe() async {
@@ -118,11 +136,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<String?> login(String usernameOrEmail, String password) async {
+  Future<String?> login(
+    String usernameOrEmail,
+    String password, {
+    String turnstileToken = '',
+  }) async {
     try {
       final res = await ApiClient.instance.login(
         usernameOrEmail: usernameOrEmail,
         password: password,
+        turnstileToken: turnstileToken,
       );
       if (res['success'] == true) {
         user = UserProfile.fromJson(res['user'] as Map<String, dynamic>);
@@ -141,6 +164,7 @@ class AppState extends ChangeNotifier {
     required String password,
     required String confirmPassword,
     String inviteCode = '',
+    String turnstileToken = '',
   }) async {
     try {
       final res = await ApiClient.instance.register(
@@ -149,6 +173,7 @@ class AppState extends ChangeNotifier {
         password: password,
         confirmPassword: confirmPassword,
         inviteCode: inviteCode,
+        turnstileToken: turnstileToken,
       );
       if (res['success'] == true) {
         return null;
@@ -156,6 +181,20 @@ class AppState extends ChangeNotifier {
       return res['message']?.toString() ?? '注册失败';
     } catch (e) {
       return '注册失败: $e';
+    }
+  }
+
+  Future<String?> completeGithubLogin(String token) async {
+    try {
+      final res = await ApiClient.instance.completeGithubLogin(token: token);
+      if (res['success'] == true) {
+        user = UserProfile.fromJson(res['user'] as Map<String, dynamic>);
+        notifyListeners();
+        return null;
+      }
+      return res['message']?.toString() ?? 'GitHub 登录失败';
+    } catch (e) {
+      return 'GitHub 登录失败: $e';
     }
   }
 
@@ -452,6 +491,153 @@ class SplashScreen extends StatelessWidget {
   }
 }
 
+class TurnstileBox extends StatefulWidget {
+  const TurnstileBox({
+    super.key,
+    required this.siteKey,
+    required this.onTokenChanged,
+  });
+
+  final String siteKey;
+  final ValueChanged<String> onTokenChanged;
+
+  @override
+  State<TurnstileBox> createState() => _TurnstileBoxState();
+}
+
+class _TurnstileBoxState extends State<TurnstileBox> {
+  late final WebViewController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel(
+        'TurnstileToken',
+        onMessageReceived: (message) {
+          widget.onTokenChanged(message.message);
+        },
+      )
+      ..loadHtmlString(_turnstileHtml(widget.siteKey), baseUrl: baseUrl);
+  }
+
+  @override
+  void didUpdateWidget(TurnstileBox oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.siteKey != widget.siteKey) {
+      _controller.loadHtmlString(_turnstileHtml(widget.siteKey), baseUrl: baseUrl);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 78,
+      width: double.infinity,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: WebViewWidget(controller: _controller),
+      ),
+    );
+  }
+
+  String _turnstileHtml(String siteKey) {
+    return '''
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+    }
+    .wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 76px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="cf-turnstile"
+      data-sitekey="$siteKey"
+      data-callback="onTurnstileToken"
+      data-expired-callback="onTurnstileExpired"
+      data-error-callback="onTurnstileExpired"></div>
+  </div>
+  <script>
+    function onTurnstileToken(token) {
+      TurnstileToken.postMessage(token || '');
+    }
+    function onTurnstileExpired() {
+      TurnstileToken.postMessage('');
+    }
+  </script>
+</body>
+</html>
+''';
+  }
+}
+
+class GithubLoginDialog extends StatefulWidget {
+  const GithubLoginDialog({super.key, required this.authUrl});
+
+  final String authUrl;
+
+  @override
+  State<GithubLoginDialog> createState() => _GithubLoginDialogState();
+}
+
+class _GithubLoginDialogState extends State<GithubLoginDialog> {
+  late final WebViewController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri != null &&
+                uri.path == '/api/mobile/github/success' &&
+                uri.queryParameters['token'] != null) {
+              Navigator.of(context).pop(uri.queryParameters['token']);
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.authUrl));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog.fullscreen(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('GitHub 登录'),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        body: WebViewWidget(controller: _controller),
+      ),
+    );
+  }
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, required this.appState});
 
@@ -465,6 +651,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _username = TextEditingController();
   final TextEditingController _password = TextEditingController();
   bool _loading = false;
+  bool _githubLoading = false;
+  String _turnstileToken = '';
+  int _turnstileReset = 0;
 
   @override
   void dispose() {
@@ -474,14 +663,56 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
+    if (widget.appState.turnstileSiteKey.isNotEmpty && _turnstileToken.isEmpty) {
+      _showMessage('请先完成人机验证');
+      return;
+    }
     setState(() => _loading = true);
     final error = await widget.appState.login(
       _username.text.trim(),
       _password.text,
+      turnstileToken: _turnstileToken,
     );
     setState(() => _loading = false);
     if (error != null && mounted) {
+      setState(() {
+        _turnstileToken = '';
+        _turnstileReset++;
+      });
       _showMessage(error);
+    }
+  }
+
+  Future<void> _handleGithubLogin() async {
+    setState(() => _githubLoading = true);
+    try {
+      final res = await ApiClient.instance.githubAuthUrl();
+      if (res['success'] != true) {
+        _showMessage(res['message']?.toString() ?? 'GitHub 登录未配置');
+        return;
+      }
+      final authUrl = res['auth_url']?.toString() ?? '';
+      if (authUrl.isEmpty) {
+        _showMessage('GitHub 授权地址无效');
+        return;
+      }
+      final token = await showDialog<String>(
+        context: context,
+        builder: (_) => GithubLoginDialog(authUrl: authUrl),
+      );
+      if (token == null || token.isEmpty) return;
+      final error = await widget.appState.completeGithubLogin(token);
+      if (error != null && mounted) {
+        _showMessage(error);
+      }
+    } catch (e) {
+      if (mounted) {
+        _showMessage('GitHub 登录失败: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _githubLoading = false);
+      }
     }
   }
 
@@ -537,6 +768,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       decoration: const InputDecoration(labelText: '密码'),
                       obscureText: true,
                     ),
+                    if (widget.appState.turnstileSiteKey.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      TurnstileBox(
+                        key: ValueKey('login-turnstile-$_turnstileReset'),
+                        siteKey: widget.appState.turnstileSiteKey,
+                        onTokenChanged: (token) => _turnstileToken = token,
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,
@@ -557,6 +796,23 @@ class _LoginScreenState extends State<LoginScreen> {
                             : const Text('登录'),
                       ),
                     ),
+                    if (widget.appState.githubLoginEnabled) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _githubLoading ? null : _handleGithubLogin,
+                          icon: _githubLoading
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.code),
+                          label: const Text('使用 GitHub 登录'),
+                        ),
+                      ),
+                    ],
                     TextButton(
                       onPressed: () {
                         Navigator.of(context).push(
@@ -595,6 +851,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _confirmPassword = TextEditingController();
   final TextEditingController _inviteCode = TextEditingController();
   bool _loading = false;
+  String _turnstileToken = '';
+  int _turnstileReset = 0;
 
   @override
   void dispose() {
@@ -607,6 +865,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _handleRegister() async {
+    if (widget.appState.turnstileSiteKey.isNotEmpty && _turnstileToken.isEmpty) {
+      _showMessage('请先完成人机验证');
+      return;
+    }
     setState(() => _loading = true);
     final error = await widget.appState.register(
       username: _username.text.trim(),
@@ -614,11 +876,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       password: _password.text,
       confirmPassword: _confirmPassword.text,
       inviteCode: _inviteCode.text.trim(),
+      turnstileToken: _turnstileToken,
     );
     setState(() => _loading = false);
 
     if (!mounted) return;
     if (error != null) {
+      setState(() {
+        _turnstileToken = '';
+        _turnstileReset++;
+      });
       _showMessage(error);
       return;
     }
@@ -688,6 +955,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 labelText: '邀请码（可选）',
               ),
             ),
+            if (widget.appState.turnstileSiteKey.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              TurnstileBox(
+                key: ValueKey('register-turnstile-$_turnstileReset'),
+                siteKey: widget.appState.turnstileSiteKey,
+                onTokenChanged: (token) => _turnstileToken = token,
+              ),
+            ],
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,

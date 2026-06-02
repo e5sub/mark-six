@@ -3,6 +3,7 @@ from models import db, User, ActivationCode, ActivationCodeRequest, SystemConfig
 from werkzeug.security import generate_password_hash
 import uuid
 from datetime import datetime, timedelta
+import json
 import secrets
 import requests
 from urllib.parse import urlencode
@@ -136,6 +137,141 @@ def _fetch_github_verified_email(access_token):
     verified = primary or next((item for item in emails if item.get('verified') and item.get('email')), None)
     email = str((verified or {}).get('email') or '').strip().lower()
     return profile, email
+
+
+def _mobile_github_state_key(state):
+    return f"mobile_github_state_{state}"
+
+
+def _mobile_github_login_key(token):
+    return f"mobile_github_login_{token}"
+
+
+def _pop_config_json(key):
+    config = SystemConfig.query.filter_by(key=key).first()
+    if not config:
+        return None
+    raw = config.value or ''
+    db.session.delete(config)
+    db.session.commit()
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _store_config_json(key, payload, description):
+    SystemConfig.set_config(
+        key,
+        json.dumps(payload, ensure_ascii=False),
+        description,
+    )
+
+
+def _github_mobile_html(title, message):
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>{title}</title></head>"
+        "<body style='font-family:system-ui,sans-serif;padding:24px;"
+        "text-align:center;color:#111827'>"
+        f"<h3>{title}</h3><p>{message}</p>"
+        "</body></html>"
+    )
+
+
+def _resolve_github_login_user(profile, email):
+    github_id = str(profile.get('id') or '').strip()
+    github_login_name = str(profile.get('login') or '').strip()
+
+    user = User.query.filter_by(github_id=github_id).first() if github_id else None
+    if not user:
+        user = User.query.filter_by(email=email).first()
+    if not user:
+        if not _is_config_enabled('allow_registration', 'true'):
+            raise ValueError('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册')
+
+        first_admin = not _has_admin_account()
+        github_login_name = github_login_name or email.split('@', 1)[0]
+        user = User(
+            username=_unique_github_username(github_login_name),
+            email=email,
+            github_id=github_id or None,
+            github_username=github_login_name,
+            is_admin=first_admin,
+        )
+        user.set_password(secrets.token_urlsafe(32))
+        user.extend_activation(7)
+        user.is_active = True
+        user.auto_prediction_enabled = True
+        db.session.add(user)
+        db.session.commit()
+        _mark_email_verified(user)
+        return user
+
+    if github_id and not user.github_id:
+        existing_user = User.query.filter(
+            User.github_id == github_id,
+            User.id != user.id,
+        ).first()
+        if existing_user:
+            raise ValueError('这个 GitHub 账号已经绑定到其他用户')
+        user.github_id = github_id
+        user.github_username = github_login_name
+        db.session.commit()
+
+    if _email_verification_required() and not _is_email_verified(user):
+        _mark_email_verified(user)
+    return user
+
+
+def _handle_mobile_github_callback(config, state_payload):
+    try:
+        expires_at = datetime.fromisoformat((state_payload or {}).get('expires_at', ''))
+    except Exception:
+        expires_at = datetime.utcnow() - timedelta(seconds=1)
+    if not state_payload or datetime.utcnow() >= expires_at:
+        return _github_mobile_html('登录失败', 'GitHub 登录状态已失效，请重试'), 400
+
+    code = request.args.get('code', '')
+    if not code:
+        return _github_mobile_html('登录失败', 'GitHub 授权失败，请重试'), 400
+
+    try:
+        token_response = requests.post(
+            'https://github.com/login/oauth/access_token',
+            data={
+                'client_id': config['client_id'],
+                'client_secret': config['client_secret'],
+                'code': code,
+                'redirect_uri': url_for('auth.github_callback', _external=True),
+            },
+            headers={'Accept': 'application/json'},
+            timeout=12,
+        )
+        token_response.raise_for_status()
+        token_payload = token_response.json() or {}
+        access_token = str(token_payload.get('access_token') or '').strip()
+        if not access_token:
+            raise ValueError(token_payload.get('error_description') or 'missing access token')
+
+        profile, email = _fetch_github_verified_email(access_token)
+        if not email:
+            raise ValueError('GitHub 账号没有可用的已验证邮箱')
+        user = _resolve_github_login_user(profile, email)
+    except Exception as e:
+        return _github_mobile_html('登录失败', f'GitHub 登录失败：{e}'), 400
+
+    login_token = secrets.token_urlsafe(32)
+    _store_config_json(
+        _mobile_github_login_key(login_token),
+        {
+            'user_id': user.id,
+            'expires_at': (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
+        },
+        'Mobile GitHub one-time login token',
+    )
+    return redirect(url_for('mobile_api.api_github_success', token=login_token, _external=True))
 
 
 def _email_verification_status_key(user_id):
@@ -529,6 +665,10 @@ def github_callback():
         return redirect(url_for('auth.login'))
 
     state = request.args.get('state', '')
+    mobile_state_payload = _pop_config_json(_mobile_github_state_key(state))
+    if mobile_state_payload is not None:
+        return _handle_mobile_github_callback(config, mobile_state_payload)
+
     expected_state = session.pop('github_oauth_state', '')
     oauth_mode = session.pop('github_oauth_mode', 'login')
     if not state or not expected_state or not secrets.compare_digest(state, expected_state):

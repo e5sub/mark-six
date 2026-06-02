@@ -15,6 +15,7 @@ class ApiClient {
 
   late final Dio _dio;
   bool _initialized = false;
+  String _csrfToken = '';
 
   Future<void> init() async {
     if (_initialized) return;
@@ -40,12 +41,37 @@ class ApiClient {
   }
 
   Future<Response<dynamic>> post(String path, {Map<String, dynamic>? data}) {
-    return _dio.post(path, data: data);
+    return _dio.post(
+      path,
+      data: data,
+      options: _csrfOptions(),
+    );
   }
 
   Future<Response<dynamic>> delete(String path,
       {Map<String, dynamic>? data}) {
-    return _dio.delete(path, data: data);
+    return _dio.delete(
+      path,
+      data: data,
+      options: _csrfOptions(),
+    );
+  }
+
+  Options? _csrfOptions() {
+    if (_csrfToken.isEmpty) return null;
+    return Options(headers: {'X-CSRF-Token': _csrfToken});
+  }
+
+  void _captureCsrfToken(Map<String, dynamic> data) {
+    final token = data['csrf_token']?.toString() ?? '';
+    if (token.isNotEmpty) {
+      _csrfToken = token;
+    }
+  }
+
+  Future<Map<String, dynamic>> authConfig() async {
+    final response = await get('/api/mobile/auth_config');
+    return _ensureJsonMap(response.data);
   }
 
   Future<Map<String, dynamic>> register({
@@ -54,6 +80,7 @@ class ApiClient {
     required String password,
     required String confirmPassword,
     String inviteCode = '',
+    String turnstileToken = '',
   }) async {
     final response = await post('/api/mobile/register', data: {
       'username': username,
@@ -61,6 +88,7 @@ class ApiClient {
       'password': password,
       'confirm_password': confirmPassword,
       'invite_code': inviteCode,
+      'turnstile_token': turnstileToken,
     });
     return _ensureJsonMap(response.data);
   }
@@ -68,16 +96,37 @@ class ApiClient {
   Future<Map<String, dynamic>> login({
     required String usernameOrEmail,
     required String password,
+    String turnstileToken = '',
   }) async {
     final response = await post('/api/mobile/login', data: {
       'username': usernameOrEmail,
       'password': password,
+      'turnstile_token': turnstileToken,
     });
+    final data = _ensureJsonMap(response.data);
+    _captureCsrfToken(data);
+    return data;
+  }
+
+  Future<Map<String, dynamic>> githubAuthUrl() async {
+    final response = await get('/api/mobile/github/auth_url');
     return _ensureJsonMap(response.data);
+  }
+
+  Future<Map<String, dynamic>> completeGithubLogin({
+    required String token,
+  }) async {
+    final response = await post('/api/mobile/github/complete', data: {
+      'token': token,
+    });
+    final data = _ensureJsonMap(response.data);
+    _captureCsrfToken(data);
+    return data;
   }
 
   Future<Map<String, dynamic>> logout() async {
     final response = await post('/api/mobile/logout');
+    _csrfToken = '';
     return _ensureJsonMap(response.data);
   }
 
@@ -115,7 +164,9 @@ class ApiClient {
 
   Future<Map<String, dynamic>> me() async {
     final response = await get('/api/mobile/me');
-    return _ensureJsonMap(response.data);
+    final data = _ensureJsonMap(response.data);
+    _captureCsrfToken(data);
+    return data;
   }
 
   Future<Map<String, dynamic>> updatePredictionDisplaySettings({
