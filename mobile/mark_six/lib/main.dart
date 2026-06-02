@@ -2017,6 +2017,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   }) async {
     setState(() {
       if (showLoading) {
+        _loading = true;
       }
       _statusMessage = null;
       _pendingRecordId = null;
