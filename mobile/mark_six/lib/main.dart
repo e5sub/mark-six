@@ -3268,6 +3268,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
   bool _loading = false;
   bool _nextDrawLoading = false;
   String? _nextDrawTime;
+  Timer? _countdownTimer;
   final TextEditingController _yearController = TextEditingController();
   final TextEditingController _monthController = TextEditingController();
   final TextEditingController _periodController = TextEditingController();
@@ -3280,10 +3281,16 @@ class _RecordsScreenState extends State<RecordsScreen> {
     _yearController.text = DateTime.now().year.toString();
     _fetch();
     _fetchNextDrawTime();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _yearController.dispose();
     _monthController.dispose();
     _periodController.dispose();
@@ -3387,6 +3394,28 @@ class _RecordsScreenState extends State<RecordsScreen> {
     }
     final value = DateTime(year, month, day, hour, minute);
     return _formatDateTime(value);
+  }
+
+  DateTime? _parseDateTimeString(String? raw) {
+    final normalized = _normalizeDateTimeString(raw);
+    if (normalized == null) return null;
+    final match = RegExp(
+      r'(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})',
+    ).firstMatch(normalized);
+    if (match == null) return null;
+    final year = int.tryParse(match.group(1) ?? '');
+    final month = int.tryParse(match.group(2) ?? '');
+    final day = int.tryParse(match.group(3) ?? '');
+    final hour = int.tryParse(match.group(4) ?? '');
+    final minute = int.tryParse(match.group(5) ?? '');
+    if (year == null ||
+        month == null ||
+        day == null ||
+        hour == null ||
+        minute == null) {
+      return null;
+    }
+    return DateTime(year, month, day, hour, minute);
   }
 
   DateTime _nextMacauDrawTime() {
@@ -3523,16 +3552,44 @@ class _RecordsScreenState extends State<RecordsScreen> {
   }
 
   String _nextDrawHintText() {
+    final countdown = _nextDrawCountdownText();
     if (_region == 'macau') {
-      return '下期开奖时间：${_formatDateTime(_nextMacauDrawTime())}';
+      return '下期开奖时间：${_formatDateTime(_nextMacauDrawTime())}  $countdown';
     }
     if (_nextDrawLoading) {
       return '下期开奖时间：加载中...';
     }
     if (_nextDrawTime != null && _nextDrawTime!.isNotEmpty) {
-      return '下期开奖时间：$_nextDrawTime';
+      return '下期开奖时间：$_nextDrawTime  $countdown';
     }
-    return '下期开奖时间：${_formatDateTime(_nextHkDrawTime())}';
+    return '下期开奖时间：${_formatDateTime(_nextHkDrawTime())}  $countdown';
+  }
+
+  DateTime _nextDrawTargetTime() {
+    if (_region == 'macau') {
+      return _nextMacauDrawTime();
+    }
+    return _parseDateTimeString(_nextDrawTime) ?? _nextHkDrawTime();
+  }
+
+  String _nextDrawCountdownText() {
+    final target = _nextDrawTargetTime();
+    final diff = target.difference(DateTime.now());
+    if (diff.inSeconds <= 0) {
+      return '开奖倒计时：即将开奖';
+    }
+    final days = diff.inDays;
+    final hours = diff.inHours % 24;
+    final minutes = diff.inMinutes % 60;
+    final seconds = diff.inSeconds % 60;
+    final timeText =
+        "${hours.toString().padLeft(2, '0')}:"
+        "${minutes.toString().padLeft(2, '0')}:"
+        "${seconds.toString().padLeft(2, '0')}";
+    if (days > 0) {
+      return '开奖倒计时：$days天 $timeText';
+    }
+    return '开奖倒计时：$timeText';
   }
 
   Widget _buildRegionSelector() {
@@ -4008,7 +4065,6 @@ class _PredictScreenState extends State<PredictScreen> {
   bool _loading = false;
   String _aiText = '';
   Map<String, dynamic>? _result;
-  bool _predictionRequested = false;
   List<String> _normalZodiacs = [];
   String _specialZodiac = '';
   bool _loadingRecords = false;
@@ -4274,7 +4330,6 @@ class _PredictScreenState extends State<PredictScreen> {
     }
     setState(() {
       _loading = true;
-      _predictionRequested = true;
       _resetPrediction();
     });
 
@@ -4963,10 +5018,7 @@ class _PredictScreenState extends State<PredictScreen> {
 
   Widget _buildAiMarkdownCard() {
     final markdownText = _aiMarkdownText;
-    if (!_predictionRequested &&
-        !_loading &&
-        _result == null &&
-        markdownText.isEmpty) {
+    if (_result == null && markdownText.isEmpty) {
       return const SizedBox.shrink();
     }
     if (markdownText.isEmpty) {
@@ -5982,7 +6034,7 @@ class _PredictScreenState extends State<PredictScreen> {
             Expanded(
               child: ListView(
                 children: [
-                  if (_predictionRequested || _loading || _result != null) ...[
+                  if (_result != null || _aiMarkdownText.isNotEmpty) ...[
                     _buildAiMarkdownCard(),
                     const SizedBox(height: 16),
                   ],
