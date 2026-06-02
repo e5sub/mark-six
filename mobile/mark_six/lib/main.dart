@@ -781,6 +781,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: double.infinity,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0B6B4F),
+                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
@@ -802,6 +804,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: double.infinity,
                         child: OutlinedButton.icon(
                           onPressed: _githubLoading ? null : _handleGithubLogin,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF0B6B4F),
+                            side: const BorderSide(color: Color(0xFF0B6B4F)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
                           icon: _githubLoading
                               ? const SizedBox(
                                   height: 18,
@@ -813,27 +823,40 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ],
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                RegisterScreen(appState: widget.appState),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF0B6B4F),
                           ),
-                        );
-                      },
-                      child: const Text('没有账号？立即注册'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ForgotPasswordScreen(appState: widget.appState),
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    RegisterScreen(appState: widget.appState),
+                              ),
+                            );
+                          },
+                          child: const Text('没有账号？立即注册'),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF0B6B4F),
                           ),
-                        );
-                      },
-                      child: const Text('忘记密码？'),
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ForgotPasswordScreen(
+                                  appState: widget.appState,
+                                ),
+                              ),
+                            );
+                          },
+                          child: const Text('忘记密码？'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -6073,17 +6096,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    user.username,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          user.username,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: _showChangePasswordDialog,
+                        icon: const Icon(Icons.lock_outline, size: 18),
+                        label: const Text('修改密码'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(user.email),
                   const SizedBox(height: 8),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Chip(
                         label: Text(
@@ -6100,7 +6139,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ? Colors.red.shade100
                                     : Colors.orange.shade100,
                       ),
-                      const SizedBox(width: 8),
                       if (user.activationExpiresAt != null)
                         Text('到期：${user.activationExpiresAt}'),
                     ],
@@ -6269,19 +6307,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           const Text('暂无数据'),
                       ],
                     ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: ListTile(
-              leading: const Icon(Icons.lock_outline),
-              title: const Text('修改密码'),
-              subtitle: const Text('更新登录密码'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _showChangePasswordDialog,
             ),
           ),
           const SizedBox(height: 12),
