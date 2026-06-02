@@ -151,7 +151,7 @@ def _parse_number_stakes(value):
                 amount = float(stake)
             except (TypeError, ValueError):
                 continue
-            if number > 0 and 0 < amount <= 10000000.0 and math.isfinite(amount):
+            if number > 0 and 0 < amount <= 100000.0 and math.isfinite(amount):
                 result[number] = amount
         return result
     if isinstance(value, list):
@@ -164,7 +164,7 @@ def _parse_number_stakes(value):
                 amount = float(item.get("stake"))
             except (TypeError, ValueError):
                 continue
-            if number > 0 and 0 < amount <= 10000000.0 and math.isfinite(amount):
+            if number > 0 and 0 < amount <= 100000.0 and math.isfinite(amount):
                 result[number] = amount
         return result
     if isinstance(value, str):
@@ -181,7 +181,7 @@ def _parse_number_stakes(value):
                 amount = float(stake_str.strip())
             except (TypeError, ValueError):
                 continue
-            if number > 0 and 0 < amount <= 10000000.0 and math.isfinite(amount):
+            if number > 0 and 0 < amount <= 100000.0 and math.isfinite(amount):
                 result[number] = amount
         return result
     return {}
@@ -202,7 +202,7 @@ def _parse_common_stake_entries(value):
                 amount = float(amount_text.strip())
             except (TypeError, ValueError):
                 continue
-            if key and 0 < amount <= 10000000.0 and math.isfinite(amount):
+            if key and 0 < amount <= 100000.0 and math.isfinite(amount):
                 entries.append((key, amount))
         return entries
     return []
@@ -217,7 +217,7 @@ def _build_common_stakes(items, amount):
         stake = float(amount)
     except (TypeError, ValueError):
         return []
-    if stake <= 0 or stake > 10000000.0 or not math.isfinite(stake):
+    if stake <= 0 or stake > 100000.0 or not math.isfinite(stake):
         return []
     entries = []
     for item in items:
@@ -857,12 +857,12 @@ def api_manual_bets():
     )
 
     try:
-        stake_special = _parse_float_payload(payload, "stake_special", maximum=10000000.0)
-        stake_common = _parse_float_payload(payload, "stake_common", maximum=10000000.0)
-        odds_number = _parse_float_payload(payload, "odds_number", maximum=100000.0)
-        odds_zodiac = _parse_float_payload(payload, "odds_zodiac", maximum=100000.0)
-        odds_color = _parse_float_payload(payload, "odds_color", maximum=100000.0)
-        odds_parity = _parse_float_payload(payload, "odds_parity", maximum=100000.0)
+        stake_special = _parse_float_payload(payload, "stake_special", maximum=100000.0)
+        stake_common = _parse_float_payload(payload, "stake_common", maximum=100000.0)
+        odds_number = _parse_float_payload(payload, "odds_number", maximum=10000.0)
+        odds_zodiac = _parse_float_payload(payload, "odds_zodiac", maximum=10000.0)
+        odds_color = _parse_float_payload(payload, "odds_color", maximum=10000.0)
+        odds_parity = _parse_float_payload(payload, "odds_parity", maximum=10000.0)
     except ValueError as e:
         return _json_error(str(e))
 
