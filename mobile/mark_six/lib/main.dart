@@ -39,7 +39,7 @@ class _MarkSixAppState extends State<MarkSixApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '彩票数据分析',
+      title: '彩研所',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFFB91C1C),
@@ -748,7 +748,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      '彩票数据分析',
+                      '彩研所',
                       style:
                           TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                     ),
@@ -3474,28 +3474,26 @@ class _RecordsScreenState extends State<RecordsScreen> {
         _fetchNextDrawTime();
       },
       child: Container(
-        height: 38,
-        constraints: const BoxConstraints(minWidth: 74),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 34,
+        width: 62,
         decoration: BoxDecoration(
-          color: selected ? Colors.white : Colors.white.withOpacity(0.16),
+          color: selected ? const Color(0xFF991B1B) : Colors.white,
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected ? Colors.white : Colors.white.withOpacity(0.38),
-          ),
+          border: Border.all(color: Colors.white),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (selected) ...[
-              const Icon(Icons.check, size: 17, color: Color(0xFFB91C1C)),
-              const SizedBox(width: 5),
+              const Icon(Icons.check, size: 15, color: Colors.white),
+              const SizedBox(width: 3),
             ],
             Text(
               label,
               style: TextStyle(
-                color: selected ? const Color(0xFFB91C1C) : Colors.white,
+                color: selected ? Colors.white : const Color(0xFF991B1B),
                 fontWeight: FontWeight.w800,
+                fontSize: 14,
               ),
             ),
           ],
@@ -3686,13 +3684,27 @@ class _RecordsScreenState extends State<RecordsScreen> {
                     ),
                   ),
                 ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildHeaderRegionButton('hk', '香港'),
-                    const SizedBox(width: 8),
-                    _buildHeaderRegionButton('macau', '澳门'),
-                  ],
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x22000000),
+                        blurRadius: 10,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildHeaderRegionButton('hk', '香港'),
+                      const SizedBox(width: 3),
+                      _buildHeaderRegionButton('macau', '澳门'),
+                    ],
+                  ),
                 ),
               ],
             ),
