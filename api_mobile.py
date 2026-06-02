@@ -28,6 +28,7 @@ from auth import (
     _mobile_github_state_key,
     _turnstile_site_key,
     _verify_turnstile_response,
+    send_reset_email,
     send_activation_request_notification,
 )
 
@@ -46,6 +47,7 @@ _MOBILE_CSRF_EXEMPT_ENDPOINTS = {
     "mobile_api.api_github_complete",
     "mobile_api.api_login",
     "mobile_api.api_logout",
+    "mobile_api.api_forgot_password",
     "mobile_api.api_register",
 }
 
@@ -471,7 +473,7 @@ def api_auth_config():
 
 @mobile_api_bp.route("/github/auth_url", methods=["GET"])
 def api_github_auth_url():
-    if _rate_limited(f"github_auth:{_client_ip()}", 20, 3600):
+    if _rate_limited(f"github_auth:{_client_ip()}", 10, 3600):
         return _json_error("too many GitHub login attempts", status=429, code="rate_limited")
 
     config = _github_oauth_config()
@@ -642,7 +644,7 @@ def api_login():
     if error:
         return _json_error(error)
     password = payload.get("password") or ""
-    if _rate_limited(f"login:{_client_ip()}:{username_or_email.lower()}", 8, 600):
+    if _rate_limited(f"login:{_client_ip()}", 10, 3600):
         return _json_error("too many login attempts", status=429, code="rate_limited")
 
     turnstile_ok, turnstile_message = _verify_turnstile_response(
@@ -670,6 +672,43 @@ def api_login():
             "user": _user_payload(user),
         }
     )
+
+
+@mobile_api_bp.route("/forgot_password", methods=["POST"])
+def api_forgot_password():
+    payload = request.get_json(silent=True) or {}
+    if _rate_limited(f"forgot_password:{_client_ip()}", 10, 3600):
+        return _json_error("too many password reset attempts", status=429, code="rate_limited")
+
+    email, error = _validate_text_length(
+        payload.get("email"), "email", minimum=6, maximum=120, required=True
+    )
+    if error:
+        return _json_error(error)
+
+    turnstile_ok, turnstile_message = _verify_turnstile_response(
+        payload.get("turnstile_token") or ""
+    )
+    if not turnstile_ok:
+        return _json_error(turnstile_message, status=403, code="turnstile_failed")
+
+    generic_message = "如果该邮箱已注册，重置密码链接将发送到邮箱"
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"success": True, "message": generic_message})
+
+    reset_token = secrets.token_urlsafe(32)
+    token_key = f"reset_token_{user.id}"
+    token_data = f"{reset_token}|{(datetime.utcnow() + timedelta(hours=1)).isoformat()}"
+    SystemConfig.set_config(token_key, token_data, "密码重置令牌")
+
+    try:
+        send_reset_email(user.email, user.username, reset_token)
+    except Exception as e:
+        print(f"Mobile password reset email failed: {e}")
+        return _json_error("password reset email failed", status=500, code="email_failed")
+
+    return jsonify({"success": True, "message": generic_message})
 
 
 @mobile_api_bp.route("/logout", methods=["POST"])
@@ -709,7 +748,7 @@ def api_activate():
     user, error = _require_user()
     if error:
         return error
-    if _rate_limited(f"activate:{_client_ip()}:{user.id}", 10, 3600):
+    if _rate_limited(f"activate:{_client_ip()}", 10, 3600):
         return _json_error("too many activation attempts", status=429, code="rate_limited")
 
     if user.is_active:
@@ -757,7 +796,7 @@ def api_request_activation_code():
     user, error = _require_user()
     if error:
         return error
-    if _rate_limited(f"activation_request:{_client_ip()}:{user.id}", 5, 3600):
+    if _rate_limited(f"activation_request:{_client_ip()}", 10, 3600):
         return _json_error("too many activation requests", status=429, code="rate_limited")
 
     if user.is_active:

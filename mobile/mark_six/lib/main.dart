@@ -824,11 +824,143 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                       child: const Text('没有账号？立即注册'),
                     ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ForgotPasswordScreen(appState: widget.appState),
+                          ),
+                        );
+                      },
+                      child: const Text('忘记密码？'),
+                    ),
                   ],
                 ),
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class ForgotPasswordScreen extends StatefulWidget {
+  const ForgotPasswordScreen({super.key, required this.appState});
+
+  final AppState appState;
+
+  @override
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final TextEditingController _email = TextEditingController();
+  bool _loading = false;
+  String _turnstileToken = '';
+  int _turnstileReset = 0;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSubmit() async {
+    if (widget.appState.turnstileSiteKey.isNotEmpty && _turnstileToken.isEmpty) {
+      _showMessage('请先完成人机验证');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final res = await ApiClient.instance.forgotPassword(
+        email: _email.text.trim(),
+        turnstileToken: _turnstileToken,
+      );
+      if (!mounted) return;
+      if (res['success'] == true) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('邮件已发送'),
+            content: Text(
+              res['message']?.toString() ?? '请到邮箱查看重置密码链接',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      } else {
+        _resetTurnstile();
+        _showMessage(res['message']?.toString() ?? '提交失败');
+      }
+    } catch (e) {
+      if (mounted) {
+        _resetTurnstile();
+        _showMessage('提交失败: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  void _resetTurnstile() {
+    setState(() {
+      _turnstileToken = '';
+      _turnstileReset++;
+    });
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('找回密码')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: '邮箱'),
+            ),
+            if (widget.appState.turnstileSiteKey.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              TurnstileBox(
+                key: ValueKey('forgot-turnstile-$_turnstileReset'),
+                siteKey: widget.appState.turnstileSiteKey,
+                onTokenChanged: (token) => _turnstileToken = token,
+              ),
+            ],
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: _loading ? null : _handleSubmit,
+              child: _loading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('发送重置邮件'),
+            ),
+          ],
         ),
       ),
     );

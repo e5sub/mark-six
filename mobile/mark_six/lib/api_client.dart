@@ -124,6 +124,17 @@ class ApiClient {
     return data;
   }
 
+  Future<Map<String, dynamic>> forgotPassword({
+    required String email,
+    String turnstileToken = '',
+  }) async {
+    final response = await post('/api/mobile/forgot_password', data: {
+      'email': email,
+      'turnstile_token': turnstileToken,
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Future<Map<String, dynamic>> logout() async {
     final response = await post('/api/mobile/logout');
     _csrfToken = '';
