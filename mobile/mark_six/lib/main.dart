@@ -2655,14 +2655,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     ),
                     const SizedBox(height: 12),
                   ],
-                  const Text(
-                    '地区',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
                   Row(
                     children: [
                       _buildRegionButton('hk', '香港'),
@@ -3544,14 +3536,6 @@ class _RecordsScreenState extends State<RecordsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '地区',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
-          ),
-          const SizedBox(height: 8),
           Row(
             children: [
               _buildHeaderRegionButton('hk', '香港'),
