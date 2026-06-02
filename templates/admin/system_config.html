@@ -257,14 +257,15 @@
                                placeholder="用于邮件和页面展示的站点名称">
                     </div>
                     <div class="config-field">
-                        <label>系统描述</label>
-                        <textarea name="system_description" class="form-control" rows="2"
-                                  placeholder="系统描述">{{ configs.get('system_description', '') }}</textarea>
+                        <label>SEO 标题</label>
+                        <input type="text" name="seo_title" class="form-control"
+                               value="{{ configs.get('seo_title') or '彩研所 - 香港澳门彩票数据分析与智能预测' }}"
+                               placeholder="用于浏览器标题和搜索结果标题">
                     </div>
                     <div class="config-field">
-                        <label>站点描述</label>
-                        <textarea name="site_description" class="form-control" rows="2"
-                                  placeholder="站点描述">{{ configs.get('site_description', '') }}</textarea>
+                        <label>SEO 描述</label>
+                        <textarea name="seo_description" class="form-control" rows="2"
+                                  placeholder="用于页面 meta description，建议 80-160 字">{{ configs.get('seo_description') or '彩研所提供香港、澳门彩票开奖记录、生肖号码、波色单双、历史走势和智能预测分析，帮助用户快速查看开奖数据并辅助选号研究，仅供数据分析参考。' }}</textarea>
                     </div>
                 </div>
             </section>

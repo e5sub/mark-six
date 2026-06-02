@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ site_name or system_name or 'AI数据分析预测系统' }}</title>
-    <meta name="description" content="{{ site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
+    <title>{{ seo_title or site_name or system_name or 'AI数据分析预测系统' }}</title>
+    <meta name="description" content="{{ seo_description or site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-scrollbar.css') }}">
     <script src="https://fastly.jsdelivr.net/npm/chart.js"></script>
     <script src="{{ url_for('static', filename='js/lottery-display.js') }}"></script>

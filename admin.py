@@ -1010,6 +1010,8 @@ SYSTEM_CONFIG_DEFAULTS = {
     'notify_email_enabled': 'true',
     'site_name': 'AI数据分析预测系统',
     'site_description': '',
+    'seo_title': '彩研所 - 香港澳门彩票数据分析与智能预测',
+    'seo_description': '彩研所提供香港、澳门彩票开奖记录、生肖号码、波色单双、历史走势和智能预测分析，帮助用户快速查看开奖数据并辅助选号研究，仅供数据分析参考。',
     'invite_daily_limit': '3',
     'invite_code_validity_days': '7',
     'system_name': 'AI数据分析预测系统',

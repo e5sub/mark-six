@@ -736,15 +736,29 @@ def _safe_system_config(key, default=""):
 
 @app.context_processor
 def inject_system_settings():
+    default_seo_title = "彩研所 - 香港澳门彩票数据分析与智能预测"
+    default_seo_description = (
+        "彩研所提供香港、澳门彩票开奖记录、生肖号码、波色单双、历史走势和智能预测分析，"
+        "帮助用户快速查看开奖数据并辅助选号研究，仅供数据分析参考。"
+    )
     site_name = _safe_system_config("site_name", "AI数据分析预测系统")
     site_description = _safe_system_config("site_description", "")
     system_name = _safe_system_config("system_name", site_name or "AI数据分析预测系统")
     system_description = _safe_system_config("system_description", site_description or "")
+    seo_title = _safe_system_config("seo_title", "") or default_seo_title
+    seo_description = (
+        _safe_system_config("seo_description", "")
+        or site_description
+        or system_description
+        or default_seo_description
+    )
     return {
         "site_name": site_name,
         "site_description": site_description,
         "system_name": system_name,
         "system_description": system_description,
+        "seo_title": seo_title,
+        "seo_description": seo_description,
     }
 
 _startup_log_lock_path = None

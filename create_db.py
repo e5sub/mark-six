@@ -418,6 +418,8 @@ configs = [
     ("notify_email_enabled", "true", "启用邮件通知"),
     ("site_name", "AI数据分析预测系统", "站点名称"),
     ("site_description", "", "站点描述"),
+    ("seo_title", "彩研所 - 香港澳门彩票数据分析与智能预测", "SEO标题"),
+    ("seo_description", "彩研所提供香港、澳门彩票开奖记录、生肖号码、波色单双、历史走势和智能预测分析，帮助用户快速查看开奖数据并辅助选号研究，仅供数据分析参考。", "SEO描述"),
     ("invite_daily_limit", "3", "每日邀请码生成限制"),
     ("invite_code_validity_days", "7", "邀请码有效期天数"),
     ("system_name", "AI数据分析预测系统", "系统名称"),
