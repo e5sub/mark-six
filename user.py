@@ -30,6 +30,53 @@ def clear_user_runtime_caches():
         _backtest_refresh_state.clear()
 
 
+def _notification_event_label(event_type):
+    labels = {
+        'prediction_generated': '预测汇总',
+        'activation_request': '激活申请',
+        'admin': '管理员通知',
+        'general': '系统通知',
+    }
+    return labels.get(event_type or 'general', '系统通知')
+
+
+def _format_notification_item(item):
+    lines = [
+        str(line or '').strip()
+        for line in (item.content or '').splitlines()
+        if str(line or '').strip()
+    ]
+    summary = ''
+    detail_lines = []
+    prediction_lines = []
+
+    for line in lines:
+        if line.startswith('尊敬的'):
+            continue
+        if line.startswith('系统已为您生成'):
+            summary = line
+            continue
+        if '预测:' in line:
+            name, detail = line.split('预测:', 1)
+            prediction_lines.append({
+                'name': f'{name.strip()}预测',
+                'detail': detail.strip(),
+            })
+            continue
+        detail_lines.append(line)
+
+    if not summary and detail_lines:
+        summary = detail_lines.pop(0)
+
+    return {
+        'item': item,
+        'event_label': _notification_event_label(item.event_type),
+        'summary': summary,
+        'details': detail_lines,
+        'predictions': prediction_lines,
+    }
+
+
 STRATEGY_META = [
     {"key": "hot", "label": "热门", "icon": "🔥"},
     {"key": "cold", "label": "冷门", "icon": "🧊"},
@@ -968,6 +1015,7 @@ def notifications():
         'user/notifications.html',
         user=user,
         notifications=pagination.items,
+        notification_cards=[_format_notification_item(item) for item in pagination.items],
         pagination=pagination,
         unread_count=unread_count,
     )

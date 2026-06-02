@@ -3527,7 +3527,7 @@ class _PredictScreenState extends State<PredictScreen> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         onTap: () async {
           if (_loading) return;
           if (!activationValid) {
@@ -3541,12 +3541,12 @@ class _PredictScreenState extends State<PredictScreen> {
           opacity: activationValid ? 1 : 0.5,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
-            height: 54,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            height: 42,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               gradient: selected ? gradient : null,
               color: selected ? null : const Color(0xFFF7FAFC),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: selected ? Colors.transparent : const Color(0xFFE2E8F0),
               ),
@@ -3563,21 +3563,21 @@ class _PredictScreenState extends State<PredictScreen> {
             child: Row(
               children: [
                 Container(
-                  width: 30,
-                  height: 30,
+                  width: 24,
+                  height: 24,
                   decoration: BoxDecoration(
                     color: selected
                         ? Colors.white.withOpacity(0.18)
                         : accentColor.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
                     _strategyIcons[key] ?? Icons.auto_graph,
-                    size: 18,
+                    size: 15,
                     color: selected ? Colors.white : accentColor,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     label,
@@ -3585,13 +3585,13 @@ class _PredictScreenState extends State<PredictScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: selected ? Colors.white : const Color(0xFF1F2937),
-                      fontSize: 14,
+                      fontSize: 12,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
                 if (selected)
-                  const Icon(Icons.check_circle, size: 18, color: Colors.white),
+                  const Icon(Icons.check_circle, size: 14, color: Colors.white),
               ],
             ),
           ),
@@ -5118,7 +5118,7 @@ class _PredictScreenState extends State<PredictScreen> {
                                   builder: (context, constraints) {
                                     const spacing = 8.0;
                                     final cardWidth =
-                                        (constraints.maxWidth - spacing * 3) / 4;
+                                        (constraints.maxWidth - spacing * 2) / 3;
                                     return Align(
                                       alignment: Alignment.centerLeft,
                                       child: Wrap(
@@ -5230,12 +5230,12 @@ class _PredictScreenState extends State<PredictScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        const spacing = 10.0;
+                        const spacing = 8.0;
                         final itemWidth =
-                            (constraints.maxWidth - spacing) / 2;
+                            (constraints.maxWidth - spacing * 2) / 3;
                         return Wrap(
                           spacing: spacing,
                           runSpacing: spacing,
@@ -5251,7 +5251,7 @@ class _PredictScreenState extends State<PredictScreen> {
                         );
                       },
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 10),
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 180),
                       child: _loading
@@ -5351,6 +5351,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   AccuracyStats? _overall;
   bool _loading = false;
   String _appVersion = '';
+  String _versionStatus = '';
   Map<String, dynamic>? _betSummary;
   bool _loadingBetSummary = false;
   bool _savingDisplaySettings = false;
@@ -5360,6 +5361,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     _loadAccuracy();
     _loadVersion();
+    _loadVersionStatus();
     _loadBetSummary();
   }
 
@@ -5385,6 +5387,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       setState(() => _appVersion = UpdateService.formatVersion(info.version));
     } catch (_) {}
+  }
+
+  Future<void> _loadVersionStatus() async {
+    await UpdateService.checkForUpdate(
+      context,
+      onCurrentVersionStatus: (status) {
+        if (!mounted) return;
+        setState(() => _versionStatus = status);
+      },
+      showUpdatePrompt: false,
+    );
   }
 
   Future<void> _loadBetSummary() async {
@@ -5729,6 +5742,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             Text(_appVersion.isEmpty ? '-' : _appVersion),
+                            if (_versionStatus.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                _versionStatus,
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -5871,7 +5894,11 @@ class UpdateService {
   static const String _apkName = 'app-release.apk';
   static const String _proxy = 'https://gh-proxy.com/';
 
-  static Future<void> checkForUpdate(BuildContext context) async {
+  static Future<void> checkForUpdate(
+    BuildContext context, {
+    void Function(String status)? onCurrentVersionStatus,
+    bool showUpdatePrompt = true,
+  }) async {
     try {
       final info = await PackageInfo.fromPlatform();
       final currentVersion = info.version;
@@ -5880,15 +5907,14 @@ class UpdateService {
 
       final latestVersion = latest.version;
       if (_compareVersions(latestVersion, currentVersion) <= 0) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('已是最新版本 ${formatVersion(currentVersion)}'),
-            ),
-          );
-        }
+        onCurrentVersionStatus?.call('已是最新版本');
         return;
       }
+
+      onCurrentVersionStatus?.call(
+        '发现新版本 ${formatVersion(latestVersion)}',
+      );
+      if (!showUpdatePrompt) return;
 
       if (!context.mounted) return;
       final shouldUpdate = await showDialog<bool>(

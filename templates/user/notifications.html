@@ -3,11 +3,11 @@
 {% block page_title %}通知中心{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+<div class="card notification-panel">
+    <div class="notification-head">
         <div>
-            <h2 class="card-title" style="margin-bottom: 0.35rem;">通知中心</h2>
-            <div style="color: rgba(255,255,255,0.72); font-size: 0.92rem;">未读 {{ unread_count }} 条</div>
+            <h2 class="card-title">通知中心</h2>
+            <div class="notification-count">未读 {{ unread_count }} 条</div>
         </div>
         {% if unread_count %}
         <form method="POST" action="{{ url_for('user.mark_all_notifications_read') }}">
@@ -16,47 +16,218 @@
         {% endif %}
     </div>
 
-    <div style="display: grid; gap: 0.85rem;">
-        {% for item in notifications %}
-        <div style="border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 8px; padding: 1rem; background: {{ 'rgba(14,165,233,0.12)' if not item.is_read else 'rgba(15,23,42,0.38)' }};">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
-                <div style="min-width: 0;">
-                    <div style="font-weight: 700; color: #fff; overflow-wrap: anywhere;">{{ item.title }}</div>
-                    <div style="margin-top: 0.45rem; color: rgba(255,255,255,0.78); white-space: pre-wrap; line-height: 1.65;">{{ item.content }}</div>
-                    <div style="margin-top: 0.65rem; color: rgba(255,255,255,0.52); font-size: 0.86rem;">
-                        {{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.created_at else '' }}
-                        {% if item.event_type %} · {{ item.event_type }}{% endif %}
-                    </div>
+    <div class="notification-list">
+        {% for card in notification_cards %}
+        {% set item = card.item %}
+        <article class="notification-item {{ 'is-unread' if not item.is_read else '' }}">
+            <div class="notification-main">
+                <div class="notification-title-row">
+                    <div class="notification-title">{{ item.title }}</div>
+                    <span class="notification-status">{{ '未读' if not item.is_read else '已读' }}</span>
                 </div>
-                <div style="display: flex; gap: 0.5rem; flex-shrink: 0;">
-                    {% if item.link_url %}
-                    <a class="btn btn-sm" href="{{ item.link_url }}">查看</a>
-                    {% endif %}
-                    {% if not item.is_read %}
-                    <form method="POST" action="{{ url_for('user.mark_notification_read', notification_id=item.id) }}">
-                        <button type="submit" class="btn btn-sm">已读</button>
-                    </form>
-                    {% endif %}
+
+                {% if card.summary %}
+                <div class="notification-summary">{{ card.summary }}</div>
+                {% endif %}
+
+                {% if card.predictions %}
+                <div class="prediction-lines">
+                    {% for prediction in card.predictions %}
+                    <div class="prediction-line">
+                        <span class="prediction-name">{{ prediction.name }}</span>
+                        <span class="prediction-detail">{{ prediction.detail }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if card.details %}
+                <div class="notification-details">
+                    {% for line in card.details %}
+                    <div>{{ line }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <div class="notification-meta">
+                    <span>{{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}</span>
+                    <span>{{ card.event_label }}</span>
                 </div>
             </div>
-        </div>
+
+            <div class="notification-actions">
+                {% if item.link_url %}
+                <a class="btn btn-sm" href="{{ item.link_url }}">查看</a>
+                {% endif %}
+                {% if not item.is_read %}
+                <form method="POST" action="{{ url_for('user.mark_notification_read', notification_id=item.id) }}">
+                    <button type="submit" class="btn btn-sm">已读</button>
+                </form>
+                {% endif %}
+            </div>
+        </article>
         {% else %}
-        <div style="text-align: center; padding: 3rem 1rem; color: rgba(255,255,255,0.68);">
-            暂时没有通知
-        </div>
+        <div class="notification-empty">暂时没有通知</div>
         {% endfor %}
     </div>
 
     {% if pagination.pages > 1 %}
-    <div style="display: flex; justify-content: center; gap: 0.75rem; margin-top: 1.5rem;">
+    <div class="notification-pages">
         {% if pagination.has_prev %}
         <a class="btn btn-sm" href="{{ url_for('user.notifications', page=pagination.prev_num) }}">上一页</a>
         {% endif %}
-        <span style="align-self: center; color: rgba(255,255,255,0.72);">第 {{ pagination.page }} / {{ pagination.pages }} 页</span>
+        <span>第 {{ pagination.page }} / {{ pagination.pages }} 页</span>
         {% if pagination.has_next %}
         <a class="btn btn-sm" href="{{ url_for('user.notifications', page=pagination.next_num) }}">下一页</a>
         {% endif %}
     </div>
     {% endif %}
 </div>
+
+<style>
+.notification-panel {
+    padding: 1.5rem;
+}
+
+.notification-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.notification-count,
+.notification-meta,
+.notification-details {
+    color: rgba(226, 232, 240, 0.68);
+}
+
+.notification-list {
+    display: grid;
+    gap: 0.85rem;
+    margin-top: 1rem;
+}
+
+.notification-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.36);
+}
+
+.notification-item.is-unread {
+    border-color: rgba(56, 189, 248, 0.38);
+    background: rgba(14, 116, 144, 0.18);
+}
+
+.notification-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.notification-title {
+    font-weight: 800;
+    color: #f8fafc;
+    overflow-wrap: anywhere;
+}
+
+.notification-status {
+    flex-shrink: 0;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(129, 140, 248, 0.2);
+    color: #c7d2fe;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.notification-summary {
+    margin-top: 0.45rem;
+    color: rgba(226, 232, 240, 0.86);
+    line-height: 1.6;
+}
+
+.prediction-lines {
+    display: grid;
+    gap: 0.45rem;
+    margin-top: 0.8rem;
+}
+
+.prediction-line {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: baseline;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.42);
+}
+
+.prediction-name {
+    color: #93c5fd;
+    font-weight: 800;
+}
+
+.prediction-detail {
+    color: #e2e8f0;
+    overflow-wrap: anywhere;
+}
+
+.notification-details {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+    line-height: 1.55;
+}
+
+.notification-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 0.85rem;
+    font-size: 0.86rem;
+}
+
+.notification-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+}
+
+.notification-empty {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: rgba(226, 232, 240, 0.68);
+}
+
+.notification-pages {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    color: rgba(226, 232, 240, 0.72);
+}
+
+@media (max-width: 760px) {
+    .notification-item {
+        grid-template-columns: 1fr;
+    }
+
+    .notification-actions {
+        justify-content: flex-start;
+    }
+
+    .prediction-line {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+}
+</style>
 {% endblock %}
