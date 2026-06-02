@@ -5499,7 +5499,7 @@ class _PredictScreenState extends State<PredictScreen> {
         return Expanded(
           child: Container(
             margin: EdgeInsets.only(
-              bottom: 16,
+              bottom: 12,
               right: index < summaries.length - 1 ? 8 : 0,
               left: index > 0 ? 8 : 0,
             ),
@@ -5509,13 +5509,13 @@ class _PredictScreenState extends State<PredictScreen> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0xFFFFE1E6)),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x14000000),
-                  blurRadius: 14,
-                  offset: Offset(0, 6),
+                  blurRadius: 10,
+                  offset: Offset(0, 4),
                 ),
               ],
             ),
@@ -5523,12 +5523,12 @@ class _PredictScreenState extends State<PredictScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
                   child: Row(
                     children: [
                       Container(
-                        width: 28,
-                        height: 28,
+                        width: 26,
+                        height: 26,
                         decoration: BoxDecoration(
                           color: const Color(0xFFFFEEF2),
                           borderRadius: BorderRadius.circular(10),
@@ -5561,28 +5561,42 @@ class _PredictScreenState extends State<PredictScreen> {
                           color: const Color(0xFFB91C1C),
                           borderRadius: BorderRadius.circular(999),
                         ),
-                        child: Text(
-                          accuracyText,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              '特码命中率',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              accuracyText,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final columns = constraints.maxWidth >= 340 ? 4 : 2;
                       return GridView.count(
                         crossAxisCount: columns,
-                        mainAxisSpacing: 8,
-                        crossAxisSpacing: 8,
-                        childAspectRatio: columns == 4 ? 1.35 : 2.15,
+                        mainAxisSpacing: 6,
+                        crossAxisSpacing: 6,
+                        childAspectRatio: columns == 4 ? 1.6 : 2.5,
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
                         children: [
@@ -5632,10 +5646,10 @@ class _PredictScreenState extends State<PredictScreen> {
     Color backgroundColor,
   ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
       decoration: BoxDecoration(
         color: backgroundColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white),
       ),
       child: Column(
