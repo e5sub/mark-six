@@ -1287,52 +1287,57 @@ class _ZodiacNumbersScreenState extends State<ZodiacNumbersScreen> {
                       ),
                     ],
                   )
-                : GridView.builder(
-                    padding: const EdgeInsets.all(4),
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      mainAxisSpacing: 4,
-                      crossAxisSpacing: 4,
-                      childAspectRatio: 1.08,
-                    ),
-                    itemCount: _items.length,
-                    itemBuilder: (context, index) {
-                      final item = _items[index];
-                      final color = ballColor(item.number);
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final columns = constraints.maxWidth >= 600 ? 7 : 5;
+                      final compact = columns == 7;
+                      return GridView.builder(
+                        padding: const EdgeInsets.all(8),
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          mainAxisSpacing: compact ? 6 : 8,
+                          crossAxisSpacing: compact ? 6 : 8,
+                          childAspectRatio: compact ? 0.98 : 1.02,
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _Ball(
-                              number: item.number,
-                              color: color,
-                              size: 34,
-                              fontSize: 12,
+                        itemCount: _items.length,
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          final color = ballColor(item.number);
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.06),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              item.zodiac,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade700,
-                              ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _Ball(
+                                  number: item.number,
+                                  color: color,
+                                  size: compact ? 32 : 34,
+                                  fontSize: 12,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.zodiac,
+                                  style: TextStyle(
+                                    fontSize: compact ? 11 : 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          );
+                        },
                       );
                     },
                   ),
@@ -4003,6 +4008,7 @@ class _PredictScreenState extends State<PredictScreen> {
   bool _loading = false;
   String _aiText = '';
   Map<String, dynamic>? _result;
+  bool _predictionRequested = false;
   List<String> _normalZodiacs = [];
   String _specialZodiac = '';
   bool _loadingRecords = false;
@@ -4268,6 +4274,7 @@ class _PredictScreenState extends State<PredictScreen> {
     }
     setState(() {
       _loading = true;
+      _predictionRequested = true;
       _resetPrediction();
     });
 
@@ -4326,7 +4333,7 @@ class _PredictScreenState extends State<PredictScreen> {
       }, onError: (e) {
         if (!mounted) return;
         setState(() => _loading = false);
-        _showMessage('AI流式失败: $e');
+        _showMessage('AI预测服务暂时不可用，请稍后重试');
       }, onDone: () {
         if (!mounted) return;
         setState(() => _loading = false);
@@ -4956,6 +4963,12 @@ class _PredictScreenState extends State<PredictScreen> {
 
   Widget _buildAiMarkdownCard() {
     final markdownText = _aiMarkdownText;
+    if (!_predictionRequested &&
+        !_loading &&
+        _result == null &&
+        markdownText.isEmpty) {
+      return const SizedBox.shrink();
+    }
     if (markdownText.isEmpty) {
       return Card(
         child: Padding(
@@ -5068,6 +5081,7 @@ class _PredictScreenState extends State<PredictScreen> {
       final summaries = (res['region_summaries'] as List<dynamic>? ?? [])
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
+          .where((e) => (e['region']?.toString() ?? '') == _region)
           .toList();
       if (!mounted) return;
       setState(() => _regionSummaries = summaries);
@@ -5464,11 +5478,14 @@ class _PredictScreenState extends State<PredictScreen> {
   }
 
   Widget _buildSummaryCards() {
-    if (_regionSummaries.isEmpty) return const SizedBox.shrink();
+    final summaries = _regionSummaries
+        .where((card) => (card['region']?.toString() ?? '') == _region)
+        .toList();
+    if (summaries.isEmpty) return const SizedBox.shrink();
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: _regionSummaries.asMap().entries.map((entry) {
+      children: summaries.asMap().entries.map((entry) {
         final index = entry.key;
         final card = entry.value;
         final label = card['region_label']?.toString() ?? '';
@@ -5477,22 +5494,28 @@ class _PredictScreenState extends State<PredictScreen> {
         final maxHitStreak = (card['max_hit_streak'] as num?)?.toInt() ?? 0;
         final hitPeriods = (card['hit_periods'] as num?)?.toInt() ?? 0;
         final accuracy = (card['accuracy'] as num?)?.toDouble() ?? 0.0;
+        final accuracyText = '${accuracy.toStringAsFixed(1)}%';
 
         return Expanded(
           child: Container(
             margin: EdgeInsets.only(
               bottom: 16,
-              right: index < _regionSummaries.length - 1 ? 8 : 0,
+              right: index < summaries.length - 1 ? 8 : 0,
               left: index > 0 ? 8 : 0,
             ),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFFFBFB), Color(0xFFFFFFFF)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFFFE1E6)),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x14000000),
-                  blurRadius: 6,
-                  offset: Offset(0, 2),
+                  blurRadius: 14,
+                  offset: Offset(0, 6),
                 ),
               ],
             ),
@@ -5500,36 +5523,98 @@ class _PredictScreenState extends State<PredictScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(left: 12, right: 12, top: 12, bottom: 8),
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
                   child: Row(
                     children: [
-                      const Icon(Icons.trending_up, color: Color(0xFFB91C1C), size: 16),
-                      const SizedBox(width: 4),
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEEF2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.trending_up,
+                          color: Color(0xFFB91C1C),
+                          size: 17,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           '$label走势',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                            color: Color(0xFF111827),
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFB91C1C),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          accuracyText,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1, color: Color(0xFFF0F0F0)),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-                  child: Wrap(
-                    spacing: 4,
-                    runSpacing: 12,
-                    alignment: WrapAlignment.spaceEvenly,
-                    children: [
-                      SizedBox(width: 58, child: _buildSummaryStatItem('当前连错', missStreak.toString(), missStreak > 0 ? Colors.redAccent : const Color(0xFF2563EB))),
-                      SizedBox(width: 58, child: _buildSummaryStatItem('最高连错', maxMissStreak.toString(), Colors.redAccent)),
-                      SizedBox(width: 58, child: _buildSummaryStatItem('最高连中', maxHitStreak.toString(), const Color(0xFF2563EB))),
-                      SizedBox(width: 58, child: _buildSummaryStatItem('累计中特', hitPeriods.toString(), const Color(0xFF2D6CDF))),
-                      SizedBox(width: 58, child: _buildSummaryStatItem('特码命中率', '${accuracy}%', const Color(0xFF2D6CDF))),
-                    ],
+                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final columns = constraints.maxWidth >= 340 ? 4 : 2;
+                      return GridView.count(
+                        crossAxisCount: columns,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: columns == 4 ? 1.35 : 2.15,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: [
+                          _buildSummaryStatItem(
+                            '当前连错',
+                            missStreak.toString(),
+                            missStreak > 0
+                                ? const Color(0xFFE11D48)
+                                : const Color(0xFF2563EB),
+                            const Color(0xFFFFF1F2),
+                          ),
+                          _buildSummaryStatItem(
+                            '最高连错',
+                            maxMissStreak.toString(),
+                            const Color(0xFFE11D48),
+                            const Color(0xFFFFF1F2),
+                          ),
+                          _buildSummaryStatItem(
+                            '最高连中',
+                            maxHitStreak.toString(),
+                            const Color(0xFF2563EB),
+                            const Color(0xFFEFF6FF),
+                          ),
+                          _buildSummaryStatItem(
+                            '累计中特',
+                            hitPeriods.toString(),
+                            const Color(0xFF2563EB),
+                            const Color(0xFFEFF6FF),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ],
@@ -5540,13 +5625,45 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
-  Widget _buildSummaryStatItem(String label, String value, Color valueColor) {
-    return Column(
-      children: [
-        Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade600), maxLines: 1, overflow: TextOverflow.ellipsis),
-        const SizedBox(height: 4),
-        Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: valueColor), maxLines: 1, overflow: TextOverflow.ellipsis),
-      ],
+  Widget _buildSummaryStatItem(
+    String label,
+    String value,
+    Color valueColor,
+    Color backgroundColor,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Color(0xFF6B7280),
+              fontWeight: FontWeight.w600,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              color: valueColor,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
     );
   }
 
@@ -5825,16 +5942,8 @@ class _PredictScreenState extends State<PredictScreen> {
                                 ),
                               ),
                             )
-                          : Text(
-                              _strategyLabels[_strategy] ?? '',
-                              key: ValueKey(_strategy),
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                      ),
+                          : const SizedBox.shrink(),
+                    ),
                     if (!activationValid)
                       const Padding(
                         padding: EdgeInsets.only(top: 8),
@@ -5859,8 +5968,10 @@ class _PredictScreenState extends State<PredictScreen> {
             Expanded(
               child: ListView(
                 children: [
-                  _buildAiMarkdownCard(),
-                  const SizedBox(height: 16),
+                  if (_predictionRequested || _loading || _result != null) ...[
+                    _buildAiMarkdownCard(),
+                    const SizedBox(height: 16),
+                  ],
                   _buildSummaryCards(),
                   _buildPredictionRecordsSection(),
                 ],

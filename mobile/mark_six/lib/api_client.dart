@@ -207,23 +207,33 @@ class ApiClient {
     required String region,
     required String year,
   }) async* {
-    final response = await _dio.get<ResponseBody>(
-      '/api/predict',
-      queryParameters: {
-        'region': region,
-        'strategy': 'ai',
-        'year': year,
-        'stream': '1',
-      },
-      options: Options(
-        responseType: ResponseType.stream,
-        receiveTimeout: const Duration(minutes: 2),
-        headers: {
-          'Accept': 'text/event-stream',
-          'Cache-Control': 'no-cache',
+    late final Response<ResponseBody> response;
+    try {
+      response = await _dio.get<ResponseBody>(
+        '/api/predict',
+        queryParameters: {
+          'region': region,
+          'strategy': 'ai',
+          'year': year,
+          'stream': '1',
         },
-      ),
-    );
+        options: Options(
+          responseType: ResponseType.stream,
+          receiveTimeout: const Duration(minutes: 2),
+          validateStatus: (status) => status != null && status < 600,
+          headers: {
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+          },
+        ),
+      );
+    } on DioException catch (e) {
+      yield {'type': 'error', 'error': _formatDioError(e)};
+      return;
+    } catch (_) {
+      yield {'type': 'error', 'error': 'AI预测服务连接失败，请稍后重试'};
+      return;
+    }
 
     if (response.statusCode != 200) {
       final bytes = await response.data?.stream
@@ -233,11 +243,16 @@ class ApiClient {
       try {
         final data = jsonDecode(body);
         if (data is Map<String, dynamic>) {
-          yield {'type': 'error', 'error': data['message'] ?? data['error'] ?? body};
+          yield {
+            'type': 'error',
+            'error': data['message'] ??
+                data['error'] ??
+                _formatHttpError(response.statusCode),
+          };
           return;
         }
       } catch (_) {}
-      yield {'type': 'error', 'error': body.isEmpty ? 'AI预测失败' : body};
+      yield {'type': 'error', 'error': _formatHttpError(response.statusCode)};
       return;
     }
 
@@ -424,6 +439,39 @@ class ApiClient {
       return jsonDecode(data) as Map<String, dynamic>;
     }
     return <String, dynamic>{};
+  }
+
+  String _formatDioError(DioException error) {
+    final statusCode = error.response?.statusCode;
+    if (statusCode != null) {
+      return _formatHttpError(statusCode);
+    }
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'AI预测服务响应超时，请稍后重试';
+      case DioExceptionType.connectionError:
+        return 'AI预测服务连接失败，请检查网络后重试';
+      default:
+        return 'AI预测服务暂时不可用，请稍后重试';
+    }
+  }
+
+  String _formatHttpError(int? statusCode) {
+    if (statusCode == null) {
+      return 'AI预测服务暂时不可用，请稍后重试';
+    }
+    if (statusCode == 401 || statusCode == 403) {
+      return '登录状态或权限已失效，请重新登录后再试';
+    }
+    if (statusCode == 429) {
+      return 'AI预测请求过于频繁，请稍后再试';
+    }
+    if (statusCode >= 500) {
+      return 'AI预测服务暂时不可用（HTTP $statusCode），请稍后重试';
+    }
+    return 'AI预测请求失败（HTTP $statusCode），请稍后重试';
   }
 
   Stream<String> _splitByDoubleNewline(Stream<String> source) async* {
