@@ -2011,9 +2011,13 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     super.dispose();
   }
 
-  Future<void> _loadLatestDraw() async {
+  Future<void> _loadLatestDraw({
+    bool showLoading = true,
+    bool replacePeriod = false,
+  }) async {
     setState(() {
-      _loading = true;
+      if (showLoading) {
+      }
       _statusMessage = null;
       _pendingRecordId = null;
     });
@@ -2021,18 +2025,23 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     if (!mounted) return;
     if (draw == null) {
       setState(() {
-        _loading = false;
+        if (showLoading) {
+          _loading = false;
+        }
         _statusMessage = '获取最新开奖失败';
       });
       return;
     }
     final nextPeriod = _computeNextPeriod(draw.id);
     setState(() {
-      _loading = false;
+      if (showLoading) {
+        _loading = false;
+      }
       _latestDraw = draw;
       _nextPeriod = nextPeriod;
-      _periodController.text =
-          _periodController.text.trim().isEmpty ? nextPeriod : _periodController.text;
+      if (replacePeriod || _periodController.text.trim().isEmpty) {
+        _periodController.text = nextPeriod;
+      }
     });
   }
 
@@ -2538,7 +2547,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
             _periodController.clear();
             _clearPending();
           });
-          _loadLatestDraw();
+          _loadLatestDraw(showLoading: false, replacePeriod: true);
           _loadManualBets();
         },
         child: Container(
@@ -2571,6 +2580,38 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildOddsAndBettorRow(
+    TextEditingController oddsController,
+    String oddsLabel,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: oddsController,
+            onChanged: (_) => setState(_clearPending),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+              labelText: oddsLabel,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextField(
+            controller: _bettorController,
+            onChanged: (_) => setState(_clearPending),
+            decoration: const InputDecoration(
+              labelText: '下注人（选填）',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -2644,7 +2685,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       ),
                       const SizedBox(width: 12),
                       IconButton(
-                        onPressed: _loadLatestDraw,
+                        onPressed: () => _loadLatestDraw(),
                         icon: const Icon(Icons.refresh),
                       ),
                     ],
@@ -2660,15 +2701,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                         style: TextStyle(color: Colors.grey.shade600),
                       ),
                     ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _bettorController,
-                    onChanged: (_) => setState(_clearPending),
-                    decoration: const InputDecoration(
-                      labelText: '下注人（选填）',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
                   const SizedBox(height: 16),
                   const Text(
                     '下注类型',
@@ -2895,15 +2927,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                             })(),
                           ),
                         const SizedBox(height: 12),
-                        TextField(
-                          controller: _numberOddsController,
-                          onChanged: (_) => setState(_clearPending),
-                          keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
-                          decoration: const InputDecoration(
-                            labelText: '号码赔率',
-                            border: OutlineInputBorder(),
-                          ),
+                        _buildOddsAndBettorRow(
+                          _numberOddsController,
+                          '号码赔率',
                         ),
                       ],
                     ),
@@ -2920,15 +2946,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: _zodiacOddsController,
-                      onChanged: (_) => setState(_clearPending),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '生肖赔率',
-                        border: OutlineInputBorder(),
-                      ),
+                    _buildOddsAndBettorRow(
+                      _zodiacOddsController,
+                      '生肖赔率',
                     ),
                   ],
                   if (_betType == 'color') ...[
@@ -2943,15 +2963,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: _colorOddsController,
-                      onChanged: (_) => setState(_clearPending),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '波色赔率',
-                        border: OutlineInputBorder(),
-                      ),
+                    _buildOddsAndBettorRow(
+                      _colorOddsController,
+                      '波色赔率',
                     ),
                   ],
                   if (_betType == 'parity') ...[
@@ -2966,15 +2980,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: _parityOddsController,
-                      onChanged: (_) => setState(_clearPending),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '单双赔率',
-                        border: OutlineInputBorder(),
-                      ),
+                    _buildOddsAndBettorRow(
+                      _parityOddsController,
+                      '单双赔率',
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -3286,8 +3294,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
     super.dispose();
   }
 
-  Future<void> _fetch() async {
-    setState(() => _loading = true);
+  Future<void> _fetch({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() => _loading = true);
+    }
     try {
       final year = _yearController.text.trim().isEmpty
           ? DateTime.now().year.toString()
@@ -3303,7 +3313,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
     } catch (_) {
       _showMessage('获取开奖数据失败');
     } finally {
-      if (mounted) {
+      if (mounted && showLoading) {
         setState(() => _loading = false);
       }
     }
@@ -3465,39 +3475,90 @@ class _RecordsScreenState extends State<RecordsScreen> {
 
   Widget _buildHeaderRegionButton(String value, String label) {
     final selected = _region == value;
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: () {
-        if (_region == value) return;
-        setState(() => _region = value);
-        _fetch();
-        _fetchNextDrawTime();
-      },
-      child: Container(
-        height: 34,
-        width: 62,
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFF991B1B) : Colors.white,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: Colors.white),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (selected) ...[
-              const Icon(Icons.check, size: 15, color: Colors.white),
-              const SizedBox(width: 3),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.white : const Color(0xFF991B1B),
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-              ),
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          if (_region == value) return;
+          setState(() => _region = value);
+          _fetch(showLoading: false);
+          _fetchNextDrawTime();
+        },
+        child: Container(
+          height: 48,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFFB91C1C) : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? const Color(0xFFB91C1C) : Colors.grey.shade300,
+              width: selected ? 1.5 : 1,
             ),
-          ],
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0F000000),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (selected) ...[
+                const Icon(Icons.check, size: 18, color: Colors.white),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : const Color(0xFF1F2937),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  String _nextDrawHintText() {
+    if (_region == 'macau') {
+      return '下期开奖时间：${_formatDateTime(_nextMacauDrawTime())}';
+    }
+    if (_nextDrawLoading) {
+      return '下期开奖时间：加载中...';
+    }
+    if (_nextDrawTime != null && _nextDrawTime!.isNotEmpty) {
+      return '下期开奖时间：$_nextDrawTime';
+    }
+    return '下期开奖时间：${_formatDateTime(_nextHkDrawTime())}';
+  }
+
+  Widget _buildRegionSelector() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '地区',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildHeaderRegionButton('hk', '香港'),
+              const SizedBox(width: 10),
+              _buildHeaderRegionButton('macau', '澳门'),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -3644,66 +3705,27 @@ class _RecordsScreenState extends State<RecordsScreen> {
       appBar: AppBar(title: const Text('开奖记录')),
       body: Column(
         children: [
-          Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFB91C1C), Color(0xFFE11D48)],
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x22000000),
-                  blurRadius: 12,
-                  offset: Offset(0, 6),
-                )
-              ],
-            ),
+          _buildRegionSelector(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
             child: Row(
               children: [
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      _region == 'macau'
-                          ? '下期时间: ${_formatDateTime(_nextMacauDrawTime())}'
-                          : _nextDrawLoading
-                              ? '下期时间: 加载中...'
-                              : _nextDrawTime != null && _nextDrawTime!.isNotEmpty
-                                  ? '下期时间: $_nextDrawTime'
-                                  : '下期时间: ${_formatDateTime(_nextHkDrawTime())}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.left,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
+                const Icon(
+                  Icons.schedule,
+                  size: 14,
+                  color: Color(0xFF6B7280),
                 ),
-                Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x22000000),
-                        blurRadius: 10,
-                        offset: Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildHeaderRegionButton('hk', '香港'),
-                      const SizedBox(width: 3),
-                      _buildHeaderRegionButton('macau', '澳门'),
-                    ],
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    _nextDrawHintText(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
