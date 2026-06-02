@@ -841,6 +841,30 @@
             background: rgba(51, 65, 85, 0.96);
         }
 
+        .mobile-menu-button {
+            position: fixed;
+            top: 14px;
+            left: 14px;
+            z-index: 1300;
+            width: 42px;
+            height: 42px;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 14px;
+            background: rgba(15, 23, 42, 0.88);
+            color: #f8fafc;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 12px 30px rgba(2, 6, 23, 0.28);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            cursor: pointer;
+        }
+
+        .mobile-menu-button i {
+            font-size: 1.05rem;
+        }
+
         .sidebar-nav {
             padding: 1rem 0;
             display: flex;
@@ -912,6 +936,14 @@
         @media (max-width: 768px) {
             body.has-sidebar {
                 padding-left: 0;
+            }
+
+            body.has-sidebar .mobile-menu-button {
+                display: inline-flex;
+            }
+
+            body.has-sidebar .main-container {
+                padding-top: 64px;
             }
 
             .sidebar {
@@ -1204,6 +1236,9 @@
 
     <!-- 用户侧边栏 -->
     {% if session.get('user_id') %}
+    <button class="mobile-menu-button" type="button" id="mobileMenuButton" aria-label="打开菜单">
+        <i class="fas fa-bars"></i>
+    </button>
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
@@ -1598,11 +1633,17 @@
     <script>
         const sidebar = document.getElementById('sidebar');
         const sidebarToggle = document.getElementById('sidebarToggle');
+        const mobileMenuButton = document.getElementById('mobileMenuButton');
         const sidebarBackdrop = document.getElementById('sidebarBackdrop');
 
         function closeSidebarOnMobile() {
             sidebar.classList.remove('show');
             sidebarBackdrop.classList.remove('show');
+        }
+
+        function openSidebarOnMobile() {
+            sidebar.classList.add('show');
+            sidebarBackdrop.classList.add('show');
         }
 
         if (sidebarToggle) {
@@ -1614,6 +1655,10 @@
                     document.body.classList.toggle('sidebar-collapsed');
                 }
             });
+        }
+
+        if (mobileMenuButton) {
+            mobileMenuButton.addEventListener('click', openSidebarOnMobile);
         }
 
         if (sidebarBackdrop) {

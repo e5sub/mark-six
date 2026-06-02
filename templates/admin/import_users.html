@@ -155,6 +155,50 @@
             color: #721c24;
             border: 1px solid rgba(220, 53, 69, 0.3);
         }
+
+        @media (max-width: 768px) {
+            .navbar {
+                padding: 10px 0;
+            }
+
+            .navbar-content {
+                justify-content: flex-start;
+                gap: 10px;
+                overflow-x: auto;
+                padding: 0 12px 4px;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+
+            .navbar-content::-webkit-scrollbar {
+                display: none;
+            }
+
+            .nav-link {
+                flex: 0 0 auto;
+                padding: 8px 12px;
+                font-size: 0.9rem;
+                white-space: nowrap;
+            }
+
+            .container {
+                padding: 18px 12px;
+            }
+
+            .glass-card {
+                padding: 18px;
+            }
+
+            .page-header h1 {
+                font-size: 1.8rem;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+                margin: 0 0 10px;
+            }
+        }
     </style>
 </head>
 <body>

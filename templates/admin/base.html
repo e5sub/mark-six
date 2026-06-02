@@ -111,6 +111,41 @@
             width: 20px;
             text-align: center;
         }
+
+        .mobile-menu-button {
+            position: fixed;
+            top: 14px;
+            left: 14px;
+            z-index: 1300;
+            width: 42px;
+            height: 42px;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 14px;
+            background: rgba(15, 23, 42, 0.9);
+            color: #f8fafc;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 12px 30px rgba(2, 6, 23, 0.28);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            cursor: pointer;
+        }
+
+        .sidebar-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.42);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            z-index: 900;
+        }
+
+        .sidebar-backdrop.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
         
         .main-content {
             margin-left: 260px;
@@ -584,6 +619,14 @@
         }
         
         @media (max-width: 768px) {
+            body {
+                display: block;
+            }
+
+            .mobile-menu-button {
+                display: inline-flex;
+            }
+
             .sidebar {
                 transform: translateX(-100%);
                 transition: transform 0.3s ease;
@@ -596,7 +639,7 @@
             .main-content {
                 margin-left: 0;
                 width: 100%;
-                padding: 1rem;
+                padding: 4.75rem 1rem 1rem;
             }
             
             .top-bar {
@@ -613,6 +656,8 @@
 </head>
 <body>
     <div class="github-watermark" aria-hidden="true"></div>
+    <button class="mobile-menu-button" type="button" id="mobileMenuButton" aria-label="打开菜单">☰</button>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
     <div class="sidebar">
         <div class="sidebar-header">
             <a href="{{ url_for('admin.dashboard') }}" class="sidebar-brand">{{ system_name or '管理后台' }}</a>
@@ -723,6 +768,28 @@
             }
         `;
         document.head.appendChild(style);
+
+        const sidebar = document.querySelector('.sidebar');
+        const mobileMenuButton = document.getElementById('mobileMenuButton');
+        const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+
+        function openMobileSidebar() {
+            sidebar?.classList.add('show');
+            sidebarBackdrop?.classList.add('show');
+        }
+
+        function closeMobileSidebar() {
+            sidebar?.classList.remove('show');
+            sidebarBackdrop?.classList.remove('show');
+        }
+
+        mobileMenuButton?.addEventListener('click', openMobileSidebar);
+        sidebarBackdrop?.addEventListener('click', closeMobileSidebar);
+        document.querySelectorAll('.sidebar-nav a').forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth <= 768) closeMobileSidebar();
+            });
+        });
     </script>
 </body>
 </html>
