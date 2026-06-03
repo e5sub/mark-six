@@ -2539,8 +2539,13 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     );
   }
 
+  Color _regionColor(String value) {
+    return value == 'macau' ? const Color(0xFF2563EB) : const Color(0xFFB91C1C);
+  }
+
   Widget _buildRegionButton(String value, String label) {
     final selected = _region == value;
+    final color = _regionColor(value);
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -2560,29 +2565,76 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
           height: 48,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFFB91C1C) : Colors.white,
+            color: selected ? color : color.withOpacity(0.10),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: selected ? const Color(0xFFB91C1C) : Colors.grey.shade300,
+              color: selected ? color : color.withOpacity(0.35),
               width: selected ? 1.5 : 1,
             ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (selected) ...[
-                const Icon(Icons.check, size: 18, color: Colors.white),
-                const SizedBox(width: 6),
-              ],
               Text(
                 label,
                 style: TextStyle(
-                  color: selected ? Colors.white : const Color(0xFF1F2937),
+                  color: selected ? Colors.white : color,
                   fontWeight: FontWeight.w800,
                   fontSize: 16,
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _betTypeColor(String value) {
+    switch (value) {
+      case 'zodiac':
+        return const Color(0xFF7C3AED);
+      case 'color':
+        return const Color(0xFF0EA5E9);
+      case 'parity':
+        return const Color(0xFF16A34A);
+      case 'number':
+      default:
+        return const Color(0xFFB91C1C);
+    }
+  }
+
+  Widget _buildBetTypeButton(String value, String label) {
+    final selected = _betType == value;
+    final color = _betTypeColor(value);
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          if (_betType == value) return;
+          setState(() {
+            _betType = value;
+            _clearPending();
+          });
+        },
+        child: Container(
+          height: 46,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? color : color.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? color : color.withOpacity(0.35),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : color,
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+            ),
           ),
         ),
       ),
@@ -2705,20 +2757,16 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'number', label: Text('号码')),
-                      ButtonSegment(value: 'zodiac', label: Text('生肖')),
-                      ButtonSegment(value: 'color', label: Text('波色')),
-                      ButtonSegment(value: 'parity', label: Text('单双')),
+                  Row(
+                    children: [
+                      _buildBetTypeButton('number', '号码'),
+                      const SizedBox(width: 8),
+                      _buildBetTypeButton('zodiac', '生肖'),
+                      const SizedBox(width: 8),
+                      _buildBetTypeButton('color', '波色'),
+                      const SizedBox(width: 8),
+                      _buildBetTypeButton('parity', '单双'),
                     ],
-                    selected: {_betType},
-                    onSelectionChanged: (value) {
-                      setState(() {
-                        _betType = value.first;
-                        _clearPending();
-                      });
-                    },
                   ),
                   if (_betType == 'number') ...[
                     const SizedBox(height: 16),
@@ -3502,6 +3550,9 @@ class _RecordsScreenState extends State<RecordsScreen> {
 
   Widget _buildHeaderRegionButton(String value, String label) {
     final selected = _region == value;
+    final color = value == 'macau'
+        ? const Color(0xFF2563EB)
+        : const Color(0xFFB91C1C);
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -3515,10 +3566,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
           height: 48,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFFB91C1C) : Colors.white,
+            color: selected ? color : color.withOpacity(0.10),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: selected ? const Color(0xFFB91C1C) : Colors.grey.shade300,
+              color: selected ? color : color.withOpacity(0.35),
               width: selected ? 1.5 : 1,
             ),
             boxShadow: const [
@@ -3532,14 +3583,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (selected) ...[
-                const Icon(Icons.check, size: 18, color: Colors.white),
-                const SizedBox(width: 6),
-              ],
               Text(
                 label,
                 style: TextStyle(
-                  color: selected ? Colors.white : const Color(0xFF1F2937),
+                  color: selected ? Colors.white : color,
                   fontWeight: FontWeight.w800,
                   fontSize: 16,
                 ),
@@ -4209,10 +4256,53 @@ class _PredictScreenState extends State<PredictScreen> {
                     ),
                   ),
                 ),
-                if (selected)
-                  const Icon(Icons.check_circle, size: 14, color: Colors.white),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPredictionRegionButton(String value, String label) {
+    final selected = _region == value;
+    final color = value == 'macau'
+        ? const Color(0xFF2563EB)
+        : const Color(0xFFB91C1C);
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          if (_region == value) return;
+          setState(() {
+            _region = value;
+            _resetPrediction();
+          });
+          _loadPredictionRecords();
+        },
+        child: Container(
+          height: 48,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? color : color.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? color : color.withOpacity(0.35),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -5931,22 +6021,9 @@ class _PredictScreenState extends State<PredictScreen> {
                   children: [
                     Row(
                       children: [
-                        Expanded(
-                          child: SegmentedButton<String>(
-                            segments: const [
-                              ButtonSegment(value: 'hk', label: Text('香港')),
-                              ButtonSegment(value: 'macau', label: Text('澳门')),
-                            ],
-                            selected: {_region},
-                            onSelectionChanged: (value) {
-                              setState(() {
-                                _region = value.first;
-                                _resetPrediction();
-                              });
-                              _loadPredictionRecords();
-                            },
-                          ),
-                        ),
+                        _buildPredictionRegionButton('hk', '香港'),
+                        const SizedBox(width: 8),
+                        _buildPredictionRegionButton('macau', '澳门'),
                       ],
                     ),
                     const SizedBox(height: 12),
