@@ -228,8 +228,10 @@
 .notification-html-content .notice-number-row {
     display: flex !important;
     align-items: flex-start;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.2rem;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .notification-html-content .notice-ball-wrap {
@@ -269,6 +271,12 @@
 
 .notification-html-content .notice-ball-color-label {
     color: #cbd5e1 !important;
+    -webkit-text-fill-color: #cbd5e1 !important;
+}
+
+.notification-html-content .notice-ball-label {
+    color: #cbd5e1 !important;
+    -webkit-text-fill-color: #cbd5e1 !important;
 }
 
 .notification-html-content .notice-prediction-card > div[style*="display:block"],

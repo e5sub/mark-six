@@ -1479,19 +1479,19 @@ def _prediction_notice_ball_html(number, zodiac=None, label=None, large=False):
     ball_class = f"notice-ball notice-ball-{color or 'unknown'}"
     if large:
         ball_class += " notice-ball-large"
-    size = 52 if large else 44
-    number_size = 18 if large else 16
+    size = 46 if large else 40
+    number_size = 17 if large else 15
     label_html = (
-        f'<div style="font-size:11px;line-height:1;color:#94a3b8;margin-top:4px;text-align:center;">{escape(label)}</div>'
+        f'<div class="notice-ball-label" style="font-size:11px;line-height:1;color:#64748b;-webkit-text-fill-color:#64748b;margin-top:4px;text-align:center;">{escape(label)}</div>'
         if label else ''
     )
     return f'''
-    <span class="notice-ball-wrap" style="display:inline-block;vertical-align:top;margin:4px 5px 8px 0;text-align:center;">
-        <span class="{ball_class}" style="display:inline-block;width:{size}px;height:{size}px;border-radius:50%;background:{palette[0]};background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);font-weight:800;text-align:center;overflow:hidden;">
-            <span class="notice-ball-number" style="display:block;font-size:{number_size}px;line-height:1;margin-top:{10 if large else 8}px;">{escape(number_text)}</span>
-            <span class="notice-ball-zodiac" style="display:block;font-size:10px;line-height:1.15;margin-top:3px;">{escape(zodiac_text)}</span>
+    <span class="notice-ball-wrap" style="display:inline-block;vertical-align:top;margin:4px 3px 8px 0;text-align:center;white-space:normal;">
+        <span class="{ball_class}" style="display:inline-block;width:{size}px;height:{size}px;border-radius:50%;background:{palette[0]};background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;-webkit-text-fill-color:#fff;box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);font-weight:800;text-align:center;overflow:hidden;">
+            <span class="notice-ball-number" style="display:block;font-size:{number_size}px;line-height:1;margin-top:{8 if large else 7}px;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 1px 2px rgba(15,23,42,.35);">{escape(number_text)}</span>
+            <span class="notice-ball-zodiac" style="display:block;font-size:10px;line-height:1.15;margin-top:3px;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 1px 2px rgba(15,23,42,.35);">{escape(zodiac_text)}</span>
         </span>
-        <span class="notice-ball-color-label" style="display:block;font-size:10px;line-height:1;color:#64748b;margin-top:3px;">{escape(color_label)}</span>
+        <span class="notice-ball-color-label" style="display:block;font-size:10px;line-height:1;color:#475569;-webkit-text-fill-color:#475569;margin-top:3px;">{escape(color_label)}</span>
         {label_html}
     </span>
     '''
@@ -1562,7 +1562,7 @@ def _prediction_notice_card_html(title, normal_numbers, special_number, special_
     return f'''
     <div class="notice-prediction-card" style="padding:14px 0;border-bottom:1px solid rgba(148,163,184,.18);">
         <div class="notice-card-title" style="font-weight:800;color:{accent};font-size:15px;margin-bottom:8px;">{escape(title)}</div>
-        <div class="notice-number-row" style="display:block;">
+        <div class="notice-number-row" style="display:block;white-space:nowrap;overflow-x:auto;overflow-y:hidden;">
             {normal_html or '<span style="color:#94a3b8;">暂无平码</span>'}
             {special_html or '<span style="color:#94a3b8;">暂无特码</span>'}
         </div>
@@ -1570,16 +1570,74 @@ def _prediction_notice_card_html(title, normal_numbers, special_number, special_
     '''
 
 
+def _prediction_notice_email_style():
+    return '''
+    <style>
+    :root {
+        color-scheme: light dark;
+        supported-color-schemes: light dark;
+    }
+    .prediction-summary-notice,
+    .prediction-summary-notice * {
+        box-sizing: border-box;
+    }
+    .prediction-summary-notice .notice-email-panel {
+        background: #ffffff !important;
+        color: #334155 !important;
+    }
+    .prediction-summary-notice .notice-ball,
+    .prediction-summary-notice .notice-ball-number,
+    .prediction-summary-notice .notice-ball-zodiac {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+    }
+    .prediction-summary-notice .notice-ball-red {
+        background: #ef4444 !important;
+        background-image: linear-gradient(145deg, #ef4444, #991b1b) !important;
+    }
+    .prediction-summary-notice .notice-ball-blue {
+        background: #3b82f6 !important;
+        background-image: linear-gradient(145deg, #3b82f6, #1d4ed8) !important;
+    }
+    .prediction-summary-notice .notice-ball-green {
+        background: #22c55e !important;
+        background-image: linear-gradient(145deg, #22c55e, #166534) !important;
+    }
+    .prediction-summary-notice .notice-ball-color-label,
+    .prediction-summary-notice .notice-ball-label {
+        color: #475569 !important;
+        -webkit-text-fill-color: #475569 !important;
+    }
+    @media (prefers-color-scheme: dark) {
+        .prediction-summary-notice .notice-email-panel {
+            background: #0f172a !important;
+            color: #e2e8f0 !important;
+        }
+        .prediction-summary-notice p {
+            color: #cbd5e1 !important;
+            -webkit-text-fill-color: #cbd5e1 !important;
+        }
+        .prediction-summary-notice .notice-ball-color-label,
+        .prediction-summary-notice .notice-ball-label {
+            color: #cbd5e1 !important;
+            -webkit-text-fill-color: #cbd5e1 !important;
+        }
+    }
+    </style>
+    '''
+
+
 def _prediction_notice_wrapper_html(title, intro, body_html, footer_note='', tone='blue'):
     accent = '#2563eb' if tone == 'blue' else '#16a34a'
     return f'''
-    <div class="prediction-summary-notice" style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.55;color:#e2e8f0;">
+    {_prediction_notice_email_style()}
+    <div class="prediction-summary-notice" style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.55;color:#e2e8f0;color-scheme:light dark;supported-color-schemes:light dark;">
         <div style="background:#0f172a;border:1px solid rgba(148,163,184,.22);border-radius:8px;overflow:hidden;">
             <div style="background:{accent};color:#fff;padding:16px 18px;">
                 <div style="font-size:18px;font-weight:800;">{escape(title)}</div>
                 <div style="font-size:13px;opacity:.9;margin-top:3px;">{escape(intro)}</div>
             </div>
-            <div style="padding:16px 18px;background:#ffffff;color:#334155;">
+            <div class="notice-email-panel" style="padding:16px 18px;background:#ffffff;color:#334155;">
                 {body_html}
                 {f'<div style="font-size:12px;color:#94a3b8;margin-top:12px;">{escape(footer_note)}</div>' if footer_note else ''}
             </div>
@@ -13476,7 +13534,7 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
         latest_draw_html = f'''
         <div style="background-color: #eff6ff; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #2563eb;">
             <h3 style="margin-top: 0; color: #0d47a1; font-size: 16px; margin-bottom: 8px;">上期 ({draw_period}期) 开奖结果</h3>
-            <div class="notice-number-row" style="display:block;">{latest_normal_html}{latest_special_html}</div>
+            <div class="notice-number-row" style="display:block;white-space:nowrap;overflow-x:auto;overflow-y:hidden;">{latest_normal_html}{latest_special_html}</div>
         </div>
         '''
 
@@ -13544,7 +13602,7 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
         draw_html = f'''
         <div style="background-color: #fefce8; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #facc15;">
             <h3 style="margin-top: 0; color: #f57f17; font-size: 16px; margin-bottom: 8px;">第 {period} 期 完整开奖结果</h3>
-            <div class="notice-number-row" style="display:block;">{draw_normal_html}{draw_special_html}</div>
+            <div class="notice-number-row" style="display:block;white-space:nowrap;overflow-x:auto;overflow-y:hidden;">{draw_normal_html}{draw_special_html}</div>
         </div>
         '''
 
