@@ -42,9 +42,11 @@ def _notification_event_label(event_type):
 
 
 def _format_notification_item(item):
+    raw_content = str(item.content or '')
+    is_html_content = '<div' in raw_content and 'prediction-summary-notice' in raw_content
     lines = [
         str(line or '').strip()
-        for line in (item.content or '').splitlines()
+        for line in raw_content.splitlines()
         if str(line or '').strip()
     ]
     summary = ''
@@ -77,6 +79,11 @@ def _format_notification_item(item):
     title = re.sub(r'\s*[-－—|｜]\s*', ' ', title)
     title = re.sub(r'\s+', ' ', title).strip(' -－—|｜')
 
+    if is_html_content:
+        summary = ''
+        detail_lines = []
+        prediction_lines = []
+
     return {
         'item': item,
         'title': title or item.title,
@@ -84,6 +91,7 @@ def _format_notification_item(item):
         'summary': summary,
         'details': detail_lines,
         'predictions': prediction_lines,
+        'html_content': raw_content if is_html_content else '',
     }
 
 

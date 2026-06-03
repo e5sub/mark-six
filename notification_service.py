@@ -241,7 +241,7 @@ def _send_bark(title, content, link_url=None, config=None):
     return True
 
 
-def create_station_notification(user, title, content, event_type='general', link_url=None, commit=True):
+def create_station_notification(user, title, content, event_type='general', link_url=None, commit=True, preserve_html=False):
     if not user or not getattr(user, 'id', None):
         return None
 
@@ -251,7 +251,7 @@ def create_station_notification(user, title, content, event_type='general', link
         user_id=user.id,
         event_type=event_type,
         title=title,
-        content=_plain_text(content),
+        content=str(content or '') if preserve_html else _plain_text(content),
         link_url=link_url or '',
     )
     db.session.add(record)
@@ -267,7 +267,19 @@ def notify_user(user, title, content, html_content=None, event_type='general', l
 
     if user_config.get('station_enabled', True):
         try:
-            create_station_notification(user, title, content, event_type, link_url)
+            station_uses_html = (
+                bool(html_content)
+                and event_type in {'prediction_generated', 'winning'}
+                and 'prediction-summary-notice' in str(html_content)
+            )
+            create_station_notification(
+                user,
+                title,
+                html_content if station_uses_html else content,
+                event_type,
+                link_url,
+                preserve_html=station_uses_html,
+            )
             results['station'] = True
         except Exception as exc:
             db.session.rollback()

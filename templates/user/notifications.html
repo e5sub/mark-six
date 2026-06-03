@@ -31,7 +31,11 @@
                     <div class="notification-summary">{{ card.summary }}</div>
                     {% endif %}
 
-                    {% if card.predictions %}
+                    {% if card.html_content %}
+                    <div class="notification-html-content">
+                        {{ card.html_content|safe }}
+                    </div>
+                    {% elif card.predictions %}
                     <div class="prediction-lines">
                         {% for prediction in card.predictions %}
                         <div class="prediction-line">
@@ -211,6 +215,10 @@
     gap: 0.35rem;
     margin-top: 0.75rem;
     line-height: 1.55;
+}
+
+.notification-html-content {
+    margin-top: 0.85rem;
 }
 
 .notification-meta {

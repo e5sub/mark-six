@@ -17,6 +17,7 @@ import re
 from urllib.parse import quote_plus, urlparse
 from datetime import datetime, timedelta
 import time
+from markupsafe import escape
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.engine import make_url
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -1453,6 +1454,115 @@ def _ensure_period_unique_special(
 
 def _get_email_strategy_display(prediction):
     return _get_strategy_label(prediction.strategy)
+
+
+def _prediction_notice_ball_html(number, zodiac=None, label=None, large=False):
+    number_text = str(number or '').strip()
+    if not number_text:
+        return ''
+    color = _get_hk_number_color(number_text)
+    zodiac_text = str(zodiac or _prediction_notice_zodiac(number_text) or '').strip()
+    color_label = COLOR_MAP_EN_TO_ZH.get(color, '')
+    palette = {
+        'red': ('#ef4444', '#991b1b'),
+        'green': ('#22c55e', '#166534'),
+        'blue': ('#3b82f6', '#1d4ed8'),
+    }.get(color, ('#64748b', '#334155'))
+    size = 52 if large else 44
+    number_size = 18 if large else 16
+    label_html = (
+        f'<div style="font-size:11px;line-height:1;color:#94a3b8;margin-top:4px;text-align:center;">{escape(label)}</div>'
+        if label else ''
+    )
+    return f'''
+    <span style="display:inline-block;vertical-align:top;margin:4px 5px 8px 0;text-align:center;">
+        <span style="display:inline-flex;align-items:center;justify-content:center;flex-direction:column;width:{size}px;height:{size}px;border-radius:50%;background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);font-weight:800;">
+            <span style="font-size:{number_size}px;line-height:1;">{escape(number_text)}</span>
+            <span style="font-size:10px;line-height:1.15;margin-top:3px;">{escape(zodiac_text)}</span>
+        </span>
+        <span style="display:block;font-size:10px;line-height:1;color:#64748b;margin-top:3px;">{escape(color_label)}</span>
+        {label_html}
+    </span>
+    '''
+
+
+def _prediction_notice_zodiac(number):
+    try:
+        zodiac_year = datetime.now().year
+        mapping = _get_number_to_zodiac_map(zodiac_year) or {}
+        return mapping.get(str(number), '')
+    except Exception:
+        return ''
+
+
+def _prediction_notice_numbers(numbers):
+    if numbers is None:
+        return []
+    if isinstance(numbers, str):
+        raw_items = re.split(r'[,，\s]+', numbers.strip())
+    else:
+        raw_items = list(numbers or [])
+    normalized = []
+    for item in raw_items:
+        text = str(item or '').strip()
+        if not text:
+            continue
+        try:
+            number = int(text)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= 49:
+            normalized.append(str(number))
+    return normalized
+
+
+def _prediction_notice_balls_html(numbers, special_number=None, special_zodiac=None):
+    normal_html = ''.join(
+        _prediction_notice_ball_html(number)
+        for number in _prediction_notice_numbers(numbers)
+    )
+    special_html = _prediction_notice_ball_html(
+        special_number,
+        zodiac=special_zodiac,
+        label='特码',
+        large=True,
+    )
+    return normal_html, special_html
+
+
+def _prediction_notice_card_html(title, normal_numbers, special_number, special_zodiac=None, accent='#93c5fd'):
+    normal_html, special_html = _prediction_notice_balls_html(normal_numbers, special_number, special_zodiac)
+    return f'''
+    <div style="padding:14px 0;border-bottom:1px solid rgba(148,163,184,.18);">
+        <div style="font-weight:800;color:{accent};font-size:15px;margin-bottom:8px;">{escape(title)}</div>
+        <div style="display:block;margin-bottom:8px;">
+            <div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:4px;">平码</div>
+            <div>{normal_html or '<span style="color:#94a3b8;">暂无</span>'}</div>
+        </div>
+        <div style="display:block;">
+            <div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:4px;">特码</div>
+            <div>{special_html or '<span style="color:#94a3b8;">暂无</span>'}</div>
+        </div>
+    </div>
+    '''
+
+
+def _prediction_notice_wrapper_html(title, intro, body_html, footer_note='', tone='blue'):
+    accent = '#2563eb' if tone == 'blue' else '#16a34a'
+    return f'''
+    <div class="prediction-summary-notice" style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.55;color:#e2e8f0;">
+        <div style="background:#0f172a;border:1px solid rgba(148,163,184,.22);border-radius:8px;overflow:hidden;">
+            <div style="background:{accent};color:#fff;padding:16px 18px;">
+                <div style="font-size:18px;font-weight:800;">{escape(title)}</div>
+                <div style="font-size:13px;opacity:.9;margin-top:3px;">{escape(intro)}</div>
+            </div>
+            <div style="padding:16px 18px;background:#ffffff;color:#334155;">
+                {body_html}
+                {f'<div style="font-size:12px;color:#94a3b8;margin-top:12px;">{escape(footer_note)}</div>' if footer_note else ''}
+            </div>
+        </div>
+    </div>
+    '''
 
 LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]
 _draws_api_cache_lock = threading.Lock()
@@ -13305,34 +13415,37 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
     region_name = '香港' if region == 'hk' else '澳门'
     subject = f"{site_name} - {region_name}六合彩第{period}期预测汇总已生成"
     
-    rows_html = ""
+    cards_html = ""
     text_rows = []
     for pred in predictions:
         strategy_name = _get_email_strategy_display(pred)
         text_rows.append(
             f"{strategy_name}: 平码 {pred.normal_numbers}; 特码 {pred.special_number} ({pred.special_zodiac})"
         )
-        rows_html += f"""
-        <tr>
-            <td style="padding: 12px; border-bottom: 1px solid #eee;"><strong>{strategy_name}</strong></td>
-            <td style="padding: 12px; border-bottom: 1px solid #eee; color: #555; word-break: break-all;">{pred.normal_numbers}</td>
-            <td style="padding: 12px; border-bottom: 1px solid #eee; color: #e53935; font-weight: bold; text-align: center;">{pred.special_number} <br><span style="font-size: 12px; color: #888;">({pred.special_zodiac})</span></td>
-        </tr>
-        """
+        cards_html += _prediction_notice_card_html(
+            strategy_name,
+            pred.normal_numbers,
+            pred.special_number,
+            pred.special_zodiac,
+        )
         
     latest_draw_html = ""
     if latest_draw:
         draw_period = latest_draw.get('id', '')
-        normal_nums = ', '.join(latest_draw.get('no', []))
         special_num = latest_draw.get('sno', '')
         special_zodiac = latest_draw.get('sno_zodiac', '')
+        latest_normal_html, latest_special_html = _prediction_notice_balls_html(
+            latest_draw.get('no', []),
+            special_num,
+            special_zodiac,
+        )
         latest_draw_html = f'''
-        <div style="background-color: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
+        <div style="background-color: #eff6ff; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #2563eb;">
             <h3 style="margin-top: 0; color: #0d47a1; font-size: 16px; margin-bottom: 8px;">上期 ({draw_period}期) 开奖结果</h3>
-            <p style="margin: 0; font-size: 14px; color: #555;">
-                <strong>平码：</strong>{normal_nums} <br>
-                <strong style="display: inline-block; margin-top: 5px;">特码：</strong><span style="color: #e53935; font-weight: bold; font-size: 16px;">{special_num}</span> ({special_zodiac})
-            </p>
+            <div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:4px;">平码</div>
+            <div>{latest_normal_html}</div>
+            <div style="font-size:12px;color:#64748b;font-weight:700;margin:6px 0 4px;">特码</div>
+            <div>{latest_special_html}</div>
         </div>
         '''
 
@@ -13342,46 +13455,18 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
         + "\n".join(text_rows)
     )
 
-    html_content = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; padding: 20px;">
-        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            <div style="background: linear-gradient(135deg, #1e88e5 0%, #1565c0 100%); color: white; padding: 20px; text-align: center;">
-                <h2 style="margin: 0; font-size: 20px;">第 {period} 期 预测汇总</h2>
-                <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">{region_name}六合彩最新推荐</p>
-            </div>
-            <div style="padding: 25px;">
-                <p style="font-size: 16px;">尊敬的 <strong>{user.username}</strong>：</p>
-                {latest_draw_html}
-                <p style="color: #666;">系统已为您自动生成了本期的最新预测，以下是您开启的各策略推荐号码：</p>
-                
-                <table style="width: 100%; border-collapse: collapse; margin-top: 20px; border-radius: 8px; overflow: hidden;">
-                    <thead>
-                        <tr style="background-color: #f8f9fa; text-align: left;">
-                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef;">策略</th>
-                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef;">平码推荐</th>
-                            <th style="padding: 12px; border-bottom: 2px solid #e9ecef; text-align: center;">特码推荐</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows_html}
-                    </tbody>
-                </table>
-                
-                <div style="margin-top: 30px; text-align: center;">
-                    <a href="#" style="display: inline-block; background-color: #1e88e5; color: white; text-decoration: none; padding: 12px 30px; border-radius: 25px; font-weight: bold;">登录系统查看详情</a>
-                </div>
-                <div style="margin-top: 15px; text-align: center;">
-                    <span style="font-size: 12px; color: #999;">不想再收到预测邮件？请登录系统并在 <strong>个人中心</strong> 中关闭自动预测。</span>
-                </div>
-            </div>
-            <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #aaa;">
-                <p style="margin: 0;">此邮件由 {site_name} 自动生成并发送，请勿回复。</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+    html_content = _prediction_notice_wrapper_html(
+        f"第 {period} 期预测汇总",
+        f"{region_name}六合彩最新推荐",
+        f'''
+        <p style="font-size:16px;margin-top:0;">尊敬的 <strong>{escape(user.username)}</strong>：</p>
+        {latest_draw_html}
+        <p style="color:#64748b;">系统已为您自动生成本期预测，号码已标注生肖和红绿蓝波属性。</p>
+        {cards_html}
+        ''',
+        footer_note=f"此通知由 {site_name} 自动生成并发送，请勿回复。",
+        tone='blue',
+    )
     
     notify_user(
         user,
@@ -13400,27 +13485,33 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
     period = predictions[0].period
     subject = f"恭喜您！{region_name}第{period}期特码预测命中"
     
-    rows_html = ""
+    cards_html = ""
     text_rows = []
     for pred in predictions:
         strategy_name = _get_email_strategy_display(pred)
         text_rows.append(f"{strategy_name}: 命中特码 {pred.special_number} ({pred.special_zodiac})")
-        rows_html += f"""
-        <div style="margin-bottom: 10px; padding: 12px; background-color: #f1f8e9; border-left: 4px solid #4CAF50; border-radius: 4px;">
-            <strong style="color: #2e7d32;">{strategy_name}</strong> 命中特码：<span style="color: #e53935; font-weight: bold; font-size: 16px;">{pred.special_number} ({pred.special_zodiac})</span>
-        </div>
-        """
+        cards_html += _prediction_notice_card_html(
+            strategy_name,
+            pred.normal_numbers,
+            pred.special_number,
+            pred.special_zodiac,
+            accent='#16a34a',
+        )
         
     draw_html = ""
     if draw_data:
-        normal_nums = ', '.join(draw_data.get('no', []))
+        draw_normal_html, draw_special_html = _prediction_notice_balls_html(
+            draw_data.get('no', []),
+            draw_data.get('sno', ''),
+            draw_data.get('sno_zodiac', ''),
+        )
         draw_html = f'''
-        <div style="background-color: #fff9c4; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #fbc02d;">
+        <div style="background-color: #fefce8; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #facc15;">
             <h3 style="margin-top: 0; color: #f57f17; font-size: 16px; margin-bottom: 8px;">第 {period} 期 完整开奖结果</h3>
-            <p style="margin: 0; font-size: 14px; color: #555;">
-                <strong>平码：</strong>{normal_nums} <br>
-                <strong style="display: inline-block; margin-top: 5px;">特码：</strong><span style="color: #e53935; font-weight: bold; font-size: 16px;">{draw_data.get('sno', '')}</span> ({draw_data.get('sno_zodiac', '')})
-            </p>
+            <div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:4px;">平码</div>
+            <div>{draw_normal_html}</div>
+            <div style="font-size:12px;color:#64748b;font-weight:700;margin:6px 0 4px;">特码</div>
+            <div>{draw_special_html}</div>
         </div>
         '''
 
@@ -13431,37 +13522,18 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
         + "\n".join(text_rows)
     )
 
-    html_content = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; padding: 20px;">
-        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            <div style="background: linear-gradient(135deg, #4CAF50 0%, #2e7d32 100%); color: white; padding: 20px; text-align: center;">
-                <h2 style="margin: 0; font-size: 24px;">🎉 预测命中通知 🎉</h2>
-            </div>
-            <div style="padding: 25px;">
-                <p style="font-size: 16px;">尊敬的 <strong>{user.username}</strong>：</p>
-                <p style="color: #666;">恭喜您！您定制的 {region_name}六合彩 <strong>第 {period} 期</strong> 预测有多项策略成功命中了特码 <strong>{predictions[0].actual_special_number} ({predictions[0].actual_special_zodiac})</strong>：</p>
-                
-                {draw_html}
-
-                <div style="margin: 25px 0;">
-                    {rows_html}
-                </div>
-                
-                <p style="text-align: center; margin-top: 35px;">
-                    <a href="#" style="background-color: #4CAF50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; font-weight: bold; display: inline-block;">登录系统查看详情</a>
-                </p>
-                <div style="margin-top: 15px; text-align: center;">
-                    <span style="font-size: 12px; color: #999;">不想再收到报喜提醒？请登录系统并在 <strong>个人中心</strong> 中关闭自动预测。</span>
-                </div>
-            </div>
-            <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #aaa;">
-                <p style="margin: 0;">此邮件由 {site_name} 自动生成并发送，请勿回复。</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+    html_content = _prediction_notice_wrapper_html(
+        "预测命中通知",
+        f"{region_name}第 {period} 期",
+        f'''
+        <p style="font-size:16px;margin-top:0;">尊敬的 <strong>{escape(user.username)}</strong>：</p>
+        <p style="color:#64748b;">恭喜您！本期预测命中特码 <strong>{escape(predictions[0].actual_special_number)} ({escape(predictions[0].actual_special_zodiac)})</strong>。</p>
+        {draw_html}
+        {cards_html}
+        ''',
+        footer_note=f"此通知由 {site_name} 自动生成并发送，请勿回复。",
+        tone='green',
+    )
     
     notify_user(
         user,
