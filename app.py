@@ -1457,11 +1457,19 @@ def _get_email_strategy_display(prediction):
 
 
 def _prediction_notice_ball_html(number, zodiac=None, label=None, large=False):
-    number_text = str(number or '').strip()
-    if not number_text:
+    raw_number_text = str(number or '').strip()
+    if not raw_number_text:
         return ''
-    color = _get_hk_number_color(number_text)
-    zodiac_text = str(zodiac or _prediction_notice_zodiac(number_text) or '').strip()
+    try:
+        number_value = int(raw_number_text)
+    except (TypeError, ValueError):
+        return ''
+    if not 1 <= number_value <= 49:
+        return ''
+    number_key = str(number_value)
+    number_text = f"{number_value:02d}"
+    color = _get_hk_number_color(number_key)
+    zodiac_text = str(zodiac or _prediction_notice_zodiac(number_key) or '').strip()
     color_label = COLOR_MAP_EN_TO_ZH.get(color, '')
     palette = {
         'red': ('#ef4444', '#991b1b'),
@@ -1476,9 +1484,9 @@ def _prediction_notice_ball_html(number, zodiac=None, label=None, large=False):
     )
     return f'''
     <span style="display:inline-block;vertical-align:top;margin:4px 5px 8px 0;text-align:center;">
-        <span style="display:inline-flex;align-items:center;justify-content:center;flex-direction:column;width:{size}px;height:{size}px;border-radius:50%;background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);font-weight:800;">
-            <span style="font-size:{number_size}px;line-height:1;">{escape(number_text)}</span>
-            <span style="font-size:10px;line-height:1.15;margin-top:3px;">{escape(zodiac_text)}</span>
+        <span style="display:inline-block;width:{size}px;height:{size}px;border-radius:50%;background:{palette[0]};background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);font-weight:800;text-align:center;overflow:hidden;">
+            <span style="display:block;font-size:{number_size}px;line-height:1;margin-top:{10 if large else 8}px;">{escape(number_text)}</span>
+            <span style="display:block;font-size:10px;line-height:1.15;margin-top:3px;">{escape(zodiac_text)}</span>
         </span>
         <span style="display:block;font-size:10px;line-height:1;color:#64748b;margin-top:3px;">{escape(color_label)}</span>
         {label_html}
@@ -1516,10 +1524,26 @@ def _prediction_notice_numbers(numbers):
     return normalized
 
 
-def _prediction_notice_balls_html(numbers, special_number=None, special_zodiac=None):
+def _prediction_notice_zodiac_list(raw_zodiacs, limit=None):
+    if raw_zodiacs is None:
+        return []
+    if isinstance(raw_zodiacs, str):
+        items = re.split(r'[,，\s]+', raw_zodiacs.strip())
+    else:
+        items = list(raw_zodiacs or [])
+    normalized = [str(item or '').strip() for item in items]
+    return normalized[:limit] if limit else normalized
+
+
+def _prediction_notice_balls_html(numbers, special_number=None, special_zodiac=None, normal_zodiacs=None):
+    normalized_numbers = _prediction_notice_numbers(numbers)
+    normalized_zodiacs = _prediction_notice_zodiac_list(normal_zodiacs, limit=len(normalized_numbers))
     normal_html = ''.join(
-        _prediction_notice_ball_html(number)
-        for number in _prediction_notice_numbers(numbers)
+        _prediction_notice_ball_html(
+            number,
+            zodiac=normalized_zodiacs[index] if index < len(normalized_zodiacs) else None,
+        )
+        for index, number in enumerate(normalized_numbers)
     )
     special_html = _prediction_notice_ball_html(
         special_number,
@@ -1530,8 +1554,8 @@ def _prediction_notice_balls_html(numbers, special_number=None, special_zodiac=N
     return normal_html, special_html
 
 
-def _prediction_notice_card_html(title, normal_numbers, special_number, special_zodiac=None, accent='#93c5fd'):
-    normal_html, special_html = _prediction_notice_balls_html(normal_numbers, special_number, special_zodiac)
+def _prediction_notice_card_html(title, normal_numbers, special_number, special_zodiac=None, accent='#93c5fd', normal_zodiacs=None):
+    normal_html, special_html = _prediction_notice_balls_html(normal_numbers, special_number, special_zodiac, normal_zodiacs=normal_zodiacs)
     return f'''
     <div style="padding:14px 0;border-bottom:1px solid rgba(148,163,184,.18);">
         <div style="font-weight:800;color:{accent};font-size:15px;margin-bottom:8px;">{escape(title)}</div>
@@ -13441,10 +13465,14 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
         draw_period = latest_draw.get('id', '')
         special_num = latest_draw.get('sno', '')
         special_zodiac = latest_draw.get('sno_zodiac', '')
+        draw_zodiacs = _prediction_notice_zodiac_list(latest_draw.get('raw_zodiac', ''))
+        if len(draw_zodiacs) >= 7:
+            special_zodiac = draw_zodiacs[6] or special_zodiac
         latest_normal_html, latest_special_html = _prediction_notice_balls_html(
             latest_draw.get('no', []),
             special_num,
             special_zodiac,
+            normal_zodiacs=draw_zodiacs[:6],
         )
         latest_draw_html = f'''
         <div style="background-color: #eff6ff; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #2563eb;">
@@ -13507,10 +13535,15 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
         
     draw_html = ""
     if draw_data:
+        draw_zodiacs = _prediction_notice_zodiac_list(draw_data.get('raw_zodiac', ''))
+        draw_special_zodiac = draw_data.get('sno_zodiac', '')
+        if len(draw_zodiacs) >= 7:
+            draw_special_zodiac = draw_zodiacs[6] or draw_special_zodiac
         draw_normal_html, draw_special_html = _prediction_notice_balls_html(
             draw_data.get('no', []),
             draw_data.get('sno', ''),
-            draw_data.get('sno_zodiac', ''),
+            draw_special_zodiac,
+            normal_zodiacs=draw_zodiacs[:6],
         )
         draw_html = f'''
         <div style="background-color: #fefce8; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #facc15;">
