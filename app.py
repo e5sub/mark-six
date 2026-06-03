@@ -2814,8 +2814,8 @@ def _default_strategy_config(strategy):
             "source_special_weight": 1.28,
             "transition_min_samples": 3,
             "repeat_penalty": -0.18,
-            "promotion_cooldown_hours": 18,
-            "promotion_min_gain": 0.45,
+            "promotion_cooldown_hours": 6,
+            "promotion_min_gain": 0.25,
             "weights": {"transition": 1.35, "second_order": 0.72, "phase_transition": 0.55, "attribute_transition": 0.42, "special_transition": 1.10, "special_chain": 0.62, "special_attribute": 0.28, "failure": 0.48, "hot": 0.22, "trend": 0.36, "normal": 0.22, "overdue": 0.16, "feedback": 0.85, "color": 0.18, "zodiac": 0.18, "parity": 0.16},
             "last_accuracy": 0.0,
             "last_total": 0
@@ -3801,6 +3801,14 @@ def _rank_weighted_preferences(counter_map, limit=3):
     ]
 
 
+def _recent_learning_weight(index, limit, floor=0.12, recent_window=24, recent_boost=0.32):
+    limit = max(int(limit or 1), 1)
+    base = max(float(floor), 1.0 - (int(index or 0) / limit) * (1.0 - float(floor)))
+    if int(index or 0) < int(recent_window or 0):
+        base *= 1.0 + float(recent_boost)
+    return base
+
+
 def _learn_ml_region_profile(region, limit=180):
     query = PredictionRecord.query.filter_by(
         region=region,
@@ -3821,7 +3829,7 @@ def _learn_ml_region_profile(region, limit=180):
         if not metadata:
             continue
 
-        recency_weight = max(0.25, 1.0 - (idx / max(limit, 1)) * 0.7)
+        recency_weight = _recent_learning_weight(idx, limit, floor=0.14, recent_window=28, recent_boost=0.38)
         quality = max(0.05, _score_prediction_outcome(prediction)) * recency_weight
         total_quality += quality
 
@@ -3847,7 +3855,7 @@ def _learn_ml_region_profile(region, limit=180):
             accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
             if total <= 0:
                 continue
-            recency_weight = max(0.45, 1.0 - idx * 0.22)
+            recency_weight = max(0.45, 1.0 - idx * 0.18)
             confidence = _clamp(total / 10.0, 0.25, 1.0)
             weighted_scores.append(accuracy * recency_weight * confidence)
         ensemble_raw[strategy] = max(
@@ -3861,7 +3869,7 @@ def _learn_ml_region_profile(region, limit=180):
         for key, value in ensemble_raw.items()
     }
 
-    confidence = _clamp(len(predictions) / 24.0, 0.2, 1.0) * _clamp(total_quality / 10.0, 0.35, 1.0)
+    confidence = _clamp(len(predictions) / 18.0, 0.28, 1.0) * _clamp(total_quality / 8.0, 0.4, 1.0)
     learned_blends = _rank_weighted_preferences(blend_scores, limit=3)
     if not learned_blends:
         learned_blends = [0.55, 0.7, 0.82]
@@ -3928,14 +3936,14 @@ def _promote_ml_region_profile(region, persist=True):
     learning_confidence = float(learned_profile.get("confidence") or 0.0)
 
     promotion_strength = "hold"
-    if close_to_leader and learning_confidence >= 0.45:
+    if close_to_leader and learning_confidence >= 0.34:
         promotion_strength = "promoted"
-    elif learning_confidence >= 0.3:
+    elif learning_confidence >= 0.22:
         promotion_strength = "watch"
 
     if feature_profiles and promotion_strength in ("promoted", "watch"):
         config["primary_feature_profile"] = feature_profiles[0]
-    if runtime_profiles and promotion_strength == "promoted":
+    if runtime_profiles and promotion_strength in ("promoted", "watch"):
         config["primary_runtime_profile"] = runtime_profiles[0]
 
     default_blends = [0.55, 0.7, 0.82]
@@ -4017,7 +4025,7 @@ def _learn_markov_region_profile(region, limit=180):
         )
         if metadata.get("markov_window") is not None:
             signal_count += 1
-        recency_weight = max(0.25, 1.0 - (idx / max(limit, 1)) * 0.7)
+        recency_weight = _recent_learning_weight(idx, limit, floor=0.14, recent_window=28, recent_boost=0.38)
         quality = max(0.05, _score_prediction_outcome(prediction)) * recency_weight
         total_quality += quality
 
@@ -4046,7 +4054,7 @@ def _learn_markov_region_profile(region, limit=180):
             add_numeric(attribute_transition_weight_scores, weights.get("attribute_transition"), 2)
             add_numeric(failure_weight_scores, weights.get("failure"), 2)
 
-    confidence = _clamp(signal_count / 24.0, 0.0, 1.0) * _clamp(total_quality / 10.0, 0.35, 1.0)
+    confidence = _clamp(signal_count / 18.0, 0.0, 1.0) * _clamp(total_quality / 8.0, 0.4, 1.0)
 
     def best_numeric(counter, default):
         ranked = _rank_weighted_preferences(counter, limit=1)
@@ -4076,7 +4084,7 @@ def _learn_markov_region_profile(region, limit=180):
 
 def _promote_markov_region_profile(region, persist=True):
     config = _load_strategy_config("markov", region)
-    cooldown_hours = _safe_float(config.get("promotion_cooldown_hours"), 18.0)
+    cooldown_hours = min(_safe_float(config.get("promotion_cooldown_hours"), 6.0), 8.0)
     last_promoted_at = str(config.get("promoted_at") or "").strip()
     if last_promoted_at and cooldown_hours > 0:
         try:
@@ -4118,16 +4126,16 @@ def _promote_markov_region_profile(region, persist=True):
     )
     previous_score = _safe_float(config.get("promotion_backtest_top1"), 0.0) + (_safe_float(config.get("promotion_backtest_top6"), 0.0) * 0.35)
     current_score = markov_top1 + (markov_top6 * 0.35)
-    min_gain = _safe_float(config.get("promotion_min_gain"), 0.45)
+    min_gain = min(_safe_float(config.get("promotion_min_gain"), 0.25), 0.35)
 
     promotion_strength = "hold"
-    if close_to_leader and learning_confidence >= 0.42 and (previous_score <= 0 or current_score >= previous_score + min_gain):
+    if close_to_leader and learning_confidence >= 0.32 and (previous_score <= 0 or current_score >= previous_score + min_gain):
         promotion_strength = "promoted"
-    elif learning_confidence >= 0.28:
+    elif learning_confidence >= 0.2:
         promotion_strength = "watch"
 
     if preferred and promotion_strength in ("promoted", "watch"):
-        blend = 0.72 if promotion_strength == "promoted" else 0.42
+        blend = 0.78 if promotion_strength == "promoted" else 0.55
 
         def blended_int(key, low, high):
             base = int(config.get(key) or _default_strategy_config("markov").get(key) or low)
@@ -4943,8 +4951,8 @@ def _tune_strategy_config(strategy, region):
         learned_profile = _learn_markov_region_profile(region)
         learned_confidence = _clamp(float(learned_profile.get("confidence") or 0.0), 0.0, 1.0)
         preferred_markov = dict(learned_profile.get("preferred_config") or {})
-        if preferred_markov and learned_confidence >= 0.25:
-            blend = _clamp(learned_confidence * 0.45, 0.12, 0.45)
+        if preferred_markov and learned_confidence >= 0.2:
+            blend = _clamp(learned_confidence * 0.55, 0.16, 0.55)
             config["window"] = _clamp(
                 int(round(config["window"] * (1.0 - blend) + int(preferred_markov.get("window") or config["window"]) * blend)),
                 36,
@@ -5145,8 +5153,8 @@ def _tune_strategy_config(strategy, region):
             weights["failure"] = round(_clamp(0.34 + (1 - accuracy) * 0.24 + learning_strength * 0.08, 0.22, 1.0), 2)
             preferred_markov = dict(config.get("preferred_markov_config") or {})
             learned_confidence = _clamp(float(config.get("profile_learning_confidence") or 0.0), 0.0, 1.0)
-            if preferred_markov and learned_confidence >= 0.25:
-                blend = _clamp(learned_confidence * 0.35, 0.1, 0.35)
+            if preferred_markov and learned_confidence >= 0.2:
+                blend = _clamp(learned_confidence * 0.45, 0.14, 0.45)
                 weights["transition"] = round(_clamp(
                     weights["transition"] * (1.0 - blend) + float(preferred_markov.get("transition_weight") or weights["transition"]) * blend,
                     0.75,
@@ -7869,10 +7877,10 @@ def _optimize_ml_runtime_config(data, region, config):
         candidate_feature_profile = str(candidate_config.get("feature_profile") or "full").strip() or "full"
         if candidate_feature_profile in preferred_feature_profiles:
             rank_idx = preferred_feature_profiles.index(candidate_feature_profile)
-            preference_bonus += max(0.0, 0.07 - rank_idx * 0.025) * learning_confidence
+            preference_bonus += max(0.0, 0.11 - rank_idx * 0.035) * learning_confidence
         if profile_name in preferred_runtime_profiles:
             rank_idx = preferred_runtime_profiles.index(profile_name)
-            preference_bonus += max(0.0, 0.05 - rank_idx * 0.02) * learning_confidence
+            preference_bonus += max(0.0, 0.085 - rank_idx * 0.028) * learning_confidence
 
         adjusted_runtime_score = runtime_score + preference_bonus
         model["runtime_score"] = adjusted_runtime_score
