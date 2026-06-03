@@ -1476,6 +1476,9 @@ def _prediction_notice_ball_html(number, zodiac=None, label=None, large=False):
         'green': ('#22c55e', '#166534'),
         'blue': ('#3b82f6', '#1d4ed8'),
     }.get(color, ('#64748b', '#334155'))
+    ball_class = f"notice-ball notice-ball-{color or 'unknown'}"
+    if large:
+        ball_class += " notice-ball-large"
     size = 52 if large else 44
     number_size = 18 if large else 16
     label_html = (
@@ -1483,12 +1486,12 @@ def _prediction_notice_ball_html(number, zodiac=None, label=None, large=False):
         if label else ''
     )
     return f'''
-    <span style="display:inline-block;vertical-align:top;margin:4px 5px 8px 0;text-align:center;">
-        <span style="display:inline-block;width:{size}px;height:{size}px;border-radius:50%;background:{palette[0]};background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);font-weight:800;text-align:center;overflow:hidden;">
-            <span style="display:block;font-size:{number_size}px;line-height:1;margin-top:{10 if large else 8}px;">{escape(number_text)}</span>
-            <span style="display:block;font-size:10px;line-height:1.15;margin-top:3px;">{escape(zodiac_text)}</span>
+    <span class="notice-ball-wrap" style="display:inline-block;vertical-align:top;margin:4px 5px 8px 0;text-align:center;">
+        <span class="{ball_class}" style="display:inline-block;width:{size}px;height:{size}px;border-radius:50%;background:{palette[0]};background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);font-weight:800;text-align:center;overflow:hidden;">
+            <span class="notice-ball-number" style="display:block;font-size:{number_size}px;line-height:1;margin-top:{10 if large else 8}px;">{escape(number_text)}</span>
+            <span class="notice-ball-zodiac" style="display:block;font-size:10px;line-height:1.15;margin-top:3px;">{escape(zodiac_text)}</span>
         </span>
-        <span style="display:block;font-size:10px;line-height:1;color:#64748b;margin-top:3px;">{escape(color_label)}</span>
+        <span class="notice-ball-color-label" style="display:block;font-size:10px;line-height:1;color:#64748b;margin-top:3px;">{escape(color_label)}</span>
         {label_html}
     </span>
     '''
@@ -1557,15 +1560,11 @@ def _prediction_notice_balls_html(numbers, special_number=None, special_zodiac=N
 def _prediction_notice_card_html(title, normal_numbers, special_number, special_zodiac=None, accent='#93c5fd', normal_zodiacs=None):
     normal_html, special_html = _prediction_notice_balls_html(normal_numbers, special_number, special_zodiac, normal_zodiacs=normal_zodiacs)
     return f'''
-    <div style="padding:14px 0;border-bottom:1px solid rgba(148,163,184,.18);">
-        <div style="font-weight:800;color:{accent};font-size:15px;margin-bottom:8px;">{escape(title)}</div>
-        <div style="display:block;margin-bottom:8px;">
-            <div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:4px;">平码</div>
-            <div>{normal_html or '<span style="color:#94a3b8;">暂无</span>'}</div>
-        </div>
-        <div style="display:block;">
-            <div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:4px;">特码</div>
-            <div>{special_html or '<span style="color:#94a3b8;">暂无</span>'}</div>
+    <div class="notice-prediction-card" style="padding:14px 0;border-bottom:1px solid rgba(148,163,184,.18);">
+        <div class="notice-card-title" style="font-weight:800;color:{accent};font-size:15px;margin-bottom:8px;">{escape(title)}</div>
+        <div class="notice-number-row" style="display:block;">
+            {normal_html or '<span style="color:#94a3b8;">暂无平码</span>'}
+            {special_html or '<span style="color:#94a3b8;">暂无特码</span>'}
         </div>
     </div>
     '''
@@ -13477,10 +13476,7 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
         latest_draw_html = f'''
         <div style="background-color: #eff6ff; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #2563eb;">
             <h3 style="margin-top: 0; color: #0d47a1; font-size: 16px; margin-bottom: 8px;">上期 ({draw_period}期) 开奖结果</h3>
-            <div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:4px;">平码</div>
-            <div>{latest_normal_html}</div>
-            <div style="font-size:12px;color:#64748b;font-weight:700;margin:6px 0 4px;">特码</div>
-            <div>{latest_special_html}</div>
+            <div class="notice-number-row" style="display:block;">{latest_normal_html}{latest_special_html}</div>
         </div>
         '''
 
@@ -13548,10 +13544,7 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
         draw_html = f'''
         <div style="background-color: #fefce8; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #facc15;">
             <h3 style="margin-top: 0; color: #f57f17; font-size: 16px; margin-bottom: 8px;">第 {period} 期 完整开奖结果</h3>
-            <div style="font-size:12px;color:#64748b;font-weight:700;margin-bottom:4px;">平码</div>
-            <div>{draw_normal_html}</div>
-            <div style="font-size:12px;color:#64748b;font-weight:700;margin:6px 0 4px;">特码</div>
-            <div>{draw_special_html}</div>
+            <div class="notice-number-row" style="display:block;">{draw_normal_html}{draw_special_html}</div>
         </div>
         '''
 

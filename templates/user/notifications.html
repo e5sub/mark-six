@@ -221,6 +221,86 @@
     margin-top: 0.85rem;
 }
 
+.notification-html-content .prediction-summary-notice {
+    max-width: 100%;
+}
+
+.notification-html-content .notice-number-row {
+    display: flex !important;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.2rem;
+}
+
+.notification-html-content .notice-ball-wrap {
+    display: inline-flex !important;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+    margin: 4px 5px 8px 0 !important;
+}
+
+.notification-html-content .notice-ball {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    color: #fff !important;
+    border-radius: 50% !important;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.notification-html-content .notice-ball-red {
+    background: linear-gradient(135deg, #ff4b4b 0%, #dc2626 100%) !important;
+}
+
+.notification-html-content .notice-ball-blue {
+    background: linear-gradient(135deg, #4b83ff 0%, #2563eb 100%) !important;
+}
+
+.notification-html-content .notice-ball-green {
+    background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%) !important;
+}
+
+.notification-html-content .notice-ball-number,
+.notification-html-content .notice-ball-zodiac {
+    color: #fff !important;
+}
+
+.notification-html-content .notice-ball-color-label {
+    color: #cbd5e1 !important;
+}
+
+.notification-html-content .notice-prediction-card > div[style*="display:block"],
+.notification-html-content .prediction-summary-notice div[style*="display:block"] {
+    max-width: 100%;
+}
+
+.notification-html-content .prediction-summary-notice div[style*="font-size:12px"][style*="font-weight:700"] {
+    display: none !important;
+}
+
+.notification-html-content .prediction-summary-notice div[style*="display:block"]:has(span[style*="border-radius:50%"]),
+.notification-html-content .prediction-summary-notice div[style*="display:block"]:has(span[class*="notice-ball"]) {
+    display: inline !important;
+    margin: 0 !important;
+}
+
+.notification-html-content .prediction-summary-notice span[style*="background:#ef4444"],
+.notification-html-content .prediction-summary-notice span[style*="background: #ef4444"] {
+    background: linear-gradient(135deg, #ff4b4b 0%, #dc2626 100%) !important;
+}
+
+.notification-html-content .prediction-summary-notice span[style*="background:#3b82f6"],
+.notification-html-content .prediction-summary-notice span[style*="background: #3b82f6"] {
+    background: linear-gradient(135deg, #4b83ff 0%, #2563eb 100%) !important;
+}
+
+.notification-html-content .prediction-summary-notice span[style*="background:#22c55e"],
+.notification-html-content .prediction-summary-notice span[style*="background: #22c55e"] {
+    background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%) !important;
+}
+
 .notification-meta {
     display: flex;
     flex-wrap: wrap;
