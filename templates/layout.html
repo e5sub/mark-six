@@ -36,9 +36,19 @@
             text-decoration: underline;
         }
         .site-logo-nav {
-            width: 142px;
-            height: auto;
+            width: 38px;
+            height: 38px;
             display: block;
+        }
+        .site-logo-nav-text {
+            margin-left: 0.55rem;
+            color: #f8fafc;
+            font-weight: 800;
+            font-size: 1.08rem;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
     </style>
     {% block head_extra %}{% endblock %}
@@ -49,7 +59,8 @@
     <nav class="navbar navbar-expand-lg navbar-dark sticky-top border-bottom shadow-sm" style="background: rgba(15, 23, 42, 0.92); border-color: rgba(148, 163, 184, 0.2) !important;">
         <div class="container-fluid">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}" aria-label="{{ site_name or system_name or '彩研所' }}">
-                <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or system_name or '彩研所' }}" class="site-logo-nav">
+                <img src="{{ url_for('static', filename='logo-mark.svg') }}" alt="" class="site-logo-nav" aria-hidden="true">
+                <span class="site-logo-nav-text">{{ site_name or system_name or '数据分析平台' }}</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>

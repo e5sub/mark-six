@@ -811,9 +811,19 @@
             }
         }
         .site-logo-nav {
-            width: 142px;
-            height: auto;
+            width: 38px;
+            height: 38px;
             display: block;
+        }
+        .site-logo-nav-text {
+            margin-left: 0.55rem;
+            color: #f8fafc;
+            font-weight: 800;
+            font-size: 1.08rem;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
     </style>
 </head>
@@ -826,7 +836,8 @@
     <nav class="navbar navbar-expand-lg navbar-dark fixed-top">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}" aria-label="{{ site_name or system_name or '彩研所' }}">
-                <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or system_name or '彩研所' }}" class="site-logo-nav">
+                <img src="{{ url_for('static', filename='logo-mark.svg') }}" alt="" class="site-logo-nav" aria-hidden="true">
+                <span class="site-logo-nav-text">{{ site_name or system_name or 'AI数据分析' }}</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>

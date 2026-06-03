@@ -75,17 +75,24 @@
         .sidebar-brand {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            font-size: 1.5rem;
-            font-weight: 600;
+            gap: 0.85rem;
+            font-size: 1.55rem;
+            font-weight: 800;
             color: white;
             text-decoration: none;
         }
 
         .site-logo {
-            width: 166px;
-            height: auto;
+            width: 50px;
+            height: 50px;
             display: block;
+        }
+
+        .site-logo-text {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
         .sidebar-nav {
@@ -671,7 +678,8 @@
     <div class="sidebar">
         <div class="sidebar-header">
             <a href="{{ url_for('admin.dashboard') }}" class="sidebar-brand" aria-label="{{ system_name or site_name or '管理后台' }}">
-                <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or system_name or '彩研所' }}" class="site-logo">
+                <img src="{{ url_for('static', filename='logo-mark.svg') }}" alt="" class="site-logo" aria-hidden="true">
+                <span class="site-logo-text">{{ system_name or site_name or '管理后台' }}</span>
             </a>
         </div>
         <nav class="sidebar-nav">

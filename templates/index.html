@@ -820,16 +820,24 @@
         .sidebar-brand {
             display: flex;
             align-items: center;
-            font-size: 1.2rem;
-            font-weight: 700;
+            gap: 0.8rem;
+            font-size: 1.35rem;
+            font-weight: 800;
             color: #f8fafc;
             text-decoration: none;
         }
 
         .site-logo {
-            width: 154px;
-            height: auto;
+            width: 48px;
+            height: 48px;
             display: block;
+        }
+
+        .site-logo-text {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .sidebar-toggle {
@@ -1252,7 +1260,8 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="{{ url_for('index') }}" class="sidebar-brand" aria-label="{{ site_name or '彩研所' }}">
-                <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or '彩研所' }}" class="site-logo">
+                <img src="{{ url_for('static', filename='logo-mark.svg') }}" alt="" class="site-logo" aria-hidden="true">
+                <span class="site-logo-text">{{ site_name or '数据分析' }}</span>
             </a>
             <button class="sidebar-toggle" type="button" id="sidebarToggle" aria-label="切换侧边栏">
                 <span>≡</span>

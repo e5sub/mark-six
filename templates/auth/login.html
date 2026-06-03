@@ -68,10 +68,27 @@
         }
 
         .auth-logo {
-            width: 176px;
-            height: auto;
-            display: block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
             margin: 0 auto 18px;
+            color: #f8fafc;
+            font-size: 1.35rem;
+            font-weight: 800;
+            max-width: 100%;
+        }
+
+        .auth-logo img {
+            width: 42px;
+            height: 42px;
+            flex-shrink: 0;
+        }
+
+        .auth-logo span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .login-header h1 {
@@ -224,7 +241,10 @@
 <body>
     <div class="login-container">
         <div class="login-header">
-            <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or system_name or '彩研所' }}" class="auth-logo">
+            <div class="auth-logo" aria-label="{{ site_name or system_name or '彩研所' }}">
+                <img src="{{ url_for('static', filename='logo-mark.svg') }}" alt="" aria-hidden="true">
+                <span>{{ site_name or system_name or '彩研所' }}</span>
+            </div>
             <h1><i class="fas fa-sign-in-alt"></i> 用户登录</h1>
             <p>欢迎回到AI数据分析系统，您可以使用用户名或邮箱登录</p>
         </div>

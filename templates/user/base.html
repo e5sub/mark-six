@@ -79,17 +79,24 @@
         .sidebar-brand {
             display: flex;
             align-items: center;
-            gap: 0.7rem;
-            font-size: 1.2rem;
-            font-weight: 700;
+            gap: 0.8rem;
+            font-size: 1.35rem;
+            font-weight: 800;
             color: #f8fafc;
             text-decoration: none;
         }
 
         .site-logo {
-            width: 154px;
-            height: auto;
+            width: 48px;
+            height: 48px;
             display: block;
+        }
+
+        .site-logo-text {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
         .sidebar-nav {
@@ -756,7 +763,8 @@
     <div class="sidebar">
         <div class="sidebar-header">
             <a href="{{ url_for('user.dashboard') }}" class="sidebar-brand" aria-label="{{ site_name or '用户中心' }}">
-                <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or '彩研所' }}" class="site-logo">
+                <img src="{{ url_for('static', filename='logo-mark.svg') }}" alt="" class="site-logo" aria-hidden="true">
+                <span class="site-logo-text">{{ site_name or '用户中心' }}</span>
             </a>
         </div>
         <nav class="sidebar-nav">
