@@ -5484,8 +5484,8 @@ def _tune_strategy_config(strategy, region):
 
     _save_strategy_config(strategy, region, config)
 
-def update_strategy_configs(region):
-    strategies = ["hot", "cold", "trend", "balanced", "hybrid", "markov", "ml", "ai"]
+def update_strategy_configs(region, strategies=None):
+    strategies = list(strategies or ("hot", "cold", "trend", "balanced", "hybrid", "markov", "ml", "ai"))
     for strategy in strategies:
         try:
             _tune_strategy_config(strategy, region)
@@ -11426,6 +11426,7 @@ AUTO_BACKTEST_MIN_HISTORY = 10
 AUTO_BACKTEST_LIMIT = 240
 AI_BACKTEST_MAX_PERIODS = 24
 POSTPROCESS_BACKTEST_STRATEGIES = ("ml", "markov", "hybrid", "balanced", "trend", "hot", "cold")
+POSTPROCESS_TUNING_STRATEGIES = POSTPROCESS_BACKTEST_STRATEGIES
 POSTPROCESS_BACKTEST_LIMIT = 120
 
 
@@ -12435,7 +12436,7 @@ def draws_api():
     # 如果是第一页，返回前50条数据，否则返回分页数据
     return jsonify(data)
 
-def update_prediction_accuracy(data, region, trigger_auto_predictions=True):
+def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune_strategy_configs=True):
     """更新预测准确率 - 只比较特码和生肖"""
     try:
         # 获取所有该地区的预测记录
@@ -12507,8 +12508,9 @@ def update_prediction_accuracy(data, region, trigger_auto_predictions=True):
             except Exception as e:
                 print(f"发送合并中奖邮件失败: {e}")
 
-        # 根据最新准确率调整策略参数
-        update_strategy_configs(region)
+        # 根据最新准确率调整策略参数。开奖同步接口会把这一步放到后台，避免慢回测/AI 调用阻塞请求。
+        if tune_strategy_configs:
+            update_strategy_configs(region)
 
         # 仅在原有前台链路中继续触发自动预测；后台更新链会单独处理。
         if trigger_auto_predictions and data and len(data) > 0:
@@ -13059,6 +13061,11 @@ def _run_draw_postprocess_for_region(region, current_year, source="manual-postpr
             _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_data)}", source=source, region=region)
             generate_auto_predictions(prediction_data, region)
             _log_draw_update("自动预测已完成", source=source, region=region)
+            _log_draw_update("开始刷新本地策略学习参数", source=source, region=region)
+            tuning_started_at = time.time()
+            update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
+            tuning_elapsed = round(time.time() - tuning_started_at, 2)
+            _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
             _log_draw_update("开始刷新回测快照", source=source, region=region)
             backtest_started_at = time.time()
             refresh_auto_backtest_snapshot(
@@ -13120,8 +13127,8 @@ def update_data_api():
                 updated_regions.append(f"香港{len(hk_filtered)}条")
                 updated_region_keys.append("hk")
                 _log_draw_update(f"香港开奖数据已保存 count={len(hk_filtered)}", source="manual", region="hk")
-                update_prediction_accuracy(hk_filtered, 'hk', trigger_auto_predictions=False)
-                _log_draw_update("香港预测结算与学习参数已刷新", source="manual", region="hk")
+                update_prediction_accuracy(hk_filtered, 'hk', trigger_auto_predictions=False, tune_strategy_configs=False)
+                _log_draw_update("香港预测结算已完成", source="manual", region="hk")
                 update_hk_next_draw_time_cache(force=True)
                 _log_draw_update("香港下期时间缓存已刷新", source="manual", region="hk")
             except Exception as region_error:
@@ -13136,8 +13143,8 @@ def update_data_api():
                 updated_regions.append(f"澳门{len(macau_data)}条")
                 updated_region_keys.append("macau")
                 _log_draw_update(f"澳门开奖数据已保存 count={len(macau_data)}", source="manual", region="macau")
-                update_prediction_accuracy(macau_data, 'macau', trigger_auto_predictions=False)
-                _log_draw_update("澳门预测结算与学习参数已刷新", source="manual", region="macau")
+                update_prediction_accuracy(macau_data, 'macau', trigger_auto_predictions=False, tune_strategy_configs=False)
+                _log_draw_update("澳门预测结算已完成", source="manual", region="macau")
             except Exception as region_error:
                 failed_regions.append(f"澳门: {region_error}")
                 _log_draw_update(f"澳门开奖更新失败 error={region_error}", source="manual", region="macau")
@@ -13683,8 +13690,8 @@ def update_lottery_data():
             _log_draw_update(f"香港开奖数据同步完成 count={len(hk_data)}", source="scheduler", region="hk")
             updated_region_keys.append("hk")
             updated_regions.append(f"香港{len(hk_data)}条")
-            update_prediction_accuracy(hk_data, 'hk', trigger_auto_predictions=False)
-            _log_draw_update("香港预测结算与学习参数已刷新", source="scheduler", region="hk")
+            update_prediction_accuracy(hk_data, 'hk', trigger_auto_predictions=False, tune_strategy_configs=False)
+            _log_draw_update("香港预测结算已完成", source="scheduler", region="hk")
             update_hk_next_draw_time_cache(force=True)
             _log_draw_update("香港下期时间缓存已刷新", source="scheduler", region="hk")
 
@@ -13693,8 +13700,8 @@ def update_lottery_data():
             _log_draw_update(f"澳门开奖数据同步完成 count={len(macau_data)}", source="scheduler", region="macau")
             updated_region_keys.append("macau")
             updated_regions.append(f"澳门{len(macau_data)}条")
-            update_prediction_accuracy(macau_data, 'macau', trigger_auto_predictions=False)
-            _log_draw_update("澳门预测结算与学习参数已刷新", source="scheduler", region="macau")
+            update_prediction_accuracy(macau_data, 'macau', trigger_auto_predictions=False, tune_strategy_configs=False)
+            _log_draw_update("澳门预测结算已完成", source="scheduler", region="macau")
 
             postprocess_started = _start_draw_postprocess_async(updated_region_keys, current_year, source="scheduler-postprocess")
 
