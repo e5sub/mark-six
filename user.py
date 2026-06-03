@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from functools import wraps
 import json
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -68,8 +69,17 @@ def _format_notification_item(item):
     if not summary and detail_lines:
         summary = detail_lines.pop(0)
 
+    title = str(item.title or '').strip()
+    site_name = SystemConfig.get_config('site_name', '彩研所')
+    for removable in (site_name, '彩研所', '六合彩'):
+        if removable:
+            title = title.replace(removable, '')
+    title = re.sub(r'\s*[-－—|｜]\s*', ' ', title)
+    title = re.sub(r'\s+', ' ', title).strip(' -－—|｜')
+
     return {
         'item': item,
+        'title': title or item.title,
         'event_label': _notification_event_label(item.event_type),
         'summary': summary,
         'details': detail_lines,

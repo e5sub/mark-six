@@ -20,40 +20,42 @@
         {% for card in notification_cards %}
         {% set item = card.item %}
         <article class="notification-item {{ 'is-unread' if not item.is_read else '' }}">
-            <div class="notification-main">
-                <div class="notification-title-row">
-                    <div class="notification-title">{{ item.title }}</div>
+            <details class="notification-main">
+                <summary class="notification-title-row">
+                    <span class="notification-title">{{ card.title }}</span>
                     <span class="notification-status">{{ '未读' if not item.is_read else '已读' }}</span>
-                </div>
+                </summary>
 
-                {% if card.summary %}
-                <div class="notification-summary">{{ card.summary }}</div>
-                {% endif %}
+                <div class="notification-body">
+                    {% if card.summary %}
+                    <div class="notification-summary">{{ card.summary }}</div>
+                    {% endif %}
 
-                {% if card.predictions %}
-                <div class="prediction-lines">
-                    {% for prediction in card.predictions %}
-                    <div class="prediction-line">
-                        <span class="prediction-name">{{ prediction.name }}</span>
-                        <span class="prediction-detail">{{ prediction.detail }}</span>
+                    {% if card.predictions %}
+                    <div class="prediction-lines">
+                        {% for prediction in card.predictions %}
+                        <div class="prediction-line">
+                            <span class="prediction-name">{{ prediction.name }}</span>
+                            <span class="prediction-detail">{{ prediction.detail }}</span>
+                        </div>
+                        {% endfor %}
                     </div>
-                    {% endfor %}
-                </div>
-                {% endif %}
+                    {% endif %}
 
-                {% if card.details %}
-                <div class="notification-details">
-                    {% for line in card.details %}
-                    <div>{{ line }}</div>
-                    {% endfor %}
-                </div>
-                {% endif %}
+                    {% if card.details %}
+                    <div class="notification-details">
+                        {% for line in card.details %}
+                        <div>{{ line }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
 
-                <div class="notification-meta">
-                    <span>{{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}</span>
-                    <span>{{ card.event_label }}</span>
+                    <div class="notification-meta">
+                        <span>{{ item.created_at.strftime('%Y-%m-%d %H:%M') if item.created_at else '' }}</span>
+                        <span>{{ card.event_label }}</span>
+                    </div>
                 </div>
-            </div>
+            </details>
 
             <div class="notification-actions">
                 {% if item.link_url %}
@@ -130,9 +132,33 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 0.75rem;
+    cursor: pointer;
+    list-style: none;
+}
+
+.notification-title-row::-webkit-details-marker {
+    display: none;
+}
+
+.notification-title-row::marker {
+    content: '';
+}
+
+.notification-title-row::before {
+    content: '›';
+    flex-shrink: 0;
+    color: #93c5fd;
+    font-size: 1.2rem;
+    line-height: 1.1;
+    transition: transform 0.18s ease;
+}
+
+.notification-main[open] .notification-title-row::before {
+    transform: rotate(90deg);
 }
 
 .notification-title {
+    flex: 1;
     font-weight: 800;
     color: #f8fafc;
     overflow-wrap: anywhere;
