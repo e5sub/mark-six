@@ -10,7 +10,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from notification_service import get_user_notification_config, save_user_notification_config
+from notification_service import cleanup_expired_station_notifications, get_user_notification_config, save_user_notification_config
 from auth import _github_login_enabled
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
@@ -1017,6 +1017,7 @@ def dashboard():
 def notifications():
     user = _get_session_user()
     page = max(request.args.get('page', 1, type=int), 1)
+    cleanup_expired_station_notifications(user.id)
     pagination = UserNotification.query.filter_by(user_id=user.id).order_by(
         UserNotification.created_at.desc()
     ).paginate(page=page, per_page=20, error_out=False)

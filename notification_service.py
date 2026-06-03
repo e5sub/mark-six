@@ -3,7 +3,7 @@ import json
 import ipaddress
 import smtplib
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from urllib.parse import urlparse
@@ -11,6 +11,9 @@ from urllib.parse import urlparse
 import requests
 
 from models import db, SystemConfig, User, UserNotification
+
+
+STATION_NOTIFICATION_RETENTION_DAYS = 30
 
 
 def _is_enabled(key, default='false'):
@@ -70,6 +73,18 @@ def save_user_notification_config(user, form):
 
 def _plain_text(value):
     return str(value or '').replace('<br>', '\n').replace('<br/>', '\n')
+
+
+def cleanup_expired_station_notifications(user_id=None, commit=True):
+    expires_before = datetime.now() - timedelta(days=STATION_NOTIFICATION_RETENTION_DAYS)
+    query = UserNotification.query.filter(UserNotification.created_at < expires_before)
+    if user_id:
+        query = query.filter(UserNotification.user_id == user_id)
+
+    deleted = query.delete(synchronize_session=False)
+    if deleted and commit:
+        db.session.commit()
+    return deleted
 
 
 def _is_public_http_url(raw_url):
@@ -229,6 +244,8 @@ def _send_bark(title, content, link_url=None, config=None):
 def create_station_notification(user, title, content, event_type='general', link_url=None, commit=True):
     if not user or not getattr(user, 'id', None):
         return None
+
+    cleanup_expired_station_notifications(user.id, commit=False)
 
     record = UserNotification(
         user_id=user.id,
