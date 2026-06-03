@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>用户注册 - {{ seo_title or site_name or system_name or 'AI数据分析预测系统' }}</title>
     <meta name="description" content="{{ seo_description or site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-scrollbar.css') }}">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     {% if turnstile_site_key %}
@@ -64,6 +65,13 @@
         .register-header {
             text-align: center;
             margin-bottom: 30px;
+        }
+
+        .auth-logo {
+            width: 176px;
+            height: auto;
+            display: block;
+            margin: 0 auto 18px;
         }
 
         .register-header h1 {
@@ -222,6 +230,7 @@
 <body>
     <div class="register-container">
         <div class="register-header">
+            <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or system_name or '彩研所' }}" class="auth-logo">
             <h1><i class="fas fa-user-plus"></i> 用户注册</h1>
             <p>加入我们的AI数据分析预测系统</p>
         </div>

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}管理后台{% endblock %} - {{ system_name or site_name or 'AI数据分析预测系统' }}</title>
     <meta name="description" content="{{ system_description or site_description or (system_name or site_name or 'AI数据分析预测系统') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-scrollbar.css') }}">
     <style>
         * {
@@ -72,10 +73,19 @@
         }
         
         .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
             font-size: 1.5rem;
             font-weight: 600;
             color: white;
             text-decoration: none;
+        }
+
+        .site-logo {
+            width: 166px;
+            height: auto;
+            display: block;
         }
         
         .sidebar-nav {
@@ -660,7 +670,9 @@
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
     <div class="sidebar">
         <div class="sidebar-header">
-            <a href="{{ url_for('admin.dashboard') }}" class="sidebar-brand">{{ system_name or '管理后台' }}</a>
+            <a href="{{ url_for('admin.dashboard') }}" class="sidebar-brand" aria-label="{{ system_name or site_name or '管理后台' }}">
+                <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or system_name or '彩研所' }}" class="site-logo">
+            </a>
         </div>
         <nav class="sidebar-nav">
             <a href="{{ url_for('admin.dashboard') }}"><i>📊</i> 仪表板</a>

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ seo_title or site_name or system_name or 'AI数据分析预测系统' }}</title>
     <meta name="description" content="{{ seo_description or site_description or system_description or (site_name or system_name or 'AI数据分析预测系统') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-scrollbar.css') }}">
     <script src="https://fastly.jsdelivr.net/npm/chart.js"></script>
     <script src="{{ url_for('static', filename='js/lottery-display.js') }}"></script>
@@ -817,10 +818,18 @@
         }
 
         .sidebar-brand {
+            display: flex;
+            align-items: center;
             font-size: 1.2rem;
             font-weight: 700;
             color: #f8fafc;
             text-decoration: none;
+        }
+
+        .site-logo {
+            width: 154px;
+            height: auto;
+            display: block;
         }
 
         .sidebar-toggle {
@@ -1242,7 +1251,9 @@
     <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <a href="{{ url_for('index') }}" class="sidebar-brand">{{ site_name or '数据分析' }}</a>
+            <a href="{{ url_for('index') }}" class="sidebar-brand" aria-label="{{ site_name or '彩研所' }}">
+                <img src="{{ url_for('static', filename='logo.svg') }}" alt="{{ site_name or '彩研所' }}" class="site-logo">
+            </a>
             <button class="sidebar-toggle" type="button" id="sidebarToggle" aria-label="切换侧边栏">
                 <span>≡</span>
             </button>
