@@ -443,6 +443,7 @@ def _strategy_learning_panel_data():
                 'source_special_weight': config.get('source_special_weight'),
                 'promotion_cooldown_hours': config.get('promotion_cooldown_hours'),
                 'promotion_min_gain': config.get('promotion_min_gain'),
+                'learning_adaptation_mode': config.get('learning_adaptation_mode', 'balanced'),
                 'pool': config.get('pool'),
                 'special_pool': config.get('special_pool'),
                 'epochs': config.get('epochs'),

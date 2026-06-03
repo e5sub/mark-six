@@ -3809,6 +3809,138 @@ def _recent_learning_weight(index, limit, floor=0.12, recent_window=24, recent_b
     return base
 
 
+def _learning_adaptation_profiles():
+    return {
+        "conservative": {
+            "recency_floor": 0.22,
+            "recent_window": 20,
+            "recent_boost": 0.18,
+            "quality_sample_divisor": 10.0,
+            "confidence_sample_divisor": 24.0,
+            "confidence_floor": 0.2,
+            "quality_floor": 0.35,
+            "ml_promote_threshold": 0.42,
+            "ml_watch_threshold": 0.3,
+            "markov_promote_threshold": 0.4,
+            "markov_watch_threshold": 0.28,
+            "markov_cooldown_cap": 12.0,
+            "markov_min_gain_cap": 0.45,
+            "markov_promote_blend": 0.62,
+            "markov_watch_blend": 0.35,
+            "markov_tune_blend_factor": 0.38,
+            "markov_tune_blend_min": 0.1,
+            "markov_tune_blend_max": 0.38,
+            "markov_weight_blend_factor": 0.32,
+            "markov_weight_blend_min": 0.1,
+            "markov_weight_blend_max": 0.32,
+            "ml_feature_bonus": 0.075,
+            "ml_feature_bonus_decay": 0.025,
+            "ml_runtime_bonus": 0.055,
+            "ml_runtime_bonus_decay": 0.018,
+        },
+        "balanced": {
+            "recency_floor": 0.14,
+            "recent_window": 28,
+            "recent_boost": 0.38,
+            "quality_sample_divisor": 8.0,
+            "confidence_sample_divisor": 18.0,
+            "confidence_floor": 0.28,
+            "quality_floor": 0.4,
+            "ml_promote_threshold": 0.34,
+            "ml_watch_threshold": 0.22,
+            "markov_promote_threshold": 0.32,
+            "markov_watch_threshold": 0.2,
+            "markov_cooldown_cap": 8.0,
+            "markov_min_gain_cap": 0.35,
+            "markov_promote_blend": 0.78,
+            "markov_watch_blend": 0.55,
+            "markov_tune_blend_factor": 0.55,
+            "markov_tune_blend_min": 0.16,
+            "markov_tune_blend_max": 0.55,
+            "markov_weight_blend_factor": 0.45,
+            "markov_weight_blend_min": 0.14,
+            "markov_weight_blend_max": 0.45,
+            "ml_feature_bonus": 0.11,
+            "ml_feature_bonus_decay": 0.035,
+            "ml_runtime_bonus": 0.085,
+            "ml_runtime_bonus_decay": 0.028,
+        },
+        "responsive": {
+            "recency_floor": 0.1,
+            "recent_window": 36,
+            "recent_boost": 0.62,
+            "quality_sample_divisor": 6.5,
+            "confidence_sample_divisor": 14.0,
+            "confidence_floor": 0.34,
+            "quality_floor": 0.45,
+            "ml_promote_threshold": 0.28,
+            "ml_watch_threshold": 0.16,
+            "markov_promote_threshold": 0.26,
+            "markov_watch_threshold": 0.15,
+            "markov_cooldown_cap": 4.0,
+            "markov_min_gain_cap": 0.25,
+            "markov_promote_blend": 0.88,
+            "markov_watch_blend": 0.68,
+            "markov_tune_blend_factor": 0.68,
+            "markov_tune_blend_min": 0.22,
+            "markov_tune_blend_max": 0.68,
+            "markov_weight_blend_factor": 0.58,
+            "markov_weight_blend_min": 0.18,
+            "markov_weight_blend_max": 0.58,
+            "ml_feature_bonus": 0.15,
+            "ml_feature_bonus_decay": 0.045,
+            "ml_runtime_bonus": 0.12,
+            "ml_runtime_bonus_decay": 0.036,
+        },
+    }
+
+
+def _resolve_learning_adaptation(region, strategy=None):
+    profiles = _learning_adaptation_profiles()
+    mode = "balanced"
+    payload = _load_latest_auto_backtest_payload(region)
+    ranking = list(payload.get("ranking") or [])
+    targets = [strategy] if strategy in {"ml", "markov"} else ["ml", "markov"]
+    entries = [item for item in ranking if item.get("strategy") in targets]
+
+    if entries:
+        recent_scores = []
+        overall_scores = []
+        sample_counts = []
+        for entry in entries:
+            windows = list(entry.get("windows") or [])
+            recent_window = windows[0] if windows else {}
+            recent_total = int(recent_window.get("total") or 0)
+            sample_counts.append(recent_total)
+            recent_score = (
+                _safe_float(recent_window.get("top1_hit_rate"), 0.0) +
+                _safe_float(recent_window.get("top6_hit_rate"), 0.0) * 0.35 +
+                _safe_float(recent_window.get("zodiac_hit_rate"), 0.0) * 0.15
+            )
+            overall_score = (
+                _safe_float(entry.get("top1_hit_rate"), 0.0) +
+                _safe_float(entry.get("top6_hit_rate"), 0.0) * 0.35 +
+                _safe_float(entry.get("zodiac_hit_rate"), 0.0) * 0.15
+            )
+            recent_scores.append(recent_score)
+            overall_scores.append(overall_score)
+
+        avg_recent = sum(recent_scores) / len(recent_scores)
+        avg_overall = sum(overall_scores) / len(overall_scores)
+        recent_gap = avg_recent - avg_overall
+        weakest_recent = min(recent_scores)
+        enough_recent = max(sample_counts or [0]) >= 12
+
+        if not enough_recent or weakest_recent <= 8.0 or recent_gap <= -2.2:
+            mode = "responsive"
+        elif recent_gap >= 2.4 and weakest_recent >= 13.0:
+            mode = "conservative"
+
+    profile = dict(profiles.get(mode, profiles["balanced"]))
+    profile["mode"] = mode
+    return profile
+
+
 def _learn_ml_region_profile(region, limit=180):
     query = PredictionRecord.query.filter_by(
         region=region,
@@ -3821,6 +3953,7 @@ def _learn_ml_region_profile(region, limit=180):
     runtime_scores = Counter()
     blend_scores = Counter()
     total_quality = 0.0
+    adaptation = _resolve_learning_adaptation(region, "ml")
 
     for idx, prediction in enumerate(predictions):
         metadata = _deserialize_prediction_metadata(
@@ -3829,7 +3962,13 @@ def _learn_ml_region_profile(region, limit=180):
         if not metadata:
             continue
 
-        recency_weight = _recent_learning_weight(idx, limit, floor=0.14, recent_window=28, recent_boost=0.38)
+        recency_weight = _recent_learning_weight(
+            idx,
+            limit,
+            floor=adaptation["recency_floor"],
+            recent_window=adaptation["recent_window"],
+            recent_boost=adaptation["recent_boost"],
+        )
         quality = max(0.05, _score_prediction_outcome(prediction)) * recency_weight
         total_quality += quality
 
@@ -3869,7 +4008,15 @@ def _learn_ml_region_profile(region, limit=180):
         for key, value in ensemble_raw.items()
     }
 
-    confidence = _clamp(len(predictions) / 18.0, 0.28, 1.0) * _clamp(total_quality / 8.0, 0.4, 1.0)
+    confidence = _clamp(
+        len(predictions) / adaptation["confidence_sample_divisor"],
+        adaptation["confidence_floor"],
+        1.0,
+    ) * _clamp(
+        total_quality / adaptation["quality_sample_divisor"],
+        adaptation["quality_floor"],
+        1.0,
+    )
     learned_blends = _rank_weighted_preferences(blend_scores, limit=3)
     if not learned_blends:
         learned_blends = [0.55, 0.7, 0.82]
@@ -3881,6 +4028,7 @@ def _learn_ml_region_profile(region, limit=180):
         "ensemble_bias": ensemble_bias,
         "confidence": round(confidence, 4),
         "samples": len(predictions),
+        "adaptation_mode": adaptation["mode"],
     }
 
 
@@ -3934,11 +4082,12 @@ def _promote_ml_region_profile(region, persist=True):
         if 0.0 < float(item) <= 1.0
     ]
     learning_confidence = float(learned_profile.get("confidence") or 0.0)
+    adaptation = _resolve_learning_adaptation(region, "ml")
 
     promotion_strength = "hold"
-    if close_to_leader and learning_confidence >= 0.34:
+    if close_to_leader and learning_confidence >= adaptation["ml_promote_threshold"]:
         promotion_strength = "promoted"
-    elif learning_confidence >= 0.22:
+    elif learning_confidence >= adaptation["ml_watch_threshold"]:
         promotion_strength = "watch"
 
     if feature_profiles and promotion_strength in ("promoted", "watch"):
@@ -3962,6 +4111,7 @@ def _promote_ml_region_profile(region, persist=True):
     config["profile_learning_confidence"] = round(learning_confidence, 4)
     config["profile_learning_samples"] = int(learned_profile.get("samples") or 0)
     config["ensemble_bias"] = learned_profile.get("ensemble_bias", {})
+    config["learning_adaptation_mode"] = adaptation["mode"]
     config["promotion_strength"] = promotion_strength
     config["promotion_backtest_rank"] = ml_rank
     config["promotion_backtest_top1"] = round(ml_top1, 2)
@@ -3989,6 +4139,7 @@ def _promote_ml_region_profile(region, persist=True):
             "top1_hit_rate": round(ml_top1, 2),
             "top6_hit_rate": round(ml_top6, 2),
             "learning_confidence": round(learning_confidence * 100, 2),
+            "adaptation_mode": adaptation["mode"],
         })
     config["promotion_history"] = promotion_history[:8]
 
@@ -4018,6 +4169,7 @@ def _learn_markov_region_profile(region, limit=180):
     failure_weight_scores = Counter()
     total_quality = 0.0
     signal_count = 0
+    adaptation = _resolve_learning_adaptation(region, "markov")
 
     for idx, prediction in enumerate(predictions):
         metadata = _deserialize_prediction_metadata(
@@ -4025,7 +4177,13 @@ def _learn_markov_region_profile(region, limit=180):
         )
         if metadata.get("markov_window") is not None:
             signal_count += 1
-        recency_weight = _recent_learning_weight(idx, limit, floor=0.14, recent_window=28, recent_boost=0.38)
+        recency_weight = _recent_learning_weight(
+            idx,
+            limit,
+            floor=adaptation["recency_floor"],
+            recent_window=adaptation["recent_window"],
+            recent_boost=adaptation["recent_boost"],
+        )
         quality = max(0.05, _score_prediction_outcome(prediction)) * recency_weight
         total_quality += quality
 
@@ -4054,7 +4212,15 @@ def _learn_markov_region_profile(region, limit=180):
             add_numeric(attribute_transition_weight_scores, weights.get("attribute_transition"), 2)
             add_numeric(failure_weight_scores, weights.get("failure"), 2)
 
-    confidence = _clamp(signal_count / 18.0, 0.0, 1.0) * _clamp(total_quality / 8.0, 0.4, 1.0)
+    confidence = _clamp(
+        signal_count / adaptation["confidence_sample_divisor"],
+        0.0,
+        1.0,
+    ) * _clamp(
+        total_quality / adaptation["quality_sample_divisor"],
+        adaptation["quality_floor"],
+        1.0,
+    )
 
     def best_numeric(counter, default):
         ranked = _rank_weighted_preferences(counter, limit=1)
@@ -4079,12 +4245,14 @@ def _learn_markov_region_profile(region, limit=180):
         "preferred_config": preferred,
         "confidence": round(confidence, 4),
         "samples": signal_count,
+        "adaptation_mode": adaptation["mode"],
     }
 
 
 def _promote_markov_region_profile(region, persist=True):
     config = _load_strategy_config("markov", region)
-    cooldown_hours = min(_safe_float(config.get("promotion_cooldown_hours"), 6.0), 8.0)
+    adaptation = _resolve_learning_adaptation(region, "markov")
+    cooldown_hours = min(_safe_float(config.get("promotion_cooldown_hours"), 6.0), adaptation["markov_cooldown_cap"])
     last_promoted_at = str(config.get("promoted_at") or "").strip()
     if last_promoted_at and cooldown_hours > 0:
         try:
@@ -4126,16 +4294,16 @@ def _promote_markov_region_profile(region, persist=True):
     )
     previous_score = _safe_float(config.get("promotion_backtest_top1"), 0.0) + (_safe_float(config.get("promotion_backtest_top6"), 0.0) * 0.35)
     current_score = markov_top1 + (markov_top6 * 0.35)
-    min_gain = min(_safe_float(config.get("promotion_min_gain"), 0.25), 0.35)
+    min_gain = min(_safe_float(config.get("promotion_min_gain"), 0.25), adaptation["markov_min_gain_cap"])
 
     promotion_strength = "hold"
-    if close_to_leader and learning_confidence >= 0.32 and (previous_score <= 0 or current_score >= previous_score + min_gain):
+    if close_to_leader and learning_confidence >= adaptation["markov_promote_threshold"] and (previous_score <= 0 or current_score >= previous_score + min_gain):
         promotion_strength = "promoted"
-    elif learning_confidence >= 0.2:
+    elif learning_confidence >= adaptation["markov_watch_threshold"]:
         promotion_strength = "watch"
 
     if preferred and promotion_strength in ("promoted", "watch"):
-        blend = 0.78 if promotion_strength == "promoted" else 0.55
+        blend = adaptation["markov_promote_blend"] if promotion_strength == "promoted" else adaptation["markov_watch_blend"]
 
         def blended_int(key, low, high):
             base = int(config.get(key) or _default_strategy_config("markov").get(key) or low)
@@ -4189,6 +4357,7 @@ def _promote_markov_region_profile(region, persist=True):
     config["preferred_markov_config"] = preferred
     config["profile_learning_confidence"] = round(learning_confidence, 4)
     config["profile_learning_samples"] = int(learned_profile.get("samples") or 0)
+    config["learning_adaptation_mode"] = adaptation["mode"]
     config["promotion_strength"] = promotion_strength
     config["promotion_backtest_rank"] = markov_rank
     config["promotion_backtest_top1"] = round(markov_top1, 2)
@@ -4214,6 +4383,7 @@ def _promote_markov_region_profile(region, persist=True):
             "top1_hit_rate": round(markov_top1, 2),
             "top6_hit_rate": round(markov_top6, 2),
             "learning_confidence": round(learning_confidence * 100, 2),
+            "adaptation_mode": adaptation["mode"],
         })
         config["promotion_history"] = history[:8]
     config["previous_promotion_strength"] = promotion_strength
@@ -4943,6 +5113,7 @@ def _tune_strategy_config(strategy, region):
         config["special_pool"] = _clamp(int(7 + local_top1 * 6), 6, 14)
         config["trend_window"] = _clamp(int(8 + local_top1 * 16 + local_top6 * 6), 8, 30)
     elif strategy == "markov":
+        adaptation = _resolve_learning_adaptation(region, "markov")
         config["window"] = _clamp(int(54 + local_top6 * 70 + local_top1 * 34), 36, 150)
         config["pool"] = _clamp(int(13 + local_top6 * 9 + local_top1 * 5), 10, 24)
         config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
@@ -4951,8 +5122,12 @@ def _tune_strategy_config(strategy, region):
         learned_profile = _learn_markov_region_profile(region)
         learned_confidence = _clamp(float(learned_profile.get("confidence") or 0.0), 0.0, 1.0)
         preferred_markov = dict(learned_profile.get("preferred_config") or {})
-        if preferred_markov and learned_confidence >= 0.2:
-            blend = _clamp(learned_confidence * 0.55, 0.16, 0.55)
+        if preferred_markov and learned_confidence >= adaptation["markov_watch_threshold"]:
+            blend = _clamp(
+                learned_confidence * adaptation["markov_tune_blend_factor"],
+                adaptation["markov_tune_blend_min"],
+                adaptation["markov_tune_blend_max"],
+            )
             config["window"] = _clamp(
                 int(round(config["window"] * (1.0 - blend) + int(preferred_markov.get("window") or config["window"]) * blend)),
                 36,
@@ -4981,6 +5156,7 @@ def _tune_strategy_config(strategy, region):
         config["preferred_markov_config"] = preferred_markov
         config["profile_learning_confidence"] = round(learned_confidence, 4)
         config["profile_learning_samples"] = int(learned_profile.get("samples") or 0)
+        config["learning_adaptation_mode"] = adaptation["mode"]
     elif strategy == "ai":
         config["temperature"] = round(_clamp(0.42 - accuracy * 0.18, 0.18, 0.45), 2)
         config["history_window"] = _clamp(int(12 + (0.5 - accuracy) * 6), 8, 18)
@@ -5092,6 +5268,7 @@ def _tune_strategy_config(strategy, region):
             "ranking_signal_scores": dict(offline_profile.get("ranking_signal_scores") or {}),
         }
     elif strategy == "ml":
+        adaptation = _resolve_learning_adaptation(region, "ml")
         config["history_window"] = _clamp(int(90 + accuracy * 120), 80, 220)
         config["feature_window"] = _clamp(int(40 + accuracy * 40), 30, 80)
         config["evaluation_window"] = _clamp(int(18 + accuracy * 24), 12, 48)
@@ -5105,6 +5282,7 @@ def _tune_strategy_config(strategy, region):
         config["preferred_runtime_profiles"] = learned_profile.get("runtime_profiles", [])
         config["profile_learning_confidence"] = learned_profile.get("confidence", 0.0)
         config["profile_learning_samples"] = learned_profile.get("samples", 0)
+        config["learning_adaptation_mode"] = adaptation["mode"]
         config["ensemble_bias"] = learned_profile.get("ensemble_bias", {})
 
         learned_blends = [
@@ -5145,6 +5323,7 @@ def _tune_strategy_config(strategy, region):
             weights["feedback"] = round(_clamp(weights["feedback"] + 0.10, 0.5, 1.45), 2)
             weights["parity"] = round(_clamp(weights["parity"] + 0.04, 0.12, 0.32), 2)
         elif strategy == "markov":
+            adaptation = _resolve_learning_adaptation(region, "markov")
             weights["transition"] = round(_clamp(1.05 + learning_strength * 0.28 + accuracy * 0.24, 1.0, 1.65), 2)
             weights["special_transition"] = round(_clamp(0.82 + learning_strength * 0.22 + accuracy * 0.22, 0.75, 1.45), 2)
             weights["second_order"] = round(_clamp(0.44 + learning_strength * 0.18 + local_top6 * 0.34, 0.25, 1.2), 2)
@@ -5153,8 +5332,12 @@ def _tune_strategy_config(strategy, region):
             weights["failure"] = round(_clamp(0.34 + (1 - accuracy) * 0.24 + learning_strength * 0.08, 0.22, 1.0), 2)
             preferred_markov = dict(config.get("preferred_markov_config") or {})
             learned_confidence = _clamp(float(config.get("profile_learning_confidence") or 0.0), 0.0, 1.0)
-            if preferred_markov and learned_confidence >= 0.2:
-                blend = _clamp(learned_confidence * 0.45, 0.14, 0.45)
+            if preferred_markov and learned_confidence >= adaptation["markov_watch_threshold"]:
+                blend = _clamp(
+                    learned_confidence * adaptation["markov_weight_blend_factor"],
+                    adaptation["markov_weight_blend_min"],
+                    adaptation["markov_weight_blend_max"],
+                )
                 weights["transition"] = round(_clamp(
                     weights["transition"] * (1.0 - blend) + float(preferred_markov.get("transition_weight") or weights["transition"]) * blend,
                     0.75,
@@ -6716,6 +6899,7 @@ def _predict_with_markov(data, region, variation_key=None):
             "markov_source_special_weight": round(float(config.get("source_special_weight") or 1.28), 3),
             "markov_repeat_penalty": round(float(config.get("repeat_penalty", -0.18) or -0.18), 3),
             "markov_weights": dict(weights),
+            "learning_adaptation_mode": config.get("learning_adaptation_mode", "balanced"),
             "markov_guard": dict(markov_guard),
             "markov_latest_sources": transition_profile.get("latest_sources") or [],
             "markov_latest_second_sources": transition_profile.get("latest_second_sources") or [],
@@ -7799,6 +7983,7 @@ def _optimize_ml_runtime_config(data, region, config):
         if str(item).strip()
     ]
     learning_confidence = float(base_config.get("profile_learning_confidence") or 0.0)
+    adaptation = _resolve_learning_adaptation(region, "ml")
 
     candidate_specs = [
         (primary_runtime_profile if primary_runtime_profile else "base", {"feature_profile": primary_feature_profile}),
@@ -7877,14 +8062,21 @@ def _optimize_ml_runtime_config(data, region, config):
         candidate_feature_profile = str(candidate_config.get("feature_profile") or "full").strip() or "full"
         if candidate_feature_profile in preferred_feature_profiles:
             rank_idx = preferred_feature_profiles.index(candidate_feature_profile)
-            preference_bonus += max(0.0, 0.11 - rank_idx * 0.035) * learning_confidence
+            preference_bonus += max(
+                0.0,
+                adaptation["ml_feature_bonus"] - rank_idx * adaptation["ml_feature_bonus_decay"],
+            ) * learning_confidence
         if profile_name in preferred_runtime_profiles:
             rank_idx = preferred_runtime_profiles.index(profile_name)
-            preference_bonus += max(0.0, 0.085 - rank_idx * 0.028) * learning_confidence
+            preference_bonus += max(
+                0.0,
+                adaptation["ml_runtime_bonus"] - rank_idx * adaptation["ml_runtime_bonus_decay"],
+            ) * learning_confidence
 
         adjusted_runtime_score = runtime_score + preference_bonus
         model["runtime_score"] = adjusted_runtime_score
         model["runtime_profile"] = profile_name
+        model["learning_adaptation_mode"] = adaptation["mode"]
         model["runtime_config"] = candidate_config
         evaluations.append({
             "profile": profile_name,
@@ -8618,6 +8810,7 @@ def _predict_with_ml(data, region, variation_key=None):
         "primary_feature_profile": runtime_config.get("primary_feature_profile", "full"),
         "primary_runtime_profile": runtime_config.get("primary_runtime_profile", "base"),
         "promotion_strength": runtime_config.get("promotion_strength", "hold"),
+        "learning_adaptation_mode": runtime_config.get("learning_adaptation_mode") or model.get("learning_adaptation_mode", "balanced"),
         "blended_special_score": round(float(special_score_map.get(special_num, 0.0)) * 100, 2),
         "ensemble_strategy_weights": {
             key: round(float(value) * 100, 2)

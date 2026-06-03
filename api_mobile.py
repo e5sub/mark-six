@@ -2122,6 +2122,7 @@ def _learning_summary():
                 "special_pool": config.get("special_pool"),
                 "transition_decay": config.get("transition_decay"),
                 "source_special_weight": config.get("source_special_weight"),
+                "learning_adaptation_mode": config.get("learning_adaptation_mode", "balanced"),
                 "profile_learning_confidence": round(float(config.get("profile_learning_confidence") or 0.0) * 100, 1),
                 "profile_learning_samples": config.get("profile_learning_samples", 0),
                 "last_accuracy": round(float(config.get("last_accuracy") or 0.0) * 100, 1),
