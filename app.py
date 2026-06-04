@@ -11544,7 +11544,7 @@ def save_draws_to_database(draws, region):
         print(f"保存开奖记录到数据库失败: {e}")
         db.session.rollback()
 
-AUTO_BACKTEST_STRATEGIES = ("ai", "ml", "markov", "hybrid", "balanced", "trend", "hot", "cold")
+AUTO_BACKTEST_STRATEGIES = ("ml", "markov", "hybrid", "balanced", "trend", "hot", "cold")
 AUTO_BACKTEST_MIN_HISTORY = 10
 AUTO_BACKTEST_LIMIT = 240
 AI_BACKTEST_MAX_PERIODS = 24
@@ -11557,6 +11557,10 @@ def _ai_backtest_enabled():
     ai_config = get_ai_config()
     api_key = str(ai_config.get("api_key") or "").strip()
     return bool(api_key and "你的" not in api_key)
+
+
+def _filter_backtest_strategies(strategies):
+    return [strategy for strategy in (strategies or []) if strategy != "ai"]
 
 
 def _backtest_draw_sort_key(draw):
@@ -11786,9 +11790,7 @@ def _summarize_backtest_entries(entries):
 
 
 def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history=AUTO_BACKTEST_MIN_HISTORY):
-    strategies = list(strategies or AUTO_BACKTEST_STRATEGIES)
-    if "ai" in strategies and not _ai_backtest_enabled():
-        strategies = [strategy for strategy in strategies if strategy != "ai"]
+    strategies = _filter_backtest_strategies(list(strategies or AUTO_BACKTEST_STRATEGIES))
     chronological = _normalize_backtest_draws(draws, limit=AUTO_BACKTEST_LIMIT)
     strategy_logs = {strategy: [] for strategy in strategies}
     detail_rows = []
@@ -11945,7 +11947,7 @@ def refresh_auto_backtest_snapshots(regions=None, force=False):
     return refreshed
 
 
-AUTO_OPTIMIZE_STRATEGIES = ("hot", "cold", "trend", "balanced", "hybrid", "markov", "ml", "ai")
+AUTO_OPTIMIZE_STRATEGIES = ("hot", "cold", "trend", "balanced", "hybrid", "markov", "ml")
 AUTO_OPTIMIZE_BACKTEST_PERIODS = 72
 
 
@@ -12211,7 +12213,7 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
 
 
 def _build_strategy_backtest_summary(region, strategy, draws=None, config_override=None, min_history=AUTO_BACKTEST_MIN_HISTORY, max_periods=AUTO_OPTIMIZE_BACKTEST_PERIODS):
-    if strategy == "ai" and not _ai_backtest_enabled():
+    if strategy == "ai":
         return {"total": 0, "top1_hit_rate": 0.0, "top6_hit_rate": 0.0, "zodiac_hit_rate": 0.0, "windows": [], "periods_evaluated": 0}
 
     source_draws = _normalize_backtest_draws(
