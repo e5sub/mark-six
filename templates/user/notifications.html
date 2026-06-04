@@ -234,6 +234,31 @@
     overflow-y: hidden;
 }
 
+.notification-html-content .notice-number-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    background: #0f172a !important;
+    border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+.notification-html-content .notice-number-table th {
+    background: #1e293b !important;
+    color: #f8fafc !important;
+    -webkit-text-fill-color: #f8fafc !important;
+    text-align: center !important;
+}
+
+.notification-html-content .notice-number-table td {
+    background: #0f172a !important;
+    text-align: center !important;
+    vertical-align: top !important;
+}
+
+.notification-html-content .notice-normal-cell,
+.notification-html-content .notice-special-cell {
+    white-space: nowrap !important;
+}
+
 .notification-html-content .notice-ball-wrap {
     display: inline-flex !important;
     flex-direction: column;
@@ -252,6 +277,11 @@
     border: 1px solid rgba(255, 255, 255, 0.22);
 }
 
+.notification-html-content .notice-ball-large {
+    border: 3px solid #facc15 !important;
+    box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.18), 0 0 22px rgba(250, 204, 21, 0.55) !important;
+}
+
 .notification-html-content .notice-ball-red {
     background: linear-gradient(135deg, #ff4b4b 0%, #dc2626 100%) !important;
 }
@@ -264,19 +294,23 @@
     background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%) !important;
 }
 
-.notification-html-content .notice-ball-number,
-.notification-html-content .notice-ball-zodiac {
+.notification-html-content .notice-ball-number {
     color: #fff !important;
 }
 
-.notification-html-content .notice-ball-color-label {
+.notification-html-content .notice-ball-zodiac {
+    display: block !important;
     color: #cbd5e1 !important;
     -webkit-text-fill-color: #cbd5e1 !important;
+    font-weight: 700;
+}
+
+.notification-html-content .notice-ball-color-label {
+    display: none !important;
 }
 
 .notification-html-content .notice-ball-label {
-    color: #cbd5e1 !important;
-    -webkit-text-fill-color: #cbd5e1 !important;
+    display: none !important;
 }
 
 .notification-html-content .notice-prediction-card > div[style*="display:block"],

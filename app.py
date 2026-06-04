@@ -1470,7 +1470,6 @@ def _prediction_notice_ball_html(number, zodiac=None, label=None, large=False):
     number_text = f"{number_value:02d}"
     color = _get_hk_number_color(number_key)
     zodiac_text = str(zodiac or _prediction_notice_zodiac(number_key) or '').strip()
-    color_label = COLOR_MAP_EN_TO_ZH.get(color, '')
     palette = {
         'red': ('#ef4444', '#991b1b'),
         'green': ('#22c55e', '#166534'),
@@ -1481,17 +1480,22 @@ def _prediction_notice_ball_html(number, zodiac=None, label=None, large=False):
         ball_class += " notice-ball-large"
     size = 46 if large else 40
     number_size = 17 if large else 15
+    special_decoration = (
+        "border:3px solid #facc15;box-shadow:0 0 0 4px rgba(250,204,21,.18),0 0 22px rgba(250,204,21,.55);"
+        if large else
+        "border:1px solid rgba(255,255,255,.22);box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);"
+    )
     label_html = (
-        f'<div class="notice-ball-label" style="font-size:11px;line-height:1;color:#64748b;-webkit-text-fill-color:#64748b;margin-top:4px;text-align:center;">{escape(label)}</div>'
+        f'<span class="notice-ball-label" style="display:none!important;mso-hide:all;font-size:0;line-height:0;max-height:0;overflow:hidden;">{escape(label)}</span>'
         if label else ''
     )
     return f'''
     <span class="notice-ball-wrap" style="display:inline-block;vertical-align:top;margin:4px 3px 8px 0;text-align:center;white-space:normal;">
-        <span class="{ball_class}" style="display:inline-block;width:{size}px;height:{size}px;border-radius:50%;background:{palette[0]};background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;-webkit-text-fill-color:#fff;box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 5px 12px rgba(15,23,42,.22);font-weight:800;text-align:center;overflow:hidden;">
-            <span class="notice-ball-number" style="display:block;font-size:{number_size}px;line-height:1;margin-top:{8 if large else 7}px;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 1px 2px rgba(15,23,42,.35);">{escape(number_text)}</span>
-            <span class="notice-ball-zodiac" style="display:block;font-size:10px;line-height:1.15;margin-top:3px;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 1px 2px rgba(15,23,42,.35);">{escape(zodiac_text)}</span>
+        <span class="{ball_class}" style="display:inline-block;width:{size}px;height:{size}px;border-radius:50%;background:{palette[0]};background:linear-gradient(145deg,{palette[0]},{palette[1]});color:#fff;-webkit-text-fill-color:#fff;{special_decoration}font-weight:800;text-align:center;overflow:hidden;">
+            <span class="notice-ball-number" style="display:block;font-size:{number_size}px;line-height:{size}px;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 1px 2px rgba(15,23,42,.35);">{escape(number_text)}</span>
         </span>
-        <span class="notice-ball-color-label" style="display:block;font-size:10px;line-height:1;color:#475569;-webkit-text-fill-color:#475569;margin-top:3px;">{escape(color_label)}</span>
+        <span class="notice-ball-zodiac" style="display:block;font-size:11px;line-height:1;color:#475569;-webkit-text-fill-color:#475569;margin-top:4px;font-weight:700;text-align:center;">{escape(zodiac_text)}</span>
+        <span class="notice-ball-color-label" style="display:none!important;mso-hide:all;font-size:0;line-height:0;max-height:0;overflow:hidden;"></span>
         {label_html}
     </span>
     '''
@@ -1557,15 +1561,31 @@ def _prediction_notice_balls_html(numbers, special_number=None, special_zodiac=N
     return normal_html, special_html
 
 
+def _prediction_notice_number_table_html(normal_html, special_html):
+    return f'''
+    <table class="notice-number-table" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;border-collapse:collapse;background:#0f172a;border:1px solid rgba(148,163,184,.22);border-radius:8px;overflow:hidden;">
+        <tr>
+            <th style="width:76%;padding:9px 10px;text-align:center;background:#1e293b;color:#f8fafc;-webkit-text-fill-color:#f8fafc;font-size:14px;font-weight:800;border-bottom:1px solid rgba(148,163,184,.24);border-right:1px solid rgba(148,163,184,.18);">平码</th>
+            <th style="width:24%;padding:9px 10px;text-align:center;background:#1e293b;color:#f8fafc;-webkit-text-fill-color:#f8fafc;font-size:14px;font-weight:800;border-bottom:1px solid rgba(148,163,184,.24);">特码</th>
+        </tr>
+        <tr>
+            <td class="notice-normal-cell" style="padding:14px 10px;text-align:center;white-space:nowrap;vertical-align:top;border-right:1px solid rgba(148,163,184,.18);">
+                {normal_html or '<span style="color:#94a3b8;">暂无</span>'}
+            </td>
+            <td class="notice-special-cell" style="padding:14px 10px;text-align:center;white-space:nowrap;vertical-align:top;">
+                {special_html or '<span style="color:#94a3b8;">暂无</span>'}
+            </td>
+        </tr>
+    </table>
+    '''
+
+
 def _prediction_notice_card_html(title, normal_numbers, special_number, special_zodiac=None, accent='#93c5fd', normal_zodiacs=None):
     normal_html, special_html = _prediction_notice_balls_html(normal_numbers, special_number, special_zodiac, normal_zodiacs=normal_zodiacs)
     return f'''
     <div class="notice-prediction-card" style="padding:14px 0;border-bottom:1px solid rgba(148,163,184,.18);">
         <div class="notice-card-title" style="font-weight:800;color:{accent};font-size:15px;margin-bottom:8px;">{escape(title)}</div>
-        <div class="notice-number-row" style="display:block;white-space:nowrap;overflow-x:auto;overflow-y:hidden;">
-            {normal_html or '<span style="color:#94a3b8;">暂无平码</span>'}
-            {special_html or '<span style="color:#94a3b8;">暂无特码</span>'}
-        </div>
+        {_prediction_notice_number_table_html(normal_html, special_html)}
     </div>
     '''
 
@@ -1585,11 +1605,26 @@ def _prediction_notice_email_style():
         background: #ffffff !important;
         color: #334155 !important;
     }
+    .prediction-summary-notice .notice-number-table {
+        background: #0f172a !important;
+        border-color: rgba(148, 163, 184, .22) !important;
+    }
+    .prediction-summary-notice .notice-number-table th {
+        background: #1e293b !important;
+        color: #f8fafc !important;
+        -webkit-text-fill-color: #f8fafc !important;
+    }
+    .prediction-summary-notice .notice-number-table td {
+        background: #0f172a !important;
+    }
     .prediction-summary-notice .notice-ball,
-    .prediction-summary-notice .notice-ball-number,
-    .prediction-summary-notice .notice-ball-zodiac {
+    .prediction-summary-notice .notice-ball-number {
         color: #ffffff !important;
         -webkit-text-fill-color: #ffffff !important;
+    }
+    .prediction-summary-notice .notice-ball-zodiac {
+        color: #475569 !important;
+        -webkit-text-fill-color: #475569 !important;
     }
     .prediction-summary-notice .notice-ball-red {
         background: #ef4444 !important;
@@ -1603,10 +1638,18 @@ def _prediction_notice_email_style():
         background: #22c55e !important;
         background-image: linear-gradient(145deg, #22c55e, #166534) !important;
     }
+    .prediction-summary-notice .notice-ball-large {
+        border: 3px solid #facc15 !important;
+        box-shadow: 0 0 0 4px rgba(250,204,21,.18), 0 0 22px rgba(250,204,21,.55) !important;
+    }
     .prediction-summary-notice .notice-ball-color-label,
     .prediction-summary-notice .notice-ball-label {
-        color: #475569 !important;
-        -webkit-text-fill-color: #475569 !important;
+        display: none !important;
+        mso-hide: all;
+        font-size: 0 !important;
+        line-height: 0 !important;
+        max-height: 0 !important;
+        overflow: hidden !important;
     }
     @media (prefers-color-scheme: dark) {
         .prediction-summary-notice .notice-email-panel {
@@ -1617,8 +1660,7 @@ def _prediction_notice_email_style():
             color: #cbd5e1 !important;
             -webkit-text-fill-color: #cbd5e1 !important;
         }
-        .prediction-summary-notice .notice-ball-color-label,
-        .prediction-summary-notice .notice-ball-label {
+        .prediction-summary-notice .notice-ball-zodiac {
             color: #cbd5e1 !important;
             -webkit-text-fill-color: #cbd5e1 !important;
         }
@@ -13534,7 +13576,7 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
         latest_draw_html = f'''
         <div style="background-color: #eff6ff; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #2563eb;">
             <h3 style="margin-top: 0; color: #0d47a1; font-size: 16px; margin-bottom: 8px;">上期 ({draw_period}期) 开奖结果</h3>
-            <div class="notice-number-row" style="display:block;white-space:nowrap;overflow-x:auto;overflow-y:hidden;">{latest_normal_html}{latest_special_html}</div>
+            {_prediction_notice_number_table_html(latest_normal_html, latest_special_html)}
         </div>
         '''
 
@@ -13602,7 +13644,7 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
         draw_html = f'''
         <div style="background-color: #fefce8; padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #facc15;">
             <h3 style="margin-top: 0; color: #f57f17; font-size: 16px; margin-bottom: 8px;">第 {period} 期 完整开奖结果</h3>
-            <div class="notice-number-row" style="display:block;white-space:nowrap;overflow-x:auto;overflow-y:hidden;">{draw_normal_html}{draw_special_html}</div>
+            {_prediction_notice_number_table_html(draw_normal_html, draw_special_html)}
         </div>
         '''
 
