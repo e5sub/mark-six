@@ -1563,17 +1563,17 @@ def _prediction_notice_balls_html(numbers, special_number=None, special_zodiac=N
 
 def _prediction_notice_number_table_html(normal_html, special_html):
     return f'''
-    <table class="notice-number-table" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;border-collapse:collapse;background:#0f172a;border:1px solid rgba(148,163,184,.22);border-radius:8px;overflow:hidden;">
+    <table class="notice-number-table" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;border-collapse:collapse;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
         <tr>
-            <th style="width:76%;padding:9px 10px;text-align:center;background:#1e293b;color:#f8fafc;-webkit-text-fill-color:#f8fafc;font-size:14px;font-weight:800;border-bottom:1px solid rgba(148,163,184,.24);border-right:1px solid rgba(148,163,184,.18);">平码</th>
-            <th style="width:24%;padding:9px 10px;text-align:center;background:#1e293b;color:#f8fafc;-webkit-text-fill-color:#f8fafc;font-size:14px;font-weight:800;border-bottom:1px solid rgba(148,163,184,.24);">特码</th>
+            <th style="width:76%;padding:9px 10px;text-align:center;background:#e2e8f0;color:#0f172a;-webkit-text-fill-color:#0f172a;font-size:14px;font-weight:800;border-bottom:1px solid #cbd5e1;border-right:1px solid #cbd5e1;">平码</th>
+            <th style="width:24%;padding:9px 10px;text-align:center;background:#e2e8f0;color:#0f172a;-webkit-text-fill-color:#0f172a;font-size:14px;font-weight:800;border-bottom:1px solid #cbd5e1;">特码</th>
         </tr>
         <tr>
-            <td class="notice-normal-cell" style="padding:14px 10px;text-align:center;white-space:nowrap;vertical-align:top;border-right:1px solid rgba(148,163,184,.18);">
-                {normal_html or '<span style="color:#94a3b8;">暂无</span>'}
+            <td class="notice-normal-cell" style="padding:14px 10px;text-align:center;white-space:nowrap;vertical-align:top;background:#f8fafc;border-right:1px solid #e2e8f0;">
+                {normal_html or '<span class="notice-muted-text" style="color:#64748b;-webkit-text-fill-color:#64748b;">暂无</span>'}
             </td>
-            <td class="notice-special-cell" style="padding:14px 10px;text-align:center;white-space:nowrap;vertical-align:top;">
-                {special_html or '<span style="color:#94a3b8;">暂无</span>'}
+            <td class="notice-special-cell" style="padding:14px 10px;text-align:center;white-space:nowrap;vertical-align:top;background:#f8fafc;">
+                {special_html or '<span class="notice-muted-text" style="color:#64748b;-webkit-text-fill-color:#64748b;">暂无</span>'}
             </td>
         </tr>
     </table>
@@ -1601,21 +1601,30 @@ def _prediction_notice_email_style():
     .prediction-summary-notice * {
         box-sizing: border-box;
     }
-    .prediction-summary-notice .notice-email-panel {
+    .prediction-summary-notice {
         background: #ffffff !important;
         color: #334155 !important;
     }
+    .prediction-summary-notice .notice-shell {
+        background: #ffffff !important;
+        border-color: #e2e8f0 !important;
+    }
+    .prediction-summary-notice .notice-email-panel {
+        background: #ffffff !important;
+        color: #334155 !important;
+        -webkit-text-fill-color: #334155 !important;
+    }
     .prediction-summary-notice .notice-number-table {
-        background: #0f172a !important;
-        border-color: rgba(148, 163, 184, .22) !important;
+        background: #f8fafc !important;
+        border-color: #e2e8f0 !important;
     }
     .prediction-summary-notice .notice-number-table th {
-        background: #1e293b !important;
-        color: #f8fafc !important;
-        -webkit-text-fill-color: #f8fafc !important;
+        background: #e2e8f0 !important;
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
     }
     .prediction-summary-notice .notice-number-table td {
-        background: #0f172a !important;
+        background: #f8fafc !important;
     }
     .prediction-summary-notice .notice-ball,
     .prediction-summary-notice .notice-ball-number {
@@ -1625,6 +1634,11 @@ def _prediction_notice_email_style():
     .prediction-summary-notice .notice-ball-zodiac {
         color: #475569 !important;
         -webkit-text-fill-color: #475569 !important;
+    }
+    .prediction-summary-notice .notice-muted-text,
+    .prediction-summary-notice .notice-footer {
+        color: #64748b !important;
+        -webkit-text-fill-color: #64748b !important;
     }
     .prediction-summary-notice .notice-ball-red {
         background: #ef4444 !important;
@@ -1652,9 +1666,32 @@ def _prediction_notice_email_style():
         overflow: hidden !important;
     }
     @media (prefers-color-scheme: dark) {
+        .prediction-summary-notice {
+            background: #0f172a !important;
+            color: #e2e8f0 !important;
+        }
+        .prediction-summary-notice .notice-shell {
+            background: #0f172a !important;
+            border-color: rgba(148, 163, 184, .22) !important;
+        }
         .prediction-summary-notice .notice-email-panel {
             background: #0f172a !important;
             color: #e2e8f0 !important;
+            -webkit-text-fill-color: #e2e8f0 !important;
+        }
+        .prediction-summary-notice .notice-number-table {
+            background: #0f172a !important;
+            border-color: rgba(148, 163, 184, .22) !important;
+        }
+        .prediction-summary-notice .notice-number-table th {
+            background: #1e293b !important;
+            color: #f8fafc !important;
+            -webkit-text-fill-color: #f8fafc !important;
+            border-color: rgba(148, 163, 184, .24) !important;
+        }
+        .prediction-summary-notice .notice-number-table td {
+            background: #0f172a !important;
+            border-color: rgba(148, 163, 184, .18) !important;
         }
         .prediction-summary-notice p {
             color: #cbd5e1 !important;
@@ -1663,6 +1700,11 @@ def _prediction_notice_email_style():
         .prediction-summary-notice .notice-ball-zodiac {
             color: #cbd5e1 !important;
             -webkit-text-fill-color: #cbd5e1 !important;
+        }
+        .prediction-summary-notice .notice-muted-text,
+        .prediction-summary-notice .notice-footer {
+            color: #94a3b8 !important;
+            -webkit-text-fill-color: #94a3b8 !important;
         }
     }
     </style>
@@ -1673,15 +1715,15 @@ def _prediction_notice_wrapper_html(title, intro, body_html, footer_note='', ton
     accent = '#2563eb' if tone == 'blue' else '#16a34a'
     return f'''
     {_prediction_notice_email_style()}
-    <div class="prediction-summary-notice" style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.55;color:#e2e8f0;color-scheme:light dark;supported-color-schemes:light dark;">
-        <div style="background:#0f172a;border:1px solid rgba(148,163,184,.22);border-radius:8px;overflow:hidden;">
+    <div class="prediction-summary-notice" style="font-family:Arial,'Microsoft YaHei',sans-serif;line-height:1.55;background:#ffffff;color:#334155;color-scheme:light dark;supported-color-schemes:light dark;">
+        <div class="notice-shell" style="background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
             <div style="background:{accent};color:#fff;padding:16px 18px;">
                 <div style="font-size:18px;font-weight:800;">{escape(title)}</div>
                 <div style="font-size:13px;opacity:.9;margin-top:3px;">{escape(intro)}</div>
             </div>
             <div class="notice-email-panel" style="padding:16px 18px;background:#ffffff;color:#334155;">
                 {body_html}
-                {f'<div style="font-size:12px;color:#94a3b8;margin-top:12px;">{escape(footer_note)}</div>' if footer_note else ''}
+                {f'<div class="notice-footer" style="font-size:12px;color:#64748b;-webkit-text-fill-color:#64748b;margin-top:12px;">{escape(footer_note)}</div>' if footer_note else ''}
             </div>
         </div>
     </div>
