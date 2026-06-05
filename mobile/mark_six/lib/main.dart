@@ -2714,9 +2714,9 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   ],
                   Row(
                     children: [
-                      _buildRegionButton('hk', '香港'),
-                      const SizedBox(width: 10),
                       _buildRegionButton('macau', '澳门'),
+                      const SizedBox(width: 10),
+                      _buildRegionButton('hk', '香港'),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -3647,9 +3647,9 @@ class _RecordsScreenState extends State<RecordsScreen> {
         children: [
           Row(
             children: [
-              _buildHeaderRegionButton('hk', '香港'),
-              const SizedBox(width: 10),
               _buildHeaderRegionButton('macau', '澳门'),
+              const SizedBox(width: 10),
+              _buildHeaderRegionButton('hk', '香港'),
             ],
           ),
         ],
@@ -5548,72 +5548,95 @@ class _PredictScreenState extends State<PredictScreen> {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding: EdgeInsets.fromLTRB(
+              hit ? 5 : 0,
+              hit ? 4 : 0,
+              hit ? 10 : 0,
+              hit ? 4 : 0,
+            ),
             decoration: BoxDecoration(
-              gradient: hit
-                  ? const LinearGradient(
-                      colors: [Color(0xFFFF4D4F), Color(0xFFFFB020)],
-                    )
-                  : null,
-              color: hit ? null : const Color(0xFFF1F5F9),
+              color: hit ? const Color(0xFFFFF1F2) : null,
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: hit ? Colors.white.withOpacity(0.7) : const Color(0xFFE2E8F0),
-              ),
+              border: hit
+                  ? Border.all(color: const Color(0xFFFF4D4F), width: 1.6)
+                  : null,
               boxShadow: hit
                   ? const [
                       BoxShadow(
-                        color: Color(0x55FF4D4F),
-                        blurRadius: 14,
+                        color: Color(0x44FF4D4F),
+                        blurRadius: 18,
                         spreadRadius: 1,
                       ),
                     ]
-                  : [],
+                  : null,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (hit) ...[
-                  const Icon(Icons.auto_awesome, size: 14, color: Colors.white),
-                  const SizedBox(width: 4),
-                ],
-                Text(
-                  actualSpecialNumber,
-                  style: TextStyle(
-                    color: hit ? Colors.white : accentColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    gradient: hit
+                        ? const LinearGradient(
+                            colors: [Color(0xFFFF3B30), Color(0xFFFFB020)],
+                          )
+                        : null,
+                    color: hit ? null : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: hit
+                          ? Colors.white.withOpacity(0.75)
+                          : const Color(0xFFE2E8F0),
+                    ),
+                    boxShadow: hit
+                        ? const [
+                            BoxShadow(
+                              color: Color(0x55FF4D4F),
+                              blurRadius: 12,
+                              spreadRadius: 1,
+                            ),
+                          ]
+                        : [],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (hit) ...[
+                        const Icon(
+                          Icons.auto_awesome,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        actualSpecialNumber,
+                        style: TextStyle(
+                          color: hit ? Colors.white : accentColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                if (actualSpecialZodiac.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '生肖：$actualSpecialZodiac',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: hit
+                          ? const Color(0xFFE11D48)
+                          : const Color(0xFF1F2937),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
-          if (actualSpecialZodiac.isNotEmpty)
-            Text(
-              '生肖：$actualSpecialZodiac',
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF1F2937),
-              ),
-            ),
-          if (hit)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFEEF2),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFFFC2D1)),
-              ),
-              child: const Text(
-                '命中',
-                style: TextStyle(
-                  color: Color(0xFFE11D48),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
         ],
       ],
     );
@@ -6021,9 +6044,9 @@ class _PredictScreenState extends State<PredictScreen> {
                   children: [
                     Row(
                       children: [
-                        _buildPredictionRegionButton('hk', '香港'),
-                        const SizedBox(width: 8),
                         _buildPredictionRegionButton('macau', '澳门'),
+                        const SizedBox(width: 8),
+                        _buildPredictionRegionButton('hk', '香港'),
                       ],
                     ),
                     const SizedBox(height: 12),
