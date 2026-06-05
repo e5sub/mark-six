@@ -14,6 +14,22 @@ import 'api_client.dart';
 import 'config.dart';
 import 'models.dart';
 
+const String _lastRegionPrefKey = 'last_selected_region';
+
+String _normalizeRegion(String? value) {
+  return value == 'hk' ? 'hk' : 'macau';
+}
+
+Future<String> _loadLastRegion() async {
+  final prefs = await SharedPreferences.getInstance();
+  return _normalizeRegion(prefs.getString(_lastRegionPrefKey));
+}
+
+Future<void> _saveLastRegion(String value) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(_lastRegionPrefKey, _normalizeRegion(value));
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MarkSixApp());
@@ -1420,7 +1436,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       TextEditingController(text: '2');
   final Map<int, TextEditingController> _numberStakeControllers = {};
 
-  String _region = 'hk';
+  String _region = 'macau';
   DrawRecord? _latestDraw;
   String _nextPeriod = '';
   bool _loading = false;
@@ -1995,9 +2011,16 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   @override
   void initState() {
     super.initState();
+    _loadOddsPrefs();
+    _restoreRegionAndLoad();
+  }
+
+  Future<void> _restoreRegionAndLoad() async {
+    final savedRegion = await _loadLastRegion();
+    if (!mounted) return;
+    setState(() => _region = savedRegion);
     _loadLatestDraw();
     _loadManualBets();
-    _loadOddsPrefs();
   }
 
   @override
@@ -2549,8 +2572,10 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () {
+        onTap: () async {
           if (_region == value) return;
+          await _saveLastRegion(value);
+          if (!mounted) return;
           setState(() {
             _region = value;
             _latestDraw = null;
@@ -3312,7 +3337,7 @@ class RecordsScreen extends StatefulWidget {
 class _RecordsScreenState extends State<RecordsScreen> {
   List<DrawRecord> _records = [];
   List<DrawRecord> _allRecords = [];
-  String _region = 'hk';
+  String _region = 'macau';
   bool _loading = false;
   bool _nextDrawLoading = false;
   String? _nextDrawTime;
@@ -3327,13 +3352,20 @@ class _RecordsScreenState extends State<RecordsScreen> {
   void initState() {
     super.initState();
     _yearController.text = DateTime.now().year.toString();
-    _fetch();
-    _fetchNextDrawTime();
+    _restoreRegionAndLoad();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(() {});
       }
     });
+  }
+
+  Future<void> _restoreRegionAndLoad() async {
+    final savedRegion = await _loadLastRegion();
+    if (!mounted) return;
+    setState(() => _region = savedRegion);
+    _fetch();
+    _fetchNextDrawTime();
   }
 
   @override
@@ -3556,8 +3588,10 @@ class _RecordsScreenState extends State<RecordsScreen> {
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () {
+        onTap: () async {
           if (_region == value) return;
+          await _saveLastRegion(value);
+          if (!mounted) return;
           setState(() => _region = value);
           _fetch(showLoading: false);
           _fetchNextDrawTime();
@@ -4107,7 +4141,7 @@ class PredictScreen extends StatefulWidget {
 }
 
 class _PredictScreenState extends State<PredictScreen> {
-  String _region = 'hk';
+  String _region = 'macau';
   String _strategy = 'ml';
   bool _loading = false;
   String _aiText = '';
@@ -4272,8 +4306,10 @@ class _PredictScreenState extends State<PredictScreen> {
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () {
+        onTap: () async {
           if (_region == value) return;
+          await _saveLastRegion(value);
+          if (!mounted) return;
           setState(() {
             _region = value;
             _resetPrediction();
@@ -4312,6 +4348,13 @@ class _PredictScreenState extends State<PredictScreen> {
   @override
   void initState() {
     super.initState();
+    _restoreRegionAndLoad();
+  }
+
+  Future<void> _restoreRegionAndLoad() async {
+    final savedRegion = await _loadLastRegion();
+    if (!mounted) return;
+    setState(() => _region = savedRegion);
     _loadPredictionRecords();
   }
 
@@ -5325,6 +5368,7 @@ class _PredictScreenState extends State<PredictScreen> {
     final strategyLabel = _strategyLabels[item.strategy] ?? item.strategy;
     final accentColor = _strategyColor(item.strategy);
     final statusColor = _resultColor(item.result);
+    final itemRegionLabel = item.region == 'macau' ? '澳门' : '香港';
     return Container(
       width: forcedWidth ?? (inlineSpecialOnly ? 164 : null),
       margin: EdgeInsets.only(
@@ -5402,7 +5446,7 @@ class _PredictScreenState extends State<PredictScreen> {
               if (!inlineSpecialOnly) ...[
                 const SizedBox(height: 6),
                 Text(
-                  '预测记录',
+                  '$itemRegionLabel预测记录',
                   style: TextStyle(
                     color: Colors.grey.shade600,
                     fontSize: 10,
@@ -5547,95 +5591,72 @@ class _PredictScreenState extends State<PredictScreen> {
               color: Color(0xFF1F2937),
             ),
           ),
-          Container(
-            padding: EdgeInsets.fromLTRB(
-              hit ? 5 : 0,
-              hit ? 4 : 0,
-              hit ? 10 : 0,
-              hit ? 4 : 0,
-            ),
-            decoration: BoxDecoration(
-              color: hit ? const Color(0xFFFFF1F2) : null,
-              borderRadius: BorderRadius.circular(999),
-              border: hit
-                  ? Border.all(color: const Color(0xFFFF4D4F), width: 1.6)
-                  : null,
-              boxShadow: hit
-                  ? const [
-                      BoxShadow(
-                        color: Color(0x44FF4D4F),
-                        blurRadius: 18,
-                        spreadRadius: 1,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    gradient: hit
-                        ? const LinearGradient(
-                            colors: [Color(0xFFFF3B30), Color(0xFFFFB020)],
-                          )
-                        : null,
-                    color: hit ? null : const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: hit
-                          ? Colors.white.withOpacity(0.75)
-                          : const Color(0xFFE2E8F0),
-                    ),
-                    boxShadow: hit
-                        ? const [
-                            BoxShadow(
-                              color: Color(0x55FF4D4F),
-                              blurRadius: 12,
-                              spreadRadius: 1,
-                            ),
-                          ]
-                        : [],
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  gradient: hit
+                      ? const LinearGradient(
+                          colors: [Color(0xFFFF3B30), Color(0xFFFFB020)],
+                        )
+                      : null,
+                  color: hit ? null : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: hit
+                        ? const Color(0xFFFFC2D1)
+                        : const Color(0xFFE2E8F0),
+                    width: hit ? 1.4 : 1,
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (hit) ...[
-                        const Icon(
-                          Icons.auto_awesome,
-                          size: 14,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                      Text(
-                        actualSpecialNumber,
-                        style: TextStyle(
-                          color: hit ? Colors.white : accentColor,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                        ),
+                  boxShadow: hit
+                      ? const [
+                          BoxShadow(
+                            color: Color(0x44FF4D4F),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : [],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hit) ...[
+                      const Icon(
+                        Icons.auto_awesome,
+                        size: 14,
+                        color: Colors.white,
                       ),
+                      const SizedBox(width: 4),
                     ],
+                    Text(
+                      actualSpecialNumber,
+                      style: TextStyle(
+                        color: hit ? Colors.white : accentColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (actualSpecialZodiac.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Text(
+                  '生肖：$actualSpecialZodiac',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: hit
+                        ? const Color(0xFFE11D48)
+                        : const Color(0xFF1F2937),
                   ),
                 ),
-                if (actualSpecialZodiac.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    '生肖：$actualSpecialZodiac',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                      color: hit
-                          ? const Color(0xFFE11D48)
-                          : const Color(0xFF1F2937),
-                    ),
-                  ),
-                ],
               ],
-            ),
+            ],
           ),
         ],
       ],
@@ -5847,6 +5868,7 @@ class _PredictScreenState extends State<PredictScreen> {
   }
 
   Widget _buildPredictionRecordsSection() {
+    final regionLabel = _region == 'macau' ? '澳门' : '香港';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -5855,10 +5877,13 @@ class _PredictScreenState extends State<PredictScreen> {
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    '预测记录',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    '$regionLabel预测记录',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 IconButton(
