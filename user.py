@@ -505,7 +505,7 @@ def _strategy_backtests(user_id):
 
 def _learning_snapshot():
     snapshots = {}
-    tracked = [item["key"] for item in STRATEGY_META if item["key"] in LOCAL_STRATEGIES or item["key"] == "ai"]
+    tracked = [item["key"] for item in STRATEGY_META if item["key"] in LOCAL_STRATEGIES]
     for region in ("hk", "macau"):
         region_data = {}
         for strategy in tracked:
@@ -552,7 +552,7 @@ def _learning_snapshot():
 def _build_learning_comparison():
     snapshots = _learning_snapshot()
     comparisons = {}
-    tracked = [item["key"] for item in STRATEGY_META if item["key"] in LOCAL_STRATEGIES or item["key"] == "ai"]
+    tracked = [item["key"] for item in STRATEGY_META if item["key"] in LOCAL_STRATEGIES]
 
     def _ranking_map_from_backtest(record):
         if not record:
@@ -672,6 +672,13 @@ def _build_learning_comparison():
     return comparisons
 
 
+def _visible_backtest_top_items(ranking, limit=3):
+    return [
+        item for item in (ranking or [])
+        if str((item or {}).get("strategy") or "").strip() in LOCAL_STRATEGIES
+    ][:limit]
+
+
 def _latest_backtest_summary(limit=6):
     items = []
     region_order = [("hk", "香港"), ("macau", "澳门")]
@@ -705,7 +712,7 @@ def _latest_backtest_summary(limit=6):
         except Exception:
             payload = {}
         ranking = payload.get("ranking") or []
-        top_items = ranking[:3]
+        top_items = _visible_backtest_top_items(ranking)
         periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
         if periods_evaluated <= 0 or not top_items:
             _kickoff_backtest_snapshot_refresh(region_key)
@@ -735,7 +742,7 @@ def _latest_backtest_summary(limit=6):
         except Exception:
             payload = {}
         ranking = payload.get("ranking") or []
-        top_items = ranking[:3]
+        top_items = _visible_backtest_top_items(ranking)
         periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
         items.append({
             "id": record.id,
@@ -786,7 +793,7 @@ def _latest_unique_backtest_summary(limit=6):
             payload = {}
 
         ranking = payload.get("ranking") or []
-        top_items = ranking[:3]
+        top_items = _visible_backtest_top_items(ranking)
         periods_evaluated = int(record.periods_evaluated or payload.get("periods_evaluated", 0) or 0)
 
         if periods_evaluated <= 0 or not top_items:
