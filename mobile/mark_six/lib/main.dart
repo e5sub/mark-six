@@ -3343,6 +3343,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
   bool _nextDrawLoading = false;
   String? _nextDrawTime;
   Timer? _countdownTimer;
+  Timer? _recordsRefreshTimer;
   final TextEditingController _yearController = TextEditingController();
   final TextEditingController _monthController = TextEditingController();
   final TextEditingController _periodController = TextEditingController();
@@ -3359,6 +3360,9 @@ class _RecordsScreenState extends State<RecordsScreen> {
         setState(() {});
       }
     });
+    _recordsRefreshTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      _refreshRecordsSilently();
+    });
   }
 
   Future<void> _restoreRegionAndLoad() async {
@@ -3372,6 +3376,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _recordsRefreshTimer?.cancel();
     _yearController.dispose();
     _monthController.dispose();
     _periodController.dispose();
@@ -3403,6 +3408,12 @@ class _RecordsScreenState extends State<RecordsScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<void> _refreshRecordsSilently() async {
+    if (!mounted || _loading || _updatingDraws) return;
+    await _fetch(showLoading: false);
+    await _fetchNextDrawTime();
   }
 
   Future<void> _fetchNextDrawTime() async {

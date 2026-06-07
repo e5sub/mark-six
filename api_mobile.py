@@ -1892,12 +1892,11 @@ def api_update_data():
             message = f"开奖数据更新完成：{'，'.join(updated_regions)}"
             if failed_regions:
                 message += f"；未完成：{'；'.join(failed_regions)}"
-            if _start_draw_postprocess_async(
+            _start_draw_postprocess_async(
                 updated_region_keys,
                 current_year,
                 source="mobile-manual-postprocess",
-            ):
-                message += "；自动预测和回测快照已转入后台继续处理"
+            )
             _log_draw_update(message, source="mobile-manual", region=region)
             return jsonify({"success": True, "message": message})
 

@@ -1732,6 +1732,7 @@ def _prediction_notice_wrapper_html(title, intro, body_html, footer_note='', ton
 LOCAL_STRATEGY_KEYS = ["hot", "cold", "trend", "hybrid", "balanced", "markov", "ml"]
 _draws_api_cache_lock = threading.Lock()
 _draws_api_cache = {}
+_DRAWS_API_CACHE_TTL = 60
 
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
@@ -11423,6 +11424,9 @@ def _get_draws_cache(cache_key):
     with _draws_api_cache_lock:
         cached = _draws_api_cache.get(cache_key)
         if cached:
+            if time.time() - cached.get('created_at', 0) > _DRAWS_API_CACHE_TTL:
+                _draws_api_cache.pop(cache_key, None)
+                return None
             return copy.deepcopy(cached['data'])
     return None
 
@@ -12606,6 +12610,9 @@ def draws_api():
 def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune_strategy_configs=True):
     """更新预测准确率 - 只比较特码和生肖"""
     try:
+        if data:
+            _clear_draws_cache(region)
+
         # 获取所有该地区的预测记录
         predictions = PredictionRecord.query.filter_by(region=region).all()
         
@@ -13320,8 +13327,7 @@ def update_data_api():
             message = f"开奖数据更新完成：{'，'.join(updated_regions)}"
             if failed_regions:
                 message += f"；未完成：{'；'.join(failed_regions)}"
-            if _start_draw_postprocess_async(updated_region_keys, current_year, source="manual-postprocess"):
-                message += "；自动预测和回测快照已转入后台继续处理"
+            _start_draw_postprocess_async(updated_region_keys, current_year, source="manual-postprocess")
             _log_draw_update(message, source="manual", region=region)
             return jsonify({
                 "success": True,
