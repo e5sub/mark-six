@@ -1809,6 +1809,107 @@ def api_prediction_summaries():
     )
 
 
+@mobile_api_bp.route("/update_data", methods=["POST"])
+def api_update_data():
+    _, error = _require_active_user()
+    if error:
+        return error
+
+    payload = request.get_json(silent=True) or {}
+    region = str(payload.get("region") or "all").strip()
+    if region not in {"all", "hk", "macau"}:
+        return _json_error("region is invalid")
+    if _rate_limited(f"mobile_update_data:{_client_ip()}:{region}", 6, 3600):
+        return _json_error("too many update attempts", status=429, code="rate_limited")
+
+    try:
+        from app import (
+            _log_draw_update,
+            _start_draw_postprocess_async,
+            get_macau_data,
+            load_hk_data,
+            save_draws_to_database,
+            update_hk_next_draw_time_cache,
+            update_prediction_accuracy,
+        )
+
+        current_year = str(datetime.now().year)
+        _log_draw_update(
+            f"移动端手动更新开奖数据 current_year={current_year}",
+            source="mobile-manual",
+            region=region,
+        )
+        updated_regions = []
+        updated_region_keys = []
+        failed_regions = []
+
+        if region in {"all", "hk"}:
+            try:
+                hk_data = load_hk_data(force_refresh=True)
+                hk_filtered = [
+                    rec for rec in hk_data
+                    if str(rec.get("date", "")).startswith(current_year)
+                ]
+                save_draws_to_database(hk_filtered, "hk")
+                update_prediction_accuracy(
+                    hk_filtered,
+                    "hk",
+                    trigger_auto_predictions=False,
+                    tune_strategy_configs=False,
+                )
+                update_hk_next_draw_time_cache(force=True)
+                updated_regions.append(f"香港{len(hk_filtered)}条")
+                updated_region_keys.append("hk")
+            except Exception as region_error:
+                failed_regions.append(f"香港: {region_error}")
+                _log_draw_update(
+                    f"移动端香港开奖更新失败 error={region_error}",
+                    source="mobile-manual",
+                    region="hk",
+                )
+
+        if region in {"all", "macau"}:
+            try:
+                macau_data = get_macau_data(current_year, force_api=True)
+                save_draws_to_database(macau_data, "macau")
+                update_prediction_accuracy(
+                    macau_data,
+                    "macau",
+                    trigger_auto_predictions=False,
+                    tune_strategy_configs=False,
+                )
+                updated_regions.append(f"澳门{len(macau_data)}条")
+                updated_region_keys.append("macau")
+            except Exception as region_error:
+                failed_regions.append(f"澳门: {region_error}")
+                _log_draw_update(
+                    f"移动端澳门开奖更新失败 error={region_error}",
+                    source="mobile-manual",
+                    region="macau",
+                )
+
+        if updated_regions:
+            message = f"开奖数据更新完成：{'，'.join(updated_regions)}"
+            if failed_regions:
+                message += f"；未完成：{'；'.join(failed_regions)}"
+            if _start_draw_postprocess_async(
+                updated_region_keys,
+                current_year,
+                source="mobile-manual-postprocess",
+            ):
+                message += "；自动预测和回测快照已转入后台继续处理"
+            _log_draw_update(message, source="mobile-manual", region=region)
+            return jsonify({"success": True, "message": message})
+
+        message = "更新失败"
+        if failed_regions:
+            message = f"{message}：{'；'.join(failed_regions)}"
+        _log_draw_update(message, source="mobile-manual", region=region)
+        return jsonify({"success": False, "message": message}), 500
+    except Exception as e:
+        return _json_error(f"更新失败: {e}", status=500, code="update_failed")
+
+
 @mobile_api_bp.route("/predictions", methods=["GET"])
 def api_predictions():
     user, error = _require_active_user()

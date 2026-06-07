@@ -3339,6 +3339,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
   List<DrawRecord> _allRecords = [];
   String _region = 'macau';
   bool _loading = false;
+  bool _updatingDraws = false;
   bool _nextDrawLoading = false;
   String? _nextDrawTime;
   Timer? _countdownTimer;
@@ -3578,6 +3579,27 @@ class _RecordsScreenState extends State<RecordsScreen> {
     _specialNumberController.clear();
     _specialZodiacController.clear();
     _applyFilters();
+  }
+
+  Future<void> _updateDrawData() async {
+    setState(() => _updatingDraws = true);
+    try {
+      final res = await ApiClient.instance.updateDrawData(region: _region);
+      final message = res['message']?.toString() ?? '';
+      if (res['success'] == true) {
+        _showMessage(message.isEmpty ? '开奖记录更新完成' : message);
+        await _fetch(showLoading: false);
+        await _fetchNextDrawTime();
+      } else {
+        _showMessage(message.isEmpty ? '更新开奖记录失败' : message);
+      }
+    } catch (e) {
+      _showMessage('更新开奖记录失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _updatingDraws = false);
+      }
+    }
   }
 
   Widget _buildHeaderRegionButton(String value, String label) {
@@ -3871,9 +3893,18 @@ class _RecordsScreenState extends State<RecordsScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                OutlinedButton(
-                  onPressed: _resetFilters,
-                  child: const Text('重置'),
+                OutlinedButton.icon(
+                  onPressed: (_loading || _updatingDraws)
+                      ? null
+                      : _updateDrawData,
+                  icon: _updatingDraws
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  label: Text(_updatingDraws ? '更新中' : '更新开奖'),
                 ),
               ],
             ),

@@ -345,6 +345,15 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  Future<Map<String, dynamic>> updateDrawData({
+    required String region,
+  }) async {
+    final response = await post('/api/mobile/update_data', data: {
+      'region': region,
+    });
+    return _ensureJsonMap(response.data);
+  }
+
   Future<Map<String, dynamic>> getZodiacs({
     required List<String> numbers,
     required String region,
