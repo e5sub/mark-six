@@ -328,6 +328,24 @@ def _translate_ml_promotion_strength(value):
     return mapping.get(key, key or "观察中")
 
 
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _effective_markov_promotion_strength(item):
+    strength = str((item or {}).get("promotion_strength") or (item or {}).get("strength") or "hold").strip() or "hold"
+    top1 = _safe_float((item or {}).get("promotion_backtest_top1", (item or {}).get("top1_hit_rate")), 0.0)
+    top6 = _safe_float((item or {}).get("promotion_backtest_top6", (item or {}).get("top6_hit_rate")), 0.0)
+    rank = int(_safe_float((item or {}).get("promotion_backtest_rank", (item or {}).get("backtest_rank")), 0))
+    score = top1 + top6 * 0.35
+    if top1 <= 0.0 or score < 1.0 or rank >= 6:
+        return "hold"
+    return strength
+
+
 def _decorate_ml_config_snapshot(config):
     snapshot = dict(config or {})
     snapshot["primary_runtime_profile_label"] = _translate_ml_runtime_profile(
@@ -362,14 +380,14 @@ def _decorate_ml_config_snapshot(config):
 def _decorate_markov_config_snapshot(config):
     snapshot = dict(config or {})
     snapshot["promotion_strength_label"] = _translate_ml_promotion_strength(
-        snapshot.get("promotion_strength")
+        _effective_markov_promotion_strength(snapshot)
     )
 
     history_items = []
     for item in list(snapshot.get("promotion_history") or [])[:8]:
         history_copy = dict(item or {})
         history_copy["strength_label"] = _translate_ml_promotion_strength(
-            history_copy.get("strength")
+            _effective_markov_promotion_strength(history_copy)
         )
         preferred = dict(history_copy.get("preferred") or {})
         parts = []
@@ -1620,6 +1638,7 @@ def _get_markov_panel_data():
     for region in ("hk", "macau"):
         config = _strategy_config(region, "markov")
         weights = config.get("weights") or {}
+        effective_strength = _effective_markov_promotion_strength(config)
         config_rows.append({
             "region": region,
             "label": "香港" if region == "hk" else "澳门",
@@ -1630,7 +1649,7 @@ def _get_markov_panel_data():
             "transition_min_samples": config.get("transition_min_samples"),
             "promotion_strength": config.get("promotion_strength", "hold"),
             "promotion_strength_label": _translate_ml_promotion_strength(
-                config.get("promotion_strength", "hold")
+                effective_strength
             ),
             "learning_confidence": round(float(config.get("profile_learning_confidence") or 0.0) * 100, 1),
             "cooldown": config.get("promotion_next_allowed_at", ""),

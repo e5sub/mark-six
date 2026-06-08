@@ -4550,7 +4550,8 @@ def _promote_markov_region_profile(region, persist=True):
     adaptation = _resolve_learning_adaptation(region, "markov")
     cooldown_hours = min(_safe_float(config.get("promotion_cooldown_hours"), 6.0), adaptation["markov_cooldown_cap"])
     last_promoted_at = str(config.get("promoted_at") or "").strip()
-    if last_promoted_at and cooldown_hours > 0:
+    previous_promotion_strength = str(config.get("promotion_strength") or "").strip()
+    if previous_promotion_strength == "promoted" and last_promoted_at and cooldown_hours > 0:
         try:
             last_time = datetime.fromisoformat(last_promoted_at)
             if datetime.now() - last_time < timedelta(hours=cooldown_hours):
@@ -4591,12 +4592,28 @@ def _promote_markov_region_profile(region, persist=True):
     previous_score = _safe_float(config.get("promotion_backtest_top1"), 0.0) + (_safe_float(config.get("promotion_backtest_top6"), 0.0) * 0.35)
     current_score = markov_top1 + (markov_top6 * 0.35)
     min_gain = min(_safe_float(config.get("promotion_min_gain"), 0.25), adaptation["markov_min_gain_cap"])
+    ranking_size = len(ranking)
+    bottom_rank = bool(markov_rank and ranking_size and markov_rank >= max(5, ranking_size - 1))
+    weak_backtest = bool(markov_entry) and (
+        markov_top1 <= 0.0 or
+        current_score < 1.0 or
+        bottom_rank
+    )
 
     promotion_strength = "hold"
-    if close_to_leader and learning_confidence >= adaptation["markov_promote_threshold"] and (previous_score <= 0 or current_score >= previous_score + min_gain):
+    if (
+        not weak_backtest and
+        close_to_leader and
+        learning_confidence >= adaptation["markov_promote_threshold"] and
+        (previous_score <= 0 or current_score >= previous_score + min_gain)
+    ):
         promotion_strength = "promoted"
-    elif learning_confidence >= adaptation["markov_watch_threshold"]:
+    elif not weak_backtest and learning_confidence >= adaptation["markov_watch_threshold"]:
         promotion_strength = "watch"
+    elif weak_backtest:
+        config["promotion_skipped_reason"] = "weak_backtest"
+    else:
+        config.pop("promotion_skipped_reason", None)
 
     if preferred and promotion_strength in ("promoted", "watch"):
         blend = adaptation["markov_promote_blend"] if promotion_strength == "promoted" else adaptation["markov_watch_blend"]
@@ -4658,7 +4675,8 @@ def _promote_markov_region_profile(region, persist=True):
     config["promotion_backtest_rank"] = markov_rank
     config["promotion_backtest_top1"] = round(markov_top1, 2)
     config["promotion_backtest_top6"] = round(markov_top6, 2)
-    config["promoted_at"] = datetime.now().isoformat()
+    if promotion_strength in ("promoted", "watch"):
+        config["promoted_at"] = datetime.now().isoformat()
 
     current = {
         "window": config.get("window"),
@@ -6583,6 +6601,66 @@ def _build_markov_ml_distillation(region):
     }
 
 
+def _build_markov_anchor_profile(region):
+    weighted_items = []
+    for strategy in ("ml", "hybrid", "balanced", "trend"):
+        rates = _calculate_strategy_hit_rates(region, strategy, limit=48)
+        total = int(rates.get("total") or 0)
+        if total <= 0:
+            continue
+        special_rate = float(rates.get("top1") or 0.0)
+        normal_rate = float(rates.get("top6") or 0.0)
+        quality = special_rate + normal_rate * 0.35
+        if quality <= 0:
+            continue
+        feedback = _build_prediction_feedback(region, strategy, limit=160)
+        confidence = float(feedback.get("confidence") or 0.0)
+        weight = quality * _clamp(total / 24.0, 0.25, 1.0) * max(confidence, 0.2)
+        weighted_items.append((feedback, weight, strategy, rates))
+
+    if not weighted_items:
+        return {"active": False, "confidence": 0.0, "samples": 0, "special": {}, "normal": {}, "strategies": []}
+
+    total_weight = sum(item[1] for item in weighted_items) or 1.0
+    merged = {"special": {}, "normal": {}}
+    for section in ("special", "normal"):
+        keys = {str(i) for i in range(1, 50)}
+        merged[section] = {
+            key: round(
+                sum(
+                    float((feedback.get(section) or {}).get(key, 0.5) or 0.5) * weight
+                    for feedback, weight, _, _ in weighted_items
+                ) / total_weight,
+                4,
+            )
+            for key in keys
+        }
+
+    samples = sum(int((feedback or {}).get("samples") or 0) for feedback, _, _, _ in weighted_items)
+    confidence = _clamp(
+        sum(float((feedback or {}).get("confidence") or 0.0) * weight for feedback, weight, _, _ in weighted_items) / total_weight,
+        0.0,
+        1.0,
+    )
+    return {
+        "active": True,
+        "confidence": round(confidence, 4),
+        "samples": samples,
+        "special": merged["special"],
+        "normal": merged["normal"],
+        "strategies": [
+            {
+                "strategy": strategy,
+                "weight": round(weight / total_weight, 4),
+                "top1": round(float(rates.get("top1") or 0.0) * 100, 2),
+                "top6": round(float(rates.get("top6") or 0.0) * 100, 2),
+                "total": int(rates.get("total") or 0),
+            }
+            for _, weight, strategy, rates in weighted_items
+        ],
+    }
+
+
 def _score_markov_combo_shape(numbers, data, region, year):
     selected = [int(number) for number in (numbers or []) if str(number).isdigit()]
     if not selected:
@@ -7032,9 +7110,17 @@ def _predict_with_markov(data, region, variation_key=None):
     feedback = _build_prediction_feedback(region, "markov")
     failure_profile = _build_markov_failure_profile(region)
     ml_distillation = _build_markov_ml_distillation(region) if markov_guard.get("mode") == "anchor_guard" else {"confidence": 0.0, "samples": 0, "special": {}, "normal": {}}
+    anchor_profile = _build_markov_anchor_profile(region)
     feedback_confidence = float(feedback.get("confidence") or 0.0)
     failure_confidence = float(failure_profile.get("confidence") or 0.0)
     ml_distill_confidence = float(ml_distillation.get("confidence") or 0.0)
+    anchor_confidence = float(anchor_profile.get("confidence") or 0.0)
+    anchor_weight = 0.0
+    if anchor_profile.get("active"):
+        if markov_guard.get("mode") == "anchor_guard":
+            anchor_weight = _clamp(0.35 + anchor_confidence * 0.45, 0.35, 0.8)
+        elif markov_guard.get("mode") == "neutral":
+            anchor_weight = _clamp(0.08 + anchor_confidence * 0.16, 0.08, 0.24)
     color_pref, zodiac_pref, parity_pref = _build_attribute_preferences(
         recent_data,
         region,
@@ -7067,6 +7153,10 @@ def _predict_with_markov(data, region, variation_key=None):
             ((ml_distillation.get("special") or {}).get(key, 0.5) - 0.5) * 0.58 +
             ((ml_distillation.get("normal") or {}).get(key, 0.5) - 0.5) * 0.42
         ) * ml_distill_confidence
+        anchor_score = (
+            ((anchor_profile.get("special") or {}).get(key, 0.5) - 0.5) * 0.62 +
+            ((anchor_profile.get("normal") or {}).get(key, 0.5) - 0.5) * 0.38
+        ) * anchor_confidence
         attr = attribute_score(number)
         attribute_transition_score = _score_markov_attribute_transition(
             number,
@@ -7092,6 +7182,7 @@ def _predict_with_markov(data, region, variation_key=None):
             float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
             float(weights.get("feedback", 0.0)) * feedback_score +
             (0.42 if markov_guard.get("mode") == "anchor_guard" else 0.12) * ml_distill_score +
+            anchor_weight * anchor_score +
             float(weights.get("failure", 0.0)) * failure_adjustment +
             attr +
             repeat_penalty(number)
@@ -7109,6 +7200,7 @@ def _predict_with_markov(data, region, variation_key=None):
             float(weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) * 0.35 +
             float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) * 0.25 +
             (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence * 0.32 +
+            ((anchor_profile.get("special") or {}).get(key, 0.5) - 0.5) * anchor_confidence * anchor_weight * 0.75 +
             parity_bonus,
             6,
         )
@@ -7145,9 +7237,41 @@ def _predict_with_markov(data, region, variation_key=None):
         if combo_rank and normal:
             normal = sorted(_dedupe_keep_order(normal[:-1] + [combo_rank[0]])[:6])
             combo_profile = _score_markov_combo_shape(normal, recent_data, region, year)
+    if anchor_weight > 0 and anchor_profile.get("active"):
+        anchor_normal_scores = anchor_profile.get("normal") or {}
+        anchor_rank = sorted(
+            [number for number in range(1, 50) if number not in normal],
+            key=lambda number: (
+                float(anchor_normal_scores.get(str(number), 0.5) or 0.5),
+                number_scores.get(number, 0.0),
+            ),
+            reverse=True,
+        )
+        normal, anchor_combo_profile = _rebalance_local_combo_shape(
+            normal,
+            anchor_rank + overall_rank,
+            number_scores,
+            recent_data,
+            region,
+            year,
+        )
+        if anchor_combo_profile.get("adjusted"):
+            combo_profile = anchor_combo_profile
 
     remaining_numbers = [number for number in range(1, 50) if number not in normal]
     special_rank = _rank_numbers(special_scores, candidates=remaining_numbers)
+    if anchor_weight > 0 and anchor_profile.get("active"):
+        anchor_special_scores = anchor_profile.get("special") or {}
+        anchor_special_rank = sorted(
+            remaining_numbers,
+            key=lambda number: (
+                special_scores.get(number, 0.0) +
+                float(anchor_special_scores.get(str(number), 0.5) or 0.5) * anchor_weight,
+                special_scores.get(number, 0.0),
+            ),
+            reverse=True,
+        )
+        special_rank = _dedupe_keep_order(anchor_special_rank[:max(special_pool_size, 8)] + special_rank)
     special_candidates = special_rank[:special_pool_size] or [number for number in overall_rank if number not in normal]
     special_pick = _take_personalized_ranked(special_candidates, 1, variation_key=variation_key, window_size=max(special_pool_size // 2, 2))
     special_num = special_pick[0] if special_pick else special_candidates[0]
@@ -7160,6 +7284,8 @@ def _predict_with_markov(data, region, variation_key=None):
     ]
     if markov_guard.get("active"):
         explanation_bits.append("近期不稳时会自动保守一点" if markov_guard.get("mode") == "anchor_guard" else "近期表现好时会适当加大参考")
+    if anchor_weight > 0:
+        explanation_bits.append("并参考近期更稳策略的历史反馈")
     chain_text = ""
     if support_chains:
         chain_parts = []
@@ -7219,6 +7345,13 @@ def _predict_with_markov(data, region, variation_key=None):
                 "active": bool(markov_guard.get("mode") == "anchor_guard"),
                 "samples": int(ml_distillation.get("samples") or 0),
                 "confidence": round(float(ml_distillation.get("confidence") or 0.0) * 100, 2),
+            },
+            "markov_anchor_profile": {
+                "active": bool(anchor_weight > 0 and anchor_profile.get("active")),
+                "weight": round(anchor_weight * 100, 2),
+                "samples": int(anchor_profile.get("samples") or 0),
+                "confidence": round(anchor_confidence * 100, 2),
+                "strategies": anchor_profile.get("strategies") or [],
             },
             "markov_combo_profile": combo_profile,
             "markov_support_chains": support_chains,
