@@ -1580,12 +1580,32 @@ def _prediction_notice_number_table_html(normal_html, special_html):
     '''
 
 
-def _prediction_notice_card_html(title, normal_numbers, special_number, special_zodiac=None, accent='#93c5fd', normal_zodiacs=None):
+def _prediction_notice_special_only_table_html(special_html):
+    return f'''
+    <table class="notice-number-table" role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;border-collapse:collapse;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+        <tr>
+            <th style="padding:9px 10px;text-align:center;background:#e2e8f0;color:#0f172a;-webkit-text-fill-color:#0f172a;font-size:14px;font-weight:800;border-bottom:1px solid #cbd5e1;">特码</th>
+        </tr>
+        <tr>
+            <td class="notice-special-cell" style="padding:14px 10px;text-align:center;white-space:nowrap;vertical-align:top;background:#f8fafc;">
+                {special_html or '<span class="notice-muted-text" style="color:#64748b;-webkit-text-fill-color:#64748b;">暂无</span>'}
+            </td>
+        </tr>
+    </table>
+    '''
+
+
+def _prediction_notice_card_html(title, normal_numbers, special_number, special_zodiac=None, accent='#93c5fd', normal_zodiacs=None, show_normal_numbers=True):
     normal_html, special_html = _prediction_notice_balls_html(normal_numbers, special_number, special_zodiac, normal_zodiacs=normal_zodiacs)
+    number_table_html = (
+        _prediction_notice_number_table_html(normal_html, special_html)
+        if show_normal_numbers
+        else _prediction_notice_special_only_table_html(special_html)
+    )
     return f'''
     <div class="notice-prediction-card" style="padding:14px 0;border-bottom:1px solid rgba(148,163,184,.18);">
         <div class="notice-card-title" style="font-weight:800;color:{accent};font-size:15px;margin-bottom:8px;">{escape(title)}</div>
-        {_prediction_notice_number_table_html(normal_html, special_html)}
+        {number_table_html}
     </div>
     '''
 
@@ -13591,6 +13611,7 @@ def send_winning_notification_email(user, prediction, region):
 def send_combined_prediction_email(user, predictions, region, period, latest_draw=None):
     """发送新一期多策略预测合并的汇总推送邮件"""
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
+    show_normal_numbers = bool(getattr(user, 'show_normal_numbers', False))
     
     region_name = '香港' if region == 'hk' else '澳门'
     subject = f"{site_name} - {region_name}六合彩第{period}期预测汇总已生成"
@@ -13599,14 +13620,20 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
     text_rows = []
     for pred in predictions:
         strategy_name = _get_email_strategy_display(pred)
-        text_rows.append(
-            f"{strategy_name}: 平码 {pred.normal_numbers}; 特码 {pred.special_number} ({pred.special_zodiac})"
-        )
+        if show_normal_numbers:
+            text_rows.append(
+                f"{strategy_name}: 平码 {pred.normal_numbers}; 特码 {pred.special_number} ({pred.special_zodiac})"
+            )
+        else:
+            text_rows.append(
+                f"{strategy_name}: 特码 {pred.special_number} ({pred.special_zodiac})"
+            )
         cards_html += _prediction_notice_card_html(
             strategy_name,
             pred.normal_numbers,
             pred.special_number,
             pred.special_zodiac,
+            show_normal_numbers=show_normal_numbers,
         )
         
     latest_draw_html = ""
@@ -13661,6 +13688,7 @@ def send_combined_prediction_email(user, predictions, region, period, latest_dra
 def send_combined_winning_email(user, predictions, region, draw_data=None):
     """发送合并后的特码命中通知邮件（如果有多个策略同时命中）"""
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
+    show_normal_numbers = bool(getattr(user, 'show_normal_numbers', False))
     
     region_name = '香港' if region == 'hk' else '澳门'
     period = predictions[0].period
@@ -13677,6 +13705,7 @@ def send_combined_winning_email(user, predictions, region, draw_data=None):
             pred.special_number,
             pred.special_zodiac,
             accent='#16a34a',
+            show_normal_numbers=show_normal_numbers,
         )
         
     draw_html = ""
