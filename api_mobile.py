@@ -2165,6 +2165,14 @@ def _calculate_accuracy(query):
         "combined_accuracy": combined_accuracy,
     }
 
+
+def _count_distinct_prediction_periods(query):
+    return query.with_entities(
+        PredictionRecord.region,
+        PredictionRecord.period,
+    ).distinct().count()
+
+
 def _strategy_config(region, strategy):
     raw = SystemConfig.get_config(f"strategy_config_{region}_{strategy}", "")
     if not raw:
@@ -2240,6 +2248,7 @@ def api_accuracy():
 
     base_query = PredictionRecord.query.filter_by(user_id=user.id)
     overall = _calculate_accuracy(base_query)
+    overall["total"] = _count_distinct_prediction_periods(base_query)
 
     strategy_stats = {}
     for key in STRATEGY_KEYS:

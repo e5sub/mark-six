@@ -6692,7 +6692,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               icon: Icons.grid_view,
                             ),
                             _buildMetricTile(
-                              label: '总预测次数',
+                              label: '总预测期数',
                               value: _overall!.total.toString(),
                               color: const Color(0xFF7C3AED),
                               icon: Icons.analytics_outlined,

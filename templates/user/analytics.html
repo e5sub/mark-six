@@ -12,7 +12,7 @@
         <div class="stat-card-compact clickable-stat" data-filter="all">
             <div class="stat-icon" style="color: #667eea;">📊</div>
             <div class="stat-number">{{ stats.total_predictions or 0 }}</div>
-            <div class="stat-label">总预测次数</div>
+            <div class="stat-label">总预测期数</div>
         </div>
 
         <div class="stat-card-compact clickable-stat" data-filter="special_hit">
@@ -346,7 +346,7 @@
         <div class="trend-item">
             <div class="trend-period">总计</div>
             <div class="trend-stats">
-                <div class="trend-count">{{ stats.total_predictions or 0 }} 次预测</div>
+                <div class="trend-count">{{ stats.total_predictions or 0 }} 期预测</div>
                 <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
             </div>
         </div>

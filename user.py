@@ -31,6 +31,13 @@ def clear_user_runtime_caches():
         _backtest_refresh_state.clear()
 
 
+def _count_distinct_prediction_periods(query):
+    return query.with_entities(
+        PredictionRecord.region,
+        PredictionRecord.period,
+    ).distinct().count()
+
+
 def _notification_event_label(event_type):
     labels = {
         'prediction_generated': '预测汇总',
@@ -931,7 +938,8 @@ def dashboard():
     learning_comparison = _build_learning_comparison()
     latest_backtests = _latest_unique_backtest_summary()
     
-    total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
+    user_predictions_query = PredictionRecord.query.filter_by(user_id=user.id)
+    total_predictions = _count_distinct_prediction_periods(user_predictions_query)
     updated_predictions = PredictionRecord.query.filter_by(
         user_id=user.id,
         is_result_updated=True
@@ -1863,7 +1871,9 @@ def predictions():
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
     ).filter(PredictionRecord.user_id == session['user_id']).one()
 
-    total_predictions = stats_row[0] or 0
+    total_predictions = _count_distinct_prediction_periods(
+        PredictionRecord.query.filter_by(user_id=session['user_id'])
+    )
     updated_predictions = stats_row[1] or 0
     special_hit_predictions = stats_row[2] or 0
     normal_hit_predictions = stats_row[3] or 0
@@ -1951,7 +1961,7 @@ def predictions():
             'max_hit_streak': max_consecutive_special_hits,
             'max_miss_streak': max_consecutive_special_misses,
             'resolved_periods': resolved_periods,
-            'total_predictions': len(region_records),
+            'total_predictions': len({record.period for record in region_records}),
             'accuracy': accuracy,
             'recommendation': recommendation,
             'recommendation_level': level,
@@ -2852,7 +2862,8 @@ def analytics():
     learning_comparison = _build_learning_comparison()
     latest_backtests = _latest_unique_backtest_summary()
     
-    total_predictions = PredictionRecord.query.filter_by(user_id=user.id).count()
+    user_predictions_query = PredictionRecord.query.filter_by(user_id=user.id)
+    total_predictions = _count_distinct_prediction_periods(user_predictions_query)
     updated_predictions = PredictionRecord.query.filter_by(
         user_id=user.id,
         is_result_updated=True

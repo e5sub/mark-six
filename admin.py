@@ -212,6 +212,13 @@ def _build_ai_visual_weights(config):
     return _normalize_visual_weights(weight_map)
 
 
+def _count_distinct_prediction_periods(query):
+    return query.with_entities(
+        PredictionRecord.region,
+        PredictionRecord.period,
+    ).distinct().count()
+
+
 def _build_strategy_visual_weights(strategy, config):
     weights = config.get('weights') or {}
     if weights:
@@ -475,9 +482,11 @@ def dashboard():
         total_codes = ActivationCode.query.count()
         used_codes = ActivationCode.query.filter_by(is_used=True).count()
         unused_codes = total_codes - used_codes
-        total_predictions = PredictionRecord.query.count()
+        total_predictions = _count_distinct_prediction_periods(PredictionRecord.query)
         recent_signups_7d = User.query.filter(User.created_at >= week_ago).count()
-        recent_predictions_7d = PredictionRecord.query.filter(PredictionRecord.created_at >= week_ago).count()
+        recent_predictions_7d = _count_distinct_prediction_periods(
+            PredictionRecord.query.filter(PredictionRecord.created_at >= week_ago)
+        )
         pending_predictions = PredictionRecord.query.filter(
             (PredictionRecord.is_result_updated.is_(False)) | (PredictionRecord.is_result_updated.is_(None))
         ).count()
