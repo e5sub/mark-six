@@ -439,6 +439,32 @@ def _zodiac_hit_expr():
 def _secondary_hit_expr():
     return db.or_(_actual_in_normal_expr(), _zodiac_hit_expr())
 
+
+def _count_missed_prediction_periods(query):
+    hit_expr = db.case(
+        (
+            db.or_(
+                PredictionRecord.special_number == PredictionRecord.actual_special_number,
+                _secondary_hit_expr(),
+            ),
+            1,
+        ),
+        else_=0,
+    )
+    return query.filter(
+        PredictionRecord.is_result_updated == True,
+        PredictionRecord.actual_special_number != None,
+    ).with_entities(
+        PredictionRecord.region,
+        PredictionRecord.period,
+    ).group_by(
+        PredictionRecord.region,
+        PredictionRecord.period,
+    ).having(
+        db.func.sum(hit_expr) == 0
+    ).count()
+
+
 def _calculate_accuracy_summary(query):
     base_query = query.filter(
         PredictionRecord.is_result_updated.is_(True),
@@ -1877,7 +1903,9 @@ def predictions():
     updated_predictions = stats_row[1] or 0
     special_hit_predictions = stats_row[2] or 0
     normal_hit_predictions = stats_row[3] or 0
-    wrong_predictions = stats_row[4] or 0
+    wrong_predictions = _count_missed_prediction_periods(
+        PredictionRecord.query.filter_by(user_id=session['user_id'])
+    )
 
     accurate_predictions = special_hit_predictions
     
@@ -2883,13 +2911,9 @@ def analytics():
     
     accurate_predictions = special_hit_predictions
     
-    wrong_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
-    ).filter(
-        PredictionRecord.actual_special_number != None,
-        (PredictionRecord.special_number != PredictionRecord.actual_special_number)
-    ).count()
+    wrong_predictions = _count_missed_prediction_periods(
+        PredictionRecord.query.filter_by(user_id=user.id)
+    )
     
     # 计算不同策略的命中率
     def calculate_strategy_stats(strategy=None):
