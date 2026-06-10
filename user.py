@@ -443,10 +443,7 @@ def _secondary_hit_expr():
 def _count_missed_prediction_periods(query):
     hit_expr = db.case(
         (
-            db.or_(
-                PredictionRecord.special_number == PredictionRecord.actual_special_number,
-                _secondary_hit_expr(),
-            ),
+            PredictionRecord.special_number == PredictionRecord.actual_special_number,
             1,
         ),
         else_=0,
