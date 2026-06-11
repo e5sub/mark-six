@@ -11968,6 +11968,48 @@ def _resolve_learning_scope_zodiac_year(region, cutoff_period=None, fallback_dat
         return datetime.now().year
 
 
+def _build_learning_draw_year_map(region):
+    cache_key = (str(region or "").strip().lower(), LEARNING_SCOPE_DRAW_LIMIT)
+    cached = _runtime_cache_get("learning_draw_year_map", cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        from models import ZodiacSetting
+    except Exception:
+        return {}
+
+    try:
+        draw_records = (
+            LotteryDraw.query.filter_by(region=region)
+            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+            .limit(LEARNING_SCOPE_DRAW_LIMIT)
+            .all()
+        )
+    except Exception as e:
+        print(f"加载{region}学习样本开奖范围失败: {e}")
+        return {}
+
+    draw_year_map = {}
+    for draw in draw_records:
+        if hasattr(draw, "to_dict"):
+            normalized = draw.to_dict()
+        elif isinstance(draw, dict):
+            normalized = dict(draw)
+        else:
+            continue
+        period = _normalize_period_value(normalized.get("id"))
+        draw_date = normalized.get("date", "")
+        if not period or not draw_date:
+            continue
+        try:
+            draw_year_map[period] = ZodiacSetting.get_zodiac_year_for_date(draw_date)
+        except Exception:
+            continue
+
+    return _runtime_cache_set("learning_draw_year_map", cache_key, draw_year_map)
+
+
 def _load_learning_scope_predictions(region, strategy, limit=None, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES, cutoff_period=None):
     query = PredictionRecord.query.filter_by(
         region=region,
@@ -12001,35 +12043,7 @@ def _apply_lunar_learning_scope_to_predictions(predictions, region, minimum_samp
     except Exception:
         return list(predictions or [])
     current_zodiac_year = _resolve_learning_scope_zodiac_year(region, cutoff_period=cutoff_period)
-
-    try:
-        draw_records = (
-            LotteryDraw.query.filter_by(region=region)
-            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
-            .limit(LEARNING_SCOPE_DRAW_LIMIT)
-            .all()
-        )
-    except Exception as e:
-        print(f"加载{region}学习样本开奖范围失败: {e}")
-        return list(predictions or [])
-
-    draw_year_map = {}
-    for draw in draw_records:
-        if hasattr(draw, "to_dict"):
-            normalized = draw.to_dict()
-        elif isinstance(draw, dict):
-            normalized = dict(draw)
-        else:
-            continue
-        period = _normalize_period_value(normalized.get("id"))
-        draw_date = normalized.get("date", "")
-        if not period or not draw_date:
-            continue
-        try:
-            zodiac_year = ZodiacSetting.get_zodiac_year_for_date(draw_date)
-        except Exception:
-            continue
-        draw_year_map[period] = zodiac_year
+    draw_year_map = _build_learning_draw_year_map(region)
 
     current_year_predictions = []
     previous_year_predictions = []

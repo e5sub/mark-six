@@ -1110,7 +1110,8 @@ def save_system_config():
 @admin_required
 def retrain_learning_configs():
     try:
-        from app import update_strategy_configs
+        import threading
+        from app import app, db, update_strategy_configs
 
         payload = request.get_json(silent=True) or {}
         region = (payload.get('region') or 'all').strip()
@@ -1120,14 +1121,25 @@ def retrain_learning_configs():
         if not targets:
             return jsonify({'success': False, 'message': '无效的地区参数'})
 
-        refreshed = []
-        for item in targets:
-            update_strategy_configs(item)
-            refreshed.append(item)
+        def run_retrain(region_targets):
+            with app.app_context():
+                for item in region_targets:
+                    try:
+                        update_strategy_configs(item)
+                    except Exception as exc:
+                        print(f"后台重算学习参数失败 {item}: {exc}")
+                        db.session.rollback()
+
+        threading.Thread(
+            target=run_retrain,
+            args=(list(targets),),
+            name=f"strategy-retrain-{'-'.join(targets)}",
+            daemon=True,
+        ).start()
 
         return jsonify({
             'success': True,
-            'message': f"已重算 {', '.join(refreshed)} 的学习参数",
+            'message': f"已开始后台重算 {', '.join(targets)} 的学习参数，请稍后刷新查看结果",
             'learning_panel': _strategy_learning_panel_data(),
         })
     except Exception as e:
