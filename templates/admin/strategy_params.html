@@ -16,6 +16,8 @@
         </div>
     </div>
 
+    <div id="retrain-status" style="display:none; margin:0 0 1rem 0; padding:0.85rem 1rem; border-radius:10px; background:rgba(59,130,246,0.12); border:1px solid rgba(96,165,250,0.22); color:#dbeafe; font-size:0.9rem;"></div>
+
     <div id="learning-panel" style="display:grid; gap:1.5rem;">
         {% for region in learning_panel %}
         <div style="background:rgba(15,23,42,0.82); border:1px solid rgba(148,163,184,0.18); border-radius:16px; padding:1.25rem;">
@@ -91,6 +93,64 @@
 </div>
 
 <script>
+let retrainStatusTimer = null;
+
+function formatRetrainStatus(status) {
+    if (!status || !status.status || status.status === 'idle') {
+        return '';
+    }
+    const regions = (status.regions || []).join(', ') || '-';
+    const current = status.current_region ? ' | current: ' + status.current_region : '';
+    const started = status.started_at ? ' | started: ' + status.started_at : '';
+    const finished = status.finished_at ? ' | finished: ' + status.finished_at : '';
+    const errors = (status.errors || []).length ? ' | errors: ' + status.errors.slice(0, 2).join('; ') : '';
+    return (status.message || status.status) + ' | regions: ' + regions + current + started + finished + errors;
+}
+
+function renderRetrainStatus(status) {
+    const box = document.getElementById('retrain-status');
+    if (!box) return;
+    const text = formatRetrainStatus(status);
+    if (!text) {
+        box.style.display = 'none';
+        box.textContent = '';
+        return;
+    }
+    box.style.display = 'block';
+    box.textContent = text;
+    if (status.status === 'failed') {
+        box.style.background = 'rgba(220,53,69,0.12)';
+        box.style.borderColor = 'rgba(220,53,69,0.35)';
+        box.style.color = '#fecaca';
+    } else if (status.status === 'completed') {
+        box.style.background = 'rgba(40,167,69,0.12)';
+        box.style.borderColor = 'rgba(40,167,69,0.35)';
+        box.style.color = '#bbf7d0';
+    } else {
+        box.style.background = 'rgba(59,130,246,0.12)';
+        box.style.borderColor = 'rgba(96,165,250,0.22)';
+        box.style.color = '#dbeafe';
+    }
+}
+
+function pollRetrainStatus(reloadWhenDone = false) {
+    fetch('/admin/system_config/retrain_learning/status')
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) return;
+            const status = data.status || {};
+            renderRetrainStatus(status);
+            if (status.status === 'running') {
+                if (retrainStatusTimer) clearTimeout(retrainStatusTimer);
+                retrainStatusTimer = setTimeout(() => pollRetrainStatus(reloadWhenDone), 3000);
+            } else if (reloadWhenDone && (status.status === 'completed' || status.status === 'failed')) {
+                showToast(status.message || 'Retrain finished', status.status === 'failed' ? 'error' : 'success');
+                setTimeout(() => window.location.reload(), 900);
+            }
+        })
+        .catch(error => console.error('Status error:', error));
+}
+
 function retrainLearning(region) {
     fetch('/admin/system_config/retrain_learning', {
         method: 'POST',
@@ -103,7 +163,8 @@ function retrainLearning(region) {
     .then(data => {
         if (data.success) {
             showToast(data.message, 'success');
-            setTimeout(() => window.location.reload(), 700);
+            renderRetrainStatus(data.status || {});
+            pollRetrainStatus(true);
         } else {
             showToast('学习参数重算失败：' + data.message, 'error');
         }
@@ -113,6 +174,8 @@ function retrainLearning(region) {
         showToast('学习参数重算失败：网络错误', 'error');
     });
 }
+
+pollRetrainStatus(false);
 
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');

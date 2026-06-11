@@ -19,10 +19,55 @@ from datetime import datetime, timedelta
 import csv
 import json
 import io
+import threading
 from collections import OrderedDict
 from sqlalchemy import func, case, or_
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+_retrain_learning_lock = threading.RLock()
+_retrain_learning_status = {
+    'status': 'idle',
+    'regions': [],
+    'current_region': '',
+    'started_at': '',
+    'finished_at': '',
+    'errors': [],
+    'message': '尚未启动重算任务',
+}
+_RETRAIN_LEARNING_STATUS_KEY = 'retrain_learning_status'
+
+
+def _set_retrain_learning_status(**updates):
+    with _retrain_learning_lock:
+        _retrain_learning_status.update(updates)
+        status_snapshot = dict(_retrain_learning_status)
+    try:
+        SystemConfig.set_config(
+            _RETRAIN_LEARNING_STATUS_KEY,
+            json.dumps(status_snapshot, ensure_ascii=False),
+            '后台学习参数重算状态',
+        )
+    except Exception as exc:
+        print(f"保存学习参数重算状态失败: {exc}")
+    print(f"学习参数重算状态: {status_snapshot.get('status')} - {status_snapshot.get('message')}")
+    return status_snapshot
+
+
+def _get_retrain_learning_status():
+    with _retrain_learning_lock:
+        status_snapshot = dict(_retrain_learning_status)
+    if status_snapshot.get('status') != 'idle':
+        return status_snapshot
+    try:
+        raw = SystemConfig.get_config(_RETRAIN_LEARNING_STATUS_KEY, '')
+        if raw:
+            stored = json.loads(raw)
+            if isinstance(stored, dict):
+                return stored
+    except Exception:
+        pass
+    return status_snapshot
 
 DATA_EXPORT_MODELS = [
     ('users', User),
@@ -1110,7 +1155,6 @@ def save_system_config():
 @admin_required
 def retrain_learning_configs():
     try:
-        import threading
         from app import app, db, update_strategy_configs
 
         payload = request.get_json(silent=True) or {}
@@ -1121,14 +1165,51 @@ def retrain_learning_configs():
         if not targets:
             return jsonify({'success': False, 'message': '无效的地区参数'})
 
+        with _retrain_learning_lock:
+            if _retrain_learning_status.get('status') == 'running':
+                return jsonify({
+                    'success': True,
+                    'message': '已有学习参数重算任务正在运行',
+                    'status': _get_retrain_learning_status(),
+                    'learning_panel': _strategy_learning_panel_data(),
+                })
+        _set_retrain_learning_status(
+            status='running',
+            regions=list(targets),
+            current_region='',
+            started_at=datetime.now().isoformat(timespec='seconds'),
+            finished_at='',
+            errors=[],
+            message=f"正在重算 {', '.join(targets)} 的学习参数",
+        )
+
         def run_retrain(region_targets):
             with app.app_context():
+                errors = []
                 for item in region_targets:
+                    _set_retrain_learning_status(
+                        status='running',
+                        current_region=item,
+                        message=f"正在重算 {item} 的学习参数",
+                    )
                     try:
                         update_strategy_configs(item)
                     except Exception as exc:
-                        print(f"后台重算学习参数失败 {item}: {exc}")
+                        error_text = f"{item}: {exc}"
+                        errors.append(error_text)
+                        print(f"后台重算学习参数失败 {error_text}")
                         db.session.rollback()
+                _set_retrain_learning_status(
+                    status='failed' if errors else 'completed',
+                    current_region='',
+                    finished_at=datetime.now().isoformat(timespec='seconds'),
+                    errors=errors,
+                    message=(
+                        f"学习参数重算完成：{', '.join(region_targets)}"
+                        if not errors else
+                        f"学习参数重算完成，但有失败：{'; '.join(errors[:3])}"
+                    ),
+                )
 
         threading.Thread(
             target=run_retrain,
@@ -1137,13 +1218,26 @@ def retrain_learning_configs():
             daemon=True,
         ).start()
 
+        status_snapshot = _get_retrain_learning_status()
+
         return jsonify({
             'success': True,
             'message': f"已开始后台重算 {', '.join(targets)} 的学习参数，请稍后刷新查看结果",
+            'status': status_snapshot,
             'learning_panel': _strategy_learning_panel_data(),
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
+
+
+@admin_bp.route('/system_config/retrain_learning/status', methods=['GET'])
+@admin_required
+def retrain_learning_status():
+    status_snapshot = _get_retrain_learning_status()
+    return jsonify({
+        'success': True,
+        'status': status_snapshot,
+    })
 
 @admin_bp.route('/predictions')
 @admin_required
