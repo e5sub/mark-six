@@ -190,6 +190,13 @@ def run_backtest(region, strategies, min_history=60, limit=None):
                 "strategy": strategy,
                 "top1_hit_rate": summary["top1_hit_rate"],
                 "top6_hit_rate": summary["top6_hit_rate"],
+                "zodiac_hit_rate": summary["zodiac_hit_rate"],
+                "composite_score": round(
+                    summary["top1_hit_rate"] +
+                    summary["top6_hit_rate"] * 0.35 +
+                    summary["zodiac_hit_rate"] * 0.15,
+                    4,
+                ),
                 "total": summary["total"],
             }
             for strategy, summary in strategy_results.items()

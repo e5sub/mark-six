@@ -3484,6 +3484,7 @@ def _build_ml_display_copy(model_meta):
 
 
 def _calculate_strategy_accuracy(region, strategy, limit=200, cutoff_period=None):
+    cutoff_period = cutoff_period or _current_backtest_cutoff_period()
     predictions = _load_learning_scope_predictions(
         region,
         strategy,
@@ -3506,6 +3507,7 @@ def _calculate_strategy_accuracy(region, strategy, limit=200, cutoff_period=None
 
 
 def _calculate_strategy_hit_rates(region, strategy, limit=200, cutoff_period=None):
+    cutoff_period = cutoff_period or _current_backtest_cutoff_period()
     predictions = _load_learning_scope_predictions(
         region,
         strategy,
@@ -3814,8 +3816,13 @@ def _get_phase_history_before_period(draws_desc, target_period, window=12):
     return history
 
 
-def _calculate_strategy_phase_hit_rates(region, strategy, phases=("hot", "cold", "concentrated", "dispersed"), phase_window=12, limit=180):
-    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
+def _calculate_strategy_phase_hit_rates(region, strategy, phases=("hot", "cold", "concentrated", "dispersed"), phase_window=12, limit=180, cutoff_period=None):
+    predictions = _load_learning_scope_predictions(
+        region,
+        strategy,
+        limit=limit,
+        cutoff_period=cutoff_period or _current_backtest_cutoff_period(),
+    )
     if not predictions:
         return {
             "aggregate": {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0, "score": 0.0},
@@ -6206,12 +6213,8 @@ def _personalized_predictions_enabled():
     return raw in {'true', '1', 'yes', 'on'}
 
 def _build_prediction_feedback(region, strategy, limit=240, cutoff_period=None):
-    predictions = _load_learning_scope_predictions(region, strategy)
-    if cutoff_period:
-        predictions = [
-            pred for pred in predictions
-            if _is_period_before(pred.period, cutoff_period)
-        ]
+    cutoff_period = cutoff_period or _current_backtest_cutoff_period()
+    predictions = _load_learning_scope_predictions(region, strategy, cutoff_period=cutoff_period)
     if limit:
         predictions = predictions[:limit]
 
@@ -9006,6 +9009,7 @@ def _build_ml_prediction_cache_key(region, data, config):
     payload = {
         "cache_version": 4,
         "region": normalized_region,
+        "backtest_cutoff_period": _current_backtest_cutoff_period(),
         "periods": head_periods,
         "draw_count": len(data or []),
         "updated_at": str(config.get("updated_at") or ""),
@@ -11912,6 +11916,35 @@ LEARNING_SCOPE_MIN_SAMPLES = 36
 LEARNING_SCOPE_DRAW_LIMIT = 720
 
 
+def _resolve_learning_scope_zodiac_year(region, cutoff_period=None, fallback_data=None):
+    try:
+        from models import ZodiacSetting
+    except Exception:
+        return _infer_draw_year(fallback_data) if fallback_data else datetime.now().year
+
+    cutoff_period = _normalize_period_value(cutoff_period or _current_backtest_cutoff_period())
+    if cutoff_period:
+        try:
+            draw = LotteryDraw.query.filter_by(region=region, draw_id=cutoff_period).first()
+            if draw and draw.draw_date:
+                return ZodiacSetting.get_zodiac_year_for_date(draw.draw_date)
+        except Exception:
+            pass
+
+    for draw in fallback_data or []:
+        try:
+            draw_date = (draw.to_dict() if hasattr(draw, "to_dict") else draw).get("date", "")
+            if draw_date:
+                return ZodiacSetting.get_zodiac_year_for_date(draw_date)
+        except Exception:
+            continue
+
+    try:
+        return ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    except Exception:
+        return datetime.now().year
+
+
 def _load_learning_scope_predictions(region, strategy, limit=None, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES, cutoff_period=None):
     query = PredictionRecord.query.filter_by(
         region=region,
@@ -11922,27 +11955,29 @@ def _load_learning_scope_predictions(region, strategy, limit=None, minimum_sampl
     if not predictions:
         return []
 
+    if cutoff_period:
+        predictions = [
+            prediction for prediction in predictions
+            if _is_period_before(prediction.period, cutoff_period)
+        ]
+
     scoped = _apply_lunar_learning_scope_to_predictions(
         predictions,
         region,
         minimum_samples=minimum_samples,
+        cutoff_period=cutoff_period,
     )
-    if cutoff_period:
-        scoped = [
-            prediction for prediction in scoped
-            if _is_period_before(prediction.period, cutoff_period)
-        ]
     if limit:
         return scoped[:limit]
     return scoped
 
 
-def _apply_lunar_learning_scope_to_predictions(predictions, region, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES):
+def _apply_lunar_learning_scope_to_predictions(predictions, region, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES, cutoff_period=None):
     try:
         from models import ZodiacSetting
-        current_zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
     except Exception:
         return list(predictions or [])
+    current_zodiac_year = _resolve_learning_scope_zodiac_year(region, cutoff_period=cutoff_period)
 
     try:
         draw_records = (
@@ -12003,11 +12038,12 @@ def _apply_lunar_learning_scope_to_predictions(predictions, region, minimum_samp
 
 
 def _ensure_ml_prediction_history(data, region, minimum_draws=36, target_draws=240):
-    try:
-        from models import ZodiacSetting
-        current_zodiac_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
-    except Exception:
-        current_zodiac_year = datetime.now().year
+    cutoff_period = _current_backtest_cutoff_period()
+    current_zodiac_year = _resolve_learning_scope_zodiac_year(
+        region,
+        cutoff_period=cutoff_period,
+        fallback_data=data,
+    )
 
     current_year_data = _filter_draws_by_zodiac_year(data, current_zodiac_year)
     primary = _merge_draw_history_desc(current_year_data, limit=target_draws)
@@ -12026,10 +12062,26 @@ def _ensure_ml_prediction_history(data, region, minimum_draws=36, target_draws=2
         return primary, 0
 
     current_year_db_records = _filter_draws_by_zodiac_year(db_records, current_zodiac_year)
+    if cutoff_period:
+        current_year_db_records = [
+            record for record in current_year_db_records
+            if _is_period_before(
+                (record.to_dict() if hasattr(record, "to_dict") else record).get("id"),
+                cutoff_period,
+            )
+        ]
     merged = _merge_draw_history_desc(primary, current_year_db_records, limit=target_draws)
 
     if len(merged) < minimum_draws:
         previous_year_db_records = _filter_draws_by_zodiac_year(db_records, current_zodiac_year - 1)
+        if cutoff_period:
+            previous_year_db_records = [
+                record for record in previous_year_db_records
+                if _is_period_before(
+                    (record.to_dict() if hasattr(record, "to_dict") else record).get("id"),
+                    cutoff_period,
+                )
+            ]
         merged = _merge_draw_history_desc(merged, previous_year_db_records, limit=target_draws)
 
     supplemental = max(0, len(merged) - len(primary))
@@ -12170,6 +12222,13 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
                 "strategy": strategy,
                 "top1_hit_rate": summary.get("top1_hit_rate", 0.0),
                 "top6_hit_rate": summary.get("top6_hit_rate", 0.0),
+                "zodiac_hit_rate": summary.get("zodiac_hit_rate", 0.0),
+                "composite_score": round(
+                    _safe_float(summary.get("top1_hit_rate"), 0.0) +
+                    _safe_float(summary.get("top6_hit_rate"), 0.0) * 0.35 +
+                    _safe_float(summary.get("zodiac_hit_rate"), 0.0) * 0.15,
+                    4,
+                ),
                 "total": summary.get("total", 0),
             }
             for strategy, summary in strategy_results.items()
