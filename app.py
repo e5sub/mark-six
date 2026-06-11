@@ -49,6 +49,7 @@ _ai_prediction_cache = {}
 _ai_prediction_cache_lock = threading.Lock()
 _runtime_analysis_cache_local = threading.local()
 _strategy_config_override_local = threading.local()
+_backtest_cutoff_period_local = threading.local()
 _SYSTEM_LOG_FILE_PATH = os.path.join(data_dir, "system.log")
 _SYSTEM_LOG_RETENTION_DAYS = 30
 _SYSTEM_LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -3112,7 +3113,7 @@ def _default_strategy_config(strategy):
             "repeat_penalty": -0.18,
             "promotion_cooldown_hours": 6,
             "promotion_min_gain": 0.25,
-            "weights": {"transition": 1.35, "second_order": 0.72, "phase_transition": 0.55, "attribute_transition": 0.42, "special_transition": 1.10, "special_chain": 0.62, "special_attribute": 0.28, "failure": 0.48, "hot": 0.22, "trend": 0.36, "normal": 0.22, "overdue": 0.16, "feedback": 0.85, "color": 0.18, "zodiac": 0.18, "parity": 0.16},
+            "weights": {"transition": 1.35, "transition_lift": 0.32, "second_order": 0.72, "phase_transition": 0.55, "attribute_transition": 0.42, "special_transition": 1.10, "special_transition_lift": 0.28, "special_chain": 0.62, "special_attribute": 0.28, "failure": 0.48, "hot": 0.22, "trend": 0.36, "normal": 0.22, "overdue": 0.16, "feedback": 0.85, "color": 0.18, "zodiac": 0.18, "parity": 0.16},
             "last_accuracy": 0.0,
             "last_total": 0
         },
@@ -3232,6 +3233,28 @@ def _temporary_strategy_config_override(region, strategy, override):
         else:
             current_bucket[override_key] = previous
         _strategy_config_override_local.configs = current_bucket
+
+
+def _current_backtest_cutoff_period():
+    return str(getattr(_backtest_cutoff_period_local, "period", "") or "").strip()
+
+
+@contextmanager
+def _temporary_backtest_cutoff_period(period):
+    previous = getattr(_backtest_cutoff_period_local, "period", None)
+    normalized = str(period or "").strip()
+    if normalized:
+        _backtest_cutoff_period_local.period = normalized
+    try:
+        yield
+    finally:
+        if previous is None:
+            try:
+                delattr(_backtest_cutoff_period_local, "period")
+            except AttributeError:
+                pass
+        else:
+            _backtest_cutoff_period_local.period = previous
 
 
 def _normalize_draw_number(value):
@@ -3460,8 +3483,13 @@ def _build_ml_display_copy(model_meta):
     return display
 
 
-def _calculate_strategy_accuracy(region, strategy, limit=200):
-    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
+def _calculate_strategy_accuracy(region, strategy, limit=200, cutoff_period=None):
+    predictions = _load_learning_scope_predictions(
+        region,
+        strategy,
+        limit=limit,
+        cutoff_period=cutoff_period,
+    )
     if not predictions:
         return 0.0, 0
 
@@ -3477,8 +3505,13 @@ def _calculate_strategy_accuracy(region, strategy, limit=200):
     return (correct / valid_total) if valid_total else 0.0, valid_total
 
 
-def _calculate_strategy_hit_rates(region, strategy, limit=200):
-    predictions = _load_learning_scope_predictions(region, strategy, limit=limit)
+def _calculate_strategy_hit_rates(region, strategy, limit=200, cutoff_period=None):
+    predictions = _load_learning_scope_predictions(
+        region,
+        strategy,
+        limit=limit,
+        cutoff_period=cutoff_period,
+    )
     if not predictions:
         return {"top1": 0.0, "top6": 0.0, "zodiac": 0.0, "total": 0}
 
@@ -4458,7 +4491,9 @@ def _learn_markov_region_profile(region, limit=180):
     decay_scores = Counter()
     source_weight_scores = Counter()
     transition_weight_scores = Counter()
+    transition_lift_weight_scores = Counter()
     special_transition_weight_scores = Counter()
+    special_transition_lift_weight_scores = Counter()
     second_order_weight_scores = Counter()
     phase_transition_weight_scores = Counter()
     attribute_transition_weight_scores = Counter()
@@ -4502,7 +4537,9 @@ def _learn_markov_region_profile(region, limit=180):
         weights = metadata.get("markov_weights") or {}
         if isinstance(weights, dict):
             add_numeric(transition_weight_scores, weights.get("transition"), 2)
+            add_numeric(transition_lift_weight_scores, weights.get("transition_lift"), 2)
             add_numeric(special_transition_weight_scores, weights.get("special_transition"), 2)
+            add_numeric(special_transition_lift_weight_scores, weights.get("special_transition_lift"), 2)
             add_numeric(second_order_weight_scores, weights.get("second_order"), 2)
             add_numeric(phase_transition_weight_scores, weights.get("phase_transition"), 2)
             add_numeric(attribute_transition_weight_scores, weights.get("attribute_transition"), 2)
@@ -4531,7 +4568,9 @@ def _learn_markov_region_profile(region, limit=180):
         "transition_decay": float(best_numeric(decay_scores, 0.985)),
         "source_special_weight": float(best_numeric(source_weight_scores, 1.28)),
         "transition_weight": float(best_numeric(transition_weight_scores, 1.35)),
+        "transition_lift_weight": float(best_numeric(transition_lift_weight_scores, 0.32)),
         "special_transition_weight": float(best_numeric(special_transition_weight_scores, 1.10)),
+        "special_transition_lift_weight": float(best_numeric(special_transition_lift_weight_scores, 0.28)),
         "second_order_weight": float(best_numeric(second_order_weight_scores, 0.72)),
         "phase_transition_weight": float(best_numeric(phase_transition_weight_scores, 0.55)),
         "attribute_transition_weight": float(best_numeric(attribute_transition_weight_scores, 0.42)),
@@ -5639,7 +5678,9 @@ def _tune_strategy_config(strategy, region):
         elif strategy == "markov":
             adaptation = _resolve_learning_adaptation(region, "markov")
             weights["transition"] = round(_clamp(1.05 + learning_strength * 0.28 + accuracy * 0.24, 1.0, 1.65), 2)
+            weights["transition_lift"] = round(_clamp(0.22 + learning_strength * 0.12 + local_top6 * 0.22, 0.12, 0.75), 2)
             weights["special_transition"] = round(_clamp(0.82 + learning_strength * 0.22 + accuracy * 0.22, 0.75, 1.45), 2)
+            weights["special_transition_lift"] = round(_clamp(0.18 + learning_strength * 0.12 + local_top1 * 0.24, 0.08, 0.7), 2)
             weights["second_order"] = round(_clamp(0.44 + learning_strength * 0.18 + local_top6 * 0.34, 0.25, 1.2), 2)
             weights["phase_transition"] = round(_clamp(0.34 + learning_strength * 0.14 + local_top1 * 0.28, 0.15, 1.05), 2)
             weights["attribute_transition"] = round(_clamp(0.26 + learning_strength * 0.1 + local_top6 * 0.18, 0.12, 0.9), 2)
@@ -5657,10 +5698,20 @@ def _tune_strategy_config(strategy, region):
                     0.75,
                     1.85,
                 ), 2)
+                weights["transition_lift"] = round(_clamp(
+                    weights["transition_lift"] * (1.0 - blend) + float(preferred_markov.get("transition_lift_weight") or weights["transition_lift"]) * blend,
+                    0.0,
+                    0.9,
+                ), 2)
                 weights["special_transition"] = round(_clamp(
                     weights["special_transition"] * (1.0 - blend) + float(preferred_markov.get("special_transition_weight") or weights["special_transition"]) * blend,
                     0.65,
                     1.65,
+                ), 2)
+                weights["special_transition_lift"] = round(_clamp(
+                    weights["special_transition_lift"] * (1.0 - blend) + float(preferred_markov.get("special_transition_lift_weight") or weights["special_transition_lift"]) * blend,
+                    0.0,
+                    0.85,
                 ), 2)
                 for weight_key, pref_key, low, high in (
                     ("second_order", "second_order_weight", 0.0, 1.35),
@@ -6506,18 +6557,28 @@ def _score_markov_attribute_transition(candidate, latest_special, attribute_prof
     source_state = _markov_attribute_state(latest_special, zodiac_map=zodiac_map)
     candidate_state = _markov_attribute_state(candidate, zodiac_map=zodiac_map)
     total = 0.0
+    active_attrs = 0
     for attr, source_value in source_state.items():
         if not source_value:
             continue
         targets = ((attribute_profile.get(attr) or {}).get(source_value) or {})
         target_value = candidate_state.get(attr)
-        if target_value:
+        if target_value and targets:
             total += float(targets.get(target_value, 0.0) or 0.0)
-    return round(total / 5.0, 6)
+            active_attrs += 1
+    if active_attrs <= 0:
+        return 0.0
+    return round(total / active_attrs, 6)
 
 
-def _build_markov_failure_profile(region, limit=180):
-    predictions = _load_learning_scope_predictions(region, "markov", limit=limit, minimum_samples=0)
+def _build_markov_failure_profile(region, limit=180, cutoff_period=None):
+    predictions = _load_learning_scope_predictions(
+        region,
+        "markov",
+        limit=limit,
+        minimum_samples=0,
+        cutoff_period=cutoff_period,
+    )
     candidate_scores = Counter()
     source_scores = Counter()
     samples = 0
@@ -6551,12 +6612,22 @@ def _build_markov_failure_profile(region, limit=180):
     }
 
 
-def _blend_markov_with_anchor_weights(region, weights):
+def _blend_markov_with_anchor_weights(region, weights, cutoff_period=None):
     resolved = dict(weights or {})
-    markov_accuracy, markov_total = _calculate_strategy_accuracy(region, "markov", limit=36)
+    markov_accuracy, markov_total = _calculate_strategy_accuracy(
+        region,
+        "markov",
+        limit=36,
+        cutoff_period=cutoff_period,
+    )
     anchors = []
     for strategy in ("ml", "hybrid", "balanced"):
-        accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=36)
+        accuracy, total = _calculate_strategy_accuracy(
+            region,
+            strategy,
+            limit=36,
+            cutoff_period=cutoff_period,
+        )
         if total > 0:
             anchors.append((accuracy, total))
     if markov_total <= 0 or not anchors:
@@ -6590,8 +6661,8 @@ def _markov_probability(numerator, denominator, min_samples=3):
     return smoothed * confidence
 
 
-def _build_markov_ml_distillation(region):
-    ml_feedback = _build_prediction_feedback(region, "ml", limit=160)
+def _build_markov_ml_distillation(region, cutoff_period=None):
+    ml_feedback = _build_prediction_feedback(region, "ml", limit=160, cutoff_period=cutoff_period)
     confidence = float(ml_feedback.get("confidence") or 0.0)
     return {
         "special": ml_feedback.get("special") or {},
@@ -6601,10 +6672,10 @@ def _build_markov_ml_distillation(region):
     }
 
 
-def _build_markov_anchor_profile(region):
+def _build_markov_anchor_profile(region, cutoff_period=None):
     weighted_items = []
     for strategy in ("ml", "hybrid", "balanced", "trend"):
-        rates = _calculate_strategy_hit_rates(region, strategy, limit=48)
+        rates = _calculate_strategy_hit_rates(region, strategy, limit=48, cutoff_period=cutoff_period)
         total = int(rates.get("total") or 0)
         if total <= 0:
             continue
@@ -6613,7 +6684,7 @@ def _build_markov_anchor_profile(region):
         quality = special_rate + normal_rate * 0.35
         if quality <= 0:
             continue
-        feedback = _build_prediction_feedback(region, strategy, limit=160)
+        feedback = _build_prediction_feedback(region, strategy, limit=160, cutoff_period=cutoff_period)
         confidence = float(feedback.get("confidence") or 0.0)
         weight = quality * _clamp(total / 24.0, 0.25, 1.0) * max(confidence, 0.2)
         weighted_items.append((feedback, weight, strategy, rates))
@@ -6910,6 +6981,10 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
     }
     source_totals = Counter()
     special_source_totals = Counter()
+    target_totals = Counter()
+    special_target_totals = Counter()
+    target_total_weight = 0.0
+    special_target_total_weight = 0.0
     zodiac_map = _get_number_to_zodiac_map(year or _infer_draw_year(data))
 
     for idx in range(1, len(ordered)):
@@ -6929,6 +7004,12 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
         if phase_label not in phase_transitions:
             phase_transitions[phase_label] = {number: Counter() for number in range(1, 50)}
             phase_totals[phase_label] = Counter()
+        for target in target_numbers:
+            target_totals[target] += recency_weight
+            target_total_weight += recency_weight
+        if 1 <= current_special <= 49:
+            special_target_totals[current_special] += recency_weight
+            special_target_total_weight += recency_weight
         for source in source_numbers:
             source_weight = recency_weight * (float(source_special_weight or 1.0) if source == previous_special else 1.0)
             source_totals[source] += source_weight
@@ -6981,13 +7062,26 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
     )
     transition_scores = {}
     special_transition_scores = {}
+    transition_lift_scores = {}
+    special_transition_lift_scores = {}
     second_order_scores = {}
     phase_transition_scores = {}
+    latest_source_count = max(len(latest_sources), 1)
     for candidate in range(1, 50):
         total = 0.0
         special_total = 0.0
         second_total = 0.0
         phase_total = 0.0
+        base_probability = _markov_probability(
+            target_totals.get(candidate, 0.0),
+            target_total_weight,
+            min_samples=min_samples,
+        )
+        special_base_probability = _markov_probability(
+            special_target_totals.get(candidate, 0.0),
+            special_target_total_weight,
+            min_samples=min_samples,
+        )
         for source in latest_sources:
             total += _markov_probability(transitions[source].get(candidate, 0.0), source_totals.get(source, 0.0), min_samples=min_samples)
             special_total += _markov_probability(special_transitions[source].get(candidate, 0.0), special_source_totals.get(source, 0.0), min_samples=min_samples)
@@ -6999,6 +7093,8 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
                 second_total += _markov_probability(second_order_transitions.get((pair, candidate), 0.0), second_order_totals.get(pair, 0.0), min_samples=min_samples)
         transition_scores[str(candidate)] = total
         special_transition_scores[str(candidate)] = special_total
+        transition_lift_scores[str(candidate)] = max(0.0, (total / latest_source_count) - base_probability)
+        special_transition_lift_scores[str(candidate)] = max(0.0, (special_total / latest_source_count) - special_base_probability)
         second_order_scores[str(candidate)] = second_total
         phase_transition_scores[str(candidate)] = phase_total
 
@@ -7050,6 +7146,8 @@ def _build_markov_transition_profile(data, window=80, decay=0.985, source_specia
         "latest_special": latest_special,
         "transition_scores": normalized_transition,
         "special_transition_scores": _normalize_metric_map(special_transition_scores),
+        "transition_lift_scores": _normalize_metric_map(transition_lift_scores),
+        "special_transition_lift_scores": _normalize_metric_map(special_transition_lift_scores),
         "second_order_scores": normalized_second,
         "phase_transition_scores": normalized_phase,
         "attribute_profile": attribute_profile,
@@ -7070,7 +7168,8 @@ def _predict_with_markov(data, region, variation_key=None):
     special_pool_size = _clamp(int(config.get("special_pool") or 10), 6, 14)
     transition_min_samples = _clamp(int(config.get("transition_min_samples") or 3), 1, 12)
     weights = dict(config.get("weights") or {})
-    weights, markov_guard = _blend_markov_with_anchor_weights(region, weights)
+    cutoff_period = _current_backtest_cutoff_period()
+    weights, markov_guard = _blend_markov_with_anchor_weights(region, weights, cutoff_period=cutoff_period)
     recent_data = data[:window]
     trend_window = min(18, len(recent_data))
     trend_data = recent_data[:trend_window] if trend_window > 0 else recent_data
@@ -7094,6 +7193,8 @@ def _predict_with_markov(data, region, variation_key=None):
     )
     transition_norm = transition_profile.get("transition_scores") or {}
     special_transition_norm = transition_profile.get("special_transition_scores") or {}
+    transition_lift_norm = transition_profile.get("transition_lift_scores") or {}
+    special_transition_lift_norm = transition_profile.get("special_transition_lift_scores") or {}
     second_order_norm = transition_profile.get("second_order_scores") or {}
     phase_transition_norm = transition_profile.get("phase_transition_scores") or {}
     attribute_profile = transition_profile.get("attribute_profile") or {}
@@ -7107,10 +7208,10 @@ def _predict_with_markov(data, region, variation_key=None):
     trend_norm = _normalize_metric_map(analyze_special_number_frequency(trend_data))
     normal_norm = _normalize_metric_map(_build_number_frequency(recent_data))
     overdue_norm = _normalize_metric_map(_build_overdue_scores(recent_data))
-    feedback = _build_prediction_feedback(region, "markov")
-    failure_profile = _build_markov_failure_profile(region)
-    ml_distillation = _build_markov_ml_distillation(region) if markov_guard.get("mode") == "anchor_guard" else {"confidence": 0.0, "samples": 0, "special": {}, "normal": {}}
-    anchor_profile = _build_markov_anchor_profile(region)
+    feedback = _build_prediction_feedback(region, "markov", cutoff_period=cutoff_period)
+    failure_profile = _build_markov_failure_profile(region, cutoff_period=cutoff_period)
+    ml_distillation = _build_markov_ml_distillation(region, cutoff_period=cutoff_period) if markov_guard.get("mode") == "anchor_guard" else {"confidence": 0.0, "samples": 0, "special": {}, "normal": {}}
+    anchor_profile = _build_markov_anchor_profile(region, cutoff_period=cutoff_period)
     feedback_confidence = float(feedback.get("confidence") or 0.0)
     failure_confidence = float(failure_profile.get("confidence") or 0.0)
     ml_distill_confidence = float(ml_distillation.get("confidence") or 0.0)
@@ -7173,6 +7274,7 @@ def _predict_with_markov(data, region, variation_key=None):
         failure_adjustment = (float((failure_profile.get("candidate") or {}).get(key, 0.5)) - 0.5) * 2.0 * failure_confidence
         score = (
             float(weights.get("transition", 1.0)) * transition_norm.get(key, 0.0) +
+            float(weights.get("transition_lift", 0.0)) * transition_lift_norm.get(key, 0.0) +
             float(weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) +
             float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) +
             float(weights.get("attribute_transition", 0.0)) * attribute_transition_score +
@@ -7192,6 +7294,7 @@ def _predict_with_markov(data, region, variation_key=None):
         special_scores[number] = round(
             score +
             float(weights.get("special_transition", 0.0)) * special_transition_norm.get(key, 0.0) +
+            float(weights.get("special_transition_lift", 0.0)) * special_transition_lift_norm.get(key, 0.0) +
             float(weights.get("special_chain", 0.0)) * (
                 special_direct_confidence * special_direct_norm.get(key, 0.0) +
                 special_second_order_confidence * special_second_order_norm.get(key, 0.0) * 0.72
@@ -7360,6 +7463,7 @@ def _predict_with_markov(data, region, variation_key=None):
                 {
                     "number": number,
                     "score": round(float(transition_norm.get(str(number), 0.0)) * 100, 2),
+                    "lift_score": round(float(transition_lift_norm.get(str(number), 0.0)) * 100, 2),
                     "second_order_score": round(float(second_order_norm.get(str(number), 0.0)) * 100, 2),
                     "phase_score": round(float(phase_transition_norm.get(str(number), 0.0)) * 100, 2),
                 }
@@ -11808,7 +11912,7 @@ LEARNING_SCOPE_MIN_SAMPLES = 36
 LEARNING_SCOPE_DRAW_LIMIT = 720
 
 
-def _load_learning_scope_predictions(region, strategy, limit=None, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES):
+def _load_learning_scope_predictions(region, strategy, limit=None, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES, cutoff_period=None):
     query = PredictionRecord.query.filter_by(
         region=region,
         strategy=strategy,
@@ -11823,6 +11927,11 @@ def _load_learning_scope_predictions(region, strategy, limit=None, minimum_sampl
         region,
         minimum_samples=minimum_samples,
     )
+    if cutoff_period:
+        scoped = [
+            prediction for prediction in scoped
+            if _is_period_before(prediction.period, cutoff_period)
+        ]
     if limit:
         return scoped[:limit]
     return scoped
@@ -12027,7 +12136,8 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
                         },
                     )
                 else:
-                    result = get_local_recommendations(resolved_strategy, history_desc, region)
+                    with _temporary_backtest_cutoff_period(target_draw.get("id")):
+                        result = get_local_recommendations(resolved_strategy, history_desc, region)
                 if result.get("error"):
                     raise ValueError(result.get("error"))
             except Exception as e:
@@ -12267,7 +12377,9 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
             base_repeat_penalty = float(config.get("repeat_penalty", -0.18) or -0.18)
             base_weights = dict(config.get("weights") or {})
             base_transition = float(base_weights.get("transition") or 1.35)
+            base_transition_lift = float(base_weights.get("transition_lift") or 0.32)
             base_special_transition = float(base_weights.get("special_transition") or 1.1)
+            base_special_transition_lift = float(base_weights.get("special_transition_lift") or 0.28)
             base_special_chain = float(base_weights.get("special_chain") or 0.62)
             base_special_attribute = float(base_weights.get("special_attribute") or 0.28)
             base_second = float(base_weights.get("second_order") or 0.72)
@@ -12283,6 +12395,8 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
                 {"repeat_penalty": round(_clamp(base_repeat_penalty - 0.05, -0.35, -0.04), 3), "weights": {"feedback": round(_clamp(float(base_weights.get("feedback") or 0.85) + 0.08, 0.45, 1.45), 2)}},
                 {"weights": {"transition": round(_clamp(base_transition + 0.12, 0.65, 1.9), 2), "special_transition": round(_clamp(base_special_transition + 0.1, 0.65, 1.65), 2)}},
                 {"weights": {"transition": round(_clamp(base_transition - 0.12, 0.65, 1.9), 2), "special_transition": round(_clamp(base_special_transition - 0.08, 0.65, 1.65), 2), "normal": round(_clamp(float(base_weights.get("normal") or 0.22) + 0.06, 0.12, 0.55), 2)}},
+                {"weights": {"transition_lift": round(_clamp(base_transition_lift + 0.12, 0.0, 0.9), 2), "special_transition_lift": round(_clamp(base_special_transition_lift + 0.1, 0.0, 0.85), 2)}},
+                {"weights": {"transition_lift": round(_clamp(base_transition_lift - 0.1, 0.0, 0.9), 2), "special_transition_lift": round(_clamp(base_special_transition_lift - 0.08, 0.0, 0.85), 2), "transition": round(_clamp(base_transition + 0.06, 0.65, 1.9), 2)}},
                 {"weights": {"special_chain": round(_clamp(base_special_chain + 0.12, 0.0, 1.2), 2), "special_attribute": round(_clamp(base_special_attribute + 0.08, 0.0, 0.8), 2)}},
                 {"weights": {"special_chain": round(_clamp(base_special_chain - 0.1, 0.0, 1.2), 2), "special_transition": round(_clamp(base_special_transition + 0.08, 0.65, 1.65), 2)}},
                 {"weights": {"second_order": round(_clamp(base_second + 0.16, 0.0, 1.35), 2), "phase_transition": round(_clamp(base_phase + 0.1, 0.0, 1.25), 2)}},
@@ -12450,7 +12564,8 @@ def _build_strategy_backtest_summary(region, strategy, draws=None, config_overri
                 if strategy == "ai":
                     result = predict_with_ai(history_desc, region, config_override=config_override)
                 else:
-                    result = get_local_recommendations(strategy, history_desc, region)
+                    with _temporary_backtest_cutoff_period(target_draw.get("id")):
+                        result = get_local_recommendations(strategy, history_desc, region)
                 if result.get("error"):
                     continue
             except Exception:

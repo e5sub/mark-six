@@ -18,6 +18,7 @@ try:
         app,
         _get_recommended_strategy,
         get_local_recommendations,
+        _temporary_backtest_cutoff_period,
     )
     from models import BacktestRun, LotteryDraw, db
 except ModuleNotFoundError as exc:
@@ -36,7 +37,7 @@ except ModuleNotFoundError as exc:
     raise SystemExit(1)
 
 
-DEFAULT_STRATEGIES = ["ml", "hybrid", "balanced", "trend", "hot", "cold"]
+DEFAULT_STRATEGIES = ["ml", "hybrid", "balanced", "markov", "trend", "hot", "cold"]
 
 
 def _normalize_draw(record):
@@ -153,7 +154,8 @@ def run_backtest(region, strategies, min_history=60, limit=None):
         for strategy in strategies:
             resolved_strategy = _resolve_strategy(strategy, history_desc, region)
             try:
-                result = get_local_recommendations(resolved_strategy, history_desc, region)
+                with _temporary_backtest_cutoff_period(period):
+                    result = get_local_recommendations(resolved_strategy, history_desc, region)
             except Exception as exc:
                 strategy_logs[strategy].append({
                     "period": period,
