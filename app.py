@@ -1784,6 +1784,27 @@ def _execute_ddl(statement):
         connection.exec_driver_sql(statement)
 
 
+def _mysql_column_data_type(table_name, column_name):
+    if db.engine.dialect.name not in ('mysql', 'mariadb'):
+        return ''
+    try:
+        with db.engine.connect() as connection:
+            value = connection.exec_driver_sql(
+                """
+                SELECT DATA_TYPE
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = %s
+                  AND COLUMN_NAME = %s
+                LIMIT 1
+                """,
+                (table_name, column_name),
+            ).scalar()
+            return str(value or '').lower()
+    except Exception:
+        return ''
+
+
 def _quote_identifier(name):
     return db.engine.dialect.identifier_preparer.quote_identifier(str(name))
 
@@ -1951,6 +1972,10 @@ def _sync_runtime_database_schema():
                 existing_columns = set()
             for column_name, ddl in columns.items():
                 if column_name not in existing_columns:
+                    continue
+                desired_type = str(ddl or '').split()[0].lower()
+                current_type = _mysql_column_data_type(table_name, column_name)
+                if current_type == desired_type:
                     continue
                 try:
                     _execute_ddl(

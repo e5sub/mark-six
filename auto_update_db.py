@@ -112,9 +112,8 @@ def _update_mysql_database():
 
     engine = create_engine(database_uri, pool_pre_ping=True, pool_recycle=280)
     try:
+        changes = []
         with engine.begin() as connection:
-            print("Updating MySQL/MariaDB database schema...")
-
             configs = [
                 ("enable_turnstile", "false", "启用 Cloudflare Turnstile 人机验证"),
                 ("turnstile_site_key", "", "Cloudflare Turnstile 站点密钥"),
@@ -136,31 +135,26 @@ def _update_mysql_database():
                 for column_name, ddl in user_columns.items():
                     if not _mysql_column_exists(connection, "user", column_name):
                         connection.execute(text(f"ALTER TABLE `user` ADD COLUMN `{column_name}` {ddl}"))
-                        print(f"Added user.{column_name}")
-                    else:
-                        print(f"user.{column_name} already exists")
+                        changes.append(f"Added user.{column_name}")
 
                 if not _mysql_index_exists(connection, "user", "ix_user_github_id"):
                     connection.execute(text("CREATE UNIQUE INDEX ix_user_github_id ON `user` (`github_id`)"))
-                    print("Created ix_user_github_id")
-                else:
-                    print("ix_user_github_id already exists")
+                    changes.append("Created ix_user_github_id")
 
             if _mysql_table_exists(connection, "prediction_record"):
                 if not _mysql_column_exists(connection, "prediction_record", "prediction_metadata"):
                     connection.execute(text("ALTER TABLE prediction_record ADD COLUMN prediction_metadata MEDIUMTEXT"))
-                    print("Added prediction_record.prediction_metadata")
-                else:
-                    print("prediction_record.prediction_metadata already exists")
+                    changes.append("Added prediction_record.prediction_metadata")
 
             if _mysql_table_exists(connection, "manual_bet_records"):
                 if not _mysql_column_exists(connection, "manual_bet_records", "bettor_name"):
                     connection.execute(text("ALTER TABLE manual_bet_records ADD COLUMN bettor_name VARCHAR(50)"))
-                    print("Added manual_bet_records.bettor_name")
-                else:
-                    print("manual_bet_records.bettor_name already exists")
+                    changes.append("Added manual_bet_records.bettor_name")
 
-        print("MySQL/MariaDB database update completed.")
+        if changes:
+            print("MySQL/MariaDB database schema updated:")
+            for change in changes:
+                print(f"- {change}")
         return True
     except Exception as e:
         print(f"MySQL/MariaDB database update failed: {e}")
