@@ -99,12 +99,13 @@ function formatRetrainStatus(status) {
     if (!status || !status.status || status.status === 'idle') {
         return '';
     }
-    const regions = (status.regions || []).join(', ') || '-';
-    const current = status.current_region ? ' | current: ' + status.current_region : '';
-    const started = status.started_at ? ' | started: ' + status.started_at : '';
-    const finished = status.finished_at ? ' | finished: ' + status.finished_at : '';
-    const errors = (status.errors || []).length ? ' | errors: ' + status.errors.slice(0, 2).join('; ') : '';
-    return (status.message || status.status) + ' | regions: ' + regions + current + started + finished + errors;
+    const regions = (status.region_labels || status.regions || []).join(', ') || '-';
+    const currentRegion = status.current_region_label || status.current_region;
+    const current = currentRegion ? ' | 当前：' + currentRegion : '';
+    const started = status.started_at ? ' | 开始：' + status.started_at : '';
+    const finished = status.finished_at ? ' | 结束：' + status.finished_at : '';
+    const errors = (status.errors || []).length ? ' | 错误：' + status.errors.slice(0, 2).join('; ') : '';
+    return (status.message || status.status_label || status.status) + ' | 地区：' + regions + current + started + finished + errors;
 }
 
 function renderRetrainStatus(status) {
@@ -144,7 +145,7 @@ function pollRetrainStatus(reloadWhenDone = false) {
                 if (retrainStatusTimer) clearTimeout(retrainStatusTimer);
                 retrainStatusTimer = setTimeout(() => pollRetrainStatus(reloadWhenDone), 3000);
             } else if (reloadWhenDone && (status.status === 'completed' || status.status === 'failed')) {
-                showToast(status.message || 'Retrain finished', status.status === 'failed' ? 'error' : 'success');
+                showToast(status.message || '学习参数重算已结束', status.status === 'failed' ? 'error' : 'success');
                 setTimeout(() => window.location.reload(), 900);
             }
         })

@@ -38,9 +38,39 @@ _retrain_learning_status = {
 _RETRAIN_LEARNING_STATUS_KEY = 'retrain_learning_status'
 
 
+def _retrain_learning_status_label(status):
+    return {
+        'idle': '空闲',
+        'running': '运行中',
+        'completed': '已完成',
+        'failed': '失败',
+    }.get(str(status or '').strip(), str(status or '').strip() or '未知')
+
+
+def _retrain_region_label(region):
+    return {
+        'hk': '香港',
+        'macau': '澳门',
+        'all': '全部',
+    }.get(str(region or '').strip(), str(region or '').strip() or '-')
+
+
+def _retrain_region_labels(regions):
+    return [_retrain_region_label(region) for region in (regions or [])]
+
+
 def _set_retrain_learning_status(**updates):
     with _retrain_learning_lock:
         _retrain_learning_status.update(updates)
+        _retrain_learning_status['status_label'] = _retrain_learning_status_label(
+            _retrain_learning_status.get('status')
+        )
+        _retrain_learning_status['region_labels'] = _retrain_region_labels(
+            _retrain_learning_status.get('regions')
+        )
+        _retrain_learning_status['current_region_label'] = _retrain_region_label(
+            _retrain_learning_status.get('current_region')
+        ) if _retrain_learning_status.get('current_region') else ''
         status_snapshot = dict(_retrain_learning_status)
     try:
         SystemConfig.set_config(
@@ -50,12 +80,15 @@ def _set_retrain_learning_status(**updates):
         )
     except Exception as exc:
         print(f"保存学习参数重算状态失败: {exc}")
-    print(f"学习参数重算状态: {status_snapshot.get('status')} - {status_snapshot.get('message')}")
+    print(f"学习参数重算状态: {status_snapshot.get('status_label')} - {status_snapshot.get('message')}")
     return status_snapshot
 
 
 def _get_retrain_learning_status():
     with _retrain_learning_lock:
+        _retrain_learning_status['status_label'] = _retrain_learning_status_label(
+            _retrain_learning_status.get('status')
+        )
         status_snapshot = dict(_retrain_learning_status)
     if status_snapshot.get('status') != 'idle':
         return status_snapshot
@@ -64,6 +97,9 @@ def _get_retrain_learning_status():
         if raw:
             stored = json.loads(raw)
             if isinstance(stored, dict):
+                stored['status_label'] = _retrain_learning_status_label(stored.get('status'))
+                stored['region_labels'] = _retrain_region_labels(stored.get('regions'))
+                stored['current_region_label'] = _retrain_region_label(stored.get('current_region')) if stored.get('current_region') else ''
                 return stored
     except Exception:
         pass
@@ -1180,7 +1216,7 @@ def retrain_learning_configs():
             started_at=datetime.now().isoformat(timespec='seconds'),
             finished_at='',
             errors=[],
-            message=f"正在重算 {', '.join(targets)} 的学习参数",
+            message=f"正在重算 {', '.join(_retrain_region_labels(targets))} 的学习参数",
         )
 
         def run_retrain(region_targets):
@@ -1190,12 +1226,12 @@ def retrain_learning_configs():
                     _set_retrain_learning_status(
                         status='running',
                         current_region=item,
-                        message=f"正在重算 {item} 的学习参数",
+                        message=f"正在重算 {_retrain_region_label(item)} 的学习参数",
                     )
                     try:
                         update_strategy_configs(item)
                     except Exception as exc:
-                        error_text = f"{item}: {exc}"
+                        error_text = f"{_retrain_region_label(item)}: {exc}"
                         errors.append(error_text)
                         print(f"后台重算学习参数失败 {error_text}")
                         db.session.rollback()
@@ -1205,7 +1241,7 @@ def retrain_learning_configs():
                     finished_at=datetime.now().isoformat(timespec='seconds'),
                     errors=errors,
                     message=(
-                        f"学习参数重算完成：{', '.join(region_targets)}"
+                        f"学习参数重算完成：{', '.join(_retrain_region_labels(region_targets))}"
                         if not errors else
                         f"学习参数重算完成，但有失败：{'; '.join(errors[:3])}"
                     ),
@@ -1222,7 +1258,7 @@ def retrain_learning_configs():
 
         return jsonify({
             'success': True,
-            'message': f"已开始后台重算 {', '.join(targets)} 的学习参数，请稍后刷新查看结果",
+            'message': f"已开始后台重算 {', '.join(_retrain_region_labels(targets))} 的学习参数，请稍后刷新查看结果",
             'status': status_snapshot,
             'learning_panel': _strategy_learning_panel_data(),
         })
