@@ -19,6 +19,7 @@ try:
         _get_recommended_strategy,
         get_local_recommendations,
         _temporary_backtest_cutoff_period,
+        _temporary_strict_backtest_strategy,
     )
     from models import BacktestRun, LotteryDraw, db
 except ModuleNotFoundError as exc:
@@ -155,7 +156,8 @@ def run_backtest(region, strategies, min_history=60, limit=None):
             resolved_strategy = _resolve_strategy(strategy, history_desc, region)
             try:
                 with _temporary_backtest_cutoff_period(period):
-                    result = get_local_recommendations(resolved_strategy, history_desc, region)
+                    with _temporary_strict_backtest_strategy():
+                        result = get_local_recommendations(resolved_strategy, history_desc, region)
             except Exception as exc:
                 strategy_logs[strategy].append({
                     "period": period,

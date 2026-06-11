@@ -50,6 +50,7 @@ _ai_prediction_cache_lock = threading.Lock()
 _runtime_analysis_cache_local = threading.local()
 _strategy_config_override_local = threading.local()
 _backtest_cutoff_period_local = threading.local()
+_backtest_strict_strategy_local = threading.local()
 _SYSTEM_LOG_FILE_PATH = os.path.join(data_dir, "system.log")
 _SYSTEM_LOG_RETENTION_DAYS = 30
 _SYSTEM_LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -3239,6 +3240,10 @@ def _current_backtest_cutoff_period():
     return str(getattr(_backtest_cutoff_period_local, "period", "") or "").strip()
 
 
+def _backtest_strict_strategy_enabled():
+    return bool(getattr(_backtest_strict_strategy_local, "enabled", False))
+
+
 @contextmanager
 def _temporary_backtest_cutoff_period(period):
     previous = getattr(_backtest_cutoff_period_local, "period", None)
@@ -3255,6 +3260,22 @@ def _temporary_backtest_cutoff_period(period):
                 pass
         else:
             _backtest_cutoff_period_local.period = previous
+
+
+@contextmanager
+def _temporary_strict_backtest_strategy(enabled=True):
+    previous = getattr(_backtest_strict_strategy_local, "enabled", None)
+    _backtest_strict_strategy_local.enabled = bool(enabled)
+    try:
+        yield
+    finally:
+        if previous is None:
+            try:
+                delattr(_backtest_strict_strategy_local, "enabled")
+            except AttributeError:
+                pass
+        else:
+            _backtest_strict_strategy_local.enabled = previous
 
 
 def _normalize_draw_number(value):
@@ -9714,6 +9735,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 },
             }
         except Exception as e:
+            if _backtest_strict_strategy_enabled():
+                raise
             print(f"{strategy} recommendation failed, falling back to balanced. Reason: {e}")
             if strategy == 'balanced':
                 return _build_default_baseline_prediction()
@@ -12189,7 +12212,8 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
                     )
                 else:
                     with _temporary_backtest_cutoff_period(target_draw.get("id")):
-                        result = get_local_recommendations(resolved_strategy, history_desc, region)
+                        with _temporary_strict_backtest_strategy():
+                            result = get_local_recommendations(resolved_strategy, history_desc, region)
                 if result.get("error"):
                     raise ValueError(result.get("error"))
             except Exception as e:
@@ -12624,10 +12648,21 @@ def _build_strategy_backtest_summary(region, strategy, draws=None, config_overri
                     result = predict_with_ai(history_desc, region, config_override=config_override)
                 else:
                     with _temporary_backtest_cutoff_period(target_draw.get("id")):
-                        result = get_local_recommendations(strategy, history_desc, region)
+                        with _temporary_strict_backtest_strategy():
+                            result = get_local_recommendations(strategy, history_desc, region)
                 if result.get("error"):
+                    entries.append({
+                        "exact_hit": False,
+                        "top6_hit": False,
+                        "zodiac_hit": False,
+                    })
                     continue
             except Exception:
+                entries.append({
+                    "exact_hit": False,
+                    "top6_hit": False,
+                    "zodiac_hit": False,
+                })
                 continue
             entries.append(_evaluate_backtest_prediction(result, target_draw))
     summary = _summarize_backtest_entries(entries)
