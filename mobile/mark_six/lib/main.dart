@@ -1184,7 +1184,7 @@ class _HomeScreenState extends State<HomeScreen> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.list_alt), label: '开奖记录'),
           NavigationDestination(icon: Icon(Icons.grid_view), label: '生肖号码'),
-          NavigationDestination(icon: Icon(Icons.touch_app), label: '手动选号'),
+          NavigationDestination(icon: Icon(Icons.touch_app), label: '模拟选号'),
           NavigationDestination(icon: Icon(Icons.auto_graph), label: '号码预测'),
           NavigationDestination(icon: Icon(Icons.person), label: '个人中心'),
         ],
@@ -2702,7 +2702,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   Widget build(BuildContext context) {
     final activationValid = _activationValid;
     return Scaffold(
-      appBar: AppBar(title: const Text('手动选号')),
+      appBar: AppBar(title: const Text('模拟选号')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -2723,7 +2723,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                             const SizedBox(width: 8),
                             const Expanded(
                               child: Text(
-                                '账号未激活或已过期，请先激活后使用手动选号功能。',
+                                '账号未激活或已过期，请先激活后使用模拟选号功能。',
                                 style: TextStyle(color: Colors.orange),
                               ),
                             ),
@@ -6367,6 +6367,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String value,
     required Color color,
     IconData? icon,
+    String? note,
   }) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -6409,6 +6410,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               fontWeight: FontWeight.w900,
             ),
           ),
+          if (note != null && note.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              note,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -6698,9 +6712,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               icon: Icons.analytics_outlined,
                             ),
                             _buildMetricTile(
-                              label: '累计命中',
-                              value:
-                                  '${_overall!.specialHits}/${_overall!.normalHits}',
+                              label: '特码命中次数',
+                              value: _overall!.specialHits.toString(),
                               color: const Color(0xFFF97316),
                               icon: Icons.done_all,
                             ),
