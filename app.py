@@ -38,9 +38,19 @@ from notification_service import notify_user
 data_dir = os.path.join(os.getcwd(), 'data')
 os.makedirs(data_dir, exist_ok=True)
 
+
+def _env_float(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
 _ML_PREDICTION_CACHE_TTL_SECONDS = 900
 _ML_PREDICTION_CACHE_MAX_ITEMS = 24
 _AI_PREDICTION_CACHE_TTL_SECONDS = 300
+_AI_HTTP_CONNECT_TIMEOUT_SECONDS = _env_float("AI_HTTP_CONNECT_TIMEOUT_SECONDS", 10)
+_AI_HTTP_READ_TIMEOUT_SECONDS = _env_float("AI_HTTP_READ_TIMEOUT_SECONDS", 90)
 _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
@@ -58,6 +68,10 @@ _SYSTEM_LOG_PREFIX_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\
 _SYSTEM_LOG_INLINE_TIME_RE = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
 _system_log_stream_lock = threading.Lock()
 _system_log_tee_installed = False
+
+
+def _ai_http_timeout():
+    return (_AI_HTTP_CONNECT_TIMEOUT_SECONDS, _AI_HTTP_READ_TIMEOUT_SECONDS)
 
 
 def _current_system_log_timestamp():
@@ -9973,7 +9987,7 @@ def _call_ai_completion(ai_config, prompt, temperature=0.35):
         "temperature": temperature
     }
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
-    response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=120)
+    response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=_ai_http_timeout())
     response.raise_for_status()
     if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
         response.encoding = "utf-8"
@@ -11615,7 +11629,7 @@ def _iter_ai_stream(ai_config, prompt, temperature=0.8):
         "stream": True
     }
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
-    response = requests.post(ai_config["api_url"], json=payload, headers=headers, stream=True, timeout=120)
+    response = requests.post(ai_config["api_url"], json=payload, headers=headers, stream=True, timeout=_ai_http_timeout())
     response.raise_for_status()
     if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
         response.encoding = "utf-8"

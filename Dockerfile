@@ -39,4 +39,4 @@ EXPOSE 5000
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # 启动命令
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "300", "app:app"]

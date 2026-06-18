@@ -9,6 +9,8 @@ services:
       - FLASK_DEBUG=0
       - PYTHONUNBUFFERED=1
       - TRUST_PROXY_HEADERS=1
+      - AI_HTTP_CONNECT_TIMEOUT_SECONDS=10
+      - AI_HTTP_READ_TIMEOUT_SECONDS=90
       - SECRET_KEY=${SECRET_KEY:?请先设置随机 SECRET_KEY}
       - ENABLE_SCHEDULER=1
       # MySQL support (optional)
