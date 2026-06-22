@@ -90,8 +90,7 @@
             <div class="collect-subtitle">系统每天 20:00 自动采集一次；已落库期号会跳过，不覆盖二次修改。</div>
         </div>
         <form method="POST" action="{{ url_for('user.collect_macau_data') }}" class="collect-form">
-            <label for="collectionYear">年份</label>
-            <input id="collectionYear" type="number" name="year" min="2000" max="2100" value="{{ selected_year or current_year }}" required>
+            <input type="hidden" name="year" value="{{ selected_year or current_year }}">
             <button type="submit" class="btn btn-success">开始采集</button>
         </form>
     </div>
@@ -109,7 +108,7 @@
 </div>
 
 <div class="card">
-    <div class="card-header">
+    <div class="card-header collection-filter-header">
         <h2 class="card-title">🧾 采集记录</h2>
         <form method="GET" action="{{ url_for('user.macau_collection') }}" class="inline-search-form">
             <div class="search-controls">
@@ -262,6 +261,16 @@
     flex-wrap: wrap;
 }
 
+.collection-filter-header {
+    align-items: center;
+}
+
+.collection-filter-header .inline-search-form {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+}
+
 .collect-form label {
     font-weight: 700;
 }
@@ -271,6 +280,12 @@
 .compact-select {
     min-height: 42px;
     border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    line-height: 1.2;
+    padding-top: 0;
+    padding-bottom: 0;
+    vertical-align: middle;
 }
 
 .collect-form input {
@@ -549,11 +564,17 @@
     .collect-form,
     .collect-form input,
     .collect-form button,
+    .collection-filter-header,
+    .collection-filter-header .inline-search-form,
     .search-controls,
     .compact-input,
     .compact-select,
     .compact-btn {
         width: 100%;
+    }
+
+    .collection-filter-header .inline-search-form {
+        margin-left: 0;
     }
 }
 </style>

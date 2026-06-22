@@ -11,6 +11,7 @@ import html
 import json
 import re
 import requests
+import urllib3
 import threading
 import time
 from collections import OrderedDict
@@ -976,6 +977,7 @@ def _macau_collection_full_period(year, source_period):
 
 
 def _fetch_macau_collection_html(url):
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     session_obj = requests.Session()
     session_obj.trust_env = False
     response = session_obj.get(
