@@ -375,6 +375,31 @@ CREATE INDEX IF NOT EXISTS ix_lottery_draws_region_draw_date_draw_id
 ON lottery_draws (region, draw_date, draw_id)
 """)
 
+cursor.execute("""
+CREATE TABLE macau_collected_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    region VARCHAR(10) NOT NULL DEFAULT 'macau',
+    year INTEGER NOT NULL,
+    source_period VARCHAR(10) NOT NULL,
+    period VARCHAR(20) NOT NULL,
+    numbers VARCHAR(100),
+    zodiacs VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(region, period)
+)
+""")
+
+cursor.execute("""
+CREATE INDEX IF NOT EXISTS ix_macau_collected_region_period
+ON macau_collected_data (region, period)
+""")
+
+cursor.execute("""
+CREATE INDEX IF NOT EXISTS ix_macau_collected_year_source_period
+ON macau_collected_data (year, source_period)
+""")
+
 
 # 生肖设置表
 cursor.execute("""

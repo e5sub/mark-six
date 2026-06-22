@@ -2058,6 +2058,10 @@ def _sync_runtime_database_schema():
         'lottery_draws': {
             'ix_lottery_draws_region_draw_date_draw_id': ('region', 'draw_date', 'draw_id'),
         },
+        'macau_collected_data': {
+            'ix_macau_collected_region_period': ('region', 'period'),
+            'ix_macau_collected_year_source_period': ('year', 'source_period'),
+        },
     }
 
     for table_name, indexes in runtime_index_specs.items():
@@ -14325,6 +14329,29 @@ def warmup_auto_backtest_snapshots():
             print(f"Auto backtest warmup failed: {e}")
 
 
+def collect_macau_source_data_job():
+    """Scheduled job: collect Macau source numbers and zodiacs without overwriting existing rows."""
+    with app.app_context():
+        try:
+            from user import _collect_macau_source_data, _save_macau_collection_items
+
+            current_year = datetime.now().year
+            items, _ = _collect_macau_source_data(current_year)
+            items = [
+                item for item in items
+                if item.get('period') and (item.get('numbers') or item.get('zodiacs'))
+            ]
+            created_count, skipped_count = _save_macau_collection_items(current_year, items)
+            print(
+                f"澳门号码生肖自动采集完成：year={current_year} "
+                f"parsed={len(items)} created={created_count} skipped={skipped_count}"
+            )
+        except Exception as e:
+            print(f"澳门号码生肖自动采集失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+
 _warmup_thread = None
 _warmup_started = False
 
@@ -14389,6 +14416,15 @@ def start_scheduler(force=False):
 
     _scheduler.add_listener(_log_scheduler_event, EVENT_JOB_MISSED | EVENT_JOB_EXECUTED)
     _scheduler.add_job(
+        collect_macau_source_data_job,
+        'cron',
+        hour=20,
+        minute=0,
+        id='collect_macau_source_data',
+        misfire_grace_time=600,
+        coalesce=True
+    )
+    _scheduler.add_job(
         update_lottery_data,
         'cron',
         hour=21,
@@ -14407,7 +14443,7 @@ def start_scheduler(force=False):
     )
     _scheduler.start()
     if _should_log_startup():
-        print("定时任务已启动：每天21:40自动更新数据库中的开奖记录")
+        print("定时任务已启动：每天20:00自动采集澳门号码生肖；21:40自动更新数据库中的开奖记录")
     return _scheduler
 
 if os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on"):

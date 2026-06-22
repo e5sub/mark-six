@@ -1,12 +1,16 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw, MacauCollectedData
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
+from html.parser import HTMLParser
 from types import SimpleNamespace
 from functools import wraps
+from urllib.parse import urljoin
+import html
 import json
 import re
+import requests
 import threading
 import time
 from collections import OrderedDict
@@ -22,6 +26,25 @@ _backtest_refresh_lock = threading.Lock()
 _backtest_refresh_state = {}
 _ml_stats_cache_lock = threading.Lock()
 _ml_stats_cache = {}
+
+MACAU_COLLECTION_NUMBER_URL = 'https://162.218.28.228:1150/bbs/113.htm'
+MACAU_COLLECTION_ZODIAC_URL = 'https://162.218.28.228:1150/bbs/180.htm'
+MACAU_COLLECTION_URLS = {
+    'numbers': MACAU_COLLECTION_NUMBER_URL,
+    'zodiacs': MACAU_COLLECTION_ZODIAC_URL,
+}
+ZODIAC_NAMES = '鼠牛虎兔龙蛇马羊猴鸡狗猪'
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+
+    def handle_data(self, data):
+        text = str(data or '').strip()
+        if text:
+            self.parts.append(text)
 
 
 def clear_user_runtime_caches():
@@ -942,6 +965,322 @@ def active_required(f):
             return redirect(url_for('auth.activate'))
         return f(*args, **kwargs)
     return decorated_function
+
+
+def _macau_collection_full_period(year, source_period):
+    year_text = str(year or '').strip()
+    source_text = str(source_period or '').strip()
+    if not year_text or not source_text:
+        return ''
+    return f"{year_text}{source_text.zfill(3)}"
+
+
+def _fetch_macau_collection_html(url):
+    session_obj = requests.Session()
+    session_obj.trust_env = False
+    response = session_obj.get(
+        url,
+        timeout=20,
+        verify=False,
+        headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+    )
+    response.raise_for_status()
+    return response.content.decode('gb2312', errors='ignore')
+
+
+def _extract_text_from_html(raw_html):
+    parser = _HTMLTextExtractor()
+    parser.feed(raw_html or '')
+    return '\n'.join(html.unescape(part) for part in parser.parts)
+
+
+def _resolve_collection_content_url(url, raw_html):
+    match = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', raw_html or '', re.I)
+    if not match:
+        return url
+    return urljoin(url, match.group(1))
+
+
+def _parse_collection_items(plain_text, value_type):
+    items = {}
+    pattern = re.compile(r'(\d{1,3})\s*期\s*:\s*.*?【(.*?)】\s*开\s*:', re.S)
+    for match in pattern.finditer(plain_text or ''):
+        source_period = match.group(1).strip()
+        content = match.group(2)
+        if value_type == 'numbers':
+            values = [
+                f"{int(number):02d}"
+                for number in re.findall(r'\d{1,2}', content)
+                if 1 <= int(number) <= 49
+            ]
+        else:
+            values = [
+                zodiac
+                for zodiac in re.findall(f'[{ZODIAC_NAMES}]', content)
+                if zodiac in ZODIAC_NAMES
+            ]
+        if values:
+            items[source_period] = values[:8]
+    return items
+
+
+def _collect_macau_source_data(year):
+    parsed_by_type = {}
+    resolved_urls = {}
+    for value_type, url in MACAU_COLLECTION_URLS.items():
+        outer_html = _fetch_macau_collection_html(url)
+        content_url = _resolve_collection_content_url(url, outer_html)
+        content_html = outer_html if content_url == url else _fetch_macau_collection_html(content_url)
+        resolved_urls[value_type] = content_url
+        parsed_by_type[value_type] = _parse_collection_items(
+            _extract_text_from_html(content_html),
+            value_type,
+        )
+
+    source_periods = sorted(
+        set(parsed_by_type.get('numbers', {}).keys()) | set(parsed_by_type.get('zodiacs', {}).keys()),
+        key=lambda item: int(item),
+    )
+    return [
+        {
+            'source_period': source_period,
+            'period': _macau_collection_full_period(year, source_period),
+            'numbers': parsed_by_type.get('numbers', {}).get(source_period, []),
+            'zodiacs': parsed_by_type.get('zodiacs', {}).get(source_period, []),
+        }
+        for source_period in source_periods
+    ], resolved_urls
+
+
+def _save_macau_collection_items(year, items):
+    created_count = 0
+    skipped_count = 0
+    for item in items:
+        period = item.get('period')
+        if not period:
+            continue
+        record = MacauCollectedData.query.filter_by(region='macau', period=period).first()
+        numbers = ','.join(item.get('numbers') or [])
+        zodiacs = ','.join(item.get('zodiacs') or [])
+        if record:
+            skipped_count += 1
+            continue
+        else:
+            db.session.add(MacauCollectedData(
+                region='macau',
+                year=int(year),
+                source_period=str(item.get('source_period') or ''),
+                period=period,
+                numbers=numbers,
+                zodiacs=zodiacs,
+            ))
+            created_count += 1
+    db.session.commit()
+    return created_count, skipped_count
+
+
+def _csv_items(value):
+    return [
+        item.strip()
+        for item in str(value or '').split(',')
+        if item and item.strip()
+    ]
+
+
+def _get_macau_collection_actual_map(records):
+    periods = [
+        str(record.period or '').strip()
+        for record in records
+        if str(record.period or '').strip()
+    ]
+    if not periods:
+        return {}
+
+    draws = LotteryDraw.query.filter(
+        LotteryDraw.region == 'macau',
+        LotteryDraw.draw_id.in_(periods),
+    ).all()
+
+    actual_map = {}
+    for draw in draws:
+        zodiacs = _csv_items(draw.raw_zodiac)
+        special_zodiac = str(draw.special_zodiac or '').strip()
+        if len(zodiacs) >= 7 and zodiacs[-1]:
+            special_zodiac = zodiacs[-1]
+        actual_map[str(draw.draw_id or '').strip()] = {
+            'special_number': f"{int(draw.special_number):02d}" if str(draw.special_number or '').strip().isdigit() else str(draw.special_number or '').strip(),
+            'special_zodiac': special_zodiac,
+            'draw_date': str(draw.draw_date or '').strip(),
+        }
+    return actual_map
+
+
+def _enrich_macau_collection_records(records):
+    actual_map = _get_macau_collection_actual_map(records)
+    enriched = []
+    for record in records:
+        record.numbers_list = _csv_items(record.numbers)
+        record.zodiacs_list = _csv_items(record.zodiacs)
+        actual = actual_map.get(str(record.period or '').strip(), {})
+        record.actual_special_number = actual.get('special_number', '')
+        record.actual_special_zodiac = actual.get('special_zodiac', '')
+        record.draw_date = actual.get('draw_date', '')
+        record.has_result = bool(record.actual_special_number)
+        record.number_hit = record.has_result and record.actual_special_number in record.numbers_list
+        record.zodiac_hit = record.has_result and bool(record.actual_special_zodiac) and record.actual_special_zodiac in record.zodiacs_list
+        record.any_hit = bool(record.number_hit or record.zodiac_hit)
+        if not record.has_result:
+            record.result_key = 'pending'
+            record.result_label = '待开奖'
+            record.result_class = 'result-pending'
+        elif record.number_hit and record.zodiac_hit:
+            record.result_key = 'any_hit'
+            record.result_label = '双项命中'
+            record.result_class = 'result-success'
+        elif record.number_hit:
+            record.result_key = 'number_hit'
+            record.result_label = '号码命中'
+            record.result_class = 'result-success'
+        elif record.zodiac_hit:
+            record.result_key = 'zodiac_hit'
+            record.result_label = '生肖命中'
+            record.result_class = 'result-partial'
+        else:
+            record.result_key = 'wrong'
+            record.result_label = '未命中'
+            record.result_class = 'result-failed'
+        enriched.append(record)
+    return enriched
+
+
+def _macau_collection_stats(records):
+    enriched = _enrich_macau_collection_records(records)
+    resolved = [record for record in enriched if record.has_result]
+    pending = len(enriched) - len(resolved)
+    number_hits = sum(1 for record in resolved if record.number_hit)
+    zodiac_hits = sum(1 for record in resolved if record.zodiac_hit)
+    any_hits = sum(1 for record in resolved if record.any_hit)
+    wrong = sum(1 for record in resolved if not record.any_hit)
+
+    current_hit_streak = 0
+    current_miss_streak = 0
+    for record in sorted(resolved, key=lambda item: int(item.period) if str(item.period or '').isdigit() else 0, reverse=True):
+        if record.any_hit:
+            if current_miss_streak:
+                break
+            current_hit_streak += 1
+        else:
+            if current_hit_streak:
+                break
+            current_miss_streak += 1
+
+    resolved_count = len(resolved)
+    return {
+        'total': len(enriched),
+        'resolved': resolved_count,
+        'pending': pending,
+        'number_hits': number_hits,
+        'zodiac_hits': zodiac_hits,
+        'any_hits': any_hits,
+        'wrong': wrong,
+        'current_hit_streak': current_hit_streak,
+        'current_miss_streak': current_miss_streak,
+        'number_hit_rate': round((number_hits / resolved_count * 100), 2) if resolved_count else 0,
+        'zodiac_hit_rate': round((zodiac_hits / resolved_count * 100), 2) if resolved_count else 0,
+        'any_hit_rate': round((any_hits / resolved_count * 100), 2) if resolved_count else 0,
+    }
+
+
+def _filter_macau_collection_records(records, period='', result=''):
+    filtered = list(records or [])
+    if period:
+        filtered = [
+            record for record in filtered
+            if period in str(record.period or '') or period in str(record.source_period or '')
+        ]
+    if result:
+        if result == 'number_hit':
+            filtered = [record for record in filtered if record.number_hit]
+        elif result == 'zodiac_hit':
+            filtered = [record for record in filtered if record.zodiac_hit]
+        elif result == 'any_hit':
+            filtered = [record for record in filtered if record.any_hit]
+        elif result == 'wrong':
+            filtered = [record for record in filtered if record.has_result and not record.any_hit]
+        elif result == 'pending':
+            filtered = [record for record in filtered if not record.has_result]
+    return filtered
+
+
+@user_bp.route('/macau-collection')
+@active_required
+def macau_collection():
+    user = _get_session_user()
+    current_year = datetime.now().year
+    selected_year = request.args.get('year', current_year, type=int)
+    page = max(request.args.get('page', 1, type=int), 1)
+    period = request.args.get('period', '').strip()
+    result = request.args.get('result', '').strip()
+
+    all_records = MacauCollectedData.query.filter_by(region='macau', year=selected_year).order_by(
+        MacauCollectedData.period.desc()
+    ).all()
+    enriched_records = _enrich_macau_collection_records(all_records)
+    stats = _macau_collection_stats(all_records)
+    filtered_records = _filter_macau_collection_records(enriched_records, period=period, result=result)
+    per_page = 12
+    total = len(filtered_records)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    start_index = (page - 1) * per_page
+    records = filtered_records[start_index:start_index + per_page]
+    pagination = SimpleNamespace(
+        page=page,
+        pages=total_pages,
+        total=total,
+        has_prev=page > 1,
+        has_next=page < total_pages,
+        prev_num=page - 1 if page > 1 else None,
+        next_num=page + 1 if page < total_pages else None,
+    )
+    return render_template(
+        'user/macau_collection_stats.html',
+        user=user,
+        selected_year=selected_year,
+        current_year=current_year,
+        period=period,
+        result=result,
+        records=records,
+        pagination=pagination,
+        stats=stats,
+        source_urls=MACAU_COLLECTION_URLS,
+        get_number_color=get_number_color,
+    )
+
+
+@user_bp.route('/macau-collection/collect', methods=['POST'])
+@active_required
+def collect_macau_data():
+    current_year = datetime.now().year
+    year = request.form.get('year', current_year, type=int)
+    if year < 2000 or year > 2100:
+        flash('年份不正确，请重新输入。', 'error')
+        return redirect(url_for('user.macau_collection', year=current_year))
+
+    try:
+        items, _ = _collect_macau_source_data(year)
+        items = [
+            item for item in items
+            if item.get('period') and (item.get('numbers') or item.get('zodiacs'))
+        ]
+        created_count, skipped_count = _save_macau_collection_items(year, items)
+        flash(f'采集完成：共解析 {len(items)} 期，新增 {created_count} 期，已存在跳过 {skipped_count} 期。', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'采集失败：{e}', 'error')
+    return redirect(url_for('user.macau_collection', year=year))
 
 @user_bp.route('/dashboard')
 @user_bp.route('/dashboard')

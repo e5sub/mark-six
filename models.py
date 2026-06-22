@@ -1017,3 +1017,23 @@ class LotteryDraw(db.Model):
     
     def __repr__(self):
         return f'<LotteryDraw {self.region}-{self.draw_id}>'
+
+
+class MacauCollectedData(db.Model):
+    __tablename__ = 'macau_collected_data'
+
+    id = db.Column(db.Integer, primary_key=True)
+    region = db.Column(db.String(10), nullable=False, default='macau')
+    year = db.Column(db.Integer, nullable=False)
+    source_period = db.Column(db.String(10), nullable=False)
+    period = db.Column(db.String(20), nullable=False)
+    numbers = db.Column(db.String(100))
+    zodiacs = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        db.UniqueConstraint('region', 'period', name='uix_macau_collected_region_period'),
+        db.Index('ix_macau_collected_region_period', 'region', 'period'),
+        db.Index('ix_macau_collected_year_source_period', 'year', 'source_period'),
+    )

@@ -151,6 +151,25 @@ def _update_mysql_database():
                     connection.execute(text("ALTER TABLE manual_bet_records ADD COLUMN bettor_name VARCHAR(50)"))
                     changes.append("Added manual_bet_records.bettor_name")
 
+            if not _mysql_table_exists(connection, "macau_collected_data"):
+                connection.execute(text("""
+                    CREATE TABLE macau_collected_data (
+                        id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                        region VARCHAR(10) NOT NULL DEFAULT 'macau',
+                        year INTEGER NOT NULL,
+                        source_period VARCHAR(10) NOT NULL,
+                        period VARCHAR(20) NOT NULL,
+                        numbers VARCHAR(100),
+                        zodiacs VARCHAR(100),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY uix_macau_collected_region_period (region, period),
+                        INDEX ix_macau_collected_region_period (region, period),
+                        INDEX ix_macau_collected_year_source_period (year, source_period)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                """))
+                changes.append("Created macau_collected_data")
+
         if changes:
             print("MySQL/MariaDB database schema updated:")
             for change in changes:
@@ -352,6 +371,34 @@ def update_database():
         else:
             print("lottery_draws 表已存在")
             
+        if not check_table_exists(cursor, 'macau_collected_data'):
+            print("Creating macau_collected_data table...")
+            cursor.execute('''
+            CREATE TABLE macau_collected_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                region VARCHAR(10) NOT NULL DEFAULT 'macau',
+                year INTEGER NOT NULL,
+                source_period VARCHAR(10) NOT NULL,
+                period VARCHAR(20) NOT NULL,
+                numbers VARCHAR(100),
+                zodiacs VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(region, period)
+            )
+            ''')
+            cursor.execute('''
+                CREATE INDEX ix_macau_collected_region_period
+                ON macau_collected_data (region, period)
+            ''')
+            cursor.execute('''
+                CREATE INDEX ix_macau_collected_year_source_period
+                ON macau_collected_data (year, source_period)
+            ''')
+            print("macau_collected_data table created")
+        else:
+            print("macau_collected_data table already exists")
+
         # 检查并创建 zodiac_settings 表
         if not check_table_exists(cursor, 'activation_code_request'):
             print("Creating activation_code_request table...")

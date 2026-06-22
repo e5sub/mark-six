@@ -1,0 +1,560 @@
+{% extends "user/base.html" %}
+
+{% block title %}澳门采集{% endblock %}
+{% block page_title %}澳门号码生肖采集{% endblock %}
+
+{% block content %}
+<div class="stats-grid macau-stats">
+    <div class="stat-card">
+        <div class="stat-icon">🧾</div>
+        <div class="stat-number">{{ stats.total }}</div>
+        <div class="stat-label">采集期数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-number">{{ stats.resolved }}</div>
+        <div class="stat-label">已开奖</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🎯</div>
+        <div class="stat-number">{{ stats.number_hits }}</div>
+        <div class="stat-label">号码命中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">♉</div>
+        <div class="stat-number">{{ stats.zodiac_hits }}</div>
+        <div class="stat-label">生肖命中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🔥</div>
+        <div class="stat-number">{{ stats.any_hits }}</div>
+        <div class="stat-label">综合命中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">⏳</div>
+        <div class="stat-number">{{ stats.pending }}</div>
+        <div class="stat-label">待开奖</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">📈</div>
+        <div class="stat-number">{{ stats.any_hit_rate }}%</div>
+        <div class="stat-label">综合命中率</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">📊</div>
+        <div class="stat-number">{{ stats.zodiac_hit_rate }}%</div>
+        <div class="stat-label">生肖命中率</div>
+    </div>
+</div>
+
+<div class="region-stats-grid">
+    <div class="region-stat-card">
+        <div class="region-stat-head">
+            <div class="region-stat-title">澳门采集表现</div>
+            <div class="region-stat-total">{{ selected_year }} 年</div>
+        </div>
+        <div class="region-stat-body">
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ stats.number_hit_rate }}%</div>
+                <div class="region-stat-label">号码命中率</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ stats.zodiac_hit_rate }}%</div>
+                <div class="region-stat-label">生肖命中率</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ stats.any_hit_rate }}%</div>
+                <div class="region-stat-label">综合命中率</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ stats.current_hit_streak }}</div>
+                <div class="region-stat-label">当前连中</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ stats.current_miss_streak }}</div>
+                <div class="region-stat-label">当前未中</div>
+            </div>
+            <div class="region-stat-item">
+                <div class="region-stat-value">{{ stats.wrong }}</div>
+                <div class="region-stat-label">未命中</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card collect-panel">
+    <div class="collect-header">
+        <div>
+            <h2 class="collect-title">澳门资料采集</h2>
+            <div class="collect-subtitle">只采集源站期号对应的号码和生肖；源站三位期号会按年份补齐为项目期号。</div>
+            <div class="collect-subtitle">系统每天 20:00 自动采集一次；已落库期号会跳过，不覆盖二次修改。</div>
+        </div>
+        <form method="POST" action="{{ url_for('user.collect_macau_data') }}" class="collect-form">
+            <label for="collectionYear">年份</label>
+            <input id="collectionYear" type="number" name="year" min="2000" max="2100" value="{{ selected_year or current_year }}" required>
+            <button type="submit" class="btn btn-success">开始采集</button>
+        </form>
+    </div>
+
+    <div class="source-grid">
+        <div class="source-item">
+            <span>号码源</span>
+            <a href="{{ source_urls.numbers }}" target="_blank" rel="noopener noreferrer">{{ source_urls.numbers }}</a>
+        </div>
+        <div class="source-item">
+            <span>生肖源</span>
+            <a href="{{ source_urls.zodiacs }}" target="_blank" rel="noopener noreferrer">{{ source_urls.zodiacs }}</a>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🧾 采集记录</h2>
+        <form method="GET" action="{{ url_for('user.macau_collection') }}" class="inline-search-form">
+            <div class="search-controls">
+                <input type="number" name="year" min="2000" max="2100" value="{{ selected_year or current_year }}" class="compact-input" title="年份" required>
+                <input type="text" name="period" value="{{ period }}" class="compact-input" placeholder="期号">
+                <select name="result" class="compact-select" title="结果">
+                    <option value="">全部结果</option>
+                    <option value="any_hit" {% if result == 'any_hit' %}selected{% endif %}>综合命中</option>
+                    <option value="number_hit" {% if result == 'number_hit' %}selected{% endif %}>号码命中</option>
+                    <option value="zodiac_hit" {% if result == 'zodiac_hit' %}selected{% endif %}>生肖命中</option>
+                    <option value="wrong" {% if result == 'wrong' %}selected{% endif %}>未命中</option>
+                    <option value="pending" {% if result == 'pending' %}selected{% endif %}>待开奖</option>
+                </select>
+                <button type="submit" class="compact-btn btn-search" title="查询">🔍</button>
+                <a href="{{ url_for('user.macau_collection', year=selected_year) }}" class="compact-btn btn-reset" title="重置">↺</a>
+            </div>
+        </form>
+    </div>
+
+    {% if records %}
+    <div class="collection-record-list">
+        {% for record in records %}
+        <div class="collection-record-card">
+            <div class="collection-record-top">
+                <div>
+                    <div class="collection-record-title">澳门 - 第{{ record.period }}期</div>
+                    <div class="collection-record-time">
+                        源站 {{ record.source_period }}期 · {{ record.updated_at.strftime('%Y-%m-%d %H:%M') if record.updated_at else '-' }}
+                    </div>
+                </div>
+                <span class="result-pill {{ record.result_class }}">{{ record.result_label }}</span>
+            </div>
+
+            <div class="collection-record-grid">
+                <div class="collection-panel">
+                    <div class="panel-title">号码参考</div>
+                    <div class="balls-row">
+                        {% for number in record.numbers_list %}
+                        {% set color = get_number_color(number) %}
+                        <div class="ball-column">
+                            <div class="number-ball-compact ball-{{ color }} {% if record.actual_special_number == number %}hit-ring{% endif %}">{{ number }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="collection-panel">
+                    <div class="panel-title">生肖参考</div>
+                    <div class="zodiac-row">
+                        {% for zodiac in record.zodiacs_list %}
+                        <span class="zodiac-chip {% if record.actual_special_zodiac == zodiac %}zodiac-hit{% endif %}">{{ zodiac }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="collection-panel result-panel">
+                    <div class="panel-title">开奖结果</div>
+                    {% if record.has_result %}
+                    {% set actual_color = get_number_color(record.actual_special_number) %}
+                    <div class="draw-result-container-centered">
+                        <div class="special-stack">
+                            <div class="number-ball-large ball-{{ actual_color }} actual-special-ball-large">{{ record.actual_special_number }}</div>
+                            <div class="special-zodiac">{{ record.actual_special_zodiac or '-' }}</div>
+                            {% if record.draw_date %}
+                            <div class="draw-date">{{ record.draw_date }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="pending-state">待开奖</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if pagination.pages > 1 %}
+    <div class="pagination-wrap">
+        {% if pagination.has_prev %}
+        <a class="page-btn" href="{{ url_for('user.macau_collection', page=pagination.prev_num, year=selected_year, period=period, result=result) }}">上一页</a>
+        {% endif %}
+        <span class="page-info">第 {{ pagination.page }} / {{ pagination.pages }} 页，共 {{ pagination.total }} 条</span>
+        {% if pagination.has_next %}
+        <a class="page-btn" href="{{ url_for('user.macau_collection', page=pagination.next_num, year=selected_year, period=period, result=result) }}">下一页</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">🧾</div>
+        <h3>暂无采集记录</h3>
+        <p>输入年份后点击“开始采集”，采集到的号码和生肖会在这里统计命中表现。</p>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.macau-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.collect-panel,
+.region-stat-card,
+.collection-record-card {
+    border: 1px solid rgba(45, 212, 191, 0.14);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(18, 40, 50, 0.92) 100%);
+}
+
+.collect-panel {
+    display: grid;
+    gap: 1.25rem;
+}
+
+.collect-header,
+.collection-record-top,
+.region-stat-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.collect-title,
+.region-stat-title,
+.collection-record-title {
+    margin: 0;
+    color: #f8fafc;
+    font-weight: 800;
+}
+
+.collect-title {
+    margin-bottom: 0.35rem;
+    font-size: 1.25rem;
+}
+
+.collect-subtitle,
+.collection-record-time,
+.region-stat-total,
+.draw-date {
+    color: #94a3b8;
+}
+
+.collect-form,
+.search-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+
+.collect-form label {
+    font-weight: 700;
+}
+
+.collect-form input,
+.compact-input,
+.compact-select {
+    min-height: 42px;
+    border-radius: 10px;
+}
+
+.collect-form input {
+    width: 118px;
+    padding: 0.7rem 0.8rem;
+}
+
+.source-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+}
+
+.source-item {
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.95rem 1rem;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 12px;
+    background: rgba(30, 41, 59, 0.62);
+}
+
+.source-item span {
+    color: #dbe4f0;
+    font-weight: 800;
+}
+
+.source-item a {
+    color: #93c5fd;
+    overflow-wrap: anywhere;
+    text-decoration: none;
+}
+
+.region-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.region-stat-card,
+.collection-record-card {
+    padding: 1.1rem;
+    border-radius: 18px;
+    box-shadow: 0 16px 34px rgba(2, 6, 23, 0.26);
+}
+
+.region-stat-body {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.region-stat-item {
+    text-align: center;
+    padding: 0.7rem 0.35rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.74);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.region-stat-value {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #f8fafc;
+}
+
+.region-stat-label {
+    margin-top: 0.2rem;
+    font-size: 0.78rem;
+    color: #94a3b8;
+}
+
+.collection-record-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.collection-record-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1.2fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.collection-panel {
+    padding: 1rem;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.78);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.panel-title {
+    margin-bottom: 0.75rem;
+    font-size: 0.92rem;
+    font-weight: 800;
+    color: #e2e8f0;
+}
+
+.balls-row,
+.zodiac-row {
+    display: flex;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+
+.ball-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.ball-red { background: linear-gradient(135deg, #ff4b4b 0%, #dc3545 100%); }
+.ball-blue { background: linear-gradient(135deg, #4b83ff 0%, #007bff 100%); }
+.ball-green { background: linear-gradient(135deg, #4bff91 0%, #28a745 100%); }
+
+.number-ball-compact,
+.number-ball-large {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    color: white;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+}
+
+.number-ball-compact {
+    width: 42px;
+    height: 42px;
+    font-size: 1rem;
+}
+
+.number-ball-large {
+    width: 74px;
+    height: 74px;
+    font-size: 1.7rem;
+}
+
+.hit-ring,
+.actual-special-ball-large {
+    border: 4px solid rgba(255, 215, 0, 0.95);
+}
+
+.zodiac-chip,
+.special-zodiac {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(30, 41, 59, 0.95);
+    color: #f8fafc;
+    font-weight: 800;
+}
+
+.zodiac-chip {
+    min-width: 42px;
+    height: 34px;
+    padding: 0 0.8rem;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.zodiac-hit {
+    color: #dcfce7;
+    background: rgba(22, 163, 74, 0.32);
+    border-color: rgba(134, 239, 172, 0.5);
+}
+
+.draw-result-container-centered,
+.pending-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+}
+
+.special-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.special-zodiac {
+    min-height: 30px;
+    padding: 0.28rem 0.8rem;
+}
+
+.result-pill {
+    padding: 0.45rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.result-success { color: #86efac; background: rgba(22, 163, 74, 0.18); }
+.result-partial { color: #93c5fd; background: rgba(37, 99, 235, 0.18); }
+.result-failed { color: #fca5a5; background: rgba(220, 38, 38, 0.18); }
+.result-pending { color: #fde68a; background: rgba(245, 158, 11, 0.16); }
+
+.pending-state {
+    color: #fde68a;
+    font-weight: 800;
+}
+
+.compact-btn {
+    min-width: 42px;
+    min-height: 42px;
+    border: 0;
+    border-radius: 10px;
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.btn-search { background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%); }
+.btn-reset { background: rgba(71, 85, 105, 0.9); }
+
+.pagination-wrap {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+}
+
+.page-btn {
+    padding: 0.45rem 0.85rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #fff;
+    background: linear-gradient(135deg, #00897b 0%, #26a69a 100%);
+}
+
+.page-info {
+    color: #cbd5e1;
+    font-weight: 700;
+}
+
+.empty-state {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: #cbd5e1;
+}
+
+.empty-icon {
+    font-size: 2.4rem;
+    margin-bottom: 0.65rem;
+}
+
+@media (max-width: 1100px) {
+    .macau-stats,
+    .region-stat-body,
+    .collection-record-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .result-panel {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 760px) {
+    .macau-stats,
+    .region-stat-body,
+    .collection-record-grid,
+    .source-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .collect-form,
+    .collect-form input,
+    .collect-form button,
+    .search-controls,
+    .compact-input,
+    .compact-select,
+    .compact-btn {
+        width: 100%;
+    }
+}
+</style>
+{% endblock %}
