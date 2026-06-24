@@ -3312,36 +3312,34 @@ def analytics():
     
     def calculate_region_stats(region):
         query = PredictionRecord.query.filter_by(user_id=user.id, region=region)
+
+        def count_periods(period_query):
+            return period_query.with_entities(PredictionRecord.period).distinct().count()
         
-        total = query.count()
-        updated = query.filter_by(is_result_updated=True).filter(
+        total = count_periods(query)
+        updated = count_periods(query.filter_by(is_result_updated=True).filter(
             PredictionRecord.actual_special_number != None
-        ).count()
+        ))
         
-        special_hit = query.filter(
+        special_hit = count_periods(query.filter(
             PredictionRecord.is_result_updated == True,
             PredictionRecord.special_number == PredictionRecord.actual_special_number
-        ).count()
+        ))
         
-        normal_hit = query.filter(
+        normal_hit = count_periods(query.filter(
             PredictionRecord.is_result_updated == True,
             PredictionRecord.actual_special_number != None,
             PredictionRecord.special_number != PredictionRecord.actual_special_number,
             _secondary_hit_expr()
-        ).count()
+        ))
 
-        zodiac_hit = query.filter(
+        zodiac_hit = count_periods(query.filter(
             PredictionRecord.is_result_updated == True,
             PredictionRecord.actual_special_number != None,
             _zodiac_hit_expr()
-        ).count()
+        ))
         
-        wrong = query.filter(
-            PredictionRecord.is_result_updated == True,
-            PredictionRecord.actual_special_number != None,
-            (PredictionRecord.special_number != PredictionRecord.actual_special_number),
-            ~_secondary_hit_expr()
-        ).count()
+        wrong = max(updated - special_hit, 0)
         
         correct = special_hit
         
