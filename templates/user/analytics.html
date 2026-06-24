@@ -330,24 +330,24 @@
         <div class="trend-item">
             <div class="trend-period">最近 7 天</div>
             <div class="trend-stats">
-                <div class="trend-count">{{ trend_data|selectattr('count')|sum(attribute='count') or 0 }} 次预测</div>
-                <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
+                <div class="trend-count">{{ trend_summary.week.total if trend_summary and trend_summary.week else 0 }} 期预测</div>
+                <div class="trend-accuracy">准确率 {{ "%.1f"|format(trend_summary.week.accuracy if trend_summary and trend_summary.week else 0) }}%</div>
             </div>
         </div>
 
         <div class="trend-item">
             <div class="trend-period">今天</div>
             <div class="trend-stats">
-                <div class="trend-count">{{ trend_data[-1].count if trend_data and trend_data|length > 0 else 0 }} 次预测</div>
-                <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
+                <div class="trend-count">{{ trend_summary.today.total if trend_summary and trend_summary.today else 0 }} 期预测</div>
+                <div class="trend-accuracy">准确率 {{ "%.1f"|format(trend_summary.today.accuracy if trend_summary and trend_summary.today else 0) }}%</div>
             </div>
         </div>
 
         <div class="trend-item">
             <div class="trend-period">总计</div>
             <div class="trend-stats">
-                <div class="trend-count">{{ stats.total_predictions or 0 }} 期预测</div>
-                <div class="trend-accuracy">准确率 {{ "%.1f"|format(stats.accuracy or 0) }}%</div>
+                <div class="trend-count">{{ trend_summary.total.total if trend_summary and trend_summary.total else 0 }} 期预测</div>
+                <div class="trend-accuracy">准确率 {{ "%.1f"|format(trend_summary.total.accuracy if trend_summary and trend_summary.total else 0) }}%</div>
             </div>
         </div>
     </div>

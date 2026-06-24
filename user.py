@@ -3230,22 +3230,23 @@ def analytics():
     
     user_predictions_query = PredictionRecord.query.filter_by(user_id=user.id)
     total_predictions = _count_distinct_prediction_periods(user_predictions_query)
-    updated_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
-    ).filter(
+    updated_predictions = _count_distinct_prediction_periods(user_predictions_query.filter(
+        PredictionRecord.is_result_updated == True,
         PredictionRecord.actual_special_number != None
-    ).count()
+    ))
     
-    special_hit_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
-    ).filter(
+    special_hit_predictions = _count_distinct_prediction_periods(user_predictions_query.filter(
+        PredictionRecord.is_result_updated == True,
         PredictionRecord.actual_special_number != None,
         PredictionRecord.special_number == PredictionRecord.actual_special_number
-    ).count()
+    ))
     
-    normal_hit_predictions = 0
+    normal_hit_predictions = _count_distinct_prediction_periods(user_predictions_query.filter(
+        PredictionRecord.is_result_updated == True,
+        PredictionRecord.actual_special_number != None,
+        PredictionRecord.special_number != PredictionRecord.actual_special_number,
+        _secondary_hit_expr()
+    ))
     
     accurate_predictions = special_hit_predictions
     
@@ -3406,16 +3407,55 @@ def analytics():
         date_start = datetime.combine(date, datetime.min.time())
         date_end = datetime.combine(date, datetime.max.time())
         
-        day_predictions = PredictionRecord.query.filter(
+        day_query = PredictionRecord.query.filter(
             PredictionRecord.user_id == user.id,
             PredictionRecord.created_at >= date_start,
             PredictionRecord.created_at <= date_end
-        ).count()
+        )
+        day_predictions = _count_distinct_prediction_periods(day_query)
         
         trend_data.append({
             'date': date.strftime('%m-%d'),
             'count': day_predictions
         })
+
+    def calculate_trend_summary(start_at=None, end_at=None):
+        query = PredictionRecord.query.filter(PredictionRecord.user_id == user.id)
+        if start_at:
+            query = query.filter(PredictionRecord.created_at >= start_at)
+        if end_at:
+            query = query.filter(PredictionRecord.created_at <= end_at)
+
+        total = _count_distinct_prediction_periods(query)
+        updated = _count_distinct_prediction_periods(query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None
+        ))
+        special_hit = _count_distinct_prediction_periods(query.filter(
+            PredictionRecord.is_result_updated == True,
+            PredictionRecord.actual_special_number != None,
+            PredictionRecord.special_number == PredictionRecord.actual_special_number
+        ))
+
+        return {
+            'total': total,
+            'updated': updated,
+            'accuracy': round((special_hit / updated * 100), 1) if updated > 0 else 0,
+        }
+
+    today = datetime.utcnow().date()
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
+    week_start = datetime.combine(today - timedelta(days=6), datetime.min.time())
+    trend_summary = {
+        'week': calculate_trend_summary(week_start, today_end),
+        'today': calculate_trend_summary(today_start, today_end),
+        'total': {
+            'total': total_predictions,
+            'updated': updated_predictions,
+            'accuracy': round(stats['accuracy'], 1),
+        },
+    }
     
     return render_template('user/analytics.html',
                           user=user,
@@ -3433,4 +3473,5 @@ def analytics():
                           region_stats=region_stats,
                           recent_predictions=recent_predictions,
                           trend_data=trend_data,
+                          trend_summary=trend_summary,
                           get_number_color=get_number_color)
