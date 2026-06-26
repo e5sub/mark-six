@@ -13043,13 +13043,19 @@ def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune
                 continue
             
             special_number = str(draw.get('sno', ''))
+            normal_numbers = [
+                str(number).strip()
+                for number in (draw.get('no') or [])
+                if str(number).strip()
+            ]
             # 获取特码生肖 - 所有地区都使用澳门API返回的生肖数据
             special_zodiac = draw.get('sno_zodiac', '')
             
             if special_number:
                 draw_results[period] = {
                     'special': special_number,
-                    'special_zodiac': special_zodiac
+                    'special_zodiac': special_zodiac,
+                    'normal': normal_numbers[:6],
                 }
         
         user_hits = {}
@@ -13076,7 +13082,7 @@ def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune
             accuracy = 1.0 if special_hit == 1 else 0.0
             
             # 更新预测记录
-            pred.actual_normal_numbers = ''  # 不再需要保存正码
+            pred.actual_normal_numbers = ','.join(result.get('normal') or [])
             pred.actual_special_number = result['special']
             pred.actual_special_zodiac = result['special_zodiac']
             pred.accuracy_score = accuracy

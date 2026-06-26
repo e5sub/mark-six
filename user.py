@@ -3372,7 +3372,7 @@ def analytics():
     stats['wrong_predictions'] = wrong_predictions
     stats['accuracy'] = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     stats['special_hit_rate'] = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
-    stats['normal_hit_rate'] = 0
+    stats['normal_hit_rate'] = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     
     # 计算各策略统计
     strategy_stats = {
