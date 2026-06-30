@@ -5848,7 +5848,52 @@ def _get_number_to_zodiac_map(year):
 
     return number_to_zodiac
 
-def _get_next_period(region, latest_period):
+def _parse_draw_date_year_month_day(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    for pattern in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+        try:
+            parsed = datetime.strptime(text[:10], pattern)
+            return parsed.year, parsed.month, parsed.day
+        except ValueError:
+            pass
+
+    match = re.search(r"(\d{4})\D?(\d{1,2})\D?(\d{1,2})", text)
+    if not match:
+        return None
+    try:
+        year, month, day = (int(part) for part in match.groups())
+        return year, month, day
+    except (TypeError, ValueError):
+        return None
+
+
+def _period_crosses_year(latest_period, latest_draw_date=None):
+    draw_date = _parse_draw_date_year_month_day(latest_draw_date)
+    if draw_date and draw_date[1] == 12 and draw_date[2] == 31:
+        return True
+
+    normalized = _normalize_period_value(latest_period)
+    if len(normalized) >= 7 and normalized[:4].isdigit():
+        try:
+            return int(normalized[:4]) < datetime.now().year
+        except ValueError:
+            return False
+    return False
+
+
+def _next_period_first_of_next_year(year_part, separator=""):
+    year_width = max(2, len(str(year_part or "")))
+    try:
+        next_year = int(year_part) + 1
+    except (TypeError, ValueError):
+        next_year = datetime.now().year
+    return f"{str(next_year).zfill(year_width)}{separator}001"
+
+
+def _get_next_period(region, latest_period, latest_draw_date=None):
     if region == 'hk':
         if latest_period and '/' in latest_period:
             parts = latest_period.split('/')
@@ -5856,11 +5901,8 @@ def _get_next_period(region, latest_period):
                 year_part, num_part = parts
                 try:
                     next_num = int(num_part) + 1
-                    year_num = int(year_part)
-                    year_width = max(2, len(year_part))
-                    if next_num > 120:
-                        next_year = year_num + 1
-                        return f"{str(next_year).zfill(year_width)}/001"
+                    if next_num > 120 or _period_crosses_year(latest_period, latest_draw_date):
+                        return _next_period_first_of_next_year(year_part, "/")
                     return f"{year_part}/{next_num:03d}"
                 except (ValueError, TypeError):
                     pass
@@ -5871,12 +5913,23 @@ def _get_next_period(region, latest_period):
                 if seq_part.isdigit():
                     seq = int(seq_part)
                     next_seq = seq + 1
-                    if len(seq_part) == 3 and next_seq > 999:
-                        next_year = int(year_part) + 1
-                        return f"{next_year}001"
+                    if (len(seq_part) == 3 and next_seq > 999) or _period_crosses_year(latest_period, latest_draw_date):
+                        return _next_period_first_of_next_year(year_part)
                     return f"{year_part}{str(next_seq).zfill(len(seq_part))}"
             return str(int(latest_period) + 1)
         return _default_period(region)
+
+    if latest_period and '/' in latest_period:
+        parts = latest_period.split('/')
+        if len(parts) == 2:
+            year_part, num_part = parts
+            try:
+                next_num = int(num_part) + 1
+                if _period_crosses_year(latest_period, latest_draw_date):
+                    return _next_period_first_of_next_year(year_part, "/")
+                return f"{year_part}/{next_num:03d}"
+            except (ValueError, TypeError):
+                pass
 
     if latest_period and latest_period.isdigit():
         if len(latest_period) >= 7 and latest_period[:4].isdigit():
@@ -5885,9 +5938,8 @@ def _get_next_period(region, latest_period):
             if seq_part.isdigit():
                 seq = int(seq_part)
                 next_seq = seq + 1
-                if len(seq_part) == 3 and next_seq > 999:
-                    next_year = int(year_part) + 1
-                    return f"{next_year}001"
+                if (len(seq_part) == 3 and next_seq > 999) or _period_crosses_year(latest_period, latest_draw_date):
+                    return _next_period_first_of_next_year(year_part)
                 return f"{year_part}{str(next_seq).zfill(len(seq_part))}"
         return str(int(latest_period) + 1)
     return datetime.now().strftime('%Y%m%d')
@@ -12178,11 +12230,15 @@ def _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT):
 
 
 def _evaluate_backtest_prediction(result, draw):
-    actual_special = str(draw.get("sno") or "").strip()
+    actual_special = _normalize_draw_number(draw.get("sno"))
     actual_zodiac = str(draw.get("sno_zodiac") or "").strip()
-    predicted_special = str((result.get("special") or {}).get("number") or "").strip()
+    predicted_special = _normalize_draw_number((result.get("special") or {}).get("number"))
     predicted_zodiac = str((result.get("special") or {}).get("sno_zodiac") or "").strip()
-    normal_numbers = [str(number) for number in (result.get("normal") or [])]
+    normal_numbers = [
+        _normalize_draw_number(number)
+        for number in (result.get("normal") or [])
+        if _normalize_draw_number(number)
+    ]
     return {
         "exact_hit": bool(actual_special and predicted_special == actual_special),
         "top6_hit": bool(actual_special and actual_special in normal_numbers),
@@ -13042,11 +13098,11 @@ def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune
             if not period:
                 continue
             
-            special_number = str(draw.get('sno', ''))
+            special_number = _normalize_draw_number(draw.get('sno'))
             normal_numbers = [
-                str(number).strip()
+                _normalize_draw_number(number)
                 for number in (draw.get('no') or [])
-                if str(number).strip()
+                if _normalize_draw_number(number)
             ]
             # 获取特码生肖 - 所有地区都使用澳门API返回的生肖数据
             special_zodiac = draw.get('sno_zodiac', '')
@@ -13072,7 +13128,7 @@ def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune
                 continue
                 
             # 获取预测特码和生肖
-            pred_special = pred.special_number
+            pred_special = _normalize_draw_number(pred.special_number)
             pred_zodiac = pred.special_zodiac
             
             # 特码号码是否命中
@@ -13127,7 +13183,7 @@ def generate_auto_predictions(data, region):
             return
 
         latest_period = latest_draw.get('id', '')
-        next_period = _get_next_period(region, latest_period)
+        next_period = _get_next_period(region, latest_period, latest_draw.get('date'))
 
         if not next_period:
             print("自动预测失败：无法确定下一期期数")
@@ -13284,7 +13340,7 @@ def unified_predict_api():
     if data:
         try:
             latest_period = data[0].get('id', '')
-            current_period = _get_next_period(region, latest_period)
+            current_period = _get_next_period(region, latest_period, data[0].get('date'))
         except (IndexError, ValueError) as e:
             print(f"计算下一期期数时出错: {e}")
             current_period = _default_period(region)
