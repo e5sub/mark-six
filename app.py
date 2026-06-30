@@ -5945,11 +5945,8 @@ def _get_next_period(region, latest_period, latest_draw_date=None):
     return datetime.now().strftime('%Y%m%d')
 
 def _default_period(region):
-    if region == 'hk':
-        current_year = datetime.now().strftime('%Y')
-        return f"{current_year}001"
-    current_year = datetime.now().strftime('%y')
-    return f"{current_year}/001"
+    current_year = datetime.now().strftime('%Y')
+    return f"{current_year}001"
 
 def analyze_special_zodiac_frequency(data, region, year=None):
     zodiacs = []
