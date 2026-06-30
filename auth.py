@@ -882,6 +882,12 @@ def request_activation_code():
     )
     db.session.add(request_record)
     db.session.commit()
+
+    try:
+        send_activation_request_notification(request_record)
+    except Exception as e:
+        print(f"Failed to send activation request admin notification: {e}")
+
     flash('激活码申请已提交，管理员处理后会显示在本页', 'success')
     return redirect(url_for('auth.activate'))
 
