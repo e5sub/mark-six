@@ -1056,8 +1056,9 @@ def _collect_macau_source_data(year):
     ], resolved_urls
 
 
-def _save_macau_collection_items(year, items):
+def _save_macau_collection_items(year, items, update_existing=False):
     created_count = 0
+    updated_count = 0
     skipped_count = 0
     for item in items:
         period = item.get('period')
@@ -1067,7 +1068,27 @@ def _save_macau_collection_items(year, items):
         numbers = ','.join(item.get('numbers') or [])
         zodiacs = ','.join(item.get('zodiacs') or [])
         if record:
-            skipped_count += 1
+            if update_existing:
+                changed = False
+                if str(record.numbers or '') != numbers:
+                    record.numbers = numbers
+                    changed = True
+                if str(record.zodiacs or '') != zodiacs:
+                    record.zodiacs = zodiacs
+                    changed = True
+                source_period = str(item.get('source_period') or '')
+                if str(record.source_period or '') != source_period:
+                    record.source_period = source_period
+                    changed = True
+                if record.year != int(year):
+                    record.year = int(year)
+                    changed = True
+                if changed:
+                    updated_count += 1
+                else:
+                    skipped_count += 1
+            else:
+                skipped_count += 1
             continue
         else:
             db.session.add(MacauCollectedData(
@@ -1080,7 +1101,7 @@ def _save_macau_collection_items(year, items):
             ))
             created_count += 1
     db.session.commit()
-    return created_count, skipped_count
+    return created_count, updated_count, skipped_count
 
 
 def _csv_items(value):
@@ -1273,12 +1294,16 @@ def collect_macau_data():
 
     try:
         items, _ = _collect_macau_source_data(year)
-        items = [
-            item for item in items
-            if item.get('period') and (item.get('numbers') or item.get('zodiacs'))
-        ]
-        created_count, skipped_count = _save_macau_collection_items(year, items)
-        flash(f'采集完成：共解析 {len(items)} 期，新增 {created_count} 期，已存在跳过 {skipped_count} 期。', 'success')
+        items = [item for item in items if item.get('period')]
+        created_count, updated_count, skipped_count = _save_macau_collection_items(
+            year,
+            items,
+            update_existing=True,
+        )
+        flash(
+            f'采集完成：共解析 {len(items)} 期，新增 {created_count} 期，更新 {updated_count} 期，未变化 {skipped_count} 期。',
+            'success',
+        )
     except Exception as e:
         db.session.rollback()
         flash(f'采集失败：{e}', 'error')

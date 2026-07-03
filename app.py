@@ -14400,10 +14400,10 @@ def collect_macau_source_data_job():
                 item for item in items
                 if item.get('period') and (item.get('numbers') or item.get('zodiacs'))
             ]
-            created_count, skipped_count = _save_macau_collection_items(current_year, items)
+            created_count, updated_count, skipped_count = _save_macau_collection_items(current_year, items)
             print(
                 f"澳门号码生肖自动采集完成：year={current_year} "
-                f"parsed={len(items)} created={created_count} skipped={skipped_count}"
+                f"parsed={len(items)} created={created_count} updated={updated_count} skipped={skipped_count}"
             )
         except Exception as e:
             print(f"澳门号码生肖自动采集失败: {e}")
