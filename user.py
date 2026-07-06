@@ -1056,7 +1056,7 @@ def _collect_macau_source_data(year):
     ], resolved_urls
 
 
-def _save_macau_collection_items(year, items, update_existing=False):
+def _save_macau_collection_items(year, items):
     created_count = 0
     updated_count = 0
     skipped_count = 0
@@ -1068,25 +1068,15 @@ def _save_macau_collection_items(year, items, update_existing=False):
         numbers = ','.join(item.get('numbers') or [])
         zodiacs = ','.join(item.get('zodiacs') or [])
         if record:
-            if update_existing:
-                changed = False
-                if str(record.numbers or '') != numbers:
-                    record.numbers = numbers
-                    changed = True
-                if str(record.zodiacs or '') != zodiacs:
-                    record.zodiacs = zodiacs
-                    changed = True
-                source_period = str(item.get('source_period') or '')
-                if str(record.source_period or '') != source_period:
-                    record.source_period = source_period
-                    changed = True
-                if record.year != int(year):
-                    record.year = int(year)
-                    changed = True
-                if changed:
-                    updated_count += 1
-                else:
-                    skipped_count += 1
+            changed = False
+            if not str(record.numbers or '').strip() and numbers:
+                record.numbers = numbers
+                changed = True
+            if not str(record.zodiacs or '').strip() and zodiacs:
+                record.zodiacs = zodiacs
+                changed = True
+            if changed:
+                updated_count += 1
             else:
                 skipped_count += 1
             continue
@@ -1298,7 +1288,6 @@ def collect_macau_data():
         created_count, updated_count, skipped_count = _save_macau_collection_items(
             year,
             items,
-            update_existing=True,
         )
         flash(
             f'采集完成：共解析 {len(items)} 期，新增 {created_count} 期，更新 {updated_count} 期，未变化 {skipped_count} 期。',
