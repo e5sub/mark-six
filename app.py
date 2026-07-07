@@ -12474,19 +12474,23 @@ def _auto_optimize_min_gain():
 def _score_auto_optimize_summary(summary):
     summary = dict(summary or {})
     windows = list(summary.get("windows") or [])
-    base_score = (
+    overall_score = (
         _safe_float(summary.get("top1_hit_rate"), 0.0) * 1.0 +
         _safe_float(summary.get("top6_hit_rate"), 0.0) * 0.35 +
         _safe_float(summary.get("zodiac_hit_rate"), 0.0) * 0.15
     )
-    recency_bonus = 0.0
-    for idx, window in enumerate(windows[:3]):
-        weight = max(0.2, 0.55 - idx * 0.15)
-        recency_bonus += (
-            _safe_float(window.get("top1_hit_rate"), 0.0) * 0.22 +
-            _safe_float(window.get("top6_hit_rate"), 0.0) * 0.08
-        ) * weight
-    return round(base_score + recency_bonus, 4)
+    weighted_score = overall_score * 0.22
+    weight_total = 0.22
+    window_weights = {20: 0.42, 50: 0.26, 100: 0.10}
+    for window in windows:
+        window_size = int(window.get("window") or 0)
+        weight = float(window_weights.get(window_size, 0.0))
+        if weight <= 0:
+            continue
+        sample_factor = _clamp(int(window.get("total") or 0) / max(min(window_size, 18), 1), 0.25, 1.0)
+        weighted_score += _score_auto_optimize_window(window) * weight * sample_factor
+        weight_total += weight * sample_factor
+    return round(weighted_score / max(weight_total, 0.01), 4)
 
 
 def _score_auto_optimize_window(window):
@@ -12497,6 +12501,40 @@ def _score_auto_optimize_window(window):
         _safe_float(window.get("zodiac_hit_rate"), 0.0) * 0.15,
         4,
     )
+
+
+def _summary_window_map(summary):
+    return {
+        int(window.get("window") or 0): dict(window)
+        for window in list((summary or {}).get("windows") or [])
+        if int(window.get("window") or 0) > 0
+    }
+
+
+def _passes_recent_window_guard(baseline_summary, candidate_summary, min_gain):
+    baseline_windows = _summary_window_map(baseline_summary)
+    candidate_windows = _summary_window_map(candidate_summary)
+    checked = []
+    for window_size in (20, 50):
+        baseline = baseline_windows.get(window_size)
+        candidate = candidate_windows.get(window_size)
+        if not baseline or not candidate:
+            continue
+        if int(baseline.get("total") or 0) < 8 or int(candidate.get("total") or 0) < 8:
+            continue
+        baseline_score = _score_auto_optimize_window(baseline)
+        candidate_score = _score_auto_optimize_window(candidate)
+        checked.append(candidate_score - baseline_score)
+
+    if not checked:
+        return True
+
+    allowed_drop = max(0.35, float(min_gain or 0.0) * 0.65)
+    if checked[0] < -allowed_drop:
+        return False
+    if len(checked) >= 2 and all(gain < -0.05 for gain in checked):
+        return False
+    return True
 
 
 def _passes_markov_window_consistency_gate(baseline_summary, candidate_summary, min_gain):
@@ -12563,12 +12601,22 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
                 "special_pool": _clamp(base_special - delta["special_pool"], 6, 14),
             },
         ])
+        base_weights = dict(config.get("weights") or {})
+        candidates.append({
+            "window": _clamp(base_window - delta["window"] * 2, 8, window_high),
+            "pool": _clamp(base_pool + 2, 8, 24),
+            "special_pool": _clamp(base_special - 1, 6, 14),
+            "weights": {
+                "feedback": round(_clamp(float(base_weights.get("feedback") or 0.75) + 0.12, 0.25, 1.45), 2),
+                "trend": round(_clamp(float(base_weights.get("trend") or 0.5) + 0.1, 0.0, 1.6), 2),
+                "overdue": round(_clamp(float(base_weights.get("overdue") or 0.2) - 0.04, 0.0, 1.1), 2),
+            },
+        })
         if strategy == "markov":
             base_decay = float(config.get("transition_decay") or 0.985)
             base_source_weight = float(config.get("source_special_weight") or 1.28)
             base_min_samples = int(config.get("transition_min_samples") or 3)
             base_repeat_penalty = float(config.get("repeat_penalty", -0.18) or -0.18)
-            base_weights = dict(config.get("weights") or {})
             base_transition = float(base_weights.get("transition") or 1.35)
             base_transition_lift = float(base_weights.get("transition_lift") or 0.32)
             base_special_transition = float(base_weights.get("special_transition") or 1.1)
@@ -12679,6 +12727,18 @@ def _build_auto_optimize_candidates(strategy, config, level="balanced"):
                 "blend_candidates": [0.5, 0.65, 0.78, 0.88],
                 "early_stopping_patience": _clamp(base_patience + 1, 2, 8),
                 "validation_floor": round(_clamp(base_validation_floor - 0.04, 0.72, 0.98), 2),
+            },
+            {
+                "history_window": _clamp(base_history - delta["history"] * 2, 60, 220),
+                "feature_window": _clamp(base_feature - max(8, delta["feature"]), 24, 80),
+                "evaluation_window": _clamp(base_eval - max(6, delta["eval"]), 10, 48),
+                "pool": _clamp(base_pool + 2, 12, 24),
+                "special_pool": _clamp(base_special - 1, 6, 12),
+                "epochs": _clamp(base_epochs - 3, 10, 28),
+                "learning_rate": round(_clamp(base_lr + delta["lr"] * 1.4, 0.01, 0.08), 3),
+                "l2": round(_clamp(base_l2 - delta["l2"] * 0.8, 0.001, 0.006), 4),
+                "blend_candidates": [0.42, 0.56, 0.7],
+                "primary_runtime_profile": "recent_bias",
             },
         ])
     elif strategy == "ai":
@@ -12854,6 +12914,8 @@ def auto_optimize_strategy(region, strategy, draws=None, source="manual"):
     for candidate in _build_auto_optimize_candidates(strategy, config, level=level):
         summary = _build_strategy_backtest_summary(region, strategy, draws=draws, config_override=candidate)
         score = _score_auto_optimize_summary(summary)
+        if not _passes_recent_window_guard(baseline_summary, summary, min_gain):
+            continue
         if strategy == "markov" and not _passes_markov_window_consistency_gate(baseline_summary, summary, min_gain):
             continue
         if score > best_score:
