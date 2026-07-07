@@ -4830,20 +4830,27 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phas
         window_scores = []
         total_samples = 0
         for idx, window in enumerate(windows):
-            accuracy, total = _calculate_strategy_accuracy(region, strategy, limit=window)
+            hit_rates = _calculate_strategy_hit_rates(region, strategy, limit=window)
+            total = int(hit_rates.get("total") or 0)
             total_samples = max(total_samples, total)
             if total <= 0:
                 continue
-            weight = max(0.4, 1.0 - idx * 0.2)
+            window_score = (
+                _safe_float(hit_rates.get("top1"), 0.0) * 100.0 +
+                _safe_float(hit_rates.get("top6"), 0.0) * 35.0 +
+                _safe_float(hit_rates.get("zodiac"), 0.0) * 15.0
+            )
+            weight = max(0.35, 1.08 - idx * 0.24)
             confidence = _clamp(total / max(min_samples, 1), 0.3, 1.0)
-            window_scores.append(accuracy * 100 * weight * confidence)
+            window_scores.append(window_score * weight * confidence)
         if not window_scores:
             continue
         tuned = _load_strategy_config(strategy, region)
         config_bonus = float(tuned.get("last_accuracy") or 0.0) * 100 * 0.15
         phase_score, phase_samples = _score_local_strategy_phase_strength(tuned, current_phase_label)
         phase_bonus = (phase_score * 100 * 0.18) if current_phase_label in ("hot", "cold", "concentrated", "dispersed") else 0.0
-        score = round(sum(window_scores) / len(window_scores) + config_bonus + phase_bonus, 2)
+        sample_bonus = min(2.5, math.log(max(total_samples, 1), 10) * 0.9)
+        score = round(sum(window_scores) / len(window_scores) + config_bonus + phase_bonus + sample_bonus, 2)
         scored.append({
             "strategy": strategy,
             "label": _get_strategy_label(strategy),
