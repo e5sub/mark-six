@@ -51,17 +51,10 @@ function updateLoadMoreButton() {
     const loadMoreBtn = document.getElementById('loadMoreBtn');
     if (!loadMoreBtn) return;
 
-    if (isSearchActive) {
-        const remaining = allDraws.length - currentPage * pageSize;
-        loadMoreBtn.style.display = remaining > 0 ? 'inline-block' : 'none';
-        return;
-    }
-
-    if (allDraws.length > pageSize) {
-        loadMoreBtn.style.display = 'inline-block';
-    } else {
-        loadMoreBtn.style.display = 'none';
-    }
+    const hasMore = allDraws.length > currentPage * pageSize;
+    loadMoreBtn.style.display = hasMore ? 'inline-block' : 'none';
+    loadMoreBtn.hidden = !hasMore;
+    loadMoreBtn.disabled = false;
 }
 
 // 显示开奖记录
@@ -491,6 +484,7 @@ function loadMoreData() {
         if (!nextPageData || nextPageData.length === 0) {
             if (loadMoreBtn) {
                 loadMoreBtn.style.display = 'none';
+                loadMoreBtn.hidden = true;
             }
             return;
         }
