@@ -521,9 +521,9 @@ function loadMoreData() {
 
 // 搜索开奖记录
 function searchDraws() {
-    const searchTerm = document.getElementById('unifiedSearch')?.value.trim();
-    const region = document.querySelector('.region-btn.active').dataset.region;
-    const year = document.getElementById('yearSelect').value;
+    const searchTerm = document.getElementById('unifiedSearch')?.value?.trim() || '';
+    const region = document.querySelector('.region-btn.active')?.dataset.region || 'macau';
+    const year = document.getElementById('yearSelect')?.value || 'all';
     
     if (!searchTerm) {
         fetchDraws();
