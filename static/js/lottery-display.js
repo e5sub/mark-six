@@ -8,6 +8,8 @@ let currentPage = 1;
 const pageSize = 20;
 let allDraws = []; // 存储所有获取到的数据
 let hasMoreData = true; // 标记是否还有更多数据可加载
+let currentSearchTerm = '';
+let isSearchActive = false;
 
 // 获取号码颜色
 function getBallColorClass(number) {
@@ -43,6 +45,19 @@ function createLotteryBallElement(num, isSpecial = false, zodiac = '') {
     }
     
     return wrapper;
+}
+
+function updateLoadMoreButton() {
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    if (!loadMoreBtn) return;
+
+    if (isSearchActive) {
+        const remaining = allDraws.length - currentPage * pageSize;
+        loadMoreBtn.style.display = remaining > 0 ? 'inline-block' : 'none';
+        return;
+    }
+
+    loadMoreBtn.style.display = hasMoreData ? 'inline-block' : 'none';
 }
 
 // 显示开奖记录
@@ -128,12 +143,7 @@ function displayDraws(draws, append = false) {
         tableBody.appendChild(row);
     });
     
-    // 显示或隐藏加载更多按钮
-    const loadMoreBtn = document.getElementById('loadMoreBtn');
-    if (loadMoreBtn) {
-        // 始终显示加载更多按钮，除非没有更多数据
-        loadMoreBtn.style.display = 'inline-block';
-    }
+    updateLoadMoreButton();
 }
 
 // 显示开奖详情
@@ -393,6 +403,9 @@ function closeModal() {
 
 // 获取开奖记录
 function fetchDraws() {
+    isSearchActive = false;
+    currentSearchTerm = '';
+
     const loadingIndicator = document.getElementById('loadingIndicator');
     if (loadingIndicator) {
         loadingIndicator.style.display = 'block';
@@ -459,6 +472,34 @@ function fetchDraws() {
 
 // 加载更多数据
 function loadMoreData() {
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    if (loadMoreBtn) {
+        loadMoreBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 加载中...';
+        loadMoreBtn.disabled = true;
+    }
+
+    if (isSearchActive && currentSearchTerm) {
+        currentPage++;
+        const start = (currentPage - 1) * pageSize;
+        const end = start + pageSize;
+        const nextPageData = allDraws.slice(start, end);
+
+        if (!nextPageData || nextPageData.length === 0) {
+            if (loadMoreBtn) {
+                loadMoreBtn.style.display = 'none';
+            }
+            return;
+        }
+
+        displayDraws(nextPageData, true);
+
+        if (loadMoreBtn) {
+            loadMoreBtn.innerHTML = '<i class="fas fa-sync-alt"></i> 查看更多';
+            loadMoreBtn.disabled = false;
+        }
+        return;
+    }
+
     // 增加页码
     currentPage++;
     
@@ -470,13 +511,6 @@ function loadMoreData() {
     const timestamp = new Date().getTime();
     const url = `/api/draws?region=${region}&year=${year}&page=${currentPage}&pageSize=${pageSize}&_=${timestamp}`;
     console.log(`加载更多数据: ${url}`);
-    
-    // 显示加载指示器
-    const loadMoreBtn = document.getElementById('loadMoreBtn');
-    if (loadMoreBtn) {
-        loadMoreBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 加载中...';
-        loadMoreBtn.disabled = true;
-    }
     
     fetch(url)
         .then(response => {
@@ -521,9 +555,13 @@ function loadMoreData() {
 
 // 搜索开奖记录
 function searchDraws() {
-    const searchTerm = document.getElementById('unifiedSearch')?.value?.trim() || '';
+    const searchInput = document.getElementById('unifiedSearch') || document.getElementById('searchInput');
+    const searchTerm = searchInput?.value?.trim() || '';
     const region = document.querySelector('.region-btn.active')?.dataset.region || 'macau';
     const year = document.getElementById('yearSelect')?.value || 'all';
+
+    currentSearchTerm = searchTerm;
+    isSearchActive = Boolean(searchTerm);
     
     if (!searchTerm) {
         fetchDraws();
@@ -621,10 +659,13 @@ function filterDraws(draws, searchTerm) {
 
 // 重置搜索
 function resetSearch() {
-    // 清空搜索框
-    if (document.getElementById('unifiedSearch')) {
-        document.getElementById('unifiedSearch').value = '';
+    const searchInput = document.getElementById('unifiedSearch') || document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.value = '';
     }
+
+    currentSearchTerm = '';
+    isSearchActive = false;
     
     // 重新获取数据
     fetchDraws();
