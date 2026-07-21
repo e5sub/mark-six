@@ -53,7 +53,6 @@ function updateLoadMoreButton() {
 
     const hasMore = allDraws.length > currentPage * pageSize;
     loadMoreBtn.style.display = hasMore ? 'inline-block' : 'none';
-    loadMoreBtn.hidden = !hasMore;
     loadMoreBtn.disabled = false;
 }
 
@@ -578,8 +577,9 @@ function searchDraws() {
         }, 3000);
     }
     
-    // 获取所有开奖记录，然后在前端进行过滤
-    fetch(`/api/draws?region=${region}&year=${year}`)
+    // 获取尽可能多的开奖记录，然后在前端进行过滤
+    const timestamp = new Date().getTime();
+    fetch(`/api/draws?region=${region}&year=${year}&page=1&pageSize=100&_=${timestamp}`)
         .then(response => response.json())
         .then(data => {
             // 在前端进行过滤
@@ -635,22 +635,17 @@ function filterDraws(draws, searchTerm) {
         if (draw.id && draw.id.toString() === term) {
             return true;
         }
-        
-        // 特码号码搜索 - 严格只匹配特码，不匹配平码
+
+        // 特码号码搜索 - 只匹配特码
         if (isNumber && draw.sno && parseInt(draw.sno) === number) {
-            // 确保不会匹配到平码
             return true;
         }
-        
+
         // 特码生肖搜索 - 只匹配特码生肖
         if (isZodiac && draw.sno_zodiac) {
-            for (const zodiac of zodiacs) {
-                if (term.includes(zodiac) && draw.sno_zodiac === zodiac) {
-                    return true;
-                }
-            }
+            return zodiacs.some(zodiac => term.includes(zodiac) && draw.sno_zodiac === zodiac);
         }
-        
+
         return false;
     });
 }
@@ -709,7 +704,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 初始化搜索
-    const searchInput = document.getElementById('searchInput');
+    const searchInput = document.getElementById('unifiedSearch') || document.getElementById('searchInput');
     if (searchInput) {
         searchInput.addEventListener('keyup', function(event) {
             if (event.key === 'Enter') {
