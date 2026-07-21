@@ -13960,8 +13960,14 @@ def get_zodiacs_api():
 
 @app.route('/api/search_draws')
 def search_draws_api():
-    region, year, term = request.args.get('region', 'hk'), request.args.get('year', str(datetime.now().year)), request.args.get('term', '').strip().lower()
-    if not term: return jsonify([])
+    region = request.args.get('region', 'hk')
+    year = request.args.get('year', str(datetime.now().year))
+    term = request.args.get('term', '').strip().lower()
+    if year == 'all':
+        year = str(datetime.now().year)
+    if not term:
+        return jsonify([])
+
     data, results = get_yearly_data(region, year), []
     number_to_zodiac = _get_number_to_zodiac_map(year) if region == 'hk' else {}
     for record in data:
@@ -13971,9 +13977,9 @@ def search_draws_api():
             sno_zodiac_display = record.get('sno_zodiac', '')
         if term == record.get('sno', '') or term in sno_zodiac_display.lower():
             if 'details_breakdown' not in record and region == 'hk':
-                 record['sno_zodiac'] = sno_zodiac_display
+                record['sno_zodiac'] = sno_zodiac_display
             results.append(record)
-    return jsonify(results[:20])
+    return jsonify(results)
 
 @app.route('/chat')
 def chat_page():

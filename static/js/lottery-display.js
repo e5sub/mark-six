@@ -576,25 +576,22 @@ function searchDraws() {
             }
         }, 3000);
     }
-    
-    // 获取尽可能多的开奖记录，然后在前端进行过滤
+
+    // 使用后端搜索接口，避免前端拉取不全
     const timestamp = new Date().getTime();
-    fetch(`/api/draws?region=${region}&year=${year}&page=1&pageSize=100&_=${timestamp}`)
-        .then(response => response.json())
+    fetch(`/api/search_draws?region=${region}&year=${year}&term=${encodeURIComponent(searchTerm)}&_=${timestamp}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP错误! 状态: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
-            // 在前端进行过滤
-            const filteredData = filterDraws(data, searchTerm);
-            
-            // 保存过滤后的数据
-            allDraws = filteredData || [];
-            
-            // 重置分页
+            // 保存搜索结果
+            allDraws = data || [];
             currentPage = 1;
-            
-            // 显示第一页数据
             const firstPageData = allDraws.slice(0, pageSize);
             displayDraws(firstPageData);
-            
             if (loadingIndicator) {
                 loadingIndicator.style.display = 'none';
             }
