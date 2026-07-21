@@ -57,7 +57,11 @@ function updateLoadMoreButton() {
         return;
     }
 
-    loadMoreBtn.style.display = hasMoreData ? 'inline-block' : 'none';
+    if (allDraws.length > pageSize) {
+        loadMoreBtn.style.display = 'inline-block';
+    } else {
+        loadMoreBtn.style.display = 'none';
+    }
 }
 
 // 显示开奖记录
