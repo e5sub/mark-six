@@ -1,13 +1,10 @@
-{% extends "user/base.html" %}
+{% extends "index.html" %}
 
-{% block page_title %}当前农历年特码分析{% endblock %}
-
-{% block content %}
+{% block home_content %}
+<div class="main-container data-statistics-container">
+    <h1 class="data-statistics-page-title">当前农历年特码分析 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现次数）</span></h1>
 <section class="card-compact special-analysis-card">
     <div class="card-header-compact special-analysis-header">
-        <div>
-            <p class="special-analysis-description">统计 {{ lunar_year }} 农历年已开奖的特码出现次数</p>
-        </div>
         <div class="special-analysis-tabs" role="tablist" aria-label="开奖地区">
             {% for region in special_year_stats %}
             <button type="button" class="special-analysis-tab {% if loop.first %}active{% endif %}"
@@ -29,7 +26,8 @@
                 <div class="special-number-grid">
                     {% for item in region.numbers %}
                     <div class="special-number-item color-{{ item.color }} {% if item.count %}has-count{% endif %}">
-                        <span>{{ '%02d'|format(item.number) }}</span><b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em>
+                        <span class="lottery-ball {{ item.color }}">{{ '%02d'|format(item.number) }}</span>
+                        <b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em>
                     </div>
                     {% endfor %}
                 </div>
@@ -74,12 +72,24 @@
     </div>
     {% endfor %}
 </section>
+</div>
+<footer class="app-footer">
+    <span>GitHub：</span>
+    <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
+    <span>本项目源码仅限非商业用途使用。</span>
+    <a href="https://github.com/e5sub/mark-six/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">许可协议</a>
+</footer>
 
 <style>
+.data-statistics-container { max-width:none; padding-top:1.5rem; }
+.data-statistics-page-title { margin:0 0 1.2rem; color:#f8fafc; font-size:2rem; font-weight:800; letter-spacing:.02em; }
+.data-statistics-page-title span { color:#94a3b8; font-size:1rem; font-weight:600; letter-spacing:0; }
+.card-compact { overflow:hidden; border:1px solid rgba(148,163,184,.16); border-radius:14px; background:rgba(15,23,42,.78); box-shadow:0 14px 32px rgba(2,6,23,.24); }
+.card-header-compact { padding:.9rem 1.2rem; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:#fff; }
 .special-analysis-card { overflow: visible; }
 .special-analysis-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .special-analysis-header p { margin:0; color:rgba(255,255,255,.82); font-size:.88rem; }
-.special-analysis-tabs { display:inline-flex; gap:3px; padding:3px; background:rgba(15,23,42,.25); border:1px solid rgba(255,255,255,.16); border-radius:8px; }
+.special-analysis-tabs { display:inline-flex; gap:3px; margin-left:auto; padding:3px; background:rgba(15,23,42,.25); border:1px solid rgba(255,255,255,.16); border-radius:8px; }
 .special-analysis-tab { border:0; border-radius:6px; padding:.38rem .75rem; background:transparent; color:rgba(255,255,255,.78); cursor:pointer; font:inherit; font-size:.8rem; }
 .special-analysis-tab.active { background:rgba(255,255,255,.96); color:#4f46a5; font-weight:700; box-shadow:0 2px 6px rgba(15,23,42,.18); }
 .special-analysis-panel { padding:1rem; }
@@ -92,23 +102,22 @@
 .zodiac-group { grid-column:span 2; }
 .special-analysis-group { padding:.75rem; border:1px solid rgba(148,163,184,.14); border-radius:10px; background:rgba(15,23,42,.46); }
 .special-analysis-group-title { margin-bottom:.65rem; color:#e2e8f0; font-size:.84rem; font-weight:700; }
-.special-number-grid { display:grid; grid-template-columns:repeat(14,minmax(0,1fr)); gap:.42rem; }
+.special-number-grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:.5rem; }
 .special-number-item,.attribute-item { display:flex; align-items:center; justify-content:space-between; gap:.25rem; border:1px solid rgba(148,163,184,.12); background:rgba(30,41,59,.72); color:#94a3b8; border-radius:6px; font-size:.72rem; }
-.special-number-item { display:grid; grid-template-columns:1fr auto; padding:.3rem .28rem; }
-.special-number-item em { grid-column:1 / -1; }
-.special-number-item span { font-weight:700; }
+.special-number-item { min-height:46px; padding:.3rem .45rem; white-space:nowrap; }
+.special-number-item .lottery-ball { width:34px; height:34px; margin:0; flex:0 0 34px; font-size:.78rem; box-shadow:0 3px 9px rgba(0,0,0,.22); }
 .special-number-item b,.attribute-item b { color:#94a3b8; font-size:.78rem; }
 .special-number-item em,.attribute-item em { color:#64748b; font-size:.66rem; font-style:normal; }
 .special-number-item.has-count,.attribute-item.has-count { border-color:rgba(129,140,248,.36); color:#f8fafc; background:rgba(79,70,229,.16); }
 .special-number-item.has-count b,.attribute-item.has-count b { color:#c4b5fd; }
 .special-number-item.has-count em,.attribute-item.has-count em { color:#a5b4fc; }
-.special-number-item.color-red span { color:#fb7185; }.special-number-item.color-blue span { color:#60a5fa; }.special-number-item.color-green span { color:#4ade80; }
+.special-number-item.color-red .lottery-ball,.special-number-item.color-blue .lottery-ball,.special-number-item.color-green .lottery-ball { color:#fff; }
 .attribute-grid { display:grid; gap:.42rem; }.zodiac-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }.attribute-item { padding:.42rem .5rem; }
 .wave-red { border-left:3px solid #fb7185; }.wave-blue { border-left:3px solid #60a5fa; }.wave-green { border-left:3px solid #4ade80; }
 .size-note { margin-top:.5rem; color:#64748b; font-size:.66rem; line-height:1.35; }
 .special-analysis-empty { padding:1.5rem 1rem; color:#94a3b8; text-align:center; }
-@media (max-width:1100px) { .special-analysis-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-group{grid-column:span 3}.special-number-grid{grid-template-columns:repeat(10,minmax(0,1fr))} }
-@media (max-width:760px) { .special-analysis-header{align-items:flex-start;flex-direction:column}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(7,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
+@media (max-width:1100px) { .special-analysis-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-group{grid-column:span 3}.special-number-grid{grid-template-columns:repeat(8,minmax(0,1fr))} }
+@media (max-width:760px) { .data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-header{align-items:flex-start;flex-direction:column}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
 </style>
 <script>
 document.querySelectorAll('[data-special-region]').forEach(function(tab) {
