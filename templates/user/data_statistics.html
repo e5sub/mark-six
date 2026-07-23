@@ -2,9 +2,8 @@
 
 {% block home_content %}
 <div class="main-container data-statistics-container">
-    <h1 class="data-statistics-page-title">当前农历年特码分析 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现次数）</span></h1>
-<section class="card-compact special-analysis-card">
-    <div class="card-header-compact special-analysis-header">
+    <div class="data-statistics-title-row">
+        <h1 class="data-statistics-page-title">当前农历年特码分析 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现次数）</span></h1>
         <div class="special-analysis-tabs" role="tablist" aria-label="开奖地区">
             {% for region in special_year_stats %}
             <button type="button" class="special-analysis-tab {% if loop.first %}active{% endif %}"
@@ -12,7 +11,7 @@
             {% endfor %}
         </div>
     </div>
-
+<section class="card-compact special-analysis-card">
     {% for region in special_year_stats %}
     <div class="special-analysis-panel {% if not loop.first %}is-hidden{% endif %}" data-special-panel="{{ region.key }}">
         <div class="special-analysis-summary">
@@ -82,14 +81,12 @@
 
 <style>
 .data-statistics-container { max-width:none; padding-top:1.5rem; }
-.data-statistics-page-title { margin:0 0 1.2rem; color:#f8fafc; font-size:2rem; font-weight:800; letter-spacing:.02em; }
+.data-statistics-title-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.2rem; }
+.data-statistics-page-title { margin:0; color:#f8fafc; font-size:2rem; font-weight:800; letter-spacing:.02em; }
 .data-statistics-page-title span { color:#94a3b8; font-size:1rem; font-weight:600; letter-spacing:0; }
 .card-compact { overflow:hidden; border:1px solid rgba(148,163,184,.16); border-radius:14px; background:rgba(15,23,42,.78); box-shadow:0 14px 32px rgba(2,6,23,.24); }
-.card-header-compact { padding:.9rem 1.2rem; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:#fff; }
 .special-analysis-card { overflow: visible; }
-.special-analysis-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
-.special-analysis-header p { margin:0; color:rgba(255,255,255,.82); font-size:.88rem; }
-.special-analysis-tabs { display:inline-flex; gap:3px; margin-left:auto; padding:3px; background:rgba(15,23,42,.25); border:1px solid rgba(255,255,255,.16); border-radius:8px; }
+.special-analysis-tabs { display:inline-flex; flex:none; gap:3px; padding:3px; background:rgba(15,23,42,.72); border:1px solid rgba(148,163,184,.24); border-radius:8px; }
 .special-analysis-tab { border:0; border-radius:6px; padding:.38rem .75rem; background:transparent; color:rgba(255,255,255,.78); cursor:pointer; font:inherit; font-size:.8rem; }
 .special-analysis-tab.active { background:rgba(255,255,255,.96); color:#4f46a5; font-weight:700; box-shadow:0 2px 6px rgba(15,23,42,.18); }
 .special-analysis-panel { padding:1rem; }
@@ -117,7 +114,7 @@
 .size-note { margin-top:.5rem; color:#64748b; font-size:.66rem; line-height:1.35; }
 .special-analysis-empty { padding:1.5rem 1rem; color:#94a3b8; text-align:center; }
 @media (max-width:1100px) { .special-analysis-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-group{grid-column:span 3}.special-number-grid{grid-template-columns:repeat(8,minmax(0,1fr))} }
-@media (max-width:760px) { .data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-header{align-items:flex-start;flex-direction:column}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
+@media (max-width:760px) { .data-statistics-title-row{align-items:flex-start;flex-direction:column}.data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
 </style>
 <script>
 document.querySelectorAll('[data-special-region]').forEach(function(tab) {
