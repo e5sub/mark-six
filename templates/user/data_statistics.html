@@ -35,7 +35,7 @@
                     {% endfor %}
                 </div>
             </div>
-            <div class="special-analysis-group">
+            <div class="special-analysis-group zodiac-group">
                 <div class="special-analysis-group-title">🐉 特码生肖</div>
                 <div class="attribute-grid zodiac-grid">
                     {% for item in region.zodiacs %}
@@ -88,10 +88,12 @@
 .special-analysis-summary { display:flex; align-items:center; gap:.45rem; padding:.65rem .8rem; margin-bottom:.9rem; color:#cbd5e1; font-size:.85rem; border:1px solid rgba(129,140,248,.22); border-radius:9px; background:rgba(79,70,229,.1); }
 .special-analysis-summary strong { color:#c4b5fd; font-size:1rem; }
 .summary-note { margin-left:auto; color:#94a3b8; font-size:.76rem; }
-.special-analysis-grid { display:grid; grid-template-columns:minmax(360px,2.2fr) minmax(210px,1.2fr) minmax(120px,.7fr) minmax(105px,.6fr) minmax(105px,.6fr); gap:.8rem; }
+.special-analysis-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.8rem; }
+.numbers-group { grid-column:1 / -1; }
+.zodiac-group { grid-column:span 2; }
 .special-analysis-group { padding:.75rem; border:1px solid rgba(148,163,184,.14); border-radius:10px; background:rgba(15,23,42,.46); }
 .special-analysis-group-title { margin-bottom:.65rem; color:#e2e8f0; font-size:.84rem; font-weight:700; }
-.special-number-grid { display:grid; grid-template-columns:repeat(7,minmax(34px,1fr)); gap:.36rem; }
+.special-number-grid { display:grid; grid-template-columns:repeat(14,minmax(0,1fr)); gap:.42rem; }
 .special-number-item,.attribute-item { display:flex; align-items:center; justify-content:space-between; gap:.25rem; border:1px solid rgba(148,163,184,.12); background:rgba(30,41,59,.72); color:#94a3b8; border-radius:6px; font-size:.72rem; }
 .special-number-item { display:grid; grid-template-columns:1fr auto; padding:.3rem .28rem; }
 .special-number-item em { grid-column:1 / -1; }
@@ -102,11 +104,12 @@
 .special-number-item.has-count b,.attribute-item.has-count b { color:#c4b5fd; }
 .special-number-item.has-count em,.attribute-item.has-count em { color:#a5b4fc; }
 .special-number-item.color-red span { color:#fb7185; }.special-number-item.color-blue span { color:#60a5fa; }.special-number-item.color-green span { color:#4ade80; }
-.attribute-grid { display:grid; gap:.42rem; }.zodiac-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }.attribute-item { padding:.42rem .5rem; }
+.attribute-grid { display:grid; gap:.42rem; }.zodiac-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }.attribute-item { padding:.42rem .5rem; }
 .wave-red { border-left:3px solid #fb7185; }.wave-blue { border-left:3px solid #60a5fa; }.wave-green { border-left:3px solid #4ade80; }
 .size-note { margin-top:.5rem; color:#64748b; font-size:.66rem; line-height:1.35; }
 .special-analysis-empty { padding:1.5rem 1rem; color:#94a3b8; text-align:center; }
-@media (max-width:760px) { .special-analysis-header{align-items:flex-start;flex-direction:column}.special-analysis-grid{grid-template-columns:1fr}.summary-note{margin-left:0} }
+@media (max-width:1100px) { .special-analysis-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-group{grid-column:span 3}.special-number-grid{grid-template-columns:repeat(10,minmax(0,1fr))} }
+@media (max-width:760px) { .special-analysis-header{align-items:flex-start;flex-direction:column}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(7,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
 </style>
 <script>
 document.querySelectorAll('[data-special-region]').forEach(function(tab) {

@@ -65,7 +65,7 @@ def _count_distinct_prediction_periods(query):
 def _current_lunar_year_special_stats():
     """Build homepage special-number statistics from the locally saved draw history."""
     lunar_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
-    region_labels = (("hk", "香港"), ("macau", "澳门"))
+    region_labels = (("macau", "澳门"), ("hk", "香港"))
     zodiac_names = list("鼠牛虎兔龙蛇马羊猴鸡狗猪")
     color_labels = (("red", "红波"), ("blue", "蓝波"), ("green", "绿波"))
     result = []
