@@ -1,5 +1,5 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw, MacauCollectedData
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw, MacauCollectedData, ZodiacSetting
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
@@ -60,6 +60,86 @@ def _count_distinct_prediction_periods(query):
         PredictionRecord.region,
         PredictionRecord.period,
     ).distinct().count()
+
+
+def _current_lunar_year_special_stats():
+    """Build homepage special-number statistics from the locally saved draw history."""
+    lunar_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    region_labels = (("hk", "香港"), ("macau", "澳门"))
+    zodiac_names = list("鼠牛虎兔龙蛇马羊猴鸡狗猪")
+    color_labels = (("red", "红波"), ("blue", "蓝波"), ("green", "绿波"))
+    result = []
+
+    for region, label in region_labels:
+        number_counts = {number: 0 for number in range(1, 50)}
+        zodiac_counts = {zodiac: 0 for zodiac in zodiac_names}
+        color_counts = {color: 0 for color, _ in color_labels}
+        parity_counts = {"单": 0, "双": 0}
+        size_counts = {"大": 0, "小": 0}
+        total = 0
+
+        draws = LotteryDraw.query.filter_by(region=region).order_by(
+            LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc()
+        ).all()
+        for draw in draws:
+            if ZodiacSetting.get_zodiac_year_for_date(draw.draw_date) != lunar_year:
+                continue
+            try:
+                number = int(str(draw.special_number or "").strip())
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= number <= 49:
+                continue
+
+            total += 1
+            number_counts[number] += 1
+            zodiac = str(draw.special_zodiac or "").strip() or (
+                ZodiacSetting.get_zodiac_for_number(lunar_year, number) or ""
+            )
+            if zodiac in zodiac_counts:
+                zodiac_counts[zodiac] += 1
+            color = get_number_color(number)
+            if color in color_counts:
+                color_counts[color] += 1
+            parity_counts["双" if number % 2 == 0 else "单"] += 1
+            size_counts["大" if number >= 25 else "小"] += 1
+
+        result.append({
+            "key": region,
+            "label": label,
+            "total": total,
+            "numbers": [
+                {
+                    "number": number,
+                    "count": count,
+                    "color": get_number_color(number),
+                    "percentage": round(count / total * 100, 1) if total else 0,
+                }
+                for number, count in number_counts.items()
+            ],
+            "zodiacs": [
+                {"name": name, "count": count, "percentage": round(count / total * 100, 1) if total else 0}
+                for name, count in zodiac_counts.items()
+            ],
+            "colors": [
+                {
+                    "key": color,
+                    "name": name,
+                    "count": color_counts[color],
+                    "percentage": round(color_counts[color] / total * 100, 1) if total else 0,
+                }
+                for color, name in color_labels
+            ],
+            "parities": [
+                {"name": name, "count": count, "percentage": round(count / total * 100, 1) if total else 0}
+                for name, count in parity_counts.items()
+            ],
+            "sizes": [
+                {"name": name, "count": count, "percentage": round(count / total * 100, 1) if total else 0}
+                for name, count in size_counts.items()
+            ],
+        })
+    return lunar_year, result
 
 
 def _notification_event_label(event_type):
@@ -1429,6 +1509,23 @@ def dashboard():
                           get_number_color=get_number_color,
                           get_number_zodiac=get_number_zodiac,
                           github_login_enabled=_github_login_enabled())
+
+
+@user_bp.route('/data-statistics')
+@login_required
+def data_statistics():
+    """开奖数据统计：当前农历年的特码属性分布。"""
+    user = _get_session_user()
+    if not user:
+        flash('请先登录', 'error')
+        return redirect(url_for('auth.login'))
+
+    lunar_year, special_year_stats = _current_lunar_year_special_stats()
+    return render_template(
+        'user/data_statistics.html',
+        lunar_year=lunar_year,
+        special_year_stats=special_year_stats,
+    )
 
 
 @user_bp.route('/notifications')

@@ -1270,6 +1270,7 @@
         </div>
         <nav class="sidebar-nav">
             <a href="{{ url_for('index') }}"><i class="fas fa-home"></i><span class="nav-text">开奖记录</span></a>
+            <a href="{{ url_for('user.data_statistics') }}"><i class="fas fa-chart-bar"></i><span class="nav-text">数据统计</span></a>
             <a href="{{ url_for('user.dashboard') }}"><i class="fas fa-tachometer-alt"></i><span class="nav-text">用户中心</span></a>
             <a href="{{ url_for('chat_page') }}"><i class="fas fa-robot"></i><span class="nav-text">AI 聊天室</span></a>
             {% if session.get('is_admin') %}
