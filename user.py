@@ -104,23 +104,28 @@ def _current_lunar_year_special_stats():
             parity_counts["双" if number % 2 == 0 else "单"] += 1
             size_counts["大" if number >= 25 else "小"] += 1
 
+        number_items = [
+            {
+                "number": number,
+                "count": count,
+                "color": get_number_color(number),
+                "percentage": round(count / total * 100, 1) if total else 0,
+            }
+            for number, count in number_counts.items()
+        ]
+        zodiac_items = [
+            {"name": name, "count": count, "percentage": round(count / total * 100, 1) if total else 0}
+            for name, count in zodiac_counts.items()
+        ]
+
         result.append({
             "key": region,
             "label": label,
             "total": total,
-            "numbers": [
-                {
-                    "number": number,
-                    "count": count,
-                    "color": get_number_color(number),
-                    "percentage": round(count / total * 100, 1) if total else 0,
-                }
-                for number, count in number_counts.items()
-            ],
-            "zodiacs": [
-                {"name": name, "count": count, "percentage": round(count / total * 100, 1) if total else 0}
-                for name, count in zodiac_counts.items()
-            ],
+            "numbers": number_items,
+            "top_numbers": sorted(number_items, key=lambda item: (-item["count"], item["number"]))[:3],
+            "zodiacs": zodiac_items,
+            "top_zodiacs": sorted(zodiac_items, key=lambda item: (-item["count"], zodiac_names.index(item["name"])))[:3],
             "colors": [
                 {
                     "key": color,

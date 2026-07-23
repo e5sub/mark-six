@@ -21,7 +21,12 @@
         {% if region.total %}
         <div class="special-analysis-grid">
             <div class="special-analysis-group numbers-group">
-                <div class="special-analysis-group-title">🔢 特码号码</div>
+                <div class="special-analysis-group-title">
+                    <span>🔢 特码号码</span>
+                    <span class="top-three-summary">
+                        {% for item in region.top_numbers %}<span><i>{{ ['🥇', '🥈', '🥉'][loop.index0] }}</i>{{ '%02d'|format(item.number) }} · {{ item.count }}次</span>{% endfor %}
+                    </span>
+                </div>
                 <div class="special-number-grid">
                     {% for item in region.numbers %}
                     <div class="special-number-item color-{{ item.color }} {% if item.count %}has-count{% endif %}">
@@ -32,7 +37,12 @@
                 </div>
             </div>
             <div class="special-analysis-group zodiac-group">
-                <div class="special-analysis-group-title">🐉 特码生肖</div>
+                <div class="special-analysis-group-title">
+                    <span>🐉 特码生肖</span>
+                    <span class="top-three-summary">
+                        {% for item in region.top_zodiacs %}<span><i>{{ ['🥇', '🥈', '🥉'][loop.index0] }}</i>{{ item.name }} · {{ item.count }}次</span>{% endfor %}
+                    </span>
+                </div>
                 <div class="attribute-grid zodiac-grid">
                     {% for item in region.zodiacs %}
                     <div class="attribute-item {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
@@ -98,7 +108,10 @@
 .numbers-group { grid-column:1 / -1; }
 .zodiac-group { grid-column:span 2; }
 .special-analysis-group { padding:.75rem; border:1px solid rgba(148,163,184,.14); border-radius:10px; background:rgba(15,23,42,.46); }
-.special-analysis-group-title { margin-bottom:.65rem; color:#e2e8f0; font-size:.84rem; font-weight:700; }
+.special-analysis-group-title { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:.65rem; color:#e2e8f0; font-size:.84rem; font-weight:700; }
+.top-three-summary { display:flex; align-items:center; gap:.65rem; color:#94a3b8; font-size:.72rem; font-weight:600; white-space:nowrap; }
+.top-three-summary span { display:inline-flex; align-items:center; gap:.18rem; }
+.top-three-summary i { font-size:.82rem; font-style:normal; }
 .special-number-grid { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:.5rem; }
 .special-number-item,.attribute-item { display:flex; align-items:center; justify-content:space-between; gap:.25rem; border:1px solid rgba(148,163,184,.12); background:rgba(30,41,59,.72); color:#94a3b8; border-radius:6px; font-size:.72rem; }
 .special-number-item { min-height:46px; padding:.3rem .45rem; white-space:nowrap; }
@@ -114,7 +127,7 @@
 .size-note { margin-top:.5rem; color:#64748b; font-size:.66rem; line-height:1.35; }
 .special-analysis-empty { padding:1.5rem 1rem; color:#94a3b8; text-align:center; }
 @media (max-width:1100px) { .special-analysis-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-group{grid-column:span 3}.special-number-grid{grid-template-columns:repeat(8,minmax(0,1fr))} }
-@media (max-width:760px) { .data-statistics-title-row{align-items:flex-start;flex-direction:column}.data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
+@media (max-width:760px) { .data-statistics-title-row{align-items:flex-start;flex-direction:column}.data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-group-title{align-items:flex-start;flex-direction:column}.top-three-summary{flex-wrap:wrap;white-space:normal;gap:.35rem .55rem}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
 </style>
 <script>
 document.querySelectorAll('[data-special-region]').forEach(function(tab) {
