@@ -24,13 +24,13 @@
                 <div class="special-analysis-group-title">
                     <span>🔢 特码号码</span>
                     <span class="top-three-summary">
-                        {% for item in region.top_numbers %}<span><i>{{ ['🥇', '🥈', '🥉'][loop.index0] }}</i>{{ '%02d'|format(item.number) }} · {{ item.count }}次</span>{% endfor %}
+                        {% for item in region.top_numbers %}<span><i>{{ ['🥇', '🥈', '🥉'][loop.index0] }}</i>{{ item.number }} · {{ item.count }}次</span>{% endfor %}
                     </span>
                 </div>
                 <div class="special-number-grid">
                     {% for item in region.numbers %}
                     <div class="special-number-item color-{{ item.color }} {% if item.count %}has-count{% endif %}">
-                        <span class="lottery-ball {{ item.color }}">{{ '%02d'|format(item.number) }}</span>
+                        <span class="lottery-ball {{ item.color }}">{{ item.number }}</span>
                         <b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em>
                     </div>
                     {% endfor %}
