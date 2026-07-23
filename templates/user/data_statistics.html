@@ -1,13 +1,12 @@
 {% extends "user/base.html" %}
 
-{% block page_title %}数据统计{% endblock %}
+{% block page_title %}当前农历年特码分析{% endblock %}
 
 {% block content %}
 <section class="card-compact special-analysis-card">
     <div class="card-header-compact special-analysis-header">
         <div>
-            <h2 class="card-title-compact">📈 当前农历年特码分析</h2>
-            <p>统计 {{ lunar_year }} 农历年已开奖的特码出现次数</p>
+            <p class="special-analysis-description">统计 {{ lunar_year }} 农历年已开奖的特码出现次数</p>
         </div>
         <div class="special-analysis-tabs" role="tablist" aria-label="开奖地区">
             {% for region in special_year_stats %}
@@ -79,7 +78,7 @@
 <style>
 .special-analysis-card { overflow: visible; }
 .special-analysis-header { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
-.special-analysis-header p { margin:.25rem 0 0; color:rgba(255,255,255,.76); font-size:.78rem; }
+.special-analysis-header p { margin:0; color:rgba(255,255,255,.82); font-size:.88rem; }
 .special-analysis-tabs { display:inline-flex; gap:3px; padding:3px; background:rgba(15,23,42,.25); border:1px solid rgba(255,255,255,.16); border-radius:8px; }
 .special-analysis-tab { border:0; border-radius:6px; padding:.38rem .75rem; background:transparent; color:rgba(255,255,255,.78); cursor:pointer; font:inherit; font-size:.8rem; }
 .special-analysis-tab.active { background:rgba(255,255,255,.96); color:#4f46a5; font-weight:700; box-shadow:0 2px 6px rgba(15,23,42,.18); }
