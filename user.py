@@ -2191,6 +2191,8 @@ def _get_markov_panel_data():
 def predictions():
     user = User.query.get(session['user_id'])
     page = request.args.get('page', 1, type=int)
+    pagination_query = request.args.to_dict(flat=True)
+    pagination_query.pop('page', None)
     region = request.args.get('region', '')
     period = request.args.get('period', '')
     zodiac = request.args.get('zodiac', '')
@@ -2485,6 +2487,7 @@ def predictions():
                           user=user,
                           predictions=predictions,
                           grouped_predictions=paged_grouped_predictions,
+                          pagination_query=pagination_query,
                           region=region, 
                           period=period, 
                           zodiac=zodiac,

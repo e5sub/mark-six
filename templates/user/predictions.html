@@ -301,7 +301,7 @@
         </div>
         <div class="pagination-links">
             {% if predictions.has_prev %}
-            <a href="{{ url_for('user.predictions', page=predictions.prev_num, region=region, period=period, zodiac=zodiac, start_date=start_date, end_date=end_date, strategy=strategy, result=result) }}">← 上一页</a>
+            <a href="{{ url_for('user.predictions', page=predictions.prev_num, **pagination_query) }}">← 上一页</a>
             {% else %}
             <span class="pagination-disabled">← 上一页</span>
             {% endif %}
@@ -311,7 +311,7 @@
                     {% if page_num == predictions.page %}
                     <span class="pagination-current" aria-current="page">{{ page_num }}</span>
                     {% else %}
-                    <a href="{{ url_for('user.predictions', page=page_num, region=region, period=period, zodiac=zodiac, start_date=start_date, end_date=end_date, strategy=strategy, result=result) }}">{{ page_num }}</a>
+                    <a href="{{ url_for('user.predictions', page=page_num, **pagination_query) }}">{{ page_num }}</a>
                     {% endif %}
                 {% elif page_num == 2 or page_num == predictions.pages - 1 %}
                 <span class="pagination-ellipsis">…</span>
@@ -319,7 +319,7 @@
             {% endfor %}
 
             {% if predictions.has_next %}
-            <a href="{{ url_for('user.predictions', page=predictions.next_num, region=region, period=period, zodiac=zodiac, start_date=start_date, end_date=end_date, strategy=strategy, result=result) }}">下一页 →</a>
+            <a href="{{ url_for('user.predictions', page=predictions.next_num, **pagination_query) }}">下一页 →</a>
             {% else %}
             <span class="pagination-disabled">下一页 →</span>
             {% endif %}
