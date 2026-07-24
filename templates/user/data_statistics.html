@@ -5,14 +5,19 @@
     <div class="data-statistics-title-row">
         <h1 class="data-statistics-page-title">历年开奖数据统计 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现次数）</span></h1>
         <div class="special-analysis-controls">
-            <label class="lunar-year-selector">
-                <span>农历年份</span>
-                <select onchange="window.location.href='{{ url_for('user.data_statistics') }}?lunar_year=' + this.value" aria-label="选择农历年份">
+            <div class="lunar-year-selector" data-lunar-year-menu>
+                <span class="lunar-year-selector-label">农历年份</span>
+                <button type="button" class="lunar-year-trigger" aria-haspopup="listbox" aria-expanded="false">
+                    {{ lunar_year }} 农历年 <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                </button>
+                <div class="lunar-year-options" role="listbox" aria-label="选择农历年份">
                     {% for year in available_lunar_years %}
-                    <option value="{{ year }}" {% if year == lunar_year %}selected{% endif %}>{{ year }} 农历年</option>
+                    <a href="{{ url_for('user.data_statistics', lunar_year=year) }}" role="option" {% if year == lunar_year %}aria-selected="true"{% endif %}>
+                        {{ year }} 农历年{% if year == lunar_year %}<i class="fas fa-check" aria-hidden="true"></i>{% endif %}
+                    </a>
                     {% endfor %}
-                </select>
-            </label>
+                </div>
+            </div>
             <div class="special-analysis-tabs" role="tablist" aria-label="开奖地区">
                 {% for region in special_year_stats %}
                 <button type="button" class="special-analysis-tab {% if loop.first %}active{% endif %}"
@@ -105,9 +110,19 @@
 .data-statistics-page-title { margin:0; color:#f8fafc; font-size:2rem; font-weight:800; letter-spacing:.02em; }
 .data-statistics-page-title span { color:#94a3b8; font-size:1rem; font-weight:600; letter-spacing:0; }
 .special-analysis-controls { display:flex; align-items:center; gap:.65rem; flex:none; }
-.lunar-year-selector { display:inline-flex; align-items:center; gap:.45rem; padding:.28rem .5rem; color:#cbd5e1; font-size:.8rem; border:1px solid rgba(148,163,184,.24); border-radius:8px; background:rgba(15,23,42,.72); }
-.lunar-year-selector select { border:0; outline:0; color:#f8fafc; background:transparent; font:inherit; font-weight:700; cursor:pointer; }
-.lunar-year-selector option { color:#0f172a; }
+.lunar-year-selector { position:relative; display:inline-flex; align-items:center; gap:.45rem; min-height:36px; padding:.28rem .38rem .28rem .65rem; color:#cbd5e1; font-size:.8rem; border:1px solid rgba(129,140,248,.45); border-radius:10px; background:linear-gradient(135deg,rgba(30,41,85,.95),rgba(15,23,42,.96)); box-shadow:inset 0 1px rgba(255,255,255,.05),0 4px 12px rgba(2,6,23,.22); }
+.lunar-year-selector-label { color:#a5b4fc; font-weight:700; white-space:nowrap; }
+.lunar-year-trigger { display:inline-flex; align-items:center; gap:.5rem; padding:.3rem .42rem; border:0; border-radius:7px; color:#f8fafc; background:rgba(255,255,255,.07); font:inherit; font-weight:800; cursor:pointer; white-space:nowrap; transition:background .18s ease,color .18s ease; }
+.lunar-year-trigger:hover,.lunar-year-selector.is-open .lunar-year-trigger { color:#fff; background:rgba(99,102,241,.3); }
+.lunar-year-trigger i { color:#a5b4fc; font-size:.7rem; transition:transform .18s ease; }
+.lunar-year-selector.is-open .lunar-year-trigger i { transform:rotate(180deg); }
+.lunar-year-options { position:absolute; z-index:30; top:calc(100% + .45rem); right:0; display:none; min-width:166px; padding:.35rem; border:1px solid rgba(129,140,248,.42); border-radius:10px; background:linear-gradient(160deg,#1e2856,#0f172a); box-shadow:0 14px 30px rgba(2,6,23,.5); }
+.lunar-year-selector.is-open .lunar-year-options { display:block; animation:lunar-year-menu-in .16s ease-out; }
+.lunar-year-options a { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.58rem .65rem; border-radius:7px; color:#cbd5e1; text-decoration:none; font-size:.84rem; font-weight:700; transition:background .16s ease,color .16s ease; }
+.lunar-year-options a:hover { color:#fff; background:rgba(99,102,241,.35); }
+.lunar-year-options a[aria-selected="true"] { color:#fff; background:rgba(99,102,241,.5); }
+.lunar-year-options i { color:#c4b5fd; font-size:.74rem; }
+@keyframes lunar-year-menu-in { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:translateY(0); } }
 .card-compact { overflow:hidden; border:1px solid rgba(148,163,184,.16); border-radius:14px; background:rgba(15,23,42,.78); box-shadow:0 14px 32px rgba(2,6,23,.24); }
 .special-analysis-card { overflow: visible; }
 .special-analysis-tabs { display:inline-flex; flex:none; gap:3px; padding:3px; background:rgba(15,23,42,.72); border:1px solid rgba(148,163,184,.24); border-radius:8px; }
@@ -149,6 +164,26 @@ document.querySelectorAll('[data-special-region]').forEach(function(tab) {
         const region = tab.dataset.specialRegion;
         document.querySelectorAll('[data-special-region]').forEach(function(item) { item.classList.toggle('active', item === tab); });
         document.querySelectorAll('[data-special-panel]').forEach(function(panel) { panel.classList.toggle('is-hidden', panel.dataset.specialPanel !== region); });
+    });
+});
+document.querySelectorAll('[data-lunar-year-menu]').forEach(function(menu) {
+    const trigger = menu.querySelector('.lunar-year-trigger');
+    trigger.addEventListener('click', function() {
+        const isOpen = menu.classList.toggle('is-open');
+        trigger.setAttribute('aria-expanded', String(isOpen));
+    });
+    document.addEventListener('click', function(event) {
+        if (!menu.contains(event.target)) {
+            menu.classList.remove('is-open');
+            trigger.setAttribute('aria-expanded', 'false');
+        }
+    });
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            menu.classList.remove('is-open');
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.focus();
+        }
     });
 });
 </script>
