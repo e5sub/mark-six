@@ -93,6 +93,24 @@
             </tbody>
         </table>
     </div>
+
+    {% if users.pages > 1 %}
+    <div class="pagination" style="margin-top: 1.5rem; justify-content: center;">
+        {% if users.has_prev %}
+        <a href="{{ url_for('admin.users', page=users.prev_num, search=search_query) }}">上一页</a>
+        {% endif %}
+
+        <span class="active">第 {{ users.page }} / {{ users.pages }} 页（共 {{ users.total }} 位用户）</span>
+
+        {% if users.has_next %}
+        <a href="{{ url_for('admin.users', page=users.next_num, search=search_query) }}">下一页</a>
+        {% endif %}
+    </div>
+    {% elif users.total %}
+    <div style="margin-top: 1rem; text-align: center; color: #64748b;">
+        共 {{ users.total }} 位用户
+    </div>
+    {% endif %}
 </div>
 
 <!-- 添加用户模态框 -->
