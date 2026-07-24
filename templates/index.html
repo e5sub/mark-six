@@ -1207,6 +1207,21 @@
             line-height: 1.45;
         }
 
+        .lunar-panel-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .lunar-countdown {
+            flex: 0 0 auto;
+            color: #bfdbfe;
+            font-size: 0.78rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
         .info-panel-meta {
             display: flex;
             flex-wrap: wrap;
@@ -1243,6 +1258,12 @@
 
             .info-panel-value {
                 font-size: 1.2rem;
+            }
+
+            .lunar-panel-footer {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 2px;
             }
         }
     </style>
@@ -1346,7 +1367,10 @@
                         <span class="info-panel-badge">今日</span>
                     </div>
                     <div class="info-panel-value" id="lunarDateValue">--</div>
-                    <div class="info-panel-subtitle" id="lunarDetailValue">--</div>
+                    <div class="lunar-panel-footer">
+                        <div class="info-panel-subtitle" id="lunarDetailValue">--</div>
+                        <div class="lunar-countdown" id="newYearCountdownValue">距离下一农历年还有 -- 天</div>
+                    </div>
                 </div>
 
                 <div class="info-panel">
@@ -1407,6 +1431,8 @@
         };
 
         let nextDrawTarget = null;
+        let nextLunarNewYearTarget = null;
+        let nextLunarNewYearTargetDateKey = '';
         function getActiveRegion() {
             return document.querySelector('.region-btn.active')?.dataset.region || 'macau';
         }
@@ -1510,6 +1536,40 @@
             return normalized;
         }
 
+        function getLunarRelatedYear(date) {
+            const formatter = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', {
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+            });
+            const relatedYear = formatter.formatToParts(date)
+                .find((part) => part.type === 'relatedYear')?.value;
+            const year = Number(relatedYear);
+            if (!Number.isInteger(year)) {
+                throw new Error('无法识别农历年份');
+            }
+            return year;
+        }
+
+        function getChineseGanzhiYear(year) {
+            const heavenlyStems = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
+            const earthlyBranches = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
+            return `${heavenlyStems[((year - 4) % 10 + 10) % 10]}${earthlyBranches[((year - 4) % 12 + 12) % 12]}`;
+        }
+
+        function getNextLunarNewYear(todayStart) {
+            const currentLunarYear = getLunarRelatedYear(todayStart);
+            const candidate = new Date(todayStart);
+            // 农历新年一定在未来一年内；逐日寻找农历年份切换日。
+            for (let day = 1; day <= 385; day += 1) {
+                candidate.setDate(todayStart.getDate() + day);
+                if (getLunarRelatedYear(candidate) !== currentLunarYear) {
+                    return { date: new Date(candidate), lunarYear: currentLunarYear + 1 };
+                }
+            }
+            throw new Error('无法计算下一农历新年');
+        }
+
         function updateClockPanel() {
             const now = new Date();
             const currentTimeValue = document.getElementById('currentTimeValue');
@@ -1518,6 +1578,7 @@
             const gregorianFullValue = document.getElementById('gregorianFullValue');
             const lunarDateValue = document.getElementById('lunarDateValue');
             const lunarDetailValue = document.getElementById('lunarDetailValue');
+            const newYearCountdownValue = document.getElementById('newYearCountdownValue');
 
             if (currentTimeValue) {
                 currentTimeValue.textContent = `${formatTwo(now.getHours())}:${formatTwo(now.getMinutes())}:${formatTwo(now.getSeconds())}`;
@@ -1535,6 +1596,22 @@
             const weekOfYear = Math.ceil((dayOfYear + new Date(now.getFullYear(), 0, 1).getDay()) / 7);
             if (currentDateValue) {
                 currentDateValue.textContent = `${fullDate} ${weekdayShort} · 第 ${weekOfYear} 周 / 第 ${dayOfYear} 天`;
+            }
+
+            if (newYearCountdownValue) {
+                const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+                try {
+                    if (nextLunarNewYearTargetDateKey !== todayKey) {
+                        nextLunarNewYearTarget = getNextLunarNewYear(todayStart);
+                        nextLunarNewYearTargetDateKey = todayKey;
+                    }
+                    const daysRemaining = Math.round((nextLunarNewYearTarget.date - todayStart) / 86400000);
+                    newYearCountdownValue.textContent =
+                        `距离${nextLunarNewYearTarget.lunarYear}${getChineseGanzhiYear(nextLunarNewYearTarget.lunarYear)}年还有 ${daysRemaining} 天`;
+                } catch (error) {
+                    newYearCountdownValue.textContent = '生肖年倒计时暂不可用';
+                }
             }
 
                 if (gregorianDayValue) {
