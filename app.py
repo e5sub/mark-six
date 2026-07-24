@@ -26,6 +26,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 # 导入用户系统模块
 from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord, BacktestRun
+from retention_service import cleanup_expired_data
 from auth import auth_bp
 from admin import admin_bp
 from user import user_bp
@@ -14486,6 +14487,20 @@ def collect_macau_source_data_job():
             traceback.print_exc()
 
 
+def cleanup_expired_data_job():
+    """Scheduled job: enforce configured data-retention periods."""
+    with app.app_context():
+        try:
+            deleted_counts = cleanup_expired_data()
+            if any(deleted_counts.values()):
+                print(f"数据保留清理完成：{deleted_counts}")
+        except Exception as e:
+            db.session.rollback()
+            print(f"数据保留清理失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+
 _warmup_thread = None
 _warmup_started = False
 
@@ -14574,6 +14589,15 @@ def start_scheduler(force=False):
         kwargs={"regions": ("hk", "macau"), "source": "scheduler"},
         misfire_grace_time=600,
         coalesce=True
+    )
+    _scheduler.add_job(
+        cleanup_expired_data_job,
+        'cron',
+        hour=3,
+        minute=0,
+        id='cleanup_expired_data',
+        misfire_grace_time=3600,
+        coalesce=True,
     )
     _scheduler.start()
     if _should_log_startup():

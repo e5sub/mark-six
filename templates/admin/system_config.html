@@ -238,6 +238,24 @@
                                value="{{ configs.get('invite_code_validity_days', '7') }}"
                                min="1" max="365" placeholder="7">
                     </div>
+                    <div class="config-field">
+                        <label>预测记录保留期（天，0 为永久）</label>
+                        <input type="number" name="prediction_record_retention_days" class="form-control"
+                               value="{{ configs.get('prediction_record_retention_days', '365') }}"
+                               min="0" max="365" placeholder="365">
+                    </div>
+                    <div class="config-field">
+                        <label>站内通知保留期（天，0 为永久）</label>
+                        <input type="number" name="user_notification_retention_days" class="form-control"
+                               value="{{ configs.get('user_notification_retention_days', '365') }}"
+                               min="0" max="365" placeholder="365">
+                    </div>
+                    <div class="config-field">
+                        <label>回测快照保留期（天，0 为永久）</label>
+                        <input type="number" name="backtest_runs_retention_days" class="form-control"
+                               value="{{ configs.get('backtest_runs_retention_days', '90') }}"
+                               min="0" max="365" placeholder="90">
+                    </div>
                 </div>
             </section>
 

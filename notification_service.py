@@ -11,9 +11,7 @@ from urllib.parse import urlparse
 import requests
 
 from models import db, SystemConfig, User, UserNotification
-
-
-STATION_NOTIFICATION_RETENTION_DAYS = 30
+from retention_service import cleanup_expired_station_notifications
 
 
 def _is_enabled(key, default='false'):
@@ -73,18 +71,6 @@ def save_user_notification_config(user, form):
 
 def _plain_text(value):
     return str(value or '').replace('<br>', '\n').replace('<br/>', '\n')
-
-
-def cleanup_expired_station_notifications(user_id=None, commit=True):
-    expires_before = datetime.now() - timedelta(days=STATION_NOTIFICATION_RETENTION_DAYS)
-    query = UserNotification.query.filter(UserNotification.created_at < expires_before)
-    if user_id:
-        query = query.filter(UserNotification.user_id == user_id)
-
-    deleted = query.delete(synchronize_session=False)
-    if deleted and commit:
-        db.session.commit()
-    return deleted
 
 
 def _is_public_http_url(raw_url):

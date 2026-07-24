@@ -22,6 +22,7 @@ import io
 import threading
 from collections import OrderedDict
 from sqlalchemy import func, case, or_
+from retention_service import cleanup_expired_data
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -1105,6 +1106,9 @@ SYSTEM_CONFIG_DEFAULTS = {
     'seo_description': '彩研所提供香港、澳门彩票开奖记录、生肖号码、波色单双、历史走势和智能预测分析，帮助用户快速查看开奖数据并辅助选号研究，仅供数据分析参考。',
     'invite_daily_limit': '3',
     'invite_code_validity_days': '7',
+    'prediction_record_retention_days': '365',
+    'user_notification_retention_days': '365',
+    'backtest_runs_retention_days': '90',
     'system_name': 'AI数据分析预测系统',
     'system_description': '',
     'allow_registration': 'true',
@@ -1131,11 +1135,32 @@ def system_config():
                 for key, default in SYSTEM_CONFIG_DEFAULTS.items()
             }
 
+            retention_keys = (
+                'prediction_record_retention_days',
+                'user_notification_retention_days',
+                'backtest_runs_retention_days',
+            )
+            try:
+                for key in retention_keys:
+                    days = int(configs[key])
+                    if not 0 <= days <= 365:
+                        raise ValueError
+                    configs[key] = str(days)
+            except (TypeError, ValueError):
+                flash('数据保留天数必须是 0 到 365 之间的整数（0 表示永久保留）', 'error')
+                return redirect(url_for('admin.system_config'))
+
             try:
                 for key, value in configs.items():
                     SystemConfig.set_config(key, value)
-                flash('系统配置更新成功', 'success')
+                deleted_counts = cleanup_expired_data()
+                deleted_total = sum(deleted_counts.values())
+                message = '系统配置更新成功'
+                if deleted_total:
+                    message += f'，已清理 {deleted_total} 条过期数据'
+                flash(message, 'success')
             except Exception as e:
+                db.session.rollback()
                 flash(f'配置更新失败: {str(e)}', 'error')
 
             return redirect(url_for('admin.system_config'))
