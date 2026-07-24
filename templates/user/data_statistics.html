@@ -3,7 +3,7 @@
 {% block home_content %}
 <div class="main-container data-statistics-container">
     <div class="data-statistics-title-row">
-        <h1 class="data-statistics-page-title">历年开奖数据统计 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现次数）</span></h1>
+        <h1 class="data-statistics-page-title">历年开奖数据统计 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现期数）</span></h1>
         <div class="special-analysis-controls">
             <div class="lunar-year-selector" data-lunar-year-menu>
                 <span class="lunar-year-selector-label">农历年份</span>
@@ -39,14 +39,14 @@
                 <div class="special-analysis-group-title">
                     <span>🔢 特码号码</span>
                     <span class="top-three-summary">
-                        {% for item in region.top_numbers %}<span><i>{{ ['🥇', '🥈', '🥉'][loop.index0] }}</i>{{ item.number }} · {{ item.count }}次</span>{% endfor %}
+                        {% for item in region.top_numbers %}<span><i>{{ ['🥇', '🥈', '🥉'][loop.index0] }}</i>{{ item.number }} · {{ item.count }}期</span>{% endfor %}
                     </span>
                 </div>
                 <div class="special-number-grid">
                     {% for item in region.numbers %}
                     <div class="special-number-item color-{{ item.color }} {% if item.count %}has-count{% endif %}">
                         <span class="lottery-ball {{ item.color }}">{{ item.number }}</span>
-                        <b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em>
+                        <b>{{ item.count }}期</b><em>{{ '%.1f'|format(item.percentage) }}%</em>
                     </div>
                     {% endfor %}
                 </div>
@@ -55,12 +55,12 @@
                 <div class="special-analysis-group-title">
                     <span>🐉 特码生肖</span>
                     <span class="top-three-summary">
-                        {% for item in region.top_zodiacs %}<span><i>{{ ['🥇', '🥈', '🥉'][loop.index0] }}</i>{{ item.name }} · {{ item.count }}次</span>{% endfor %}
+                        {% for item in region.top_zodiacs %}<span><i>{{ ['🥇', '🥈', '🥉'][loop.index0] }}</i>{{ item.name }} · {{ item.count }}期</span>{% endfor %}
                     </span>
                 </div>
                 <div class="attribute-grid zodiac-grid">
                     {% for item in region.zodiacs %}
-                    <div class="attribute-item {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
+                    <div class="attribute-item {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}期</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
                     {% endfor %}
                 </div>
             </div>
@@ -68,7 +68,7 @@
                 <div class="special-analysis-group-title">🌈 特码波色</div>
                 <div class="attribute-grid">
                     {% for item in region.colors %}
-                    <div class="attribute-item wave-{{ item.key }} {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
+                    <div class="attribute-item wave-{{ item.key }} {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}期</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
                     {% endfor %}
                 </div>
             </div>
@@ -76,7 +76,7 @@
                 <div class="special-analysis-group-title">⚖️ 特码单双</div>
                 <div class="attribute-grid">
                     {% for item in region.parities %}
-                    <div class="attribute-item {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
+                    <div class="attribute-item {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}期</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
                     {% endfor %}
                 </div>
             </div>
@@ -84,7 +84,7 @@
                 <div class="special-analysis-group-title">📏 特码大小</div>
                 <div class="attribute-grid">
                     {% for item in region.sizes %}
-                    <div class="attribute-item {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}次</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
+                    <div class="attribute-item {% if item.count %}has-count{% endif %}"><span>{{ item.name }}</span><b>{{ item.count }}期</b><em>{{ '%.1f'|format(item.percentage) }}%</em></div>
                     {% endfor %}
                 </div>
                 <div class="size-note">1–24 为小，25–49 为大</div>
