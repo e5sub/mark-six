@@ -5314,8 +5314,8 @@ def _resolve_ai_feedback_mix_weights(region, windows=(20, 50, 100)):
     ai_total = int(ai_stats.get("total", 0) or 0)
     ml_total = int(ml_stats.get("total", 0) or 0)
 
-    ai_score = (ai_top1 * 0.62) + (ai_top6 * 0.28) + (_safe_float(ai_stats.get("zodiac"), 0.0) * 0.1)
-    ml_score = (ml_top1 * 0.48) + (ml_top6 * 0.42) + (_safe_float(ml_stats.get("zodiac"), 0.0) * 0.1)
+    ai_score = (ai_top1 * 0.90) + (ai_top6 * SPECIAL_PRIORITY_TOP6_WEIGHT) + (_safe_float(ai_stats.get("zodiac"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT)
+    ml_score = (ml_top1 * 0.90) + (ml_top6 * SPECIAL_PRIORITY_TOP6_WEIGHT) + (_safe_float(ml_stats.get("zodiac"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT)
 
     ai_confidence = _clamp(ai_total / 18.0, 0.25, 1.0)
     ml_confidence = _clamp(ml_total / 18.0, 0.25, 1.0)
@@ -5533,12 +5533,12 @@ def _tune_strategy_config(strategy, region):
         local_top6 = 0.0
 
     if strategy in ("hot", "cold"):
-        config["window"] = _clamp(int(26 + local_top1 * 42 + local_top6 * 18), 18, 82)
-        config["pool"] = _clamp(int(11 + local_top1 * 9 + local_top6 * 5), 10, 24)
+        config["window"] = _clamp(int(26 + local_top1 * 46 + local_top6 * 5), 18, 82)
+        config["pool"] = _clamp(int(11 + local_top1 * 10 + local_top6 * 2), 10, 24)
         config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
     elif strategy == "trend":
-        config["window"] = _clamp(int(8 + local_top1 * 18 + local_top6 * 8), 8, 32)
-        config["pool"] = _clamp(int(10 + local_top1 * 7 + local_top6 * 5), 8, 21)
+        config["window"] = _clamp(int(8 + local_top1 * 20 + local_top6 * 2), 8, 32)
+        config["pool"] = _clamp(int(10 + local_top1 * 8 + local_top6 * 2), 8, 21)
         config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
     elif strategy == "balanced":
         high_count = _clamp(int(2 + local_top1 * 2), 1, 4)
@@ -5551,8 +5551,8 @@ def _tune_strategy_config(strategy, region):
             else:
                 low_count = 6 - high_count - mid_count
         config["bucket_counts"] = [low_count, mid_count, high_count]
-        config["window"] = _clamp(int(36 + local_top6 * 42 + local_top1 * 18), 28, 92)
-        config["pool"] = _clamp(int(12 + local_top6 * 9 + local_top1 * 4), 10, 24)
+        config["window"] = _clamp(int(36 + local_top1 * 40 + local_top6 * 5), 28, 92)
+        config["pool"] = _clamp(int(12 + local_top1 * 9 + local_top6 * 2), 10, 24)
         config["special_pool"] = _clamp(int(7 + local_top1 * 6), 6, 14)
     elif strategy == "hybrid":
         hot_count = _clamp(int(2 + local_top1 * 2), 1, 4)
@@ -5565,16 +5565,16 @@ def _tune_strategy_config(strategy, region):
             else:
                 cold_count = 6 - hot_count - trend_count
         config["mix"] = {"hot": hot_count, "cold": cold_count, "trend": trend_count}
-        config["window"] = _clamp(int(34 + local_top6 * 40 + local_top1 * 16), 28, 90)
-        config["pool"] = _clamp(int(12 + local_top6 * 8 + local_top1 * 5), 10, 24)
+        config["window"] = _clamp(int(34 + local_top1 * 38 + local_top6 * 5), 28, 90)
+        config["pool"] = _clamp(int(12 + local_top1 * 9 + local_top6 * 2), 10, 24)
         config["special_pool"] = _clamp(int(7 + local_top1 * 6), 6, 14)
-        config["trend_window"] = _clamp(int(8 + local_top1 * 16 + local_top6 * 6), 8, 30)
+        config["trend_window"] = _clamp(int(8 + local_top1 * 18 + local_top6 * 2), 8, 30)
     elif strategy == "markov":
         adaptation = _resolve_learning_adaptation(region, "markov")
-        config["window"] = _clamp(int(54 + local_top6 * 70 + local_top1 * 34), 36, 150)
-        config["pool"] = _clamp(int(13 + local_top6 * 9 + local_top1 * 5), 10, 24)
+        config["window"] = _clamp(int(54 + local_top1 * 68 + local_top6 * 8), 36, 150)
+        config["pool"] = _clamp(int(13 + local_top1 * 10 + local_top6 * 2), 10, 24)
         config["special_pool"] = _clamp(int(7 + local_top1 * 7), 6, 14)
-        config["transition_decay"] = round(_clamp(0.972 + local_top1 * 0.022 + local_top6 * 0.01, 0.965, 0.995), 4)
+        config["transition_decay"] = round(_clamp(0.972 + local_top1 * 0.024 + local_top6 * 0.002, 0.965, 0.995), 4)
         config["source_special_weight"] = round(_clamp(1.12 + local_top1 * 0.38, 1.08, 1.55), 3)
         learned_profile = _learn_markov_region_profile(region)
         learned_confidence = _clamp(float(learned_profile.get("confidence") or 0.0), 0.0, 1.0)
@@ -5782,12 +5782,12 @@ def _tune_strategy_config(strategy, region):
         elif strategy == "markov":
             adaptation = _resolve_learning_adaptation(region, "markov")
             weights["transition"] = round(_clamp(1.05 + learning_strength * 0.28 + accuracy * 0.24, 1.0, 1.65), 2)
-            weights["transition_lift"] = round(_clamp(0.22 + learning_strength * 0.12 + local_top6 * 0.22, 0.12, 0.75), 2)
+            weights["transition_lift"] = round(_clamp(0.22 + learning_strength * 0.12 + local_top1 * 0.24, 0.12, 0.75), 2)
             weights["special_transition"] = round(_clamp(0.82 + learning_strength * 0.22 + accuracy * 0.22, 0.75, 1.45), 2)
             weights["special_transition_lift"] = round(_clamp(0.18 + learning_strength * 0.12 + local_top1 * 0.24, 0.08, 0.7), 2)
-            weights["second_order"] = round(_clamp(0.44 + learning_strength * 0.18 + local_top6 * 0.34, 0.25, 1.2), 2)
+            weights["second_order"] = round(_clamp(0.44 + learning_strength * 0.18 + local_top1 * 0.30, 0.25, 1.2), 2)
             weights["phase_transition"] = round(_clamp(0.34 + learning_strength * 0.14 + local_top1 * 0.28, 0.15, 1.05), 2)
-            weights["attribute_transition"] = round(_clamp(0.26 + learning_strength * 0.1 + local_top6 * 0.18, 0.12, 0.9), 2)
+            weights["attribute_transition"] = round(_clamp(0.26 + learning_strength * 0.1 + local_top1 * 0.14, 0.12, 0.9), 2)
             weights["failure"] = round(_clamp(0.34 + (1 - accuracy) * 0.24 + learning_strength * 0.08, 0.22, 1.0), 2)
             preferred_markov = dict(config.get("preferred_markov_config") or {})
             learned_confidence = _clamp(float(config.get("profile_learning_confidence") or 0.0), 0.0, 1.0)
@@ -6290,10 +6290,7 @@ def _resolve_ai_target_mode(region, limit=120):
         return "top1_safe", stats
 
     top1 = _safe_float(stats.get("top1"), 0.0)
-    top6 = _safe_float(stats.get("top6"), 0.0)
-    if top6 >= max(top1 * 2.2, top1 + 0.16):
-        return "top6_cover", stats
-    if top1 >= max(0.14, top6 * 0.72):
+    if top1 >= 0.14:
         return "top1_strict", stats
     return "top1_safe", stats
 
@@ -7673,17 +7670,17 @@ def _resolve_local_hybrid_mix(config, region, phase_label):
     cold_stats = _calculate_strategy_hit_rates(region, "cold", limit=36)
     trend_stats = _calculate_strategy_hit_rates(region, "trend", limit=36)
     scores = {
-        "hot": (_safe_float(hot_stats.get("top1"), 0.0) * 1.2) + (_safe_float(hot_stats.get("top6"), 0.0) * 0.4),
-        "cold": (_safe_float(cold_stats.get("top1"), 0.0) * 1.0) + (_safe_float(cold_stats.get("top6"), 0.0) * 0.5),
-        "trend": (_safe_float(trend_stats.get("top1"), 0.0) * 1.1) + (_safe_float(trend_stats.get("top6"), 0.0) * 0.45),
+        "hot": (_safe_float(hot_stats.get("top1"), 0.0) * 1.3) + (_safe_float(hot_stats.get("top6"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT),
+        "cold": (_safe_float(cold_stats.get("top1"), 0.0) * 1.2) + (_safe_float(cold_stats.get("top6"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT),
+        "trend": (_safe_float(trend_stats.get("top1"), 0.0) * 1.25) + (_safe_float(trend_stats.get("top6"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT),
     }
     anneal_profile = {}
     for child_strategy, stats in (("hot", hot_stats), ("cold", cold_stats), ("trend", trend_stats)):
         recent_stats = _calculate_strategy_hit_rates(region, child_strategy, limit=12)
         base_score = scores.get(child_strategy, 0.0)
         recent_score = (
-            _safe_float(recent_stats.get("top1"), 0.0) * 1.15 +
-            _safe_float(recent_stats.get("top6"), 0.0) * 0.45
+            _safe_float(recent_stats.get("top1"), 0.0) * 1.2 +
+            _safe_float(recent_stats.get("top6"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT
         )
         sample_confidence = _clamp(int(recent_stats.get("total", 0) or 0) / 10.0, 0.25, 1.0)
         degrade = max(0.0, base_score - recent_score)
@@ -9098,7 +9095,7 @@ def _train_ml_number_model(data, region, config):
     best_score = -1.0
     for candidate in blend_candidates:
         stats = blend_stats[round(candidate, 4)]
-        candidate_score = (stats["top6"] * 1.0) + (stats["top1"] * 1.8)
+        candidate_score = (stats["top1"] * 3.0) + (stats["top6"] * SPECIAL_PRIORITY_TOP6_WEIGHT)
         if candidate_score > best_score:
             best_score = candidate_score
             selected_blend = candidate
@@ -9130,8 +9127,8 @@ def _train_ml_number_model(data, region, config):
         "calibration_score": round(
             _clamp(
                 ((target_probability_sum / evaluation_steps) if evaluation_steps else 0.0) * 12.0 +
-                ((top1_hits / evaluation_steps) if evaluation_steps else 0.0) * 0.45 +
-                ((top6_hits / evaluation_steps) if evaluation_steps else 0.0) * 0.25,
+                ((top1_hits / evaluation_steps) if evaluation_steps else 0.0) * 0.70 +
+                ((top6_hits / evaluation_steps) if evaluation_steps else 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT,
                 0.0,
                 1.0,
             ),
@@ -10102,6 +10099,10 @@ def _safe_float(value, default=0.0):
 
 def _build_ai_shortlist_context(data, region, config=None):
     config = config or {}
+    configured_target_mode = str(config.get("target_mode") or "top1_safe")
+    # Older persisted settings may still contain top6_cover.  Do not let a
+    # stale config restore a coverage-first learning path at runtime.
+    target_mode = "top1_safe" if configured_target_mode == "top6_cover" else configured_target_mode
     special_limit = _clamp(int(config.get("special_shortlist") or 8), 6, 12)
     normal_limit = _clamp(int(config.get("normal_shortlist") or 18), 12, 24)
     artifacts = _build_ml_prediction_artifacts(data, region)
@@ -10276,13 +10277,13 @@ def _build_ai_shortlist_context(data, region, config=None):
         "recent_draw_sets": list(heat_profile.get("recent_draw_sets") or []),
         "repeat_transition_profile": dict(heat_profile.get("repeat_transition_profile") or {}),
         "layered_shortlists": layered_shortlists,
-        "target_mode": str(config.get("target_mode") or "top1_safe"),
+        "target_mode": target_mode,
         "target_mode_stats": dict(config.get("target_mode_stats") or {}),
         "rerank_weights": _normalize_ai_rerank_weights(config.get("rerank_weights")),
         "rerank_learning_confidence": round(_safe_float(config.get("rerank_learning_confidence"), 0.0) * 100, 2),
         "quality_threshold": _resolve_ai_quality_threshold({
             "gate_profile": _build_ai_gate_profile(region),
-            "target_mode": str(config.get("target_mode") or "top1_safe"),
+            "target_mode": target_mode,
             "structure_profile": {
                 "confidence": round(_safe_float(ai_profile.get("confidence"), 0.0), 4),
             },
