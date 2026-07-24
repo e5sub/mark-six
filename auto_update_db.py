@@ -121,6 +121,10 @@ def _update_mysql_database():
                 ("enable_github_login", "false", "启用 GitHub 登录"),
                 ("github_client_id", "", "GitHub OAuth Client ID"),
                 ("github_client_secret", "", "GitHub OAuth Client Secret"),
+                ("prediction_record_retention_days", "365", "预测记录保留天数，0 表示永久保留"),
+                ("user_notification_retention_days", "365", "站内通知保留天数，0 表示永久保留"),
+                ("backtest_runs_retention_days", "90", "回测快照保留天数，0 表示永久保留"),
+                ("macau_collected_data_retention_days", "365", "澳门采集记录保留天数，0 表示永久保留"),
             ]
             for key, value, description in configs:
                 _mysql_ensure_system_config(connection, key, value, description)
@@ -165,10 +169,19 @@ def _update_mysql_database():
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                         UNIQUE KEY uix_macau_collected_region_period (region, period),
                         INDEX ix_macau_collected_region_period (region, period),
-                        INDEX ix_macau_collected_year_source_period (year, source_period)
+                        INDEX ix_macau_collected_year_source_period (year, source_period),
+                        INDEX ix_macau_collected_created_at (created_at)
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
                 """))
                 changes.append("Created macau_collected_data")
+
+            if _mysql_table_exists(connection, "macau_collected_data") and not _mysql_index_exists(
+                connection, "macau_collected_data", "ix_macau_collected_created_at"
+            ):
+                connection.execute(text(
+                    "CREATE INDEX ix_macau_collected_created_at ON macau_collected_data (created_at)"
+                ))
+                changes.append("Created ix_macau_collected_created_at")
 
         if changes:
             print("MySQL/MariaDB database schema updated:")
@@ -243,6 +256,10 @@ def update_database():
             ensure_system_config(cursor, 'enable_github_login', 'false', '启用 GitHub 登录')
             ensure_system_config(cursor, 'github_client_id', '', 'GitHub OAuth Client ID')
             ensure_system_config(cursor, 'github_client_secret', '', 'GitHub OAuth Client Secret')
+            ensure_system_config(cursor, 'prediction_record_retention_days', '365', '预测记录保留天数，0 表示永久保留')
+            ensure_system_config(cursor, 'user_notification_retention_days', '365', '站内通知保留天数，0 表示永久保留')
+            ensure_system_config(cursor, 'backtest_runs_retention_days', '90', '回测快照保留天数，0 表示永久保留')
+            ensure_system_config(cursor, 'macau_collected_data_retention_days', '365', '澳门采集记录保留天数，0 表示永久保留')
         
         # 检查并添加 auto_prediction_regions 字段
         if not check_column_exists(cursor, 'user', 'auto_prediction_regions'):
@@ -398,6 +415,15 @@ def update_database():
             print("macau_collected_data table created")
         else:
             print("macau_collected_data table already exists")
+
+        if check_table_exists(cursor, 'macau_collected_data') and not check_index_exists(
+            cursor, 'ix_macau_collected_created_at'
+        ):
+            cursor.execute('''
+                CREATE INDEX ix_macau_collected_created_at
+                ON macau_collected_data (created_at)
+            ''')
+            print("ix_macau_collected_created_at index created")
 
         # 检查并创建 zodiac_settings 表
         if not check_table_exists(cursor, 'activation_code_request'):
