@@ -53,6 +53,10 @@ _AI_PREDICTION_CACHE_TTL_SECONDS = 300
 _AI_HTTP_CONNECT_TIMEOUT_SECONDS = _env_float("AI_HTTP_CONNECT_TIMEOUT_SECONDS", 10)
 _AI_HTTP_READ_TIMEOUT_SECONDS = _env_float("AI_HTTP_READ_TIMEOUT_SECONDS", 90)
 _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
+# All strategy-selection and tuning layers optimize the special number first.
+# Normal-number coverage and zodiac agreement remain tie-break signals only.
+SPECIAL_PRIORITY_TOP6_WEIGHT = 0.12
+SPECIAL_PRIORITY_ZODIAC_WEIGHT = 0.04
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
 _ml_prediction_build_events = {}
@@ -3572,6 +3576,26 @@ def _calculate_strategy_accuracy(region, strategy, limit=200, cutoff_period=None
     return (correct / valid_total) if valid_total else 0.0, valid_total
 
 
+def _strategy_backtest_min_history(strategy, region=None, configured_minimum=None):
+    """Return a strategy-specific warm-up length for rolling backtests.
+
+    A prediction made before its main history window has filled is not
+    comparable with one made in normal production.  In particular, allowing
+    the ML strategy to be scored after ten draws made it look artificially
+    weak (and made parameter searches chase that artefact).
+    """
+    base = max(1, int(configured_minimum or 10))
+    config = _load_strategy_config(strategy, region or "hk") if strategy else {}
+    # Only the shape of the configured window matters here.  Region-specific
+    # values can be supplied by callers that use an override; these caps keep
+    # a usable evaluation set for shorter historical datasets.
+    if strategy == "ml":
+        return max(base, min(int(config.get("history_window") or 120), 120))
+    if strategy == "markov":
+        return max(base, min(int(config.get("window") or 80), 80))
+    return max(base, min(int(config.get("window") or base), 60))
+
+
 def _calculate_strategy_hit_rates(region, strategy, limit=200, cutoff_period=None):
     cutoff_period = cutoff_period or _current_backtest_cutoff_period()
     predictions = _load_learning_scope_predictions(
@@ -3940,7 +3964,7 @@ def _calculate_strategy_phase_hit_rates(region, strategy, phases=("hot", "cold",
         top1 = round(counter["top1"] / total, 4)
         top6 = round(counter["top6"] / total, 4)
         zodiac = round(counter["zodiac"] / total, 4)
-        score = round(top1 + (top6 * 0.55) + (zodiac * 0.15), 4)
+        score = round(top1 + (top6 * SPECIAL_PRIORITY_TOP6_WEIGHT) + (zodiac * SPECIAL_PRIORITY_ZODIAC_WEIGHT), 4)
         return {
             "top1": top1,
             "top6": top6,
@@ -4184,9 +4208,9 @@ def _score_prediction_outcome(prediction):
 
     score = 0.0
     if actual_special and actual_special in normal_numbers:
-        score += 0.58
+        score += 0.30
     if actual_zodiac and special_zodiac and actual_zodiac == special_zodiac:
-        score += 0.26
+        score += 0.10
     return round(min(score, 0.9), 4)
 
 
@@ -4316,13 +4340,13 @@ def _resolve_learning_adaptation(region, strategy=None):
             sample_counts.append(recent_total)
             recent_score = (
                 _safe_float(recent_window.get("top1_hit_rate"), 0.0) +
-                _safe_float(recent_window.get("top6_hit_rate"), 0.0) * 0.35 +
-                _safe_float(recent_window.get("zodiac_hit_rate"), 0.0) * 0.15
+                _safe_float(recent_window.get("top6_hit_rate"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT +
+                _safe_float(recent_window.get("zodiac_hit_rate"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT
             )
             overall_score = (
                 _safe_float(entry.get("top1_hit_rate"), 0.0) +
-                _safe_float(entry.get("top6_hit_rate"), 0.0) * 0.35 +
-                _safe_float(entry.get("zodiac_hit_rate"), 0.0) * 0.15
+                _safe_float(entry.get("top6_hit_rate"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT +
+                _safe_float(entry.get("zodiac_hit_rate"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT
             )
             recent_scores.append(recent_score)
             overall_scores.append(overall_score)
@@ -4701,8 +4725,8 @@ def _promote_markov_region_profile(region, persist=True):
             (leader_top6 - markov_top6) <= 3.0
         )
     )
-    previous_score = _safe_float(config.get("promotion_backtest_top1"), 0.0) + (_safe_float(config.get("promotion_backtest_top6"), 0.0) * 0.35)
-    current_score = markov_top1 + (markov_top6 * 0.35)
+    previous_score = _safe_float(config.get("promotion_backtest_top1"), 0.0) + (_safe_float(config.get("promotion_backtest_top6"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT)
+    current_score = markov_top1 + (markov_top6 * SPECIAL_PRIORITY_TOP6_WEIGHT)
     min_gain = min(_safe_float(config.get("promotion_min_gain"), 0.25), adaptation["markov_min_gain_cap"])
     ranking_size = len(ranking)
     bottom_rank = bool(markov_rank and ranking_size and markov_rank >= max(5, ranking_size - 1))
@@ -4839,8 +4863,8 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phas
                 continue
             window_score = (
                 _safe_float(hit_rates.get("top1"), 0.0) * 100.0 +
-                _safe_float(hit_rates.get("top6"), 0.0) * 35.0 +
-                _safe_float(hit_rates.get("zodiac"), 0.0) * 15.0
+                _safe_float(hit_rates.get("top6"), 0.0) * (SPECIAL_PRIORITY_TOP6_WEIGHT * 100.0) +
+                _safe_float(hit_rates.get("zodiac"), 0.0) * (SPECIAL_PRIORITY_ZODIAC_WEIGHT * 100.0)
             )
             weight = max(0.35, 1.08 - idx * 0.24)
             confidence = _clamp(total / max(min_samples, 1), 0.3, 1.0)
@@ -4930,13 +4954,13 @@ def _score_ml_ensemble_candidates(region, strategies=None, windows=(20, 50, 100)
             for item in window_summaries:
                 fallback_component = (
                     float(item.get("accuracy", 0.0) or 0.0) * 1.0 +
-                    float(item.get("top6_accuracy", 0.0) or 0.0) * 0.35
+                    float(item.get("top6_accuracy", 0.0) or 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT
                 )
                 fallback_factor = float(item.get("factor", 0.0) or 0.0)
                 if fallback_factor > 0:
                     fallback_recent_score += fallback_component * fallback_factor
                     fallback_recent_weight += fallback_factor
-            long_term_score = (accuracy_percent * 1.0) + (overall_top6_percent * 0.35)
+            long_term_score = (accuracy_percent * 1.0) + (overall_top6_percent * SPECIAL_PRIORITY_TOP6_WEIGHT)
             blended_fallback = (
                 (fallback_recent_score / fallback_recent_weight) * 0.4
                 if fallback_recent_weight > 0 else 0.0
@@ -6415,15 +6439,28 @@ def _build_prediction_feedback(region, strategy, limit=240, cutoff_period=None):
                 parity_scores[predicted_parity] -= 0.28 * recency_weight
 
     confidence = _feedback_confidence(len(predictions))
+    # A strategy's own historical wins are a particularly noisy signal.  Keep
+    # their normalized values close to the neutral midpoint until there is a
+    # meaningful sample, instead of allowing a handful of hits to reinforce
+    # the same numbers indefinitely.
+    shrinkage = _clamp((len(predictions) / 96.0) * confidence, 0.0, 1.0)
+
+    def shrink_to_neutral(values):
+        normalized = _normalize_signed_metric_map(values)
+        return {
+            key: round(0.5 + ((float(value) - 0.5) * shrinkage), 4)
+            for key, value in normalized.items()
+        }
 
     return {
-        "special": _normalize_signed_metric_map({str(i): special_scores.get(str(i), 0.0) for i in range(1, 50)}),
-        "normal": _normalize_signed_metric_map({str(i): normal_scores.get(str(i), 0.0) for i in range(1, 50)}),
-        "color": _normalize_signed_metric_map({color: color_scores.get(color, 0.0) for color in ("红", "蓝", "绿")}),
-        "zodiac": _normalize_signed_metric_map(dict(zodiac_scores)),
-        "parity": _normalize_signed_metric_map({parity: parity_scores.get(parity, 0.0) for parity in ("单", "双")}),
+        "special": shrink_to_neutral({str(i): special_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "normal": shrink_to_neutral({str(i): normal_scores.get(str(i), 0.0) for i in range(1, 50)}),
+        "color": shrink_to_neutral({color: color_scores.get(color, 0.0) for color in ("红", "蓝", "绿")}),
+        "zodiac": shrink_to_neutral(dict(zodiac_scores)),
+        "parity": shrink_to_neutral({parity: parity_scores.get(parity, 0.0) for parity in ("单", "双")}),
         "samples": len(predictions),
         "confidence": confidence,
+        "shrinkage": round(shrinkage, 4),
     }
 
 def _build_attribute_preferences(data, region, feedback, year, apply_recent_zodiac_cooldown=True):
@@ -6806,7 +6843,7 @@ def _build_markov_anchor_profile(region, cutoff_period=None):
             continue
         special_rate = float(rates.get("top1") or 0.0)
         normal_rate = float(rates.get("top6") or 0.0)
-        quality = special_rate + normal_rate * 0.35
+        quality = special_rate + normal_rate * SPECIAL_PRIORITY_TOP6_WEIGHT
         if quality <= 0:
             continue
         feedback = _build_prediction_feedback(region, strategy, limit=160, cutoff_period=cutoff_period)
@@ -8602,7 +8639,7 @@ def _score_ml_model(model):
     evaluation_draws = int(model.get("evaluation_draws", 0) or 0)
     confidence = min(1.0, evaluation_draws / 20.0) if evaluation_draws > 0 else 0.0
     return round(
-        ((top1 * 1.85) + (top6 * 1.0) + (avg_target_probability * 0.35) + (calibration_score * 0.08)) *
+        ((top1 * 3.0) + (top6 * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35) + (calibration_score * 0.08)) *
         max(confidence, 0.35) *
         _clamp(0.86 + validation_ratio * 0.14, 0.72, 1.02),
         6,
@@ -8877,7 +8914,7 @@ def _train_ml_number_model(data, region, config):
         top6_rate = top6 / steps
         avg_target_probability = target_probability_total / steps
         return {
-            "score": (top1_rate * 1.85) + top6_rate + (avg_target_probability * 0.35),
+            "score": (top1_rate * 3.0) + (top6_rate * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35),
             "top1": top1,
             "top6": top6,
             "target_probability": avg_target_probability,
@@ -11978,6 +12015,7 @@ def save_draws_to_database(draws, region):
 AUTO_BACKTEST_STRATEGIES = ("ml", "markov", "hybrid", "balanced", "trend", "hot", "cold")
 AUTO_BACKTEST_MIN_HISTORY = 10
 AUTO_BACKTEST_LIMIT = 240
+AUTO_OPTIMIZE_HOLDOUT_PERIODS = 24
 AI_BACKTEST_MAX_PERIODS = 24
 POSTPROCESS_BACKTEST_STRATEGIES = ("ml", "markov", "hybrid", "balanced", "trend", "hot", "cold")
 POSTPROCESS_TUNING_STRATEGIES = POSTPROCESS_BACKTEST_STRATEGIES
@@ -12254,6 +12292,33 @@ def _evaluate_backtest_prediction(result, draw):
     }
 
 
+def _wilson_interval(hits, total, z=1.96):
+    """A dependency-free 95% binomial confidence interval."""
+    total = int(total or 0)
+    if total <= 0:
+        return [0.0, 0.0]
+    rate = max(0.0, min(1.0, float(hits or 0) / total))
+    denominator = 1.0 + (z * z / total)
+    centre = (rate + (z * z / (2.0 * total))) / denominator
+    radius = (z / denominator) * math.sqrt(
+        (rate * (1.0 - rate) / total) + (z * z / (4.0 * total * total))
+    )
+    return [round(max(0.0, centre - radius) * 100, 2), round(min(1.0, centre + radius) * 100, 2)]
+
+
+def _backtest_metric(hits, total, random_rate):
+    rate = (float(hits) / total) if total else 0.0
+    baseline = float(random_rate or 0.0)
+    return {
+        "hits": int(hits or 0),
+        "total": int(total or 0),
+        "rate": round(rate * 100, 2),
+        "random_baseline": round(baseline * 100, 2),
+        "lift_vs_random": round((rate - baseline) * 100, 2),
+        "confidence_interval_95": _wilson_interval(hits, total),
+    }
+
+
 def _summarize_backtest_window(entries, window):
     sample = entries[-window:] if window and len(entries) > window else list(entries)
     total = len(sample)
@@ -12288,6 +12353,12 @@ def _summarize_backtest_entries(entries):
             _summarize_backtest_window(entries, 50),
             _summarize_backtest_window(entries, 100),
         ],
+        # 特码为 49 选 1，六码覆盖为 49 选 6。生肖映射会随年份变化，
+        # 因此不把它伪装成固定的随机基线。
+        "benchmark": {
+            "top1": _backtest_metric(top1, total, 1.0 / 49.0),
+            "top6": _backtest_metric(top6, total, 6.0 / 49.0),
+        },
     }
 
 
@@ -12296,7 +12367,15 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
     chronological = _normalize_backtest_draws(draws, limit=AUTO_BACKTEST_LIMIT)
     strategy_logs = {strategy: [] for strategy in strategies}
     detail_rows = []
-    effective_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
+    base_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
+    strategy_warmups = {
+        strategy: min(
+            _strategy_backtest_min_history(strategy, region, base_min_history),
+            max(1, len(chronological) - 1),
+        )
+        for strategy in strategies
+    }
+    effective_min_history = min(strategy_warmups.values()) if strategy_warmups else base_min_history
     ai_start_idx = max(effective_min_history, len(chronological) - AI_BACKTEST_MAX_PERIODS)
     if len(chronological) <= 1:
         return {
@@ -12313,6 +12392,8 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
         target_draw = chronological[idx]
         history_desc = list(reversed(chronological[:idx]))
         for strategy in strategies:
+            if idx < strategy_warmups.get(strategy, effective_min_history):
+                continue
             if strategy == "ai" and idx < ai_start_idx:
                 continue
             resolved_strategy = strategy
@@ -12368,15 +12449,22 @@ def _build_backtest_snapshot_payload(region, draws, strategies=None, min_history
                 "zodiac_hit_rate": summary.get("zodiac_hit_rate", 0.0),
                 "composite_score": round(
                     _safe_float(summary.get("top1_hit_rate"), 0.0) +
-                    _safe_float(summary.get("top6_hit_rate"), 0.0) * 0.35 +
-                    _safe_float(summary.get("zodiac_hit_rate"), 0.0) * 0.15,
+                    _safe_float(summary.get("top6_hit_rate"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT +
+                    _safe_float(summary.get("zodiac_hit_rate"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT,
                     4,
                 ),
                 "total": summary.get("total", 0),
             }
             for strategy, summary in strategy_results.items()
         ],
-        key=lambda item: (item["top1_hit_rate"], item["top6_hit_rate"], item["total"]),
+        # 特码命中是策略排行榜的首要目标；综合分仅用于同等特码
+        # 命中率时的次级比较，避免覆盖率掩盖核心表现。
+        key=lambda item: (
+            item["top1_hit_rate"],
+            item["composite_score"],
+            item["top6_hit_rate"],
+            item["total"],
+        ),
         reverse=True,
     )
     return {
@@ -12485,8 +12573,8 @@ def _score_auto_optimize_summary(summary):
     windows = list(summary.get("windows") or [])
     overall_score = (
         _safe_float(summary.get("top1_hit_rate"), 0.0) * 1.0 +
-        _safe_float(summary.get("top6_hit_rate"), 0.0) * 0.35 +
-        _safe_float(summary.get("zodiac_hit_rate"), 0.0) * 0.15
+        _safe_float(summary.get("top6_hit_rate"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT +
+        _safe_float(summary.get("zodiac_hit_rate"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT
     )
     weighted_score = overall_score * 0.22
     weight_total = 0.22
@@ -12506,8 +12594,8 @@ def _score_auto_optimize_window(window):
     window = dict(window or {})
     return round(
         _safe_float(window.get("top1_hit_rate"), 0.0) * 1.0 +
-        _safe_float(window.get("top6_hit_rate"), 0.0) * 0.35 +
-        _safe_float(window.get("zodiac_hit_rate"), 0.0) * 0.15,
+        _safe_float(window.get("top6_hit_rate"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT +
+        _safe_float(window.get("zodiac_hit_rate"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT,
         4,
     )
 
@@ -12812,7 +12900,10 @@ def _build_strategy_backtest_summary(region, strategy, draws=None, config_overri
     if cached is not None:
         return cached
 
-    effective_min_history = min(max(1, int(min_history or 1)), max(1, len(chronological) - 1))
+    effective_min_history = min(
+        _strategy_backtest_min_history(strategy, region, min_history),
+        max(1, len(chronological) - 1),
+    )
     start_idx = effective_min_history
     if max_periods:
         start_idx = max(effective_min_history, len(chronological) - int(max_periods))
@@ -12914,32 +13005,60 @@ def auto_optimize_strategy(region, strategy, draws=None, source="manual"):
     config = _load_strategy_config(strategy, region)
     level = _auto_optimize_level()
     min_gain = _auto_optimize_min_gain()
-    baseline_summary = _build_strategy_backtest_summary(region, strategy, draws=draws)
-    baseline_score = _score_auto_optimize_summary(baseline_summary)
-    best_score = baseline_score
-    best_summary = baseline_summary
+    source_draws = _normalize_backtest_draws(
+        draws if draws is not None else _load_backtest_draws_from_db(region, limit=AUTO_BACKTEST_LIMIT),
+        limit=AUTO_BACKTEST_LIMIT,
+    )
+    proposed_holdout_size = min(AUTO_OPTIMIZE_HOLDOUT_PERIODS, max(0, len(source_draws) // 5))
+    required_warmup = _strategy_backtest_min_history(strategy, region, AUTO_BACKTEST_MIN_HISTORY)
+    can_use_holdout = len(source_draws) >= (required_warmup + proposed_holdout_size + 12)
+    holdout_size = proposed_holdout_size if proposed_holdout_size >= 12 and can_use_holdout else 0
+    # Select parameters on earlier draws, then require the winner to improve
+    # on a final untouched period.  This prevents the parameter search from
+    # reporting its own in-sample winner as a production improvement.
+    training_draws = source_draws[:-holdout_size] if holdout_size >= 12 else source_draws
+    baseline_training_summary = _build_strategy_backtest_summary(region, strategy, draws=training_draws)
+    baseline_training_score = _score_auto_optimize_summary(baseline_training_summary)
+    best_training_score = baseline_training_score
     best_override = None
 
     for candidate in _build_auto_optimize_candidates(strategy, config, level=level):
-        summary = _build_strategy_backtest_summary(region, strategy, draws=draws, config_override=candidate)
+        summary = _build_strategy_backtest_summary(region, strategy, draws=training_draws, config_override=candidate)
         score = _score_auto_optimize_summary(summary)
-        if not _passes_recent_window_guard(baseline_summary, summary, min_gain):
+        if not _passes_recent_window_guard(baseline_training_summary, summary, min_gain):
             continue
-        if strategy == "markov" and not _passes_markov_window_consistency_gate(baseline_summary, summary, min_gain):
+        if strategy == "markov" and not _passes_markov_window_consistency_gate(baseline_training_summary, summary, min_gain):
             continue
-        if score > best_score:
-            best_score = score
-            best_summary = summary
+        if score > best_training_score:
+            best_training_score = score
             best_override = candidate
 
+    baseline_summary = _build_strategy_backtest_summary(
+        region, strategy, draws=source_draws, max_periods=holdout_size or AUTO_OPTIMIZE_BACKTEST_PERIODS
+    )
+    baseline_score = _score_auto_optimize_summary(baseline_summary)
+    best_summary = baseline_summary
+    best_score = baseline_score
+    if best_override:
+        best_summary = _build_strategy_backtest_summary(
+            region,
+            strategy,
+            draws=source_draws,
+            config_override=best_override,
+            max_periods=holdout_size or AUTO_OPTIMIZE_BACKTEST_PERIODS,
+        )
+        best_score = _score_auto_optimize_summary(best_summary)
+
     gain = round(best_score - baseline_score, 4)
-    if not best_override or gain < min_gain:
+    if not best_override or gain < min_gain or not _passes_recent_window_guard(baseline_summary, best_summary, min_gain):
         config["auto_optimize_last_run_at"] = datetime.now().isoformat(timespec="seconds")
         config["auto_optimize_last_source"] = source
         config["auto_optimize_last_applied"] = False
         config["auto_optimize_last_score"] = round(best_score, 4)
         config["auto_optimize_last_baseline_score"] = round(baseline_score, 4)
         config["auto_optimize_last_gain"] = gain
+        config["auto_optimize_training_score"] = round(best_training_score, 4)
+        config["auto_optimize_holdout_periods"] = int(holdout_size or 0)
         _save_strategy_config(strategy, region, config)
         return {
             "strategy": strategy,

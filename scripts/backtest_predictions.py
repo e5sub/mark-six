@@ -39,6 +39,8 @@ except ModuleNotFoundError as exc:
 
 
 DEFAULT_STRATEGIES = ["ml", "hybrid", "balanced", "markov", "trend", "hot", "cold"]
+SPECIAL_PRIORITY_TOP6_WEIGHT = 0.12
+SPECIAL_PRIORITY_ZODIAC_WEIGHT = 0.04
 
 
 def _normalize_draw(record):
@@ -100,6 +102,30 @@ def _window_summary(entries, limit):
     }
 
 
+def _wilson_interval(hits, total, z=1.96):
+    if total <= 0:
+        return [0.0, 0.0]
+    rate = hits / total
+    denominator = 1.0 + (z * z / total)
+    centre = (rate + (z * z / (2.0 * total))) / denominator
+    radius = (z / denominator) * (
+        (rate * (1.0 - rate) / total + z * z / (4.0 * total * total)) ** 0.5
+    )
+    return [round(max(0.0, centre - radius) * 100, 2), round(min(1.0, centre + radius) * 100, 2)]
+
+
+def _benchmark(hits, total, random_rate):
+    rate = hits / total if total else 0.0
+    return {
+        "hits": hits,
+        "total": total,
+        "rate": round(rate * 100, 2),
+        "random_baseline": round(random_rate * 100, 2),
+        "lift_vs_random": round((rate - random_rate) * 100, 2),
+        "confidence_interval_95": _wilson_interval(hits, total),
+    }
+
+
 def _summarize_strategy(entries):
     total = len(entries)
     if total <= 0:
@@ -124,11 +150,22 @@ def _summarize_strategy(entries):
             _window_summary(entries, 50),
             _window_summary(entries, 100),
         ],
+        "benchmark": {
+            "top1": _benchmark(top1, total, 1.0 / 49.0),
+            "top6": _benchmark(top6, total, 6.0 / 49.0),
+        },
     }
 
 
 def _resolve_strategy(strategy, history_desc, region):
     return strategy
+
+
+def _strategy_min_history(strategy, requested_minimum):
+    # Keep CLI results aligned with production windows.  This script cannot
+    # fairly score a model before its principal history window is available.
+    required = {"ml": 120, "markov": 80}.get(strategy, requested_minimum)
+    return max(int(requested_minimum or 1), required)
 
 
 def run_backtest(region, strategies, min_history=60, limit=None):
@@ -138,7 +175,12 @@ def run_backtest(region, strategies, min_history=60, limit=None):
 
     strategy_logs = defaultdict(list)
     detailed_rows = []
-    effective_min_history = min(max(1, int(min_history or 1)), max(1, len(draws) - 1))
+    base_min_history = min(max(1, int(min_history or 1)), max(1, len(draws) - 1))
+    strategy_warmups = {
+        strategy: min(_strategy_min_history(strategy, base_min_history), max(1, len(draws) - 1))
+        for strategy in strategies
+    }
+    effective_min_history = min(strategy_warmups.values()) if strategy_warmups else base_min_history
     if len(draws) <= 1:
         return {
             "region": region,
@@ -153,6 +195,8 @@ def run_backtest(region, strategies, min_history=60, limit=None):
         history_desc = list(reversed(draws[:idx]))
         period = str(target_draw.get("id") or "")
         for strategy in strategies:
+            if idx < strategy_warmups.get(strategy, effective_min_history):
+                continue
             resolved_strategy = _resolve_strategy(strategy, history_desc, region)
             try:
                 with _temporary_backtest_cutoff_period(period):
@@ -195,15 +239,21 @@ def run_backtest(region, strategies, min_history=60, limit=None):
                 "zodiac_hit_rate": summary["zodiac_hit_rate"],
                 "composite_score": round(
                     summary["top1_hit_rate"] +
-                    summary["top6_hit_rate"] * 0.35 +
-                    summary["zodiac_hit_rate"] * 0.15,
+                    summary["top6_hit_rate"] * SPECIAL_PRIORITY_TOP6_WEIGHT +
+                    summary["zodiac_hit_rate"] * SPECIAL_PRIORITY_ZODIAC_WEIGHT,
                     4,
                 ),
                 "total": summary["total"],
             }
             for strategy, summary in strategy_results.items()
         ],
-        key=lambda item: (item["top1_hit_rate"], item["top6_hit_rate"], item["total"]),
+        # Keep exact special-number accuracy as the primary leaderboard goal.
+        key=lambda item: (
+            item["top1_hit_rate"],
+            item["composite_score"],
+            item["top6_hit_rate"],
+            item["total"],
+        ),
         reverse=True,
     )
     return {
