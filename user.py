@@ -62,9 +62,28 @@ def _count_distinct_prediction_periods(query):
     ).distinct().count()
 
 
-def _current_lunar_year_special_stats():
-    """Build homepage special-number statistics from the locally saved draw history."""
-    lunar_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+def _available_lunar_stat_years():
+    """Return lunar years represented by locally saved Hong Kong or Macau draws."""
+    years = {ZodiacSetting.get_zodiac_year_for_date(datetime.now())}
+    draw_dates = db.session.query(LotteryDraw.draw_date).filter(
+        LotteryDraw.region.in_(("macau", "hk")),
+        LotteryDraw.draw_date.isnot(None),
+    ).all()
+    for (draw_date,) in draw_dates:
+        try:
+            years.add(ZodiacSetting.get_zodiac_year_for_date(draw_date))
+        except (TypeError, ValueError):
+            continue
+    return sorted((year for year in years if year), reverse=True)
+
+
+def _lunar_year_special_stats(lunar_year=None):
+    """Build special-number statistics for one lunar year from saved draw history."""
+    current_lunar_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    try:
+        lunar_year = int(lunar_year) if lunar_year is not None else current_lunar_year
+    except (TypeError, ValueError):
+        lunar_year = current_lunar_year
     region_labels = (("macau", "澳门"), ("hk", "香港"))
     zodiac_names = list("鼠牛虎兔龙蛇马羊猴鸡狗猪")
     color_labels = (("red", "红波"), ("blue", "蓝波"), ("green", "绿波"))
@@ -1519,16 +1538,25 @@ def dashboard():
 @user_bp.route('/data-statistics')
 @login_required
 def data_statistics():
-    """开奖数据统计：当前农历年的特码属性分布。"""
+    """开奖数据统计：可按农历年查看特码属性分布。"""
     user = _get_session_user()
     if not user:
         flash('请先登录', 'error')
         return redirect(url_for('auth.login'))
 
-    lunar_year, special_year_stats = _current_lunar_year_special_stats()
+    available_lunar_years = _available_lunar_stat_years()
+    requested_lunar_year = request.args.get('lunar_year', type=int)
+    current_lunar_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+    lunar_year = (
+        requested_lunar_year
+        if requested_lunar_year in available_lunar_years
+        else current_lunar_year
+    )
+    lunar_year, special_year_stats = _lunar_year_special_stats(lunar_year)
     return render_template(
         'user/data_statistics.html',
         lunar_year=lunar_year,
+        available_lunar_years=available_lunar_years,
         special_year_stats=special_year_stats,
     )
 

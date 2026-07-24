@@ -3,12 +3,22 @@
 {% block home_content %}
 <div class="main-container data-statistics-container">
     <div class="data-statistics-title-row">
-        <h1 class="data-statistics-page-title">当前农历年特码分析 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现次数）</span></h1>
-        <div class="special-analysis-tabs" role="tablist" aria-label="开奖地区">
-            {% for region in special_year_stats %}
-            <button type="button" class="special-analysis-tab {% if loop.first %}active{% endif %}"
-                    data-special-region="{{ region.key }}" role="tab">{{ region.label }}</button>
-            {% endfor %}
+        <h1 class="data-statistics-page-title">历年开奖数据统计 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现次数）</span></h1>
+        <div class="special-analysis-controls">
+            <label class="lunar-year-selector">
+                <span>农历年份</span>
+                <select onchange="window.location.href='{{ url_for('user.data_statistics') }}?lunar_year=' + this.value" aria-label="选择农历年份">
+                    {% for year in available_lunar_years %}
+                    <option value="{{ year }}" {% if year == lunar_year %}selected{% endif %}>{{ year }} 农历年</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="special-analysis-tabs" role="tablist" aria-label="开奖地区">
+                {% for region in special_year_stats %}
+                <button type="button" class="special-analysis-tab {% if loop.first %}active{% endif %}"
+                        data-special-region="{{ region.key }}" role="tab">{{ region.label }}</button>
+                {% endfor %}
+            </div>
         </div>
     </div>
 <section class="card-compact special-analysis-card">
@@ -94,6 +104,10 @@
 .data-statistics-title-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.2rem; }
 .data-statistics-page-title { margin:0; color:#f8fafc; font-size:2rem; font-weight:800; letter-spacing:.02em; }
 .data-statistics-page-title span { color:#94a3b8; font-size:1rem; font-weight:600; letter-spacing:0; }
+.special-analysis-controls { display:flex; align-items:center; gap:.65rem; flex:none; }
+.lunar-year-selector { display:inline-flex; align-items:center; gap:.45rem; padding:.28rem .5rem; color:#cbd5e1; font-size:.8rem; border:1px solid rgba(148,163,184,.24); border-radius:8px; background:rgba(15,23,42,.72); }
+.lunar-year-selector select { border:0; outline:0; color:#f8fafc; background:transparent; font:inherit; font-weight:700; cursor:pointer; }
+.lunar-year-selector option { color:#0f172a; }
 .card-compact { overflow:hidden; border:1px solid rgba(148,163,184,.16); border-radius:14px; background:rgba(15,23,42,.78); box-shadow:0 14px 32px rgba(2,6,23,.24); }
 .special-analysis-card { overflow: visible; }
 .special-analysis-tabs { display:inline-flex; flex:none; gap:3px; padding:3px; background:rgba(15,23,42,.72); border:1px solid rgba(148,163,184,.24); border-radius:8px; }
@@ -127,7 +141,7 @@
 .size-note { margin-top:.5rem; color:#64748b; font-size:.66rem; line-height:1.35; }
 .special-analysis-empty { padding:1.5rem 1rem; color:#94a3b8; text-align:center; }
 @media (max-width:1100px) { .special-analysis-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-group{grid-column:span 3}.special-number-grid{grid-template-columns:repeat(8,minmax(0,1fr))} }
-@media (max-width:760px) { .data-statistics-title-row{align-items:flex-start;flex-direction:column}.data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-group-title{align-items:flex-start;flex-direction:column}.top-three-summary{flex-wrap:wrap;white-space:normal;gap:.35rem .55rem}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
+@media (max-width:760px) { .data-statistics-title-row{align-items:flex-start;flex-direction:column}.data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-controls{width:100%;justify-content:space-between}.special-analysis-group-title{align-items:flex-start;flex-direction:column}.top-three-summary{flex-wrap:wrap;white-space:normal;gap:.35rem .55rem}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.summary-note{margin-left:0} }
 </style>
 <script>
 document.querySelectorAll('[data-special-region]').forEach(function(tab) {
