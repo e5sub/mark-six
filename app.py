@@ -2062,6 +2062,7 @@ def _sync_runtime_database_schema():
         'macau_collected_data': {
             'ix_macau_collected_region_period': ('region', 'period'),
             'ix_macau_collected_year_source_period': ('year', 'source_period'),
+            'ix_macau_collected_created_at': ('created_at',),
         },
     }
 

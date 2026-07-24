@@ -1109,6 +1109,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     'prediction_record_retention_days': '365',
     'user_notification_retention_days': '365',
     'backtest_runs_retention_days': '90',
+    'macau_collected_data_retention_days': '365',
     'system_name': 'AI数据分析预测系统',
     'system_description': '',
     'allow_registration': 'true',
@@ -1139,6 +1140,7 @@ def system_config():
                 'prediction_record_retention_days',
                 'user_notification_retention_days',
                 'backtest_runs_retention_days',
+                'macau_collected_data_retention_days',
             )
             try:
                 for key in retention_keys:

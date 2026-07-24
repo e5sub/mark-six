@@ -256,6 +256,12 @@
                                value="{{ configs.get('backtest_runs_retention_days', '90') }}"
                                min="0" max="365" placeholder="90">
                     </div>
+                    <div class="config-field">
+                        <label>澳门采集记录保留期（天，0 为永久）</label>
+                        <input type="number" name="macau_collected_data_retention_days" class="form-control"
+                               value="{{ configs.get('macau_collected_data_retention_days', '365') }}"
+                               min="0" max="365" placeholder="365">
+                    </div>
                 </div>
             </section>
 

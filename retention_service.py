@@ -2,13 +2,14 @@
 
 from datetime import datetime, timedelta
 
-from models import BacktestRun, PredictionRecord, SystemConfig, UserNotification, db
+from models import BacktestRun, MacauCollectedData, PredictionRecord, SystemConfig, UserNotification, db
 
 
 RETENTION_CONFIG_DEFAULTS = {
     'prediction_record_retention_days': 365,
     'user_notification_retention_days': 365,
     'backtest_runs_retention_days': 90,
+    'macau_collected_data_retention_days': 365,
 }
 
 
@@ -23,12 +24,13 @@ def get_retention_days(config_key):
 
 
 def cleanup_expired_data(commit=True):
-    """Delete expired predictions, notification records, and backtest snapshots."""
+    """Delete expired predictions, notifications, backtests, and Macau collection records."""
     now = datetime.now()
     model_keys = {
         'prediction_records': (PredictionRecord, 'prediction_record_retention_days'),
         'user_notifications': (UserNotification, 'user_notification_retention_days'),
         'backtest_runs': (BacktestRun, 'backtest_runs_retention_days'),
+        'macau_collected_data': (MacauCollectedData, 'macau_collected_data_retention_days'),
     }
     deleted_counts = {}
     for name, (model, config_key) in model_keys.items():

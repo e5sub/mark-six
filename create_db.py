@@ -400,6 +400,11 @@ CREATE INDEX IF NOT EXISTS ix_macau_collected_year_source_period
 ON macau_collected_data (year, source_period)
 """)
 
+cursor.execute("""
+CREATE INDEX IF NOT EXISTS ix_macau_collected_created_at
+ON macau_collected_data (created_at)
+""")
+
 
 # 生肖设置表
 cursor.execute("""

@@ -1036,4 +1036,5 @@ class MacauCollectedData(db.Model):
         db.UniqueConstraint('region', 'period', name='uix_macau_collected_region_period'),
         db.Index('ix_macau_collected_region_period', 'region', 'period'),
         db.Index('ix_macau_collected_year_source_period', 'year', 'source_period'),
+        db.Index('ix_macau_collected_created_at', 'created_at'),
     )
