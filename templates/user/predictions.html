@@ -293,6 +293,39 @@
             {% endif %}
         {% endfor %}
     </div>
+
+    {% if predictions.pages > 1 %}
+    <nav class="pagination" aria-label="预测记录分页">
+        <div class="pagination-summary">
+            共 {{ predictions.total }} 期，第 {{ predictions.page }} / {{ predictions.pages }} 页
+        </div>
+        <div class="pagination-links">
+            {% if predictions.has_prev %}
+            <a href="{{ url_for('user.predictions', page=predictions.prev_num, region=region, period=period, zodiac=zodiac, start_date=start_date, end_date=end_date, strategy=strategy, result=result) }}">← 上一页</a>
+            {% else %}
+            <span class="pagination-disabled">← 上一页</span>
+            {% endif %}
+
+            {% for page_num in range(1, predictions.pages + 1) %}
+                {% if page_num == 1 or page_num == predictions.pages or (page_num >= predictions.page - 1 and page_num <= predictions.page + 1) %}
+                    {% if page_num == predictions.page %}
+                    <span class="pagination-current" aria-current="page">{{ page_num }}</span>
+                    {% else %}
+                    <a href="{{ url_for('user.predictions', page=page_num, region=region, period=period, zodiac=zodiac, start_date=start_date, end_date=end_date, strategy=strategy, result=result) }}">{{ page_num }}</a>
+                    {% endif %}
+                {% elif page_num == 2 or page_num == predictions.pages - 1 %}
+                <span class="pagination-ellipsis">…</span>
+                {% endif %}
+            {% endfor %}
+
+            {% if predictions.has_next %}
+            <a href="{{ url_for('user.predictions', page=predictions.next_num, region=region, period=period, zodiac=zodiac, start_date=start_date, end_date=end_date, strategy=strategy, result=result) }}">下一页 →</a>
+            {% else %}
+            <span class="pagination-disabled">下一页 →</span>
+            {% endif %}
+        </div>
+    </nav>
+    {% endif %}
     {% else %}
     <div class="empty-state">
         <div class="empty-icon">📭</div>
@@ -454,6 +487,67 @@
     display: grid;
     gap: 0.8rem;
     padding: 1rem;
+}
+
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0 1rem 1rem;
+}
+
+.pagination-summary {
+    color: #94a3b8;
+    font-size: 0.9rem;
+}
+
+.pagination-links {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.pagination-links a,
+.pagination-current,
+.pagination-disabled {
+    min-width: 2.25rem;
+    padding: 0.45rem 0.7rem;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 8px;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.pagination-links a {
+    color: #e2e8f0;
+    background: rgba(30, 41, 59, 0.82);
+    text-decoration: none;
+}
+
+.pagination-links a:hover {
+    background: rgba(79, 70, 229, 0.36);
+    border-color: rgba(129, 140, 248, 0.7);
+}
+
+.pagination-current {
+    color: #fff;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: transparent;
+}
+
+.pagination-disabled {
+    color: #64748b;
+    background: rgba(15, 23, 42, 0.42);
+    cursor: not-allowed;
+}
+
+.pagination-ellipsis {
+    color: #94a3b8;
+    padding: 0 0.2rem;
 }
 
 .prediction-card-compact {
@@ -995,6 +1089,11 @@
     .inline-search-form {
         margin-left: 0;
         width: 100%;
+    }
+
+    .pagination {
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .search-controls {
