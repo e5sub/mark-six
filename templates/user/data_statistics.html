@@ -1,7 +1,9 @@
-{% extends "index.html" %}
+{% extends "user/base.html" %}
 
-{% block home_content %}
-<div class="main-container data-statistics-container">
+{% block page_title %}数据统计{% endblock %}
+
+{% block content %}
+<div class="data-statistics-container">
     <div class="data-statistics-title-row">
         <h1 class="data-statistics-page-title">历年开奖数据统计 <span>（统计 {{ lunar_year }} 农历年已开奖的特码出现期数）</span></h1>
         <div class="special-analysis-controls">
@@ -97,12 +99,6 @@
     {% endfor %}
 </section>
 </div>
-<footer class="app-footer">
-    <span>GitHub：</span>
-    <a href="https://github.com/e5sub/mark-six" target="_blank" rel="noopener noreferrer">e5sub/mark-six</a>
-    <span>本项目源码仅限非商业用途使用。</span>
-    <a href="https://github.com/e5sub/mark-six/blob/master/LICENSE" target="_blank" rel="noopener noreferrer">许可协议</a>
-</footer>
 
 <style>
 .data-statistics-container { max-width:none; padding-top:1.5rem; }
