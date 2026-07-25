@@ -1,6 +1,7 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, Response
 from functools import wraps
 from urllib.parse import urlparse
+import requests
 from models import (
     db,
     User,
@@ -846,22 +847,95 @@ def macau_draw_import():
             flash('年份不正确，请选择有效的年份。', 'error')
             return redirect(url_for('admin.macau_draw_import_page'))
         
-        # 导入澳门开奖数据
-        from user import _collect_macau_source_data, _save_macau_collection_items
-        items, resolved_urls = _collect_macau_source_data(year)
-        items = [item for item in items if item.get('period')]
+        # 从API获取澳门开奖数据
+        MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
+        url = MACAU_API_URL_TEMPLATE.format(year=year)
         
-        if not items:
-            flash(f'未获取到 {year} 年的澳门开奖数据，请检查网络连接。', 'warning')
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        api_data = response.json()
+        
+        if not api_data or not api_data.get("data"):
+            flash(f'澳门API未返回 {year} 年的数据，请检查网络连接或稍后重试。', 'warning')
             return redirect(url_for('admin.macau_draw_import_page'))
         
-        created_count, updated_count, skipped_count = _save_macau_collection_items(year, items)
+        records = api_data.get("data", [])
+        if not records:
+            flash(f'未获取到 {year} 年的澳门开奖数据。', 'warning')
+            return redirect(url_for('admin.macau_draw_import_page'))
+        
+        # 处理并保存数据
+        created_count = 0
+        updated_count = 0
+        
+        ZODIAC_TRAD_TO_SIMP = {'鼠':'鼠','牛':'牛','虎':'虎','兔':'兔','龍':'龙','蛇':'蛇','馬':'马','羊':'羊','猴':'猴','雞':'鸡','狗':'狗','豬':'猪'}
+        
+        for record in records:
+            try:
+                draw_id = str(record.get('expect', '')).strip()
+                if not draw_id:
+                    continue
+                
+                # 提取号码
+                raw_numbers = str(record.get('openCode', '')).split(',')
+                normal_numbers = [f"{int(n):02d}" for n in raw_numbers[:6] if n and int(n) >= 1 and int(n) <= 49]
+                special_number = f"{int(raw_numbers[6]):02d}" if len(raw_numbers) > 6 and int(raw_numbers[6]) >= 1 and int(raw_numbers[6]) <= 49 else ''
+                
+                if not normal_numbers or not special_number:
+                    continue
+                
+                # 提取生肖
+                raw_zodiacs_trad = str(record.get('zodiac', '')).split(',')
+                raw_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in raw_zodiacs_trad]
+                special_zodiac = raw_zodiacs[-1] if len(raw_zodiacs) >= 7 else ''
+                
+                # 提取波色
+                raw_wave = str(record.get('wave', ''))
+                
+                # 提取日期
+                draw_date = str(record.get('openTime', '')).strip()
+                
+                # 检查是否已存在
+                existing = LotteryDraw.query.filter_by(region='macau', draw_id=draw_id).first()
+                
+                if existing:
+                    # 仅在数据缺失时更新
+                    if not existing.special_number or not existing.special_zodiac:
+                        existing.normal_numbers = ','.join(normal_numbers)
+                        existing.special_number = special_number
+                        existing.special_zodiac = special_zodiac
+                        existing.raw_zodiac = ','.join(raw_zodiacs)
+                        existing.raw_wave = raw_wave
+                        if draw_date:
+                            existing.draw_date = draw_date
+                        updated_count += 1
+                else:
+                    # 创建新记录
+                    new_draw = LotteryDraw(
+                        region='macau',
+                        draw_id=draw_id,
+                        draw_date=draw_date,
+                        normal_numbers=','.join(normal_numbers),
+                        special_number=special_number,
+                        special_zodiac=special_zodiac,
+                        raw_zodiac=','.join(raw_zodiacs),
+                        raw_wave=raw_wave,
+                    )
+                    db.session.add(new_draw)
+                    created_count += 1
+            except Exception as e:
+                print(f"处理澳门开奖记录失败: {e}")
+                continue
+        
+        db.session.commit()
+        ZodiacSetting._macau_year_match_cache.clear()
         
         flash(
-            f'澳门开奖数据 {year} 年导入完成：解析 {len(items)} 期，新增 {created_count} 期，'
-            f'更新 {updated_count} 期，未变化 {skipped_count} 期。',
+            f'澳门开奖数据 {year} 年导入完成：新增 {created_count} 期，更新 {updated_count} 期，共计 {len(records)} 期。',
             'success'
         )
+    except requests.exceptions.RequestException as e:
+        flash(f'网络请求失败: {str(e)}，请检查网络连接', 'error')
     except Exception as e:
         db.session.rollback()
         flash(f'澳门开奖数据导入失败: {str(e)}', 'error')
