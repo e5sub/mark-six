@@ -9,6 +9,14 @@
     <div class="special-analysis-panel {% if not loop.first %}is-hidden{% endif %}" data-special-panel="{{ region.key }}">
         <div class="special-analysis-summary">
             <span>🎯</span><span>已统计 <strong>{{ region.total }}</strong> 期开奖号码</span>
+            {% if region.latest_draw %}
+            <span class="latest-draw-summary">
+                最新开奖：第 <strong>{{ region.latest_draw.period }}</strong> 期
+                {% set latest_color = get_number_color(region.latest_draw.special_number) %}
+                <span class="latest-lottery-ball {{ latest_color }}">{{ region.latest_draw.special_number }}</span>
+                <span class="latest-zodiac">{{ region.latest_draw.special_zodiac or '' }}</span>
+            </span>
+            {% endif %}
             <div class="special-analysis-controls">
                 <div class="lunar-year-selector" data-lunar-year-menu>
                     <span class="lunar-year-selector-label">农历年份</span>
@@ -124,6 +132,13 @@
 .special-analysis-panel.is-hidden { display:none; }
 .special-analysis-summary { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; padding:.65rem .8rem; margin-bottom:.9rem; color:#cbd5e1; font-size:.85rem; border:1px solid rgba(129,140,248,.22); border-radius:9px; background:rgba(79,70,229,.1); }
 .special-analysis-summary strong { color:#c4b5fd; font-size:1rem; }
+.latest-draw-summary { display:inline-flex; align-items:center; gap:.45rem; padding:.28rem .55rem; border-radius:8px; color:#e2e8f0; background:rgba(255,255,255,.06); font-size:.82rem; }
+.latest-draw-summary strong { color:#a5b4fc; }
+.latest-lottery-ball { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:50%; color:#fff; font-size:.76rem; font-weight:800; box-shadow:0 2px 6px rgba(0,0,0,.28); }
+.latest-lottery-ball.red { background:linear-gradient(135deg,#ff6b6b 0%,#ee5a52 100%); }
+.latest-lottery-ball.blue { background:linear-gradient(135deg,#3498db 0%,#2980b9 100%); }
+.latest-lottery-ball.green { background:linear-gradient(135deg,#2ecc71 0%,#27ae60 100%); }
+.latest-zodiac { color:#a5b4fc; font-weight:700; }
 .special-analysis-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.8rem; }
 .numbers-group { grid-column:1 / -1; }
 .zodiac-group { grid-column:span 2; }
@@ -150,7 +165,7 @@
 .size-note { margin-top:.5rem; color:#64748b; font-size:.66rem; line-height:1.35; }
 .special-analysis-empty { padding:1.5rem 1rem; color:#94a3b8; text-align:center; }
 @media (max-width:1100px) { .special-analysis-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-group{grid-column:span 3}.special-number-grid{grid-template-columns:repeat(8,minmax(0,1fr))} }
-@media (max-width:760px) { .data-statistics-title-row{align-items:flex-start;flex-direction:column}.data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-controls{width:100%;justify-content:space-between;margin-left:0}.special-analysis-group-title{align-items:flex-start;flex-direction:column}.top-three-summary{flex-wrap:wrap;white-space:normal;gap:.35rem .55rem}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@media (max-width:760px) { .data-statistics-title-row{align-items:flex-start;flex-direction:column}.data-statistics-page-title{font-size:1.55rem}.data-statistics-page-title span{display:block;margin-top:.35rem;font-size:.82rem}.special-analysis-controls{width:100%;justify-content:flex-end;margin-left:0}.special-analysis-group-title{align-items:flex-start;flex-direction:column}.top-three-summary{flex-wrap:wrap;white-space:normal;gap:.35rem .55rem}.special-analysis-grid{grid-template-columns:1fr}.zodiac-group{grid-column:auto}.special-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.zodiac-grid{grid-template-columns:repeat(3,minmax(0,1fr))} }
 </style>
 <script>
 document.querySelectorAll('[data-special-region]').forEach(function(tab) {

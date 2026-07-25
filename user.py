@@ -137,10 +137,23 @@ def _lunar_year_special_stats(lunar_year=None):
             for name, count in zodiac_counts.items()
         ]
 
+        latest_draw = LotteryDraw.query.filter_by(region=region).order_by(
+            LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc()
+        ).first()
+        latest_draw_info = None
+        if latest_draw and latest_draw.special_number:
+            latest_draw_info = {
+                "period": latest_draw.draw_id,
+                "date": latest_draw.draw_date,
+                "special_number": latest_draw.special_number,
+                "special_zodiac": latest_draw.special_zodiac,
+            }
+
         result.append({
             "key": region,
             "label": label,
             "total": total,
+            "latest_draw": latest_draw_info,
             "numbers": number_items,
             "top_numbers": sorted(number_items, key=lambda item: (-item["count"], item["number"]))[:3],
             "zodiacs": zodiac_items,
