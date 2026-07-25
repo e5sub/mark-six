@@ -1571,6 +1571,7 @@ def data_statistics():
         lunar_year=lunar_year,
         available_lunar_years=available_lunar_years,
         special_year_stats=special_year_stats,
+        get_number_color=get_number_color,
     )
 
 
