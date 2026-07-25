@@ -821,6 +821,54 @@ def import_all_data():
         flash(f'导入全部数据失败: {str(e)}', 'error')
     return redirect(url_for('admin.data_transfer'))
 
+
+@admin_bp.route('/macau_draw_import')
+@admin_required
+def macau_draw_import_page():
+    """澳门开奖数据导入页面"""
+    from datetime import datetime, timedelta
+    current_year = datetime.now().year
+    # 可导入的年份范围
+    available_years = list(range(current_year - 10, current_year + 2))
+    
+    return render_template('admin/macau_draw_import.html', 
+                         current_year=current_year,
+                         available_years=available_years)
+
+
+@admin_bp.route('/macau_draw_import/collect', methods=['POST'])
+@admin_required
+def macau_draw_import():
+    """澳门开奖数据按年份导入"""
+    try:
+        year = request.form.get('year', type=int)
+        if not year or year < 2000 or year > 2100:
+            flash('年份不正确，请选择有效的年份。', 'error')
+            return redirect(url_for('admin.macau_draw_import_page'))
+        
+        # 导入澳门开奖数据
+        from user import _collect_macau_source_data, _save_macau_collection_items
+        items, resolved_urls = _collect_macau_source_data(year)
+        items = [item for item in items if item.get('period')]
+        
+        if not items:
+            flash(f'未获取到 {year} 年的澳门开奖数据，请检查网络连接。', 'warning')
+            return redirect(url_for('admin.macau_draw_import_page'))
+        
+        created_count, updated_count, skipped_count = _save_macau_collection_items(year, items)
+        
+        flash(
+            f'澳门开奖数据 {year} 年导入完成：解析 {len(items)} 期，新增 {created_count} 期，'
+            f'更新 {updated_count} 期，未变化 {skipped_count} 期。',
+            'success'
+        )
+    except Exception as e:
+        db.session.rollback()
+        flash(f'澳门开奖数据导入失败: {str(e)}', 'error')
+    
+    return redirect(url_for('admin.macau_draw_import_page'))
+
+
 @admin_bp.route('/users')
 @admin_required
 def users():

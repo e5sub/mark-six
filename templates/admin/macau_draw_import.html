@@ -1,0 +1,234 @@
+{% extends "admin/base.html" %}
+
+{% block page_title %}澳门开奖数据导入{% endblock %}
+
+{% block content %}
+<div class="macau-import-container">
+    <section class="panel-card">
+        <div class="panel-head">
+            <div>
+                <h2>澳门开奖数据导入</h2>
+                <p>按年份从澳门开奖数据源导入历史开奖结果。支持按特定年份选择导入。</p>
+            </div>
+        </div>
+
+        <form method="post" action="{{ url_for('admin.macau_draw_import') }}" class="import-form">
+            <label class="field-label" for="importYear">选择年份</label>
+            <select id="importYear" name="year" class="form-control" required>
+                <option value="">-- 请选择要导入的年份 --</option>
+                {% for year in available_years|reverse %}
+                <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>
+                    {{ year }} 年
+                </option>
+                {% endfor %}
+            </select>
+
+            <div class="info-box">
+                <strong>导入说明</strong>
+                <div>• 系统会从澳门开奖数据源获取该年份的所有开奖期数</div>
+                <div>• 已有的记录会检查是否需要更新（仅在数据缺失时更新）</div>
+                <div>• 新的期数会直接添加到数据库</div>
+                <div>• 导入过程可能需要 1-2 分钟，请耐心等待</div>
+            </div>
+
+            <div class="submit-row">
+                <button type="submit" class="action-btn action-import">开始导入</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel-card history-section">
+        <div class="panel-head">
+            <h2>最近导入记录</h2>
+        </div>
+        <div class="record-list">
+            <div class="record-item">
+                <span class="record-label">系统会记录每次导入的结果</span>
+                <span class="record-status">请查看顶部的提示消息</span>
+            </div>
+        </div>
+    </section>
+</div>
+
+<style>
+.macau-import-container {
+    display: grid;
+    gap: 1rem;
+}
+
+.panel-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.9) 100%);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 16px;
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.24);
+    padding: 1.2rem;
+}
+
+.panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.panel-head h2 {
+    margin: 0 0 0.4rem;
+    color: #f8fafc;
+    font-size: 1.35rem;
+    font-weight: 700;
+}
+
+.panel-head p {
+    margin: 0;
+    color: #94a3b8;
+    max-width: 720px;
+    line-height: 1.65;
+    font-size: 0.9rem;
+}
+
+.import-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.field-label {
+    color: #cbd5e1;
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+    display: block;
+}
+
+.form-control {
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 8px;
+    color: #f8fafc;
+    padding: 0.65rem 0.8rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.form-control:hover {
+    border-color: rgba(148, 163, 184, 0.42);
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: rgba(99, 102, 241, 0.6);
+    background: rgba(79, 70, 229, 0.08);
+}
+
+.info-box {
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.24);
+    border-radius: 10px;
+    padding: 1rem;
+    color: #cbd5e1;
+    font-size: 0.85rem;
+    line-height: 1.7;
+}
+
+.info-box strong {
+    color: #60a5fa;
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 700;
+}
+
+.info-box div {
+    margin: 0.35rem 0;
+    color: #a5b4fc;
+}
+
+.submit-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.action-btn {
+    padding: 0.65rem 1.25rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+
+.action-import {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28);
+}
+
+.action-import:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.36);
+}
+
+.action-import:active {
+    transform: translateY(0);
+}
+
+.history-section {
+    margin-top: 1rem;
+}
+
+.record-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.record-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: rgba(15, 23, 42, 0.3);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 8px;
+    color: #94a3b8;
+    font-size: 0.85rem;
+}
+
+.record-label {
+    font-weight: 600;
+    color: #cbd5e1;
+}
+
+.record-status {
+    color: #64748b;
+}
+
+@media (max-width: 768px) {
+    .panel-head {
+        flex-direction: column;
+    }
+
+    .macau-import-container {
+        gap: 0.75rem;
+    }
+
+    .panel-card {
+        padding: 1rem;
+    }
+
+    .action-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+</style>
+{% endblock %}
