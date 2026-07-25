@@ -8,14 +8,18 @@
     {% for region in special_year_stats %}
     <div class="special-analysis-panel {% if not loop.first %}is-hidden{% endif %}" data-special-panel="{{ region.key }}">
         <div class="special-analysis-summary">
-            <span>🎯</span><span>已统计 <strong>{{ region.total }}</strong> 期开奖号码</span>
+            <div class="summary-left">
+                <span>🎯</span><span>已统计 <strong>{{ region.total }}</strong> 期开奖号码</span>
+            </div>
             {% if region.latest_draw %}
-            <span class="latest-draw-summary">
-                最新开奖：第 <strong>{{ region.latest_draw.period }}</strong> 期
-                {% set latest_color = get_number_color(region.latest_draw.special_number) %}
-                <span class="latest-lottery-ball {{ latest_color }}">{{ region.latest_draw.special_number }}</span>
-                <span class="latest-zodiac">{{ region.latest_draw.special_zodiac or '' }}</span>
-            </span>
+            <div class="summary-center">
+                <span class="latest-draw-summary">
+                    最新开奖：第 <strong>{{ region.latest_draw.period }}</strong> 期
+                    {% set latest_color = get_number_color(region.latest_draw.special_number) %}
+                    <span class="latest-lottery-ball {{ latest_color }}">{{ region.latest_draw.special_number }}</span>
+                    <span class="latest-zodiac">{{ region.latest_draw.special_zodiac or '' }}</span>
+                </span>
+            </div>
             {% endif %}
             <div class="special-analysis-controls">
                 <div class="lunar-year-selector" data-lunar-year-menu>
@@ -109,7 +113,10 @@
 .data-statistics-title-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.2rem; }
 .data-statistics-page-title { margin:0; color:#f8fafc; font-size:2rem; font-weight:800; letter-spacing:.02em; }
 .data-statistics-page-title span { color:#94a3b8; font-size:1rem; font-weight:600; letter-spacing:0; }
-.special-analysis-controls { display:flex; align-items:center; gap:.65rem; flex:none; margin-left:auto; }
+.special-analysis-summary { display:flex; align-items:center; justify-content:space-between; gap:.65rem; flex-wrap:wrap; padding:.65rem .8rem; margin-bottom:.9rem; color:#cbd5e1; font-size:.85rem; border:1px solid rgba(129,140,248,.22); border-radius:9px; background:rgba(79,70,229,.1); }
+.summary-left { display:flex; align-items:center; gap:.45rem; flex:0 0 auto; }
+.summary-center { display:flex; align-items:center; gap:.45rem; flex:1 0 auto; justify-content:center; }
+.special-analysis-controls { display:flex; align-items:center; gap:.65rem; flex:0 0 auto; margin-left:auto; }
 .lunar-year-selector { position:relative; display:inline-flex; align-items:center; gap:.45rem; min-height:36px; padding:.28rem .38rem .28rem .65rem; color:#cbd5e1; font-size:.8rem; border:1px solid rgba(129,140,248,.45); border-radius:10px; background:linear-gradient(135deg,rgba(30,41,85,.95),rgba(15,23,42,.96)); box-shadow:inset 0 1px rgba(255,255,255,.05),0 4px 12px rgba(2,6,23,.22); }
 .lunar-year-selector-label { color:#a5b4fc; font-weight:700; white-space:nowrap; }
 .lunar-year-trigger { display:inline-flex; align-items:center; gap:.5rem; padding:.3rem .42rem; border:0; border-radius:7px; color:#f8fafc; background:rgba(255,255,255,.07); font:inherit; font-weight:800; cursor:pointer; white-space:nowrap; transition:background .18s ease,color .18s ease; }
@@ -130,7 +137,7 @@
 .special-analysis-tab.active { background:rgba(255,255,255,.96); color:#4f46a5; font-weight:700; box-shadow:0 2px 6px rgba(15,23,42,.18); }
 .special-analysis-panel { padding:1rem; }
 .special-analysis-panel.is-hidden { display:none; }
-.special-analysis-summary { display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; padding:.65rem .8rem; margin-bottom:.9rem; color:#cbd5e1; font-size:.85rem; border:1px solid rgba(129,140,248,.22); border-radius:9px; background:rgba(79,70,229,.1); }
+
 .special-analysis-summary strong { color:#c4b5fd; font-size:1rem; }
 .latest-draw-summary { display:inline-flex; align-items:center; gap:.45rem; padding:.28rem .55rem; border-radius:8px; color:#e2e8f0; background:rgba(255,255,255,.06); font-size:.82rem; }
 .latest-draw-summary strong { color:#a5b4fc; }
