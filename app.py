@@ -10120,8 +10120,13 @@ def _build_ai_shortlist_context(data, region, config=None):
     parity_pref = dict(artifacts.get("parity_pref") or {})
     color_pref = dict(artifacts.get("color_pref") or {})
 
-    ai_feedback = _build_prediction_feedback(region, "ai")
-    ml_feedback = _build_prediction_feedback(region, "ml")
+    try:
+        ai_feedback = _build_prediction_feedback(region, "ai")
+        ml_feedback = _build_prediction_feedback(region, "ml")
+    except Exception as e:
+        print(f"_build_ai_shortlist_context: prediction feedback load failed, fallback to empty feedback: {e}")
+        ai_feedback = {}
+        ml_feedback = {}
     mix_weights = dict(config.get("feedback_mix_weights") or _resolve_ai_feedback_mix_weights(region))
     feedback = _blend_prediction_feedback_items(
         (ai_feedback, _safe_float(mix_weights.get("ai"), 0.58)),
@@ -11729,32 +11734,58 @@ def _iter_ai_stream(ai_config, prompt, temperature=0.8):
         "stream": True
     }
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
-    response = requests.post(ai_config["api_url"], json=payload, headers=headers, stream=True, timeout=_ai_http_timeout())
-    response.raise_for_status()
+    last_error = None
+    for attempt in range(2):
+        try:
+            response = requests.post(
+                ai_config["api_url"],
+                json=payload,
+                headers=headers,
+                stream=True,
+                timeout=_ai_http_timeout()
+            )
+            response.raise_for_status()
+            break
+        except (requests.Timeout, requests.ConnectionError) as e:
+            last_error = e
+            if attempt == 0:
+                time.sleep(0.5)
+                continue
+            raise RuntimeError(f"AI API 网络错误，重试失败: {e}")
+        except requests.RequestException as e:
+            raise RuntimeError(f"AI API 请求失败: {e}")
+    else:
+        raise RuntimeError(f"AI API 请求失败: {last_error}")
+
     if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
         response.encoding = "utf-8"
-    for line in response.iter_lines(decode_unicode=True):
-        if not line:
-            continue
-        if line.startswith("data:"):
-            line = line[5:].strip()
-        if line == "[DONE]":
-            break
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        choices = data.get("choices") or []
-        if not choices:
-            continue
-        delta = choices[0].get("delta") or {}
-        content = delta.get("content")
-        if content is None:
-            content = choices[0].get("message", {}).get("content")
-        if content is None:
-            content = choices[0].get("text")
-        if content:
-            yield content
+
+    try:
+        with response:
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                if line.startswith("data:"):
+                    line = line[5:].strip()
+                if line == "[DONE]":
+                    break
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                choices = data.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content")
+                if content is None:
+                    content = choices[0].get("message", {}).get("content")
+                if content is None:
+                    content = choices[0].get("text")
+                if content:
+                    yield content
+    except (requests.RequestException, OSError) as e:
+        raise RuntimeError(f"AI API 流式响应读取失败: {e}")
 
 # --- Flask 路由 ---
 @app.route('/')
@@ -12151,12 +12182,20 @@ def _build_learning_draw_year_map(region):
 
 
 def _load_learning_scope_predictions(region, strategy, limit=None, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES, cutoff_period=None):
-    query = PredictionRecord.query.filter_by(
-        region=region,
-        strategy=strategy,
-        is_result_updated=True,
-    ).filter(PredictionRecord.actual_special_number != None)
-    predictions = query.order_by(PredictionRecord.created_at.desc()).all()
+    try:
+        query = PredictionRecord.query.filter_by(
+            region=region,
+            strategy=strategy,
+            is_result_updated=True,
+        ).filter(PredictionRecord.actual_special_number != None)
+        predictions = query.order_by(PredictionRecord.created_at.desc()).limit(500).all()
+    except SystemExit as e:
+        print(f"_load_learning_scope_predictions aborted due to SystemExit: {e}")
+        return []
+    except Exception as e:
+        print(f"_load_learning_scope_predictions failed: {e}")
+        return []
+
     if not predictions:
         return []
 
@@ -13636,128 +13675,146 @@ def unified_predict_api():
     if resolved_strategy == 'ai':
         if stream_response:
             def generate_stream():
-                ai_config = get_ai_config()
-                if not ai_config['api_key'] or "你的" in ai_config['api_key']:
-                    yield _sse_event({"type": "error", "error": "AI API Key 未配置"})
-                    return
-                tuned = _load_strategy_config("ai", region)
-                history_window = int(tuned.get("history_window") or 12)
-                temperature = float(tuned.get("temperature") or 0.35)
-                sample_count = _clamp(int(tuned.get("sample_count") or 3), 1, 5)
-                candidate_count = _clamp(int(tuned.get("candidate_count") or 3), 2, 5)
-                shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
-                gate_profile = dict(shortlist_context.get("gate_profile") or {})
-                prompt = _build_ai_prompt_v4(
-                    data,
-                    region,
-                    shortlist_context,
-                    history_window=history_window,
-                    candidate_count=candidate_count,
-                )
-                full_text = ""
                 try:
-                    for chunk in _iter_ai_stream(ai_config, prompt, temperature=temperature):
-                        full_text += chunk
-                        yield _sse_event({
-                            "type": "content",
-                            "content": chunk,
-                            "full_text": full_text
-                        })
-                except Exception as e:
-                    yield _sse_event({"type": "error", "error": f"调用AI API时出错: {e}"})
-                    return
-
-                yield _sse_event({
-                    "type": "status",
-                    "stage": "postprocess",
-                    "message": "模型输出完成，正在整理最终候选..."
-                })
-
-                try:
-                    result = _finalize_ai_prediction_result(
-                        data,
-                        region,
-                        full_text=full_text,
-                        ai_config=ai_config,
-                        prompt=prompt,
-                        temperature=temperature,
-                        sample_count=sample_count,
-                        candidate_count=candidate_count,
-                        shortlist_context=shortlist_context,
-                        tuned=tuned,
-                        stream_mode=True,
-                    )
-                except Exception as e:
-                    yield _sse_event({"type": "error", "error": f"AI预测处理失败: {e}"})
-                    return
-                if result.get("error"):
-                    yield _sse_event({"type": "error", "error": result.get("error")})
-                    return
-
-                yield _sse_event({
-                    "type": "status",
-                    "stage": "finalize",
-                    "message": "候选已整理完成，正在生成最终结果..."
-                })
-
-                try:
-                    if user_id and is_active:
-                        result = _ensure_period_unique_special(
-                            result,
-                            resolved_strategy,
+                    ai_config = get_ai_config()
+                    if not ai_config['api_key'] or "你的" in ai_config['api_key']:
+                        yield _sse_event({"type": "error", "error": "AI API Key 未配置"})
+                        return
+                    tuned = _load_strategy_config("ai", region)
+                    history_window = int(tuned.get("history_window") or 12)
+                    temperature = float(tuned.get("temperature") or 0.35)
+                    sample_count = _clamp(int(tuned.get("sample_count") or 3), 1, 5)
+                    candidate_count = _clamp(int(tuned.get("candidate_count") or 3), 2, 5)
+                    try:
+                        shortlist_context = _build_ai_shortlist_context(data, region, config=tuned)
+                        gate_profile = dict(shortlist_context.get("gate_profile") or {})
+                        prompt = _build_ai_prompt_v4(
+                            data,
                             region,
-                            current_period,
-                            user_id=user_id,
-                            prediction_zodiac_year=prediction_zodiac_year,
+                            shortlist_context,
+                            history_window=history_window,
+                            candidate_count=candidate_count,
                         )
-
-                    result.update({
-                        "type": "done",
-                        "region": region,
-                        "strategy": resolved_strategy,
-                        "requested_strategy": strategy,
-                        "period": current_period,
-                        "prediction_zodiac_year": prediction_zodiac_year,
-                    })
-                    result = _attach_prediction_display_copy(result, strategy, resolved_strategy)
-
-                    if user_id and is_active:
-                        try:
+                    except Exception as e:
+                        yield _sse_event({"type": "error", "error": f"AI候选上下文构建失败: {e}"})
+                        return
+                    full_text = ""
+                    try:
+                        for chunk in _iter_ai_stream(ai_config, prompt, temperature=temperature):
+                            full_text += chunk
                             yield _sse_event({
-                                "type": "status",
-                                "stage": "save",
-                                "message": "正在保存预测记录..."
+                                "type": "content",
+                                "content": chunk,
+                                "full_text": full_text
                             })
-                            prediction = PredictionRecord(
-                                user_id=user_id,
-                                region=region,
-                                strategy=resolved_strategy,
-                                period=current_period,
-                                normal_numbers=','.join(map(str, result.get('normal', []))),
-                                special_number=str(result.get('special', {}).get('number', '')),
-                                special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
-                                prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
-                                prediction_text=_decorate_recommendation_text(
-                                    strategy,
-                                    resolved_strategy,
-                                    result.get('recommendation_text', '')
-                                )
-                            )
-                            db.session.add(prediction)
-                            db.session.commit()
-                            result["saved"] = True
-                        except Exception as e:
-                            db.session.rollback()
-                            result["saved"] = False
-                            result["save_error"] = str(e)
+                    except Exception as e:
+                        yield _sse_event({"type": "error", "error": f"调用AI API时出错: {e}"})
+                        return
 
-                    yield _sse_event(result)
+                    yield _sse_event({
+                        "type": "status",
+                        "stage": "postprocess",
+                        "message": "模型输出完成，正在整理最终候选..."
+                    })
+
+                    try:
+                        result = _finalize_ai_prediction_result(
+                            data,
+                            region,
+                            full_text=full_text,
+                            ai_config=ai_config,
+                            prompt=prompt,
+                            temperature=temperature,
+                            sample_count=sample_count,
+                            candidate_count=candidate_count,
+                            shortlist_context=shortlist_context,
+                            tuned=tuned,
+                            stream_mode=True,
+                        )
+                    except Exception as e:
+                        yield _sse_event({"type": "error", "error": f"AI预测处理失败: {e}"})
+                        return
+                    if result.get("error"):
+                        yield _sse_event({"type": "error", "error": result.get("error")})
+                        return
+
+                    yield _sse_event({
+                        "type": "status",
+                        "stage": "finalize",
+                        "message": "候选已整理完成，正在生成最终结果..."
+                    })
+
+                    try:
+                        if user_id and is_active:
+                            result = _ensure_period_unique_special(
+                                result,
+                                resolved_strategy,
+                                region,
+                                current_period,
+                                user_id=user_id,
+                                prediction_zodiac_year=prediction_zodiac_year,
+                            )
+
+                        result.update({
+                            "type": "done",
+                            "region": region,
+                            "strategy": resolved_strategy,
+                            "requested_strategy": strategy,
+                            "period": current_period,
+                            "prediction_zodiac_year": prediction_zodiac_year,
+                        })
+                        result = _attach_prediction_display_copy(result, strategy, resolved_strategy)
+
+                        if user_id and is_active:
+                            try:
+                                yield _sse_event({
+                                    "type": "status",
+                                    "stage": "save",
+                                    "message": "正在保存预测记录..."
+                                })
+                                prediction = PredictionRecord(
+                                    user_id=user_id,
+                                    region=region,
+                                    strategy=resolved_strategy,
+                                    period=current_period,
+                                    normal_numbers=','.join(map(str, result.get('normal', []))),
+                                    special_number=str(result.get('special', {}).get('number', '')),
+                                    special_zodiac=result.get('special', {}).get('sno_zodiac', ''),
+                                    prediction_metadata=_serialize_prediction_metadata(result.get('model_meta')),
+                                    prediction_text=_decorate_recommendation_text(
+                                        strategy,
+                                        resolved_strategy,
+                                        result.get('recommendation_text', '')
+                                    )
+                                )
+                                db.session.add(prediction)
+                                db.session.commit()
+                                result["saved"] = True
+                            except Exception as e:
+                                db.session.rollback()
+                                result["saved"] = False
+                                result["save_error"] = str(e)
+
+                        yield _sse_event(result)
+                    except Exception as e:
+                        try:
+                            db.session.rollback()
+                        except Exception:
+                            pass
+                        yield _sse_event({"type": "error", "error": f"AI结果收尾失败: {e}"})
+                        return
+                except (GeneratorExit, BrokenPipeError, ConnectionAbortedError, ConnectionResetError, OSError) as e:
+                    print(f"SSE client disconnected during AI streaming prediction: {type(e).__name__}: {e}")
+                    return
+                except SystemExit as e:
+                    print(f"SSE stream aborted with SystemExit: {e}")
+                    return
                 except Exception as e:
                     try:
                         db.session.rollback()
                     except Exception:
                         pass
-                    yield _sse_event({"type": "error", "error": f"AI结果收尾失败: {e}"})
+                    yield _sse_event({"type": "error", "error": f"AI流式预测内部错误: {e}"})
                     return
 
             return Response(
