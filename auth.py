@@ -384,40 +384,40 @@ def send_activation_request_notification(request_record):
         if created_at else
         datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
     )
-    request_note = (getattr(request_record, 'request_note', '') or '').strip() or 'N/A'
-    subject = f'{site_name} - New activation code request'
+    request_note = (getattr(request_record, 'request_note', '') or '').strip() or '无'
+    subject = f'{site_name} - 新的激活码申请'
     text_body = (
-        f"New activation code request\n"
-        f"Request ID: {request_record.id}\n"
-        f"Username: {request_record.username}\n"
-        f"Email: {request_record.email}\n"
-        f"Status: {request_record.status}\n"
-        f"Requested At: {created_at_text}\n"
-        f"Note: {request_note}\n"
+        f"新的激活码申请\n"
+        f"申请编号: {request_record.id}\n"
+        f"用户名: {request_record.username}\n"
+        f"邮箱: {request_record.email}\n"
+        f"状态: {request_record.status}\n"
+        f"申请时间: {created_at_text}\n"
+        f"备注: {request_note}\n"
         f"{admin_url}"
     )
     html_body = f"""
     <html>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #28a745;">New activation code request received</h2>
-            <p>A user has just submitted an activation code request. Please review it soon.</p>
+            <h2 style="color: #28a745;">收到新的激活码申请</h2>
+            <p>有用户刚刚提交了激活码申请，请尽快处理。</p>
             <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-                <tr><td style="padding: 8px; border: 1px solid #eee; width: 140px;"><strong>Request ID</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.id}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Username</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.username}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Email</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.email}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Status</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.status}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Requested At</strong></td><td style="padding: 8px; border: 1px solid #eee;">{created_at_text}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>Note</strong></td><td style="padding: 8px; border: 1px solid #eee; white-space: pre-wrap;">{request_note}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee; width: 140px;"><strong>申请编号</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.id}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>用户名</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.username}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>邮箱</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.email}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>状态</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.status}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>申请时间</strong></td><td style="padding: 8px; border: 1px solid #eee;">{created_at_text}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>备注</strong></td><td style="padding: 8px; border: 1px solid #eee; white-space: pre-wrap;">{request_note}</td></tr>
             </table>
             <div style="margin: 30px 0; text-align: center;">
                 <a href="{admin_url}"
                    style="background: #28a745; color: white; text-decoration: none; padding: 12px 24px; border-radius: 6px; display: inline-block;">
-                    Open admin panel
+                    打开后台管理界面
                 </a>
             </div>
             <p style="color: #999; font-size: 12px; text-align: center;">
-                This email was sent automatically by {site_name}. Please do not reply.
+                此邮件由 {site_name} 自动发送，请勿回复。
             </p>
         </div>
     </body>
