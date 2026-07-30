@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, session, url_for
 from sqlalchemy import desc
 
 from models import ActivationCode, ActivationCodeRequest, User, db
+from notification_service import notify_user
 
 
 activation_code_bp = Blueprint('activation_code', __name__, url_prefix='/admin/activation_codes')
@@ -30,6 +31,67 @@ def _validity_label(value):
         'year': '1年',
     }
     return labels.get(value, value or '未知')
+
+
+def _send_activation_request_result_notification(user, request_record, decision, validity_type=None, code=None, admin_note=''):
+    if not user:
+        return
+
+    if decision == 'approved':
+        title = '您的激活码申请已通过'
+        content = '管理员已批准您的激活码申请，系统已为您发放激活码。'
+        detail_parts = []
+        if code:
+            detail_parts.append(f'激活码：{code}')
+        if validity_type:
+            detail_parts.append(f'有效期：{_validity_label(validity_type)}')
+        if admin_note:
+            detail_parts.append(f'管理员备注：{admin_note}')
+        if detail_parts:
+            content = f'{content}\n' + '\n'.join(detail_parts)
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #28a745;">您的激活码申请已通过</h2>
+                <p>管理员已批准您的激活码申请，系统已为您发放激活码。</p>
+                <p><strong>申请编号：</strong>{request_record.id}</p>
+                {f'<p><strong>激活码：</strong>{code}</p>' if code else ''}
+                {f'<p><strong>有效期：</strong>{_validity_label(validity_type)}</p>' if validity_type else ''}
+                {f'<p><strong>管理员备注：</strong>{admin_note}</p>' if admin_note else ''}
+                <p>您可以前往系统查看相关通知。</p>
+            </div>
+        </body>
+        </html>
+        """
+    else:
+        title = '您的激活码申请已被拒绝'
+        content = '管理员已拒绝您的激活码申请。'
+        if admin_note:
+            content = f'{content}\n管理员备注：{admin_note}'
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #dc3545;">您的激活码申请已被拒绝</h2>
+                <p>管理员已拒绝您的激活码申请。</p>
+                <p><strong>申请编号：</strong>{request_record.id}</p>
+                {f'<p><strong>管理员备注：</strong>{admin_note}</p>' if admin_note else ''}
+                <p>如有疑问，可以联系管理员进一步说明。</p>
+            </div>
+        </body>
+        </html>
+        """
+
+    notify_user(
+        user,
+        title,
+        content,
+        html_content=html_content,
+        event_type='activation_request_result',
+        link_url=url_for('user.notifications', _external=True),
+        email_subject=title,
+    )
 
 
 @activation_code_bp.route('/generate', methods=['POST'])
@@ -182,6 +244,14 @@ def issue_activation_code_request(request_id):
         request_record.status = 'used'
 
         db.session.commit()
+        _send_activation_request_result_notification(
+            user,
+            request_record,
+            'approved',
+            validity_type=validity_type,
+            code=code.code,
+            admin_note=admin_note,
+        )
         return jsonify({
             'success': True,
             'message': '激活码发放成功，用户已自动激活',
@@ -208,6 +278,12 @@ def reject_activation_code_request(request_id):
         request_record.admin_note = admin_note
         request_record.processed_at = datetime.now()
         db.session.commit()
+        _send_activation_request_result_notification(
+            user,
+            request_record,
+            'rejected',
+            admin_note=admin_note,
+        )
         return jsonify({'success': True, 'message': '申请已驳回'})
     except Exception as e:
         db.session.rollback()
