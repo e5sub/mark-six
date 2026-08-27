@@ -47,6 +47,13 @@ def _env_float(name, default):
         return float(default)
 
 
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
 _ML_PREDICTION_CACHE_TTL_SECONDS = 900
 _ML_PREDICTION_CACHE_MAX_ITEMS = 24
 _AI_PREDICTION_CACHE_TTL_SECONDS = 300
@@ -71,6 +78,11 @@ _SYSTEM_LOG_RETENTION_DAYS = 30
 _SYSTEM_LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 _SYSTEM_LOG_PREFIX_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s?(.*)$")
 _SYSTEM_LOG_INLINE_TIME_RE = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
+# Tee 默认开启（保持向后兼容）；设 ENABLE_SYSTEM_LOG_TEE=0 可彻底关闭落盘，消除日志磁盘 I/O。
+_SYSTEM_LOG_TEE_ENABLED = os.environ.get("ENABLE_SYSTEM_LOG_TEE", "1").lower() in ("1", "true", "yes", "on")
+# 同一天内按大小滚动，避免 system.log 无限增长。
+_SYSTEM_LOG_MAX_BYTES = _env_int("SYSTEM_LOG_MAX_BYTES", 10 * 1024 * 1024)
+_SYSTEM_LOG_BACKUP_COUNT = max(1, _env_int("SYSTEM_LOG_BACKUP_COUNT", 5))
 _system_log_stream_lock = threading.Lock()
 _system_log_tee_installed = False
 
@@ -129,24 +141,30 @@ class _SystemLogFileManager:
         self._file_path = file_path
         self._handle = None
         self._current_date = None
+        self._written_bytes = 0
 
-    def _rotate_if_needed(self):
-        today = datetime.now().date()
+    def _open(self):
+        # 用默认缓冲（约 8KB）而非行缓冲(buffering=1)，大幅减少每次写盘的系统调用。
+        self._handle = open(self._file_path, "a", encoding="utf-8", buffering=-1, errors="replace")
+        self._current_date = datetime.now().date()
+        try:
+            self._written_bytes = os.fstat(self._handle.fileno()).st_size
+        except OSError:
+            self._written_bytes = 0
+        _cleanup_old_system_log_archives()
+
+    def _close_quietly(self):
         if self._handle is None:
-            self._handle = open(self._file_path, "a", encoding="utf-8", buffering=1, errors="replace")
-            self._current_date = today
-            _cleanup_old_system_log_archives()
             return
-
-        if self._current_date == today:
-            return
-
         try:
             self._handle.flush()
             self._handle.close()
         except Exception:
             pass
+        self._handle = None
 
+    def _rotate_by_date(self, today):
+        self._close_quietly()
         if os.path.exists(self._file_path):
             archive_path = _system_log_archive_path(self._current_date or today)
             try:
@@ -158,29 +176,65 @@ class _SystemLogFileManager:
                 os.replace(self._file_path, archive_path)
             except OSError:
                 pass
+        self._open()
 
-        self._handle = open(self._file_path, "a", encoding="utf-8", buffering=1, errors="replace")
-        self._current_date = today
-        _cleanup_old_system_log_archives()
+    def _rotate_by_size(self):
+        # system.log.N -> system.log.N+1（最老的丢弃），system.log -> system.log.1
+        for index in range(_SYSTEM_LOG_BACKUP_COUNT, 0, -1):
+            candidate = f"{self._file_path}.{index}"
+            if index == _SYSTEM_LOG_BACKUP_COUNT:
+                if os.path.exists(candidate):
+                    try:
+                        os.remove(candidate)
+                    except OSError:
+                        pass
+                continue
+            if os.path.exists(candidate):
+                try:
+                    os.replace(candidate, f"{self._file_path}.{index + 1}")
+                except OSError:
+                    pass
+        if os.path.exists(self._file_path):
+            try:
+                os.replace(self._file_path, f"{self._file_path}.1")
+            except OSError:
+                pass
+
+    def _rotate_if_needed(self):
+        today = datetime.now().date()
+        if self._handle is None:
+            self._open()
+            return
+        if self._current_date != today:
+            self._rotate_by_date(today)
+            return
+        if self._written_bytes >= _SYSTEM_LOG_MAX_BYTES:
+            self._close_quietly()
+            self._rotate_by_size()
+            self._open()
 
     def write(self, text):
         self._rotate_if_needed()
         self._handle.write(text)
+        self._written_bytes += len(text)
 
     def flush(self):
         if self._handle is None:
-            self._rotate_if_needed()
+            self._open()
         self._handle.flush()
 
     def truncate(self):
-        if self._handle is not None:
-            try:
-                self._handle.flush()
-                self._handle.close()
-            except Exception:
-                pass
-        self._handle = open(self._file_path, "w", encoding="utf-8", buffering=1, errors="replace")
+        self._close_quietly()
+        for index in range(1, _SYSTEM_LOG_BACKUP_COUNT + 1):
+            backup = f"{self._file_path}.{index}"
+            if os.path.exists(backup):
+                try:
+                    os.remove(backup)
+                except OSError:
+                    pass
+        self._handle = open(self._file_path, "w", encoding="utf-8", buffering=-1, errors="replace")
         self._current_date = datetime.now().date()
+        self._written_bytes = 0
         _cleanup_old_system_log_archives()
 
 
@@ -203,6 +257,8 @@ class _TeeStream:
         text = "" if data is None else str(data)
         if not text:
             return 0
+        # 不再每次写入都 flush：交给文件缓冲 + 操作系统按页刷盘，
+        # 把"每行一次同步磁盘写"降为"缓冲满才写"，大幅降低日志磁盘 I/O。
         with _system_log_stream_lock:
             try:
                 self._original.write(text)
@@ -210,10 +266,6 @@ class _TeeStream:
                 pass
             try:
                 self._file_manager.write(self._with_timestamps(text))
-            except Exception:
-                pass
-            try:
-                self._file_manager.flush()
             except Exception:
                 pass
         return len(text)
@@ -243,14 +295,46 @@ def _install_system_log_tee():
     global _system_log_tee_installed
     if _system_log_tee_installed:
         return
+    if not _SYSTEM_LOG_TEE_ENABLED:
+        # 彻底关闭落盘，所有 print 只走原始 stdout/stderr，零日志磁盘 I/O。
+        _system_log_tee_installed = False
+        return
     try:
         os.makedirs(os.path.dirname(_SYSTEM_LOG_FILE_PATH), exist_ok=True)
         log_manager = _SystemLogFileManager(_SYSTEM_LOG_FILE_PATH)
         sys.stdout = _TeeStream(sys.stdout, log_manager)
         sys.stderr = _TeeStream(sys.stderr, log_manager)
         _system_log_tee_installed = True
+        _start_system_log_flush_thread(log_manager)
     except Exception:
         _system_log_tee_installed = False
+
+
+_system_log_flush_thread = None
+_SYSTEM_LOG_FLUSH_INTERVAL_SECONDS = max(1, _env_int("SYSTEM_LOG_FLUSH_INTERVAL_SECONDS", 5))
+
+
+def _start_system_log_flush_thread(log_manager):
+    """后台定时 flush，保证缓冲日志定期落盘（替代原先每次写都 flush）。"""
+    global _system_log_flush_thread
+    if _system_log_flush_thread is not None:
+        return
+
+    def _flush_loop():
+        while True:
+            try:
+                with _system_log_stream_lock:
+                    log_manager.flush()
+            except Exception:
+                pass
+            time.sleep(_SYSTEM_LOG_FLUSH_INTERVAL_SECONDS)
+
+    _system_log_flush_thread = threading.Thread(
+        target=_flush_loop,
+        name="system-log-flush",
+        daemon=True,
+    )
+    _system_log_flush_thread.start()
 
 
 def get_system_log_file_path():
@@ -294,14 +378,30 @@ def get_system_logs(limit=200):
 
     try:
         tail_lines = []
-        for log_file in log_files:
-            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    tail_lines.append(line.rstrip("\r\n"))
-                    if len(tail_lines) > normalized_limit:
-                        tail_lines.pop(0)
+        # 文件按时间正序排列（最旧在前）。我们从最新文件开始反向读取，
+        # 只要累计够 limit 行就停止，避免把超大日志文件整文件扫进内存。
+        for log_file in reversed(log_files):
+            try:
+                file_size = os.path.getsize(log_file)
+            except OSError:
+                continue
+            if file_size == 0:
+                continue
+            # 只读最后 256KB（足够覆盖几百到上千行日志），避免全文件扫描。
+            read_bytes = min(file_size, 256 * 1024)
+            with open(log_file, "rb") as raw:
+                raw.seek(-read_bytes, os.SEEK_END)
+                chunk = raw.read()
+            for line in reversed(chunk.decode("utf-8", errors="replace").splitlines()):
+                if not line.strip():
+                    continue
+                tail_lines.append(line)
+                if len(tail_lines) >= normalized_limit:
+                    break
+            if len(tail_lines) >= normalized_limit:
+                break
         logs = []
-        for line in reversed(tail_lines):
+        for line in tail_lines:
             log_time, log_line = _split_system_log_timestamp(line)
             logs.append({
                 "time": log_time,
@@ -319,6 +419,16 @@ def clear_system_logs():
                 os.remove(log_file)
             except OSError:
                 pass
+        # 清理由按大小滚动产生的 system.log.1 .. system.log.N 备份。
+        base_dir = os.path.dirname(_SYSTEM_LOG_FILE_PATH)
+        base_name = os.path.basename(_SYSTEM_LOG_FILE_PATH)
+        for index in range(1, _SYSTEM_LOG_BACKUP_COUNT + 1):
+            backup = os.path.join(base_dir, f"{base_name}.{index}")
+            if os.path.exists(backup):
+                try:
+                    os.remove(backup)
+                except OSError:
+                    pass
         if hasattr(sys.stdout, "_file_manager"):
             sys.stdout._file_manager.truncate()
         elif hasattr(sys.stderr, "_file_manager"):
@@ -551,6 +661,10 @@ if _trust_proxy_headers:
 
 _SECURITY_RATE_LIMITS = {}
 _SECURITY_RATE_LIMITS_LOCK = threading.Lock()
+# 限频字典清理：每隔这么多秒清一次空桶，避免 key 单调增长导致内存泄漏。
+_SECURITY_RATE_LIMITS_SWEEP_INTERVAL_SECONDS = _env_int("RATE_LIMIT_SWEEP_INTERVAL_SECONDS", 300)
+_SECURITY_RATE_LIMITS_MAX_WINDOW_SECONDS = 3600
+_security_rate_limits_last_sweep = 0.0
 
 
 def _client_rate_key(scope):
@@ -560,10 +674,29 @@ def _client_rate_key(scope):
     return f"{scope}:user:{user_id}" if user_id else f"{scope}:ip:{remote_addr}"
 
 
+def _sweep_security_rate_limits(now):
+    """丢弃所有已过期/为空的限频桶，防止字典随分散的客户端 IP 单调膨胀。"""
+    global _security_rate_limits_last_sweep
+    if now - _security_rate_limits_last_sweep < _SECURITY_RATE_LIMITS_SWEEP_INTERVAL_SECONDS:
+        return
+    _security_rate_limits_last_sweep = now
+    cutoff = now - _SECURITY_RATE_LIMITS_MAX_WINDOW_SECONDS
+    stale_keys = []
+    for key, timestamps in _SECURITY_RATE_LIMITS.items():
+        fresh = [ts for ts in timestamps if ts >= cutoff]
+        if fresh:
+            _SECURITY_RATE_LIMITS[key] = fresh
+        else:
+            stale_keys.append(key)
+    for key in stale_keys:
+        _SECURITY_RATE_LIMITS.pop(key, None)
+
+
 def _rate_limited(scope, limit, window_seconds):
     now = time.time()
     key = _client_rate_key(scope)
     with _SECURITY_RATE_LIMITS_LOCK:
+        _sweep_security_rate_limits(now)
         bucket = [
             timestamp
             for timestamp in _SECURITY_RATE_LIMITS.get(key, [])
@@ -2194,6 +2327,10 @@ if _should_log_startup():
     print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
 # 香港数据API
 HK_DATA_SOURCE_URL = "https://api3.marksix6.net/lottery_api.php?type=hk"
+# 进程内短缓存：避免 load_hk_data 每次调用都打远程接口（force_refresh 仍可绕过）。
+_HK_DATA_CACHE_TTL_SECONDS = _env_int("HK_DATA_CACHE_TTL_SECONDS", 60)
+_hk_data_cache_lock = threading.Lock()
+_hk_data_cache = {"data": None, "fetched_at": 0.0}
 HK_NEXT_DRAW_TIME_URL = "https://api3.marksix6.net/"
 
 # --- 号码属性计算与映射 ---
@@ -2871,6 +3008,13 @@ def settle_pending_manual_bets(region, draw_id):
 # --- 数据加载与处理 ---
 def load_hk_data(force_refresh=False):
     """从新接口获取香港开奖数据"""
+    # 进程内短缓存：未强制刷新且缓存未过期时直接返回，避免每次调用都打远程接口。
+    now_ts = time.time()
+    if not force_refresh:
+        with _hk_data_cache_lock:
+            cached = _hk_data_cache.get("data")
+            if cached is not None and now_ts - float(_hk_data_cache.get("fetched_at") or 0.0) < _HK_DATA_CACHE_TTL_SECONDS:
+                return copy.deepcopy(cached)
     try:
         print(f"正在获取香港数据，URL: {HK_DATA_SOURCE_URL}")
         params = {"_": int(time.time())} if force_refresh else None
@@ -2932,10 +3076,16 @@ def load_hk_data(force_refresh=False):
         
         # 按日期和期号排序（降序）
         result = sorted(unique_data, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
-        
+
         if len(result) > 0:
             print(f"最新一期数据: {result[0]}")
-        
+
+        # 成功拿到数据后写入短缓存。
+        if result:
+            with _hk_data_cache_lock:
+                _hk_data_cache["data"] = copy.deepcopy(result)
+                _hk_data_cache["fetched_at"] = time.time()
+
         return result
         
     except Exception as e:
@@ -11990,9 +12140,10 @@ def _get_prediction_data(region, year):
 
         # 预测阶段只主动补拉目标年份的数据；下一公历年的数据仅使用库内已有记录，
         # 避免在年中请求尚未产生开奖的下一年接口。
+        # 这里用 per-(region, year) 锁 + 冷却时间防止并发冷请求一起打远程接口（stampede）。
         if index == 0:
             try:
-                remote_records = sync_draws_from_api(region, candidate_year, force=True)
+                remote_records = _guarded_sync_for_prediction(region, candidate_year)
                 if remote_records:
                     draw_groups.append(remote_records)
             except Exception as e:
@@ -12001,6 +12152,31 @@ def _get_prediction_data(region, year):
     merged = _merge_draw_history_desc(*draw_groups)
     filtered = _filter_draws_by_zodiac_year(merged, target_zodiac_year)
     return filtered, target_zodiac_year
+
+
+_PREDICTION_SYNC_GUARD_LOCK = threading.Lock()
+_prediction_sync_guard_state = {}  # key: (region, year) -> {"running": bool, "started_at": float}
+_PREDICTION_SYNC_GUARD_COOLDOWN_SECONDS = _env_int("PREDICTION_SYNC_COOLDOWN_SECONDS", 30)
+
+
+def _guarded_sync_for_prediction(region, year):
+    """对预测阶段的强制同步加并发护栏：同一 (region, year) 冷却时间内只允许一次真正远程拉取。"""
+    key = (str(region or "").lower(), str(year))
+    now_ts = time.time()
+    with _PREDICTION_SYNC_GUARD_LOCK:
+        state = _prediction_sync_guard_state.get(key)
+        if state:
+            if state.get("running"):
+                return []  # 已有并发请求在拉，避免重复打远程
+            if now_ts - float(state.get("started_at") or 0.0) < _PREDICTION_SYNC_GUARD_COOLDOWN_SECONDS:
+                return []  # 冷却内不再重复拉
+        _prediction_sync_guard_state[key] = {"running": True, "started_at": now_ts}
+
+    try:
+        return sync_draws_from_api(region, year, force=True)
+    finally:
+        with _PREDICTION_SYNC_GUARD_LOCK:
+            _prediction_sync_guard_state[key] = {"running": False, "started_at": time.time()}
 
 
 def _latest_draw_cache_marker(region):

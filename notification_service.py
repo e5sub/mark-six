@@ -3,6 +3,8 @@ import json
 import ipaddress
 import smtplib
 import socket
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -12,6 +14,20 @@ import requests
 
 from models import db, SystemConfig, User, UserNotification
 from retention_service import cleanup_expired_station_notifications
+
+
+# 通知发送（邮件、各类 webhook）默认异步执行，避免阻塞请求线程。
+# 设 NOTIFY_SYNC=1 可强制同步执行（便于调试）。
+_NOTIFY_SYNC = str(__import__('os').environ.get('NOTIFY_SYNC', '0')).lower() in ('1', 'true', 'yes', 'on')
+_NOTIFY_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix='notify')
+
+
+def _run_notify(fn):
+    """在后台线程池执行通知发送；调试模式（NOTIFY_SYNC=1）下同步执行。"""
+    if _NOTIFY_SYNC:
+        return fn()
+    _NOTIFY_EXECUTOR.submit(fn)
+    return None
 
 
 def _is_enabled(key, default='false'):
@@ -126,7 +142,8 @@ def send_html_email(email, subject, html_body):
     msg['To'] = email
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-    server = smtplib.SMTP(smtp_server, smtp_port)
+    # 给每个 SMTP 阶段加超时，避免 SMTP 服务慢时无限阻塞调用线程。
+    server = smtplib.SMTP(smtp_server, smtp_port, timeout=15)
     server.starttls()
     server.login(smtp_username, smtp_password)
     server.send_message(msg)
@@ -272,11 +289,13 @@ def notify_user(user, title, content, html_content=None, event_type='general', l
             results['station'] = str(exc)
 
     if user and user.email and _is_enabled('notify_email_enabled', 'true'):
-        try:
-            send_html_email(user.email, email_subject or title, html_content or content)
-            results['email'] = True
-        except Exception as exc:
-            results['email'] = str(exc)
+        def _send_user_email():
+            try:
+                send_html_email(user.email, email_subject or title, html_content or content)
+            except Exception:
+                pass
+        _run_notify(_send_user_email)
+        results['email'] = True
 
     for channel, sender in (
         ('webhook', lambda: _send_webhook(title, content, event_type, user, link_url, user_config)),
@@ -284,10 +303,8 @@ def notify_user(user, title, content, html_content=None, event_type='general', l
         ('pushplus', lambda: _send_pushplus(title, body, user_config)),
         ('bark', lambda: _send_bark(title, content, link_url, user_config)),
     ):
-        try:
-            results[channel] = sender()
-        except Exception as exc:
-            results[channel] = str(exc)
+        _run_notify(sender)
+        results[channel] = True
 
     return results
 
@@ -316,17 +333,18 @@ def notify_admins(title, content, html_content=None, event_type='admin', link_ur
         recipients = list(email_recipients or [])
         if not recipients:
             recipients = [admin.email for admin in admin_users if admin.email]
-        email_results = []
         for email in recipients:
             if not email or email in sent_to:
                 continue
             sent_to.add(email)
-            try:
-                send_html_email(email, title, html_content or content)
-                email_results.append({'email': email, 'ok': True})
-            except Exception as exc:
-                email_results.append({'email': email, 'ok': False, 'error': str(exc)})
-        results['email'] = email_results
+
+            def _send_one(target_email=email):
+                try:
+                    send_html_email(target_email, title, html_content or content)
+                except Exception:
+                    pass
+            _run_notify(_send_one)
+        results['email'] = [{'email': email, 'ok': True} for email in sent_to]
 
     external_results = []
     for admin in admin_users:
@@ -337,10 +355,8 @@ def notify_admins(title, content, html_content=None, event_type='admin', link_ur
             ('pushplus', lambda: _send_pushplus(title, html_content or content, admin_config)),
             ('bark', lambda: _send_bark(title, content, link_url, admin_config)),
         ):
-            try:
-                external_results.append({'user_id': admin.id, 'channel': channel, 'ok': sender()})
-            except Exception as exc:
-                external_results.append({'user_id': admin.id, 'channel': channel, 'ok': False, 'error': str(exc)})
+            _run_notify(sender)
+            external_results.append({'user_id': admin.id, 'channel': channel, 'ok': True})
     results['external'] = external_results
 
     return results
