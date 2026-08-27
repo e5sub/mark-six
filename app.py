@@ -13966,19 +13966,9 @@ def _run_draw_postprocess_for_region(region, current_year, source="manual-postpr
             update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
             tuning_elapsed = round(time.time() - tuning_started_at, 2)
             _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
-            _log_draw_update("开始刷新回测快照", source=source, region=region)
-            backtest_started_at = time.time()
-            refresh_auto_backtest_snapshot(
-                region,
-                draws=prediction_data,
-                force=True,
-                strategies=POSTPROCESS_BACKTEST_STRATEGIES,
-                limit=POSTPROCESS_BACKTEST_LIMIT,
-            )
-            backtest_elapsed = round(time.time() - backtest_started_at, 2)
-            _log_draw_update(f"回测快照已完成 elapsed={backtest_elapsed}s", source=source, region=region)
+            _log_draw_update("开奖更新后处理完成（回测已改为定时任务，不再在此触发）", source=source, region=region)
         except Exception as e:
-            _log_draw_update(f"自动预测/回测失败 error={e}", source=source, region=region)
+            _log_draw_update(f"自动预测失败 error={e}", source=source, region=region)
             import traceback
             traceback.print_exc()
 
@@ -14623,7 +14613,7 @@ def update_lottery_data():
             postprocess_started = _start_draw_postprocess_async(updated_region_keys, current_year, source="scheduler-postprocess")
 
             _log_draw_update(
-                f"定时开奖更新任务完成 {'，'.join(updated_regions)}" + ("；自动预测和回测快照已转入后台继续处理" if postprocess_started else ""),
+                f"定时开奖更新任务完成 {'，'.join(updated_regions)}" + ("；自动预测已转入后台继续处理（回测已改为定时任务）" if postprocess_started else ""),
                 source="scheduler",
                 region="all",
             )
@@ -14675,6 +14665,46 @@ def cleanup_expired_data_job():
         except Exception as e:
             db.session.rollback()
             print(f"数据保留清理失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+def run_scheduled_backtest_job(regions=None, source="scheduler-backtest"):
+    """定时回测任务：每天 0 点和 12 点刷新各分区的回测快照。
+
+    与开奖数据更新解耦，避免首页更新开奖数据时触发回测。
+    """
+    target_regions = tuple(regions or ("hk", "macau"))
+    _log_draw_update("开始执行定时回测任务", source=source, region="all")
+    with app.app_context():
+        try:
+            current_year = str(datetime.now().year)
+            for region in target_regions:
+                if region not in ("hk", "macau"):
+                    continue
+                try:
+                    draws = _load_backtest_draws_from_db(region, limit=POSTPROCESS_BACKTEST_LIMIT)
+                    if not draws:
+                        _log_draw_update("无可用于回测的数据，跳过", source=source, region=region)
+                        continue
+                    backtest_started_at = time.time()
+                    refresh_auto_backtest_snapshot(
+                        region,
+                        draws=draws,
+                        force=True,
+                        strategies=POSTPROCESS_BACKTEST_STRATEGIES,
+                        limit=POSTPROCESS_BACKTEST_LIMIT,
+                    )
+                    backtest_elapsed = round(time.time() - backtest_started_at, 2)
+                    _log_draw_update(f"定时回测快照已完成 elapsed={backtest_elapsed}s", source=source, region=region)
+                except Exception as region_error:
+                    db.session.rollback()
+                    _log_draw_update(f"定时回测失败 error={region_error}", source=source, region=region)
+                    import traceback
+                    traceback.print_exc()
+            _log_draw_update("定时回测任务完成", source=source, region="all")
+        except Exception as e:
+            _log_draw_update(f"定时回测任务失败 error={e}", source=source, region="all")
             import traceback
             traceback.print_exc()
 
@@ -14769,6 +14799,16 @@ def start_scheduler(force=False):
         coalesce=True
     )
     _scheduler.add_job(
+        run_scheduled_backtest_job,
+        'cron',
+        hour=0,
+        minute=0,
+        kwargs={"regions": ("hk", "macau"), "source": "scheduler-backtest"},
+        id='scheduled_backtest_00',
+        misfire_grace_time=600,
+        coalesce=True
+    )
+    _scheduler.add_job(
         cleanup_expired_data_job,
         'cron',
         hour=3,
@@ -14779,7 +14819,7 @@ def start_scheduler(force=False):
     )
     _scheduler.start()
     if _should_log_startup():
-        print("定时任务已启动：每天20:00自动采集澳门号码生肖；21:40自动更新数据库中的开奖记录")
+        print("定时任务已启动：每天20:00自动采集澳门号码生肖；21:40自动更新数据库中的开奖记录；每天0:00刷新回测快照")
     return _scheduler
 
 if os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on"):
