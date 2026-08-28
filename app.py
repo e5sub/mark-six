@@ -649,15 +649,28 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
 app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# 默认开启 Secure 标志，仅在显式 opt-out（SESSION_COOKIE_SECURE=0/false/no 或
+# 开发环境 SESSION_COOKIE_ALLOW_HTTP=1）时关闭，避免生产部署漏配导致 Cookie 走明文 HTTP。
 _session_cookie_secure = os.environ.get("SESSION_COOKIE_SECURE")
-app.config["SESSION_COOKIE_SECURE"] = (
-    _session_cookie_secure.lower() in ("1", "true", "yes")
-    if _session_cookie_secure is not None
-    else os.environ.get("FLASK_ENV", "").lower() == "production"
-)
+_session_cookie_allow_http = os.environ.get("SESSION_COOKIE_ALLOW_HTTP", "").lower() in ("1", "true", "yes")
+if _session_cookie_secure is not None:
+    app.config["SESSION_COOKIE_SECURE"] = _session_cookie_secure.lower() not in ("0", "false", "no")
+else:
+    app.config["SESSION_COOKIE_SECURE"] = not _session_cookie_allow_http
 _trust_proxy_headers = os.environ.get("TRUST_PROXY_HEADERS", "").lower() in ("1", "true", "yes")
 if _trust_proxy_headers:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
+
+@app.after_request
+def _enforce_transport_security(response):
+    """在 HTTPS 请求上回写 HSTS 头，强化传输层安全；不会在 HTTP 明文响应上设置以免锁死。"""
+    if request.is_secure:
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+    return response
 
 _SECURITY_RATE_LIMITS = {}
 _SECURITY_RATE_LIMITS_LOCK = threading.Lock()
@@ -14036,7 +14049,7 @@ def unified_predict_api():
         except Exception as e:
             print(f"Prediction failed for region={region}, strategy={resolved_strategy}, year={year}: {e}")
             return jsonify({
-                "error": f"预测失败：{str(e)}",
+                "error": "预测失败，请稍后再试。",
                 "error_type": "prediction_failed",
             }), 500
     
@@ -14108,9 +14121,8 @@ def unified_predict_api():
             db.session.rollback()
             print(f"保存预测记录失败: {e}")
             return jsonify({
-                "error": str(e),
+                "error": "保存预测记录失败，请稍后再试。",
                 "error_type": "database_error",
-                "message": "保存预测记录失败，请稍后再试。"
             }), 500
     
     result["strategy"] = resolved_strategy

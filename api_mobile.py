@@ -418,10 +418,13 @@ def _start_user_session(user):
     user.login_count = (user.login_count or 0) + 1
     db.session.commit()
 
+    # 清空旧会话再写入新身份，防御会话固定攻击
+    session.clear()
     session["user_id"] = user.id
     session["username"] = user.username
     session["is_admin"] = user.is_admin
     session["is_active"] = user.is_active
+    session["session_version"] = getattr(user, "session_version", 0) or 0
     session.permanent = True
 
 
@@ -538,7 +541,16 @@ def _get_current_user():
     user_id = session.get("user_id")
     if not user_id:
         return None
-    return User.query.get(user_id)
+    user = User.query.get(user_id)
+    if not user:
+        return None
+    # 会话版本校验：改密/重置密码后旧会话立即失效
+    session_version = session.get("session_version")
+    user_version = getattr(user, "session_version", 0) or 0
+    if session_version is not None and session_version != user_version:
+        session.clear()
+        return None
+    return user
 
 
 def _require_user():
@@ -738,7 +750,11 @@ def api_change_password():
         return _json_error("password must be at least 6 characters")
 
     user.set_password(new_password)
+    # 递增 session_version，让改密前签发的所有会话失效（含其他设备）
+    user.session_version = (getattr(user, "session_version", 0) or 0) + 1
     db.session.commit()
+    # 同步当前会话的版本号，避免改密者自己被立即登出
+    session["session_version"] = user.session_version
 
     return jsonify({"success": True, "message": "password updated"})
 

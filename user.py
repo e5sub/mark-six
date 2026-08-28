@@ -1060,6 +1060,13 @@ def _get_session_user(clear_invalid=True):
 
     user = User.query.get(user_id)
     if user:
+        # 会话版本校验：改密/被管理员重置密码后，旧会话的 session_version 会落后于用户记录，
+        # 视为过期会话，立即清除以强制重新登录。
+        session_version = session.get('session_version')
+        user_version = getattr(user, 'session_version', 0) or 0
+        if session_version is not None and session_version != user_version:
+            session.clear()
+            return None
         return user
 
     if clear_invalid:
@@ -1094,13 +1101,12 @@ def _macau_collection_full_period(year, source_period):
 
 
 def _fetch_macau_collection_html(url):
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     session_obj = requests.Session()
     session_obj.trust_env = False
     response = session_obj.get(
         url,
         timeout=20,
-        verify=False,
+        verify=True,
         headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         },
@@ -3364,14 +3370,17 @@ def change_password():
             flash('新密码长度至少 6 位', 'error')
             return redirect(url_for('user.dashboard'))
         
-        # 更新密码
+        # 更新密码并递增 session_version，使改密前签发的其他会话失效
         user.set_password(new_password)
+        user.session_version = (getattr(user, 'session_version', 0) or 0) + 1
         db.session.commit()
+        session['session_version'] = user.session_version
         flash('密码修改成功', 'success')
-        
+
     except Exception as e:
         db.session.rollback()
-        flash(f'密码修改失败：{str(e)}', 'error')
+        print(f"[user] change_password failed: {e}")
+        flash('密码修改失败，请稍后重试', 'error')
     
     return redirect(url_for('user.dashboard'))
 

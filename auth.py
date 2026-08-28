@@ -98,10 +98,13 @@ def _login_user_session(user):
     user.login_count = (user.login_count or 0) + 1
     db.session.commit()
 
+    # 先清空旧 session 再写入新身份，防御会话固定攻击（session fixation）。
+    session.clear()
     session['user_id'] = user.id
     session['username'] = user.username
     session['is_admin'] = user.is_admin
     session['is_active'] = user.is_active
+    session['session_version'] = getattr(user, 'session_version', 0) or 0
     session.permanent = True
 
 
@@ -186,7 +189,11 @@ def _resolve_github_login_user(profile, email):
 
     user = User.query.filter_by(github_id=github_id).first() if github_id else None
     if not user:
+        # 仅按邮箱匹配"已绑定过 GitHub"的账号；未绑定 GitHub 的本地账号不能被
+        # 一个受控 GitHub（可任意添加邮箱）接管。否则攻击者用受害者邮箱即可登录。
         user = User.query.filter_by(email=email).first()
+        if user and not user.github_id:
+            raise ValueError('该 GitHub 邮箱对应的账号尚未绑定 GitHub，请先用账号密码登录后在设置中绑定')
     if not user:
         if not _is_config_enabled('allow_registration', 'true'):
             raise ValueError('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册')
@@ -259,8 +266,12 @@ def _handle_mobile_github_callback(config, state_payload):
         if not email:
             raise ValueError('GitHub 账号没有可用的已验证邮箱')
         user = _resolve_github_login_user(profile, email)
+    except ValueError as e:
+        # 业务校验错误（如邮箱未绑定 GitHub）需要展示给用户，但不可泄露堆栈
+        return _github_mobile_html('登录失败', str(e)), 400
     except Exception as e:
-        return _github_mobile_html('登录失败', f'GitHub 登录失败：{e}'), 400
+        print(f"[auth] mobile github callback failed: {e}")
+        return _github_mobile_html('登录失败', 'GitHub 登录失败，请稍后重试'), 400
 
     login_token = secrets.token_urlsafe(32)
     _store_config_json(
@@ -283,10 +294,14 @@ def _email_verification_token_key(user_id):
 
 
 def _is_email_verified(user):
-    if not user or getattr(user, 'is_admin', False):
+    if not user:
         return True
+    # 管理员不再无条件绕过邮箱验证：管理员账号一旦被接管同样需要邮箱验证。
+    # 默认值仅在未开启强制验证时视为已验证；开启强制验证时缺失记录按未验证处理。
+    require_verification = _email_verification_required()
+    default_status = 'pending' if require_verification else 'verified'
     status = str(
-        SystemConfig.get_config(_email_verification_status_key(user.id), 'verified')
+        SystemConfig.get_config(_email_verification_status_key(user.id), default_status)
     ).strip().lower()
     return status in {'verified', 'true', '1', 'yes', 'on'}
 
@@ -599,7 +614,8 @@ def login():
                     send_verification_email(user, verification_token)
                     flash('您的邮箱还未验证，验证邮件已重新发送，请查收后再登录', 'warning')
                 except Exception as e:
-                    flash(f'您的邮箱还未验证，且补发验证邮件失败：{str(e)}', 'error')
+                    print(f"[auth] resend verification email failed for user {getattr(user, 'id', '?')}: {e}")
+                    flash('您的邮箱还未验证，且补发验证邮件失败，请稍后重试', 'error')
                 return _render_auth_template('auth/login.html')
 
             _login_user_session(user)
@@ -700,7 +716,8 @@ def github_callback():
 
         profile, email = _fetch_github_verified_email(access_token)
     except Exception as e:
-        flash(f'GitHub 登录失败：{e}', 'error')
+        print(f"[auth] github_callback token exchange failed: {e}")
+        flash('GitHub 登录失败，请稍后重试', 'error')
         return redirect(url_for('auth.login'))
 
     if not email:
@@ -735,7 +752,13 @@ def github_callback():
 
     user = User.query.filter_by(github_id=github_id).first() if github_id else None
     if not user:
-        user = User.query.filter_by(email=email).first()
+        # 同 _resolve_github_login_user：禁止按邮箱自动接管未绑定 GitHub 的本地账号，
+        # 否则攻击者只需用受害者邮箱注册一个 GitHub 即可登录受害者账号。
+        candidate = User.query.filter_by(email=email).first()
+        if candidate and not candidate.github_id:
+            flash('该 GitHub 邮箱对应的账号尚未绑定 GitHub，请先用账号密码登录后在设置中绑定', 'error')
+            return redirect(url_for('auth.login'))
+        user = candidate
     if not user:
         if not _is_config_enabled('allow_registration', 'true'):
             flash('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册', 'error')
@@ -924,7 +947,9 @@ def forgot_password():
             send_reset_email(user.email, user.username, reset_token)
             flash('重置密码链接已发送到您的邮箱，请查收', 'success')
         except Exception as e:
-            flash(f'邮件发送失败：{str(e)}', 'error')
+            # 邮件发送失败的细节（SMTP 凭据、连接错误等）可能泄露内部配置，只记录到服务端日志。
+            print(f"[auth] send_reset_email failed for user {user.id}: {e}")
+            flash('邮件发送失败，请稍后重试或联系管理员', 'error')
             return _render_auth_template('auth/forgot_password.html')
         
         return redirect(url_for('auth.login'))
@@ -966,17 +991,16 @@ def reset_password(token):
         if len(password) < 6:
             flash('密码长度至少6位', 'error')
             return render_template('auth/reset_password.html')
-        
-        # 更新密码
-        user.set_password(password)
-        db.session.commit()
-        
-        # 删除重置令牌
+
+        # 删除重置令牌（先删再改密，确保整笔事务内令牌不可重放）
         token_key = f"reset_token_{user.id}"
         config = SystemConfig.query.filter_by(key=token_key).first()
         if config:
             db.session.delete(config)
-            db.session.commit()
+        # 更新密码并递增 session_version，使改密前签发的所有会话失效
+        user.set_password(password)
+        user.session_version = (getattr(user, 'session_version', 0) or 0) + 1
+        db.session.commit()
         
         flash('密码重置成功，请使用新密码登录', 'success')
         return redirect(url_for('auth.login'))

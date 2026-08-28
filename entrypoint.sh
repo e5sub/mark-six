@@ -3,9 +3,9 @@ set -eu
 
 export FLASK_APP=app
 
+# 容器以非 root 用户 appuser 运行，/app/data 已在镜像中归属 appuser 并设为 750。
+# 这里仅确保目录存在；不再放宽权限到 777（旧版会暴露密钥文件与数据库给任意进程）。
 mkdir -p /app/data
-chmod 777 /app/data
-chown -R nobody:nogroup /app/data 2>/dev/null || echo "无法更改 /app/data 所有者，继续执行..."
 
 if [ "${DEBUG_STARTUP:-0}" = "1" ]; then
     echo "当前目录: $(pwd)"
@@ -25,13 +25,14 @@ if [ ! -f /app/data/lottery_system.db ]; then
 
     if [ -f /app/data/lottery_system.db ]; then
         echo "SQLite 数据库创建成功。"
-        chmod 666 /app/data/lottery_system.db
+        # appuser 是数据库文件的属主，仅限本人读写，无需放宽到 666。
+        chmod 640 /app/data/lottery_system.db
     else
         echo "警告：SQLite 数据库创建失败。"
     fi
 else
     echo "SQLite 数据库已存在，跳过初始化。"
-    chmod 666 /app/data/lottery_system.db
+    chmod 640 /app/data/lottery_system.db 2>/dev/null || true
 fi
 
 echo "正在启动 Gunicorn..."

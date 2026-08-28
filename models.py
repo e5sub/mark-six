@@ -1,13 +1,74 @@
 # -*- coding: utf-8 -*-
+from flask import current_app
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
-import uuid
+import base64
 import hashlib
+import json
+import os
+import uuid
 
 db = SQLAlchemy()
 LargeText = db.Text().with_variant(MEDIUMTEXT(), 'mysql').with_variant(MEDIUMTEXT(), 'mariadb')
+
+# 需要静态加密存储的敏感配置键。这些值在写入 system_config 时会用 Fernet 加密，
+# 读取时自动解密；后台展示时返回掩码。避免一次数据库读取即泄露全部第三方密钥。
+SENSITIVE_CONFIG_KEYS = frozenset({
+    'ai_api_key',
+    'smtp_password',
+    'turnstile_secret_key',
+    'github_client_secret',
+})
+_SENSITIVE_VALUE_PREFIX = 'enc::'  # 标记已加密的存储值，便于平滑迁移历史明文
+
+
+def _derive_fernet_key():
+    """从 Flask SECRET_KEY 派生 Fernet 密钥；SECRET_KEY 未就绪（建库阶段）时回退到环境派生。"""
+    secret = (
+        os.environ.get('SECRET_KEY')
+        or (current_app.config.get('SECRET_KEY') if current_app else None)
+        or 'mark-six-fallback-secret'
+    )
+    digest = hashlib.sha256(secret.encode('utf-8')).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
+def _encrypt_sensitive(value):
+    if value is None:
+        return value
+    try:
+        from cryptography.fernet import Fernet
+        token = Fernet(_derive_fernet_key()).encrypt(str(value).encode('utf-8'))
+        return _SENSITIVE_VALUE_PREFIX + token.decode('ascii')
+    except Exception:
+        # 加密失败时不得退化为明文存储敏感值：直接抛出以便发现配置问题。
+        raise
+
+
+def _decrypt_sensitive(stored):
+    if stored is None or not isinstance(stored, str):
+        return stored
+    if not stored.startswith(_SENSITIVE_VALUE_PREFIX):
+        # 兼容历史明文：未加密则原样返回（写入时会自动加密迁移）
+        return stored
+    try:
+        from cryptography.fernet import Fernet
+        token = stored[len(_SENSITIVE_VALUE_PREFIX):].encode('ascii')
+        return Fernet(_derive_fernet_key()).decrypt(token).decode('utf-8')
+    except Exception:
+        return ''
+
+
+def mask_sensitive_value(value):
+    """对外展示敏感值时只保留末尾 4 位，前缀用星号替代。"""
+    if value is None:
+        return ''
+    text = str(value)
+    if len(text) <= 4:
+        return '****'
+    return '*' * (len(text) - 4) + text[-4:]
 
 class User(db.Model):
     __table_args__ = (
@@ -31,6 +92,9 @@ class User(db.Model):
     # 登录相关字段
     last_login = db.Column(db.DateTime)  # 最后登录时间
     login_count = db.Column(db.Integer, default=0)  # 登录次数
+    # 会话版本号：每次改密/重置密码时自增。会话中保存签发时的版本，
+    # 校验时不匹配则视为过期会话（防御：偷取的旧 Cookie 在受害者改密后立即失效）。
+    session_version = db.Column(db.Integer, default=0, nullable=False, server_default='0')
     
     # 邀请相关字段
     invited_by = db.Column(db.String(80))  # 邀请人用户名
@@ -422,13 +486,21 @@ class SystemConfig(db.Model):
 
     @staticmethod
     def get_config(key, default_value=''):
-        """获取配置项"""
+        """获取配置项；敏感键自动解密"""
         config = SystemConfig.query.filter_by(key=key).first()
-        return config.value if config else default_value
+        if not config:
+            return default_value
+        value = config.value
+        if key in SENSITIVE_CONFIG_KEYS:
+            value = _decrypt_sensitive(value)
+        return value
 
     @staticmethod
     def set_config(key, value, description=''):
-        """设置配置项"""
+        """设置配置项；敏感键自动加密后存储"""
+        if key in SENSITIVE_CONFIG_KEYS:
+            # 空值保持为空字符串（不加密），便于"清除密钥"操作
+            value = '' if value in (None, '') else _encrypt_sensitive(value)
         config = SystemConfig.query.filter_by(key=key).first()
         if config:
             config.value = value
