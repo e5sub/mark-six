@@ -854,8 +854,8 @@ def macau_draw_import():
             flash('年份不正确，请选择有效的年份。', 'error')
             return redirect(url_for('admin.macau_draw_import_page'))
         
-        # 从API获取澳门开奖数据（按年份走历史归档接口）
-        from app import MACAU_HISTORY_API_URL_TEMPLATE as MACAU_API_URL_TEMPLATE
+        # 从API获取澳门开奖数据
+        MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
         url = MACAU_API_URL_TEMPLATE.format(year=year)
         
         response = requests.get(url, timeout=15)

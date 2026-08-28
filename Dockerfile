@@ -46,5 +46,4 @@ USER appuser
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 # 启动命令
-# gthread worker：每个 worker 多线程并发，开奖 SSE 长连接不会占满 worker 导致普通请求阻塞
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "8", "--worker-class", "gthread", "--timeout", "300", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "300", "app:app"]

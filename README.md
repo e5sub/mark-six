@@ -237,34 +237,6 @@ python auto_update_db.py
 set ENABLE_SCHEDULER=0
 ```
 
-## 开奖结果实时推送（SSE + 本地缓存）
-
-首页开奖记录通过 SSE（Server-Sent Events）实时更新，无需轮询：
-
-- 接口：`GET /api/draws/events`（`text/event-stream`）
-- 连接后先推送 `snapshot` 事件（香港、澳门各最新一期），之后每次有新开奖写入数据库立即推送 `draw` 增量事件
-- 多 worker 部署无需额外中间件：SSE 连接直接按数据库 `updated_at` 增量扫描，任意 worker 更新的开奖都能被推送
-- 前端用浏览器原生 `EventSource` 订阅，断线自动重连，重连后再次收到快照对齐数据
-- 本地缓存：最新开奖与首页第一页数据写入 `localStorage`（第一页缓存 5 分钟），页面刷新秒开，断网时可回退显示
-
-相关环境变量：
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `DRAW_SSE_POLL_INTERVAL` | `5` | 增量扫描间隔（秒） |
-| `DRAW_SSE_HEARTBEAT_INTERVAL` | `20` | 长连接心跳间隔（秒），需小于反向代理空闲超时 |
-
-部署注意：
-
-- Docker 镜像已使用 `gunicorn --worker-class gthread --threads 8`，SSE 长连接不会占满同步 worker；如自行启动请保持线程模型
-- 反向代理（如 nginx）请关闭响应缓冲（`proxy_buffering off;`），并设置 `proxy_read_timeout` 大于心跳间隔
-
-### 开奖数据源（澳门）
-
-- 澳门最新一期开奖走实时接口 `https://macaumarksix.com/api/macaujc2.com`（只返回最新一期，用于实时同步/SSE）
-- 历史年份数据自动回退到归档接口 `https://api.macaumarksix.com/history/macaujc2/y/{year}`
-- 变量见 `app.py`：`MACAU_LATEST_API_URL` 与 `MACAU_HISTORY_API_URL_TEMPLATE`
-
 ## 目录结构
 
 ```text

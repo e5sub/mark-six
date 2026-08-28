@@ -11,48 +11,6 @@ let hasMoreData = true; // 标记是否还有更多数据可加载
 let currentSearchTerm = '';
 let isSearchActive = false;
 
-// ===== 开奖结果本地缓存（SSE 快照/增量持久化，页面刷新秒开） =====
-const LATEST_DRAW_CACHE_KEY = 'mark_six_latest_draws_v1';
-const DRAWS_PAGE_CACHE_PREFIX = 'mark_six_draws_page_v1::';
-const DRAWS_PAGE_CACHE_TTL = 5 * 60 * 1000; // 首页第一页数据缓存 5 分钟
-
-function loadLatestDrawsCache() {
-    try {
-        const raw = localStorage.getItem(LATEST_DRAW_CACHE_KEY);
-        const data = raw ? JSON.parse(raw) : {};
-        return data && typeof data === 'object' ? data : {};
-    } catch (e) {
-        return {};
-    }
-}
-
-function saveLatestDrawsCache(regionsMap) {
-    try {
-        localStorage.setItem(LATEST_DRAW_CACHE_KEY, JSON.stringify(regionsMap || {}));
-    } catch (e) { /* 存储不可用（隐私模式等）时静默降级 */ }
-}
-
-function getCachedDrawsPage(region, year) {
-    try {
-        const key = DRAWS_PAGE_CACHE_PREFIX + region + '::' + year + '::1';
-        const raw = localStorage.getItem(key);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (!parsed || !Array.isArray(parsed.draws) || parsed.draws.length === 0) return null;
-        if (Date.now() - (parsed.ts || 0) > DRAWS_PAGE_CACHE_TTL) return null;
-        return parsed.draws;
-    } catch (e) {
-        return null;
-    }
-}
-
-function saveCachedDrawsPage(region, year, draws) {
-    try {
-        const key = DRAWS_PAGE_CACHE_PREFIX + region + '::' + year + '::1';
-        localStorage.setItem(key, JSON.stringify({ ts: Date.now(), draws: draws || [] }));
-    } catch (e) { /* 静默降级 */ }
-}
-
 // 获取号码颜色
 function getBallColorClass(number) {
     const num = parseInt(number);
@@ -467,15 +425,6 @@ function fetchDraws() {
     const url = `/api/draws?region=${region}&year=${year}&_=${timestamp}`;
     console.log(`API请求URL: ${url}`);
     
-    // 先用本地缓存秒开渲染（stale-while-revalidate），请求成功后自动替换为最新数据
-    const cachedPage = getCachedDrawsPage(region, year);
-    if (cachedPage && cachedPage.length > 0) {
-        allDraws = cachedPage;
-        currentPage = 1;
-        hasMoreData = true;
-        displayDraws(allDraws.slice(0, pageSize));
-    }
-    
     fetch(url)
         .then(response => {
             console.log(`API响应状态: ${response.status}`);
@@ -490,11 +439,6 @@ function fetchDraws() {
             
             // 保存所有数据
             allDraws = data || [];
-            
-            // 更新本地缓存（第一页），供刷新秒开和断网回退使用
-            if (data && data.length > 0) {
-                saveCachedDrawsPage(region, year, data);
-            }
             
             // 重置分页
             currentPage = 1;
@@ -717,103 +661,6 @@ function resetSearch() {
     fetchDraws();
 }
 
-// ===== 开奖结果 SSE 实时推送 =====
-// 订阅 /api/draws/events：连接后收到各地区最新一期快照；新开奖写入时收到 draw 增量。
-// EventSource 断线会自动重连，重连后再次收到快照实现本地缓存对齐。
-let drawEventSource = null;
-
-// 将推送的开奖 upsert 进本地缓存和当前列表
-function applyDrawPush(region, draws) {
-    if (!draws || draws.length === 0) return;
-
-    const cache = loadLatestDrawsCache();
-    draws.forEach(draw => {
-        cache[region] = draw;
-    });
-    saveLatestDrawsCache(cache);
-
-    // 搜索视图不混入推送；非当前地区只更新缓存
-    if (isSearchActive) return;
-    const activeRegion = document.querySelector('.region-btn.active')?.dataset.region || 'macau';
-    if (region !== activeRegion) return;
-
-    const freshDraws = [];
-    draws.forEach(draw => {
-        const idx = allDraws.findIndex(item => item && item.id === draw.id);
-        if (idx >= 0) {
-            allDraws[idx] = draw;
-        } else {
-            freshDraws.push(draw);
-        }
-    });
-    // 与 /api/draws 保持一致的日期倒序（批量同步多期时避免乱序）
-    freshDraws.sort((a, b) =>
-        (b.date || '').localeCompare(a.date || '') ||
-        String(b.id || '').localeCompare(String(a.id || ''))
-    );
-    allDraws = freshDraws.concat(allDraws);
-
-    const year = document.getElementById('yearSelect')?.value || 'all';
-    saveCachedDrawsPage(region, year, allDraws.slice(0, pageSize));
-    currentPage = 1;
-    displayDraws(allDraws.slice(0, pageSize));
-}
-
-function handleSseSnapshot(payload) {
-    const regions = (payload && payload.regions) || {};
-    if (Object.keys(regions).length > 0) {
-        saveLatestDrawsCache(regions);
-        console.log('开奖推送已连接，收到各地区最新一期快照');
-
-        // 断线重连后若快照比当前列表更新，补一条最新期，保证数据对齐
-        const activeRegion = document.querySelector('.region-btn.active')?.dataset.region || 'macau';
-        const latest = regions[activeRegion];
-        if (latest && latest.id && allDraws.length > 0 && !isSearchActive) {
-            const known = allDraws.some(item => item && item.id === latest.id);
-            if (!known) {
-                applyDrawPush(activeRegion, [latest]);
-            }
-        }
-    }
-}
-
-function handleSseDrawEvent(payload) {
-    if (!payload || !payload.region) return;
-    const draws = Array.isArray(payload.draws) ? payload.draws : [];
-    console.log(`开奖推送：${payload.region} 更新 ${draws.length} 期`);
-    applyDrawPush(payload.region, draws);
-}
-
-function connectDrawEvents() {
-    if (typeof EventSource === 'undefined') {
-        console.warn('当前浏览器不支持 EventSource，开奖结果将保持手动刷新');
-        return;
-    }
-    if (drawEventSource) return;
-
-    const es = new EventSource('/api/draws/events');
-    drawEventSource = es;
-
-    es.addEventListener('snapshot', event => {
-        try {
-            handleSseSnapshot(JSON.parse(event.data || '{}'));
-        } catch (e) {
-            console.warn('解析快照事件失败', e);
-        }
-    });
-    es.addEventListener('draw', event => {
-        try {
-            handleSseDrawEvent(JSON.parse(event.data || '{}'));
-        } catch (e) {
-            console.warn('解析开奖推送事件失败', e);
-        }
-    });
-    es.addEventListener('error', event => {
-        // EventSource 自动重连，浏览器原生处理；重连成功后会再次收到 snapshot
-        console.warn('开奖推送连接中断，等待自动重连', event?.type || '');
-    });
-}
-
 // 初始化页面
 document.addEventListener('DOMContentLoaded', function() {
     console.log('页面加载完成，开始初始化...');
@@ -893,9 +740,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化动态背景
     initParticles();
     
-    // 建立开奖 SSE 推送长连接（自动重连）
-    connectDrawEvents();
-
     // 加载初始数据
     console.log('开始加载初始数据...');
     fetchDraws();
