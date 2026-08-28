@@ -991,7 +991,7 @@ def _should_log_startup():
 
 
 @contextmanager
-def _startup_schema_lock(timeout_seconds=120):
+def _startup_schema_lock(timeout_seconds=300):
     import tempfile
     lock_path = os.path.join(tempfile.gettempdir(), "mark-six-schema.lock")
     pid = os.getpid()
@@ -1018,10 +1018,11 @@ def _startup_schema_lock(timeout_seconds=120):
                     continue
                 except OSError:
                     pass
-            time.sleep(0.25)
+            time.sleep(0.5)
 
     if not acquired:
-        print("Startup schema lock timeout; continuing without exclusive schema lock.")
+        # 仅告警，不影响启动：schema 同步是幂等的，另一个 worker 正在做或已做完。
+        print("Startup schema lock timeout; another worker likely holds it. Schema sync is idempotent, continuing.")
 
     try:
         yield
@@ -2070,6 +2071,9 @@ def _sync_runtime_database_schema():
             'show_normal_numbers': 'BOOLEAN DEFAULT 0',
             'github_id': 'VARCHAR(64)',
             'github_username': 'VARCHAR(120)',
+            # 会话版本号（改密/重置密码后用于吊销旧会话）。NOT NULL DEFAULT 0，
+            # MySQL 下 ADD COLUMN 带默认值是即时操作，不会全表重写。
+            'session_version': 'INTEGER NOT NULL DEFAULT 0',
         },
         'prediction_record': {
             'prediction_metadata': 'MEDIUMTEXT' if dialect in ('mysql', 'mariadb') else 'TEXT',
