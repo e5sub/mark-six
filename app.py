@@ -13,11 +13,13 @@ import threading
 import hmac
 from contextlib import contextmanager
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import re
 from urllib.parse import quote_plus, urlparse
 from datetime import datetime, timedelta
 import time
 from markupsafe import escape
+from scipy import stats
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.engine import make_url
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -64,6 +66,19 @@ _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
 # Normal-number coverage and zodiac agreement remain tie-break signals only.
 SPECIAL_PRIORITY_TOP6_WEIGHT = 0.12
 SPECIAL_PRIORITY_ZODIAC_WEIGHT = 0.04
+# ML objective weight for log loss in training/validation scoring. Higher emphasizes
+# calibration; chosen so log_loss (~3.89 at uniform over 49) doesn't dominate top6.
+ML_LOG_LOSS_WEIGHT = 0.5
+# Strategies whose signal is purely frequency-driven are gated by significance tests.
+# When no number in the window is statistically above its expected frequency, these
+# strategies fall back to uniform sampling and are downgraded in backtest ranking.
+SIGNIFICANCE_GATE_STRATEGIES = ("hot", "cold", "trend", "markov")
+# Multiplicative penalty applied to a strategy's ranking score when it fails the
+# significance gate (no statistically-significant number in the window).
+SIGNIFICANCE_GATE_PENALTY = 0.5
+# Per-number Bonferroni comparison count (49 numbers in 1..49).
+SIGNIFICANCE_GATE_COMPARISONS = 49
+SIGNIFICANCE_GATE_ALPHA = 0.05
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
 _ml_prediction_build_events = {}
@@ -5044,6 +5059,14 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phas
         phase_bonus = (phase_score * 100 * 0.18) if current_phase_label in ("hot", "cold", "concentrated", "dispersed") else 0.0
         sample_bonus = min(2.5, math.log(max(total_samples, 1), 10) * 0.9)
         score = round(sum(window_scores) / len(window_scores) + config_bonus + phase_bonus + sample_bonus, 2)
+        # 显著性闸门：纯频率驱动的策略（hot/cold/trend/markov）在窗口内无统计学显著信号时
+        # 排名降级，让有信号的策略上位。用最小评分窗口（最敏感的近期窗口）做一次检验即可。
+        significance_passed = True
+        significance_penalty = 1.0
+        if strategy in SIGNIFICANCE_GATE_STRATEGIES:
+            gate_window = int(min(windows or (20,)) or 20)
+            significance_passed, significance_penalty = _strategy_significance_penalty(region, strategy, gate_window)
+            score = round(score * significance_penalty, 2)
         scored.append({
             "strategy": strategy,
             "label": _get_strategy_label(strategy),
@@ -5051,6 +5074,7 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phas
             "samples": total_samples,
             "phase_score": round(phase_score, 4),
             "phase_samples": int(phase_samples or 0),
+            "significance_passed": bool(significance_passed),
         })
 
     if not scored:
@@ -6387,6 +6411,38 @@ def _build_number_frequency(data):
             counts[str(sno)] += 1
     return {str(i): counts.get(str(i), 0) for i in range(1, 50)}
 
+def _build_normal_number_frequency(data):
+    """仅统计平码（no）出现次数的频率图。
+
+    平码每期 6 个、特码每期 1 个，二者来自同一个 1-49 的池，但是不同的随机变量。
+    选择"6 个平码"时应当用平码频率（信号量是特码频率的 6 倍），而不是把每期只有
+    1 个的特码频率当作平码的排序信号——后者样本极稀疏，几乎是纯噪声。
+    """
+    counts = Counter()
+    for record in data or []:
+        for number in record.get("no", []):
+            if number:
+                counts[str(number)] += 1
+    return {str(i): counts.get(str(i), 0) for i in range(1, 50)}
+
+def _build_overdue_scores_all(data):
+    """统计每个号码距上次出现（平码或特码均可）的间隔期数，覆盖全部 7 个开奖号码。
+
+    旧的 _build_overdue_scores 只看特码 sno 的 gap，等价于每期只观察 1 个号码的缺席情况，
+    严重低估"该号码其实最近开过"的信号。这里统计 7 个开奖号码的整体缺席期数。
+    """
+    scores = {}
+    for number in range(1, 50):
+        gap = len(data or [])
+        target = str(number)
+        for idx, record in enumerate(data or []):
+            drawn = list(record.get("no") or []) + ([record.get("sno")] if record.get("sno") else [])
+            if target in {str(n) for n in drawn if n}:
+                gap = idx
+                break
+        scores[str(number)] = gap
+    return scores
+
 def _build_overdue_scores(data):
     scores = {}
     for number in range(1, 50):
@@ -6424,6 +6480,111 @@ def _normalize_signed_metric_map(metric_map):
         key: round(_clamp(0.5 + (float(value) / (2 * max_abs)), 0.0, 1.0), 4)
         for key, value in metric_map.items()
     }
+
+
+def _significance_gate(count_map, n_draws, trials_per_draw,
+                       comparisons=SIGNIFICANCE_GATE_COMPARISONS,
+                       alpha=SIGNIFICANCE_GATE_ALPHA):
+    """对窗口内频率做显著性检验，判断是否有号码显著高于均匀期望。
+
+    返回 (passed, min_pvalue)：
+    - passed=True 表示存在统计学上显著偏离均匀分布的信号（卡方整体偏离，
+      或至少一个号码的二项检验在 Bonferroni 校正后显著高于期望）。
+    - passed=False 表示窗口频率与均匀分布无显著差异，应视为噪声 → 退回均匀采样。
+
+    count_map: {str(1..49): count}，每号码在该窗口的观测次数。
+    n_draws: 该窗口包含的期数。
+    trials_per_draw: 单期内该变量的期望出现次数（平码 6/49，全号码 7/49）。
+    """
+    if n_draws <= 0:
+        return False, 1.0
+    expected_per_number = max(1e-6, n_draws * float(trials_per_draw))
+    counts = []
+    expected = []
+    for number in range(1, 50):
+        observed = int(count_map.get(str(number), 0) or 0)
+        counts.append(float(observed))
+        expected.append(expected_per_number)
+    # 整体卡方拟合优度：总闸，判断频率是否偏离均匀分布。
+    try:
+        total_observed = sum(counts)
+        chi2, chi_p = stats.chisquare(counts, expected)
+        chi2 = float(chi2)
+        chi_p = float(chi_p)
+    except (ValueError, FloatingPointError):
+        chi_p = 1.0
+    # 逐号码二项检验：找"显著高于期望"的号码（单侧 greater）。
+    # 某号码在每个抽取位置出现的概率 = 1/49（均匀池）；试验总数 = n_draws * 每期球数。
+    # 每期球数 = trials_per_draw * 49（trials_per_draw 是每期该号码的期望出现比例），
+    # 例如平码 trials=6/49 → 每期 6 个球 → binom_trials = n_draws * 6，
+    # 期望 = binom_trials / 49 = n_draws * trials_per_draw（与卡方期望一致）。
+    per_number_p = 1.0 / 49.0
+    binom_trials = max(1, int(round(n_draws * trials_per_draw * 49.0)))
+    min_p = chi_p
+    corrected_alpha = alpha / max(comparisons, 1)
+    for number in range(1, 50):
+        observed = int(count_map.get(str(number), 0) or 0)
+        if observed <= expected_per_number:
+            continue
+        try:
+            result = stats.binomtest(observed, n=binom_trials, p=per_number_p, alternative="greater")
+            p_value = float(result.pvalue)
+        except (ValueError, FloatingPointError):
+            continue
+        if p_value < min_p:
+            min_p = p_value
+    passed = (chi_p < corrected_alpha) or (min_p < corrected_alpha)
+    return bool(passed), float(min_p)
+
+
+def _load_gate_draws(region, window):
+    """取指定窗口的原始开奖数据（含 sno + no），用于显著性闸门。
+
+    尊重 _current_backtest_cutoff_period，保证回测期与生产期使用同一数据口径。
+    返回 newest-first 的 list（与 _build_number_frequency 等期望的输入顺序一致）。
+    """
+    cutoff = _current_backtest_cutoff_period()
+    if cutoff:
+        draws_desc = _load_region_draw_history(region, limit=max(int(window) * 3, int(window) + 24))
+        if cutoff:
+            kept = []
+            for draw in draws_desc:
+                draw_period = _normalize_period_value(draw.get("id"))
+                if draw_period and _is_period_before(draw_period, cutoff):
+                    kept.append(draw)
+                if len(kept) >= int(window):
+                    break
+            return kept[:int(window)]
+    return _load_region_draw_history(region, limit=int(window))
+
+
+def _strategy_significance_penalty(region, strategy, window):
+    """返回某策略在 window 窗口内是否通过显著性闸门。
+
+    返回 (passed: bool, penalty_factor: float)。未通过时 penalty_factor =
+    SIGNIFICANCE_GATE_PENALTY（用于排名降级）；通过则为 1.0。
+
+    hot/cold/trend 选平码，用平码口径（每期 6 个球，trials≈6/49）。
+    markov 的转移矩阵覆盖全部 7 个开奖号码，用全号码口径（trials≈7/49）。
+    非闸门策略直接返回 (True, 1.0)。
+    """
+    if strategy not in SIGNIFICANCE_GATE_STRATEGIES:
+        return True, 1.0
+    try:
+        draws = _load_gate_draws(region, window)
+    except Exception:
+        return True, 1.0
+    if not draws:
+        return True, 1.0
+    n_draws = len(draws)
+    if strategy == "markov":
+        count_map = _build_number_frequency(draws)
+        trials_per_draw = 7.0 / 49.0
+    else:
+        count_map = _build_normal_number_frequency(draws)
+        trials_per_draw = 6.0 / 49.0
+    passed, _ = _significance_gate(count_map, n_draws, trials_per_draw)
+    return passed, (1.0 if passed else SIGNIFICANCE_GATE_PENALTY)
 
 
 def _feedback_confidence(sample_count, full_confidence=80):
@@ -7534,6 +7695,30 @@ def _predict_with_markov(data, region, variation_key=None):
     trend_norm = _normalize_metric_map(analyze_special_number_frequency(trend_data))
     normal_norm = _normalize_metric_map(_build_number_frequency(recent_data))
     overdue_norm = _normalize_metric_map(_build_overdue_scores(recent_data))
+    # 显著性闸门：markov 用全号码口径（每期 7 个球）。未通过时退化为均匀采样 + 仅保留
+    # 一阶转移矩阵作为弱信号（二阶/属性链置信度衰减为 0）。
+    significance_passed = True
+    try:
+        significance_passed, _ = _significance_gate(
+            _build_number_frequency(recent_data),
+            len(recent_data),
+            7.0 / 49.0,
+        )
+    except Exception:
+        significance_passed = True
+    # 未通过闸门时，砍掉频率/二阶/属性/相位等噪声驱动的权重，只留一阶转移矩阵作为弱信号。
+    gate_weights = dict(weights)
+    if not significance_passed:
+        for noise_key in ("hot", "trend", "normal", "overdue",
+                          "second_order", "phase_transition", "attribute_transition",
+                          "special_attribute"):
+            gate_weights[noise_key] = 0.0
+        # 二阶/属性链的置信度也归零，彻底切断这些信号。
+        second_order_confidence = 0.0
+        special_second_order_confidence = 0.0
+        attribute_profile = {}
+        special_attribute_profile = {}
+        phase_transition_norm = {}
     feedback = _build_prediction_feedback(region, "markov", cutoff_period=cutoff_period)
     failure_profile = _build_markov_failure_profile(region, cutoff_period=cutoff_period)
     ml_distillation = _build_markov_ml_distillation(region, cutoff_period=cutoff_period) if markov_guard.get("mode") == "anchor_guard" else {"confidence": 0.0, "samples": 0, "special": {}, "normal": {}}
@@ -7599,19 +7784,19 @@ def _predict_with_markov(data, region, variation_key=None):
         )
         failure_adjustment = (float((failure_profile.get("candidate") or {}).get(key, 0.5)) - 0.5) * 2.0 * failure_confidence
         score = (
-            float(weights.get("transition", 1.0)) * transition_norm.get(key, 0.0) +
-            float(weights.get("transition_lift", 0.0)) * transition_lift_norm.get(key, 0.0) +
-            float(weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) +
-            float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) +
-            float(weights.get("attribute_transition", 0.0)) * attribute_transition_score +
-            float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
-            float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
-            float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
-            float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
-            float(weights.get("feedback", 0.0)) * feedback_score +
+            float(gate_weights.get("transition", 1.0)) * transition_norm.get(key, 0.0) +
+            float(gate_weights.get("transition_lift", 0.0)) * transition_lift_norm.get(key, 0.0) +
+            float(gate_weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) +
+            float(gate_weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) +
+            float(gate_weights.get("attribute_transition", 0.0)) * attribute_transition_score +
+            float(gate_weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
+            float(gate_weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
+            float(gate_weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
+            float(gate_weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
+            float(gate_weights.get("feedback", 0.0)) * feedback_score +
             (0.42 if markov_guard.get("mode") == "anchor_guard" else 0.12) * ml_distill_score +
             anchor_weight * anchor_score +
-            float(weights.get("failure", 0.0)) * failure_adjustment +
+            float(gate_weights.get("failure", 0.0)) * failure_adjustment +
             attr +
             repeat_penalty(number)
         )
@@ -7619,15 +7804,15 @@ def _predict_with_markov(data, region, variation_key=None):
         parity_bonus = 0.08 if preferred_parity and _get_parity_zh(number) == preferred_parity else 0.0
         special_scores[number] = round(
             score +
-            float(weights.get("special_transition", 0.0)) * special_transition_norm.get(key, 0.0) +
-            float(weights.get("special_transition_lift", 0.0)) * special_transition_lift_norm.get(key, 0.0) +
-            float(weights.get("special_chain", 0.0)) * (
+            float(gate_weights.get("special_transition", 0.0)) * special_transition_norm.get(key, 0.0) +
+            float(gate_weights.get("special_transition_lift", 0.0)) * special_transition_lift_norm.get(key, 0.0) +
+            float(gate_weights.get("special_chain", 0.0)) * (
                 special_direct_confidence * special_direct_norm.get(key, 0.0) +
                 special_second_order_confidence * special_second_order_norm.get(key, 0.0) * 0.72
             ) +
-            float(weights.get("special_attribute", 0.0)) * special_direct_confidence * special_attribute_transition_score +
-            float(weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) * 0.35 +
-            float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) * 0.25 +
+            float(gate_weights.get("special_attribute", 0.0)) * special_direct_confidence * special_attribute_transition_score +
+            float(gate_weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) * 0.35 +
+            float(gate_weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) * 0.25 +
             (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence * 0.32 +
             ((anchor_profile.get("special") or {}).get(key, 0.5) - 0.5) * anchor_confidence * anchor_weight * 0.75 +
             parity_bonus,
@@ -7636,9 +7821,17 @@ def _predict_with_markov(data, region, variation_key=None):
 
     overall_rank = _rank_numbers(number_scores)
     bucket_counts = _resolve_local_bucket_counts(config.get("bucket_counts") or [2, 2, 2], "neutral")
-    low_bucket = [n for n in overall_rank if n <= 16]
-    mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
-    high_bucket = [n for n in overall_rank if n >= 34]
+    if significance_passed:
+        low_bucket = [n for n in overall_rank if n <= 16]
+        mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
+        high_bucket = [n for n in overall_rank if n >= 34]
+    else:
+        # 闸门未通过：退回均匀采样，三个区间按 1-16 / 17-33 / 34-49 均匀打散抽取，
+        # 弱信号（一阶转移）仍体现在 special 选择上，但平码不再受噪声排序支配。
+        uniform_rank = list(range(1, 50))
+        low_bucket = [n for n in uniform_rank if n <= 16]
+        mid_bucket = [n for n in uniform_rank if 17 <= n <= 33]
+        high_bucket = [n for n in uniform_rank if n >= 34]
     normal = []
     normal += _take_personalized_ranked(low_bucket, bucket_counts[0], variation_key=variation_key, window_size=max(pool_size // 2, 6))
     normal += _take_personalized_ranked(mid_bucket, bucket_counts[1], variation_key=variation_key, exclude=normal, window_size=max(pool_size // 2, 6))
@@ -7750,6 +7943,7 @@ def _predict_with_markov(data, region, variation_key=None):
             "markov_source_special_weight": round(float(config.get("source_special_weight") or 1.28), 3),
             "markov_repeat_penalty": round(float(config.get("repeat_penalty", -0.18) or -0.18), 3),
             "markov_weights": dict(weights),
+            "significance_passed": bool(significance_passed),
             "learning_adaptation_mode": config.get("learning_adaptation_mode", "balanced"),
             "markov_guard": dict(markov_guard),
             "markov_latest_sources": transition_profile.get("latest_sources") or [],
@@ -8143,13 +8337,31 @@ def _build_ai_system_prompt():
 
 
 def _build_ai_candidate_context(data, region):
+    strategies = ("ml", "markov", "hybrid", "balanced", "trend")
+
+    def _run_strategy(strategy):
+        try:
+            return strategy, get_local_recommendations(strategy, data, region)
+        except Exception:
+            return strategy, None
+
+    # 并行跑 5 个本地策略以压缩 AI 候选上下文的构建耗时。
+    # 线程安全已勘察通过：模块级缓存均由锁守护 + deepcopy，runtime 缓存/override 是
+    # threading.local（每 worker 独立），DB 读路径在 Flask-SQLAlchemy 的 per-thread
+    # scoped session 下安全。worker 数默认 5；SQLite 生产若并发读告急，可设
+    # AI_CANDIDATE_CONTEXT_WORKERS=3 降并发。
+    max_workers = _clamp(_env_int("AI_CANDIDATE_CONTEXT_WORKERS", len(strategies)), 1, len(strategies))
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="ai-candidate") as executor:
+        raw_results = list(executor.map(_run_strategy, strategies))
+
     special_support = Counter()
     normal_support = Counter()
     strategy_lines = []
-    for strategy in ("ml", "markov", "hybrid", "balanced", "trend"):
-        try:
-            result = get_local_recommendations(strategy, data, region)
-        except Exception:
+    # 保持原有策略顺序（ml→markov→hybrid→balanced→trend），确保输出稳定。
+    results_by_strategy = {strategy: result for strategy, result in raw_results}
+    for strategy in strategies:
+        result = results_by_strategy.get(strategy)
+        if not result:
             continue
         special = str((result.get("special") or {}).get("number") or "").strip()
         normal = [int(n) for n in (result.get("normal") or []) if str(n).isdigit()]
@@ -8660,6 +8872,11 @@ def _estimate_ml_confidence(probability_map, blended_scores, special_num, model)
     )
     confidence *= sample_confidence
     confidence *= _clamp(0.78 + validation_ratio * 0.22, 0.72, 1.04)
+    # 用 log loss 做校准调节：模型越接近均匀分布（log_loss 越高），置信度越低。
+    # uniform_log_loss ≈ ln(49) ≈ 3.89；ratio 越小（模型越好）越接近 1.0。
+    log_loss = float(model.get("log_loss", math.log(49)) or math.log(49))
+    calibration_factor = _clamp(log_loss / max(math.log(49), 1e-6), 0.7, 1.0)
+    confidence *= calibration_factor
     return round(_clamp(confidence, 18.0, 92.0), 2)
 
 
@@ -8795,15 +9012,16 @@ def _build_ml_dual_score_maps(ranked_numbers, probability_map, heuristic_map, en
 
 
 def _score_ml_model(model):
-    top1 = float(model.get("top1_hit_rate", 0.0))
     top6 = float(model.get("top6_hit_rate", 0.0))
     avg_target_probability = float(model.get("avg_target_probability", 0.0))
     calibration_score = float(model.get("calibration_score", 0.0) or 0.0)
+    log_loss = float(model.get("log_loss", math.log(49)) or math.log(49))
     validation_ratio = float(model.get("validation_ratio", 1.0) or 1.0)
     evaluation_draws = int(model.get("evaluation_draws", 0) or 0)
     confidence = min(1.0, evaluation_draws / 20.0) if evaluation_draws > 0 else 0.0
+    # 调参目标改为以 log loss 为主（连续、低方差），不再用 top-1 命中率。
     return round(
-        ((top1 * 3.0) + (top6 * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35) + (calibration_score * 0.08)) *
+        ((top6 * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35) + (calibration_score * 0.08) - (log_loss * ML_LOG_LOSS_WEIGHT)) *
         max(confidence, 0.35) *
         _clamp(0.86 + validation_ratio * 0.14, 0.72, 1.02),
         6,
@@ -8953,6 +9171,8 @@ def _optimize_ml_runtime_config(data, region, config):
             "selected_blend": model.get("selected_blend"),
             "validation_ratio": round(float(model.get("validation_ratio", 1.0) or 1.0), 4),
             "feature_profile": candidate_config.get("feature_profile", "full"),
+            "brier_score": round(float(model.get("brier_score", 1.0)), 6),
+            "log_loss": round(float(model.get("log_loss", math.log(49))), 6),
         })
         if best is None or adjusted_runtime_score > best:
             best = adjusted_runtime_score
@@ -8988,7 +9208,7 @@ def _train_ml_number_model(data, region, config):
     if not blend_candidates:
         blend_candidates = [0.7]
     blend_stats = {
-        round(candidate, 4): {"top1": 0, "top6": 0}
+        round(candidate, 4): {"top1": 0, "top6": 0, "log_loss": 0.0}
         for candidate in blend_candidates
     }
     final_blend_stats = {
@@ -9004,6 +9224,8 @@ def _train_ml_number_model(data, region, config):
             "draw_samples": 0,
             "evaluation_draws": 0,
             "gradient_updates": 0,
+            "brier_score": 1.0,
+            "log_loss": round(math.log(49), 6),
         }
 
     def get_feature_table(idx):
@@ -9035,14 +9257,19 @@ def _train_ml_number_model(data, region, config):
     top1_hits = 0
     top6_hits = 0
     target_probability_sum = 0.0
+    brier_hits_sum = 0.0
+    log_loss_hits_sum = 0.0
 
     def evaluate_weight_snapshot(weights, bias):
         if not weights:
-            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0, "steps": 0}
+            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0,
+                    "brier": 1.0, "log_loss": math.log(49), "steps": 0}
         steps = 0
         top1 = 0
         top6 = 0
         target_probability_total = 0.0
+        brier_total = 0.0
+        log_loss_total = 0.0
         for eval_idx in range(eval_start, len(chronological)):
             target_draw = chronological[eval_idx]
             target_special = str(target_draw.get("sno") or "").strip()
@@ -9063,7 +9290,7 @@ def _train_ml_number_model(data, region, config):
                 top1 += 1
             if target_number in ranked_numbers[:6]:
                 top6 += 1
-            target_probability_total += next(
+            p_target = next(
                 (
                     probabilities[row_idx]
                     for row_idx, (key, _, _) in enumerate(score_pairs)
@@ -9071,17 +9298,29 @@ def _train_ml_number_model(data, region, config):
                 ),
                 0.0,
             )
+            target_probability_total += p_target
+            # 概率校准指标：Brier 分（越小越好）和 log loss（越小越好）。
+            # 用 max(...) 防 log(0)；log loss 用饱和值 1e-12 截断。
+            brier_total += (1.0 - p_target) ** 2
+            log_loss_total += -math.log(max(p_target, 1e-12))
             steps += 1
         if steps <= 0:
-            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0, "steps": 0}
+            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0,
+                    "brier": 1.0, "log_loss": math.log(49), "steps": 0}
         top1_rate = top1 / steps
         top6_rate = top6 / steps
         avg_target_probability = target_probability_total / steps
+        avg_brier = brier_total / steps
+        avg_log_loss = log_loss_total / steps
+        # 目标改为以 log loss 为主（连续、低方差），不再用 top-1 命中率（小样本方差大）。
+        # 评分越高越好，故 log loss 取负号；保留 top6 和 avg_target_probability 作弱信号。
         return {
-            "score": (top1_rate * 3.0) + (top6_rate * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35),
+            "score": (top6_rate * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35) - (avg_log_loss * ML_LOG_LOSS_WEIGHT),
             "top1": top1,
             "top6": top6,
             "target_probability": avg_target_probability,
+            "brier": avg_brier,
+            "log_loss": avg_log_loss,
             "steps": steps,
         }
 
@@ -9108,7 +9347,7 @@ def _train_ml_number_model(data, region, config):
                 top1_hits += 1
             if target_number in ranked_numbers[:6]:
                 top6_hits += 1
-            target_probability_sum += next(
+            p_target_eval = next(
                 (
                     probabilities[row_idx]
                     for row_idx, (key, _, _) in enumerate(score_pairs)
@@ -9116,6 +9355,10 @@ def _train_ml_number_model(data, region, config):
                 ),
                 0.0,
             )
+            target_probability_sum += p_target_eval
+            # 累积全量评估集的 Brier / log loss，作为最终模型诊断指标。
+            brier_hits_sum += (1.0 - p_target_eval) ** 2
+            log_loss_hits_sum += -math.log(max(p_target_eval, 1e-12))
 
             heuristic_map = _build_ml_heuristic_score_map(feature_table)
             probability_map = {
@@ -9130,6 +9373,21 @@ def _train_ml_number_model(data, region, config):
                     stats["top1"] += 1
                 if target_number in blended_rank[:6]:
                     stats["top6"] += 1
+                # 按 blend 计算的 log loss：把 blended_scores 当 logits 过 softmax 得到分布，
+                # 取目标号码概率做 -log。用于 blend 选择目标（取代纯 top-1 命中率）。
+                blended_probs = _softmax([
+                    float(blended_scores.get(int(item[0]), 0.0))
+                    for item in score_pairs
+                ])
+                blend_target_p = next(
+                    (
+                        blended_probs[row_idx]
+                        for row_idx, (key, _, _) in enumerate(score_pairs)
+                        if key == target_special
+                    ),
+                    1e-12,
+                )
+                stats["log_loss"] += -math.log(max(blend_target_p, 1e-12))
                 special_score_map, normal_score_map = _build_ml_dual_score_maps(
                     blended_rank,
                     probability_map,
@@ -9238,6 +9496,8 @@ def _train_ml_number_model(data, region, config):
             "top6": int(validation_snapshot.get("top6") or 0),
             "steps": int(validation_snapshot.get("steps") or 0),
             "learning_rate": round(step, 6),
+            "brier": round(float(validation_snapshot.get("brier") or 1.0), 6),
+            "log_loss": round(float(validation_snapshot.get("log_loss") or math.log(49)), 6),
         })
         if validation_score > best_validation_score + 0.00001:
             best_validation_score = validation_score
@@ -9262,7 +9522,9 @@ def _train_ml_number_model(data, region, config):
     best_score = -1.0
     for candidate in blend_candidates:
         stats = blend_stats[round(candidate, 4)]
-        candidate_score = (stats["top1"] * 3.0) + (stats["top6"] * SPECIAL_PRIORITY_TOP6_WEIGHT)
+        # blend 选择目标改为以 log loss 为主（连续、低方差），不再用 top-1 命中率。
+        avg_log_loss = (stats["log_loss"] / max(evaluation_steps, 1)) if evaluation_steps else math.log(49)
+        candidate_score = (stats["top6"] * SPECIAL_PRIORITY_TOP6_WEIGHT) - (avg_log_loss * ML_LOG_LOSS_WEIGHT)
         if candidate_score > best_score:
             best_score = candidate_score
             selected_blend = candidate
@@ -9304,12 +9566,16 @@ def _train_ml_number_model(data, region, config):
         "top1_hit_rate": round((top1_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
         "top6_hit_rate": round((top6_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
         "final_top1_hit_rate": round((selected_final_stats.get("top1", 0) / evaluation_steps), 6) if evaluation_steps else 0.0,
+        # 概率校准诊断指标（越小越好）：Brier 分与 log loss。
+        "brier_score": round((brier_hits_sum / evaluation_steps), 6) if evaluation_steps else 1.0,
+        "log_loss": round((log_loss_hits_sum / evaluation_steps), 6) if evaluation_steps else round(math.log(49), 6),
         "selected_blend": round(selected_blend, 4),
         "blend_stats": {
             str(candidate): {
                 "top1_hit_rate": round((blend_stats[round(candidate, 4)]["top1"] / evaluation_steps), 6) if evaluation_steps else 0.0,
                 "top6_hit_rate": round((blend_stats[round(candidate, 4)]["top6"] / evaluation_steps), 6) if evaluation_steps else 0.0,
                 "final_top1_hit_rate": round((final_blend_stats[round(candidate, 4)]["top1"] / evaluation_steps), 6) if evaluation_steps else 0.0,
+                "log_loss": round((blend_stats[round(candidate, 4)]["log_loss"] / evaluation_steps), 6) if evaluation_steps else round(math.log(49), 6),
             }
             for candidate in blend_candidates
         },
@@ -9657,6 +9923,8 @@ def _predict_with_ml(data, region, variation_key=None):
         "final_top1_hit_rate": round(float(model.get("final_top1_hit_rate", 0.0)) * 100, 2),
         "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
         "calibration_score": round(float(model.get("calibration_score", 0.0)) * 100, 2),
+        "brier_score": round(float(model.get("brier_score", 1.0)), 6),
+        "log_loss": round(float(model.get("log_loss", math.log(49))), 6),
         "selected_blend": round(blend_weight * 100, 2),
         "normal_numbers": list(normal),
         "selected_special_number": str(special_num),
@@ -9745,6 +10013,14 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             if not any(v > 0 for v in special_freq.values()):
                 raise ValueError("No frequency data")
 
+            # 平码专用频率图：选 6 个平码时用这个（每期 6 个球，信号量是特码的 6 倍），
+            # 避免把每期只有 1 个的特码频率当作平码排序依据（特码→平码变量混淆）。
+            normal_hot_freq = _build_normal_number_frequency(recent_data)
+            normal_trend_freq = _build_normal_number_frequency(trend_data)
+            normal_short_freq = _build_normal_number_frequency(recent_data[:10] if len(recent_data) >= 10 else recent_data)
+            normal_medium_freq = _build_normal_number_frequency(recent_data[:24] if len(recent_data) >= 24 else recent_data)
+            overdue_all = _build_overdue_scores_all(recent_data)
+
             hot_norm = _normalize_metric_map(special_freq)
             trend_norm = _normalize_metric_map(trend_freq)
             short_norm = _normalize_metric_map(short_freq)
@@ -9752,6 +10028,14 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             normal_norm = _normalize_metric_map(all_freq)
             overdue_norm = _normalize_metric_map(overdue)
             cold_norm = {str(i): round(1.0 - hot_norm.get(str(i), 0.0), 4) for i in range(1, 50)}
+
+            # 平码排序信号：用平码频率而非特码频率；overdue 用全号码口径
+            normal_hot_norm = _normalize_metric_map(normal_hot_freq)
+            normal_trend_norm = _normalize_metric_map(normal_trend_freq)
+            normal_short_norm = _normalize_metric_map(normal_short_freq)
+            normal_medium_norm = _normalize_metric_map(normal_medium_freq)
+            normal_cold_norm = {str(i): round(1.0 - normal_hot_norm.get(str(i), 0.0), 4) for i in range(1, 50)}
+            overdue_all_norm = _normalize_metric_map(overdue_all)
 
             year = _infer_draw_year(recent_data)
             number_to_zodiac = _get_number_to_zodiac_map(year)
@@ -9765,12 +10049,13 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 apply_recent_zodiac_cooldown=(strategy != "cold"),
             )
             feedback_confidence = float(feedback.get("confidence") or 0.0)
-            trend_reversal_profile = _build_local_trend_reversal_profile(short_norm, medium_norm, hot_norm)
+            # 这两个 profile 产出的是平码排序的惩罚分，输入也用平码频率图，保证口径一致
+            trend_reversal_profile = _build_local_trend_reversal_profile(normal_short_norm, normal_medium_norm, normal_hot_norm)
             trend_reversal_scores = trend_reversal_profile.get("scores") or {}
             cold_trap_profile = _build_local_cold_trap_profile(
-                cold_norm,
-                overdue_norm,
-                medium_norm,
+                normal_cold_norm,
+                overdue_all_norm,
+                normal_medium_norm,
                 normal_norm,
                 feedback=feedback,
                 feedback_confidence=feedback_confidence,
@@ -9857,11 +10142,11 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 cold_trap_penalty = cold_trap_scores.get(key, 0.0) if strategy in ("cold", "hybrid") else 0.0
                 
                 score = (
-                    float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) * hot_multiplier +
-                    float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) * trend_multiplier +
-                    float(weights.get("cold", 0.0)) * cold_norm.get(key, 0.0) * cold_multiplier +
+                    float(weights.get("hot", 0.0)) * normal_hot_norm.get(key, 0.0) * hot_multiplier +
+                    float(weights.get("trend", 0.0)) * normal_trend_norm.get(key, 0.0) * trend_multiplier +
+                    float(weights.get("cold", 0.0)) * normal_cold_norm.get(key, 0.0) * cold_multiplier +
                     float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
-                    float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
+                    float(weights.get("overdue", 0.0)) * overdue_all_norm.get(key, 0.0) +
                     float(weights.get("feedback", 0.0)) * feedback_score * feedback_multiplier +
                     (attr_score * attribute_multiplier) + (penalty * overheat_multiplier) -
                     (trend_reversal_penalty * 0.85) -
@@ -9875,8 +10160,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
 
             hot_rank = _rank_numbers({
                 number: (
-                    hot_norm.get(str(number), 0.0) +
-                    trend_norm.get(str(number), 0.0) * 0.35 +
+                    normal_hot_norm.get(str(number), 0.0) +
+                    normal_trend_norm.get(str(number), 0.0) * 0.35 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.75) +
                     attribute_score(number) + overheat_penalty(number)
                 )
@@ -9884,8 +10169,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             })
             cold_rank = _rank_numbers({
                 number: (
-                    cold_norm.get(str(number), 0.0) +
-                    overdue_norm.get(str(number), 0.0) * 0.8 +
+                    normal_cold_norm.get(str(number), 0.0) +
+                    overdue_all_norm.get(str(number), 0.0) * 0.8 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.45) +
                     attribute_score(number) + (overheat_penalty(number) * 0.5) -
                     cold_trap_scores.get(str(number), 0.0)
@@ -9894,8 +10179,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             })
             trend_rank = _rank_numbers({
                 number: (
-                    trend_norm.get(str(number), 0.0) * 1.1 +
-                    hot_norm.get(str(number), 0.0) * 0.35 +
+                    normal_trend_norm.get(str(number), 0.0) * 1.1 +
+                    normal_hot_norm.get(str(number), 0.0) * 0.35 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.70) +
                     attribute_score(number) + overheat_penalty(number) -
                     trend_reversal_scores.get(str(number), 0.0)
@@ -9904,7 +10189,29 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             })
             overall_rank = _rank_numbers(number_scores)
 
-            if strategy == 'hot':
+            # 显著性闸门：hot/cold/trend 选平码时，若窗口内平码频率无统计学显著信号，
+            # 退回均匀采样——避免把噪声当信号。这里复用已算好的 normal_hot_freq（recent_data
+            # 的平码频率），不额外查库。markov 在 _predict_with_markov 内单独处理。
+            significance_passed = True
+            if strategy in ("hot", "cold", "trend"):
+                try:
+                    significance_passed, _ = _significance_gate(
+                        normal_hot_freq,
+                        len(recent_data),
+                        6.0 / 49.0,
+                    )
+                except Exception:
+                    significance_passed = True
+
+            if not significance_passed and strategy in ("hot", "cold", "trend"):
+                # 显著性闸门未通过：窗口内平码频率无统计学显著信号，退回均匀采样。
+                # 用 all_numbers 经 _take_personalized_ranked（支持 variation_key 抖动）均匀抽取 6 个平码，
+                # 避免把噪声当信号排序。
+                uniform_rank = sorted(all_numbers)
+                normal = sorted(_take_personalized_ranked(
+                    uniform_rank, 6, variation_key=variation_key, window_size=len(uniform_rank)
+                ))
+            elif strategy == 'hot':
                 normal = sorted(_take_personalized_ranked(
                     hot_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
                 ))
@@ -10034,6 +10341,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     },
                     "local_combo_shape_profile": combo_shape_profile,
                     "local_hybrid_anneal_profile": hybrid_anneal_profile if strategy == "hybrid" else {},
+                    "significance_passed": bool(significance_passed),
                 },
             }
         except Exception as e:
