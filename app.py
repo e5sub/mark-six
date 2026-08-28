@@ -1953,6 +1953,12 @@ _draws_api_cache_lock = threading.Lock()
 _draws_api_cache = {}
 _DRAWS_API_CACHE_TTL = 60
 
+# 开奖结果 SSE 实时推送配置
+_DRAW_SSE_POLL_INTERVAL = max(1, _env_int("DRAW_SSE_POLL_INTERVAL", 5))
+_DRAW_SSE_HEARTBEAT_INTERVAL = max(5, _env_int("DRAW_SSE_HEARTBEAT_INTERVAL", 20))
+_DRAW_SSE_REGIONS = ("hk", "macau")
+_DRAW_SSE_MAX_EVENTS_PER_PUSH = 50
+
 # 数据库配置
 db_path = os.path.join(data_dir, 'lottery_system.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = _build_database_uri(db_path)
@@ -2367,12 +2373,13 @@ def get_ai_config():
         'model': SystemConfig.get_config('ai_model', 'gemini-2.0-flash')
     }
 # 澳门数据API
-# 原始API可能不可访问，使用备用API
-# MACAU_API_URL_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}"
-MACAU_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
+# 实时/最新开奖走 macaujc 接口（只返回最新一期，供实时同步）；整年历史走归档接口兜底。
+MACAU_LATEST_API_URL = "https://macaumarksix.com/api/macaujc2.com"
+MACAU_HISTORY_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/macaujc2/y/{year}"
 # 只在主进程中打印一次
 if _should_log_startup():
-    print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
+    print(f"澳门最新开奖接口: {MACAU_LATEST_API_URL}")
+    print(f"澳门历史归档接口: {MACAU_HISTORY_API_URL_TEMPLATE}")
 # 香港数据API
 HK_DATA_SOURCE_URL = "https://api3.marksix6.net/lottery_api.php?type=hk"
 # 进程内短缓存：避免 load_hk_data 每次调用都打远程接口（force_refresh 仍可绕过）。
@@ -3140,65 +3147,109 @@ def load_hk_data(force_refresh=False):
         print(f"从URL获取香港数据失败: {e}")
         return []
 
-def _fetch_macau_data_from_api(year):
-    url = MACAU_API_URL_TEMPLATE.format(year=year)
+def _normalize_macau_api_records(records):
+    """将澳门接口返回的 record 列表归一化为内部开奖记录，并按期号去重。"""
+    records = records or []
+    normalized_data = []
+
+    for record in records:
+        raw_numbers_str = record.get("openCode", "").split(',')
+        try:
+            numbers = [str(int(n)) for n in raw_numbers_str]
+        except (ValueError, TypeError):
+            continue
+        traditional_zodiacs = record.get("zodiac", "").split(',')
+        if len(numbers) < 7: continue
+
+        simplified_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in traditional_zodiacs]
+
+        normalized_data.append({
+            "id": record.get("expect"), "date": record.get("openTime"), "no": numbers[:6], "sno": numbers[6],
+            "sno_zodiac": simplified_zodiacs[6] if len(simplified_zodiacs) >= 7 else "",
+            "raw_wave": record.get("wave", ""), "raw_zodiac": ",".join(simplified_zodiacs)
+        })
+
+    # 按期号去重
+    unique_data = []
+    seen_ids = set()
+    for record in normalized_data:
+        record_id = record.get("id")
+        if record_id and record_id not in seen_ids:
+            unique_data.append(record)
+            seen_ids.add(record_id)
+    return unique_data
+
+
+def _filter_macau_records_by_year(records, year):
+    filtered_by_year = [rec for rec in records if rec.get("date", "").startswith(str(year))]
+    return sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+
+
+def _fetch_macau_history_from_api(year):
+    """整年历史归档接口（实时接口拿不到对应年份时兜底）。"""
+    url = MACAU_HISTORY_API_URL_TEMPLATE.format(year=year)
     try:
-        print(f"正在获取澳门数据，URL: {url}")
+        print(f"正在获取澳门历史数据，URL: {url}")
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         api_data = response.json()
-        if not api_data or not api_data.get("data"): 
-            print(f"澳门API返回空数据或格式错误: {api_data}")
+        if not api_data or not api_data.get("data"):
+            print(f"澳门历史接口返回空数据或格式错误: {api_data}")
             return []
-        
-        print(f"澳门API返回数据条数: {len(api_data['data'])}")
-        
-        normalized_data = []
-        for record in api_data["data"]:
-            raw_numbers_str = record.get("openCode", "").split(',')
-            try:
-                numbers = [str(int(n)) for n in raw_numbers_str]
-            except (ValueError, TypeError):
-                continue
-            traditional_zodiacs = record.get("zodiac", "").split(',')
-            if len(numbers) < 7: continue
+        records = api_data["data"]
+        print(f"澳门历史API返回数据条数: {len(records)}")
+    except Exception as e:
+        print(f"获取澳门历史数据失败: {e}")
+        return []
 
-            simplified_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in traditional_zodiacs]
-            
-            normalized_data.append({
-                "id": record.get("expect"), "date": record.get("openTime"), "no": numbers[:6], "sno": numbers[6],
-                "sno_zodiac": simplified_zodiacs[6] if len(simplified_zodiacs) >= 7 else "",
-                "raw_wave": record.get("wave", ""), "raw_zodiac": ",".join(simplified_zodiacs)
-            })
-        
-        print(f"标准化后的数据条数: {len(normalized_data)}")
-        
-        # --- 新增去重逻辑 ---
-        unique_data = []
-        seen_ids = set()
-        for record in normalized_data:
-            record_id = record.get("id")
-            if record_id and record_id not in seen_ids:
-                unique_data.append(record)
-                seen_ids.add(record_id)
-        # --- 去重逻辑结束 ---
-        
-        print(f"去重后的数据条数: {len(unique_data)}")
+    normalized_data = _normalize_macau_api_records(records)
+    print(f"标准化后的数据条数: {len(normalized_data)}")
+    result = _filter_macau_records_by_year(normalized_data, year)
+    print(f"按年份过滤后的数据条数: {len(result)}")
 
-        # 使用去重后的 unique_data 进行过滤和排序
-        filtered_by_year = [rec for rec in unique_data if rec.get("date", "").startswith(str(year))]
-        print(f"按年份过滤后的数据条数: {len(filtered_by_year)}")
-        
-        result = sorted(filtered_by_year, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
-        print(f"最终返回的数据条数: {len(result)}")
-        
+    if len(result) > 0:
+        print(f"示例数据: {result[0]}")
+    return result
+
+
+def _fetch_macau_data_from_api(year):
+    """澳门实时数据源：优先最新开奖接口（只返回最新一期，Source见配置）。
+
+    新接口不含年份参数，仅当它确实包含请求年份的数据时才直接用；
+    否则（如查询历史年份、接口异常、返回空）回退到整年历史归档接口。
+    """
+    url = MACAU_LATEST_API_URL
+    try:
+        print(f"正在获取澳门数据（实时接口），URL: {url}")
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        api_data = response.json()
+        if isinstance(api_data, dict):
+            records = api_data.get("data") or []
+        elif isinstance(api_data, list):
+            records = api_data
+        else:
+            records = []
+        print(f"澳门实时接口返回数据条数: {len(records)}")
+
+        normalized_data = _normalize_macau_api_records(records)
+        if not normalized_data:
+            print("澳门实时接口无有效数据，回退历史接口")
+            return _fetch_macau_history_from_api(year)
+
+        result = _filter_macau_records_by_year(normalized_data, year)
+        if not result:
+            # 实时接口只返回最新一期；请求更早年份时当前无匹配数据
+            print(f"澳门实时接口没有 {year} 年数据，回退历史接口")
+            return _fetch_macau_history_from_api(year)
+
+        print(f"澳门实时接口按年份过滤后的数据条数: {len(result)}")
         if len(result) > 0:
             print(f"示例数据: {result[0]}")
-        
         return result
     except Exception as e:
-        print(f"Error in get_macau_data for year {year}: {e}")
-        return []
+        print(f"澳门实时接口获取失败: {e}，回退历史接口")
+        return _fetch_macau_history_from_api(year)
 
 def get_macau_data(year, force_api=False):
     if not force_api:
@@ -14285,6 +14336,120 @@ def draws_api():
     
     # 如果是第一页，返回前50条数据，否则返回分页数据
     return jsonify(data)
+
+
+# ============ 开奖结果 SSE 实时推送 ============
+# 多 worker 部署时不做跨进程发布队列：所有 worker 读写同一个数据库，
+# SSE 连接直接按 updated_at 增量扫库，天然能收到任意 worker 写入的新开奖。
+# 前端用 EventSource 订阅，断线后浏览器自动重连，重连即收到最新快照。
+
+def _draws_sse_event(event_name, payload):
+    return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _latest_draw_row_by_region(region):
+    try:
+        return (
+            LotteryDraw.query.filter_by(region=region)
+            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+            .first()
+        )
+    except Exception:
+        return None
+
+
+def _draws_updated_rows(region, last_seen_at):
+    """返回 updated_at 晚于游标的开奖记录（按时间升序，限制条数），失败时返回 []。"""
+    try:
+        query = LotteryDraw.query.filter(LotteryDraw.region == region)
+        if last_seen_at is not None:
+            query = query.filter(LotteryDraw.updated_at > last_seen_at)
+        rows = (
+            query.order_by(
+                LotteryDraw.updated_at.asc(),
+                LotteryDraw.draw_date.asc(),
+                LotteryDraw.draw_id.asc(),
+            )
+            .limit(_DRAW_SSE_MAX_EVENTS_PER_PUSH)
+            .all()
+        )
+    except Exception as e:
+        print(f"读取开奖推送增量失败 region={region} error={e}")
+        return []
+    return rows
+
+
+def _draws_events_generator():
+    """SSE 推送生成器：连接后先发各地区最新一期快照，之后周期扫库推增量，并定时发心跳保活。"""
+    last_seen = {}
+    seen_keys = set()
+    snapshot = {}
+
+    for region in _DRAW_SSE_REGIONS:
+        record = _latest_draw_row_by_region(region)
+        if record is not None:
+            snapshot[region] = record.to_dict()
+            last_seen[region] = record.updated_at
+            seen_keys.add((region, str(record.draw_id), record.updated_at))
+        else:
+            seen_keys.add((region, None, None))
+
+    yield _draws_sse_event("snapshot", {
+        "regions": snapshot,
+        "server_time": datetime.now().isoformat(timespec="seconds"),
+    })
+
+    last_activity = time.time()
+    while True:
+        try:
+            if time.time() - last_activity >= _DRAW_SSE_HEARTBEAT_INTERVAL:
+                yield f": ping\n\n"
+                last_activity = time.time()
+
+            changed_by_region = {}
+            for region in _DRAW_SSE_REGIONS:
+                for record in _draws_updated_rows(region, last_seen.get(region)):
+                    key = (region, str(record.draw_id), record.updated_at)
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+                    changed_by_region.setdefault(region, []).append(record.to_dict())
+                    if record.updated_at is not None and (
+                        last_seen.get(region) is None or record.updated_at > last_seen[region]
+                    ):
+                        last_seen[region] = record.updated_at
+
+            for region, draws in changed_by_region.items():
+                yield _draws_sse_event("draw", {"region": region, "draws": draws})
+        except GeneratorExit:
+            break
+        except Exception as e:
+            print(f"开奖推送循环异常 error={e}")
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+        finally:
+            # 长连接期间主动释放会话，避免长期占用一个数据库事务
+            try:
+                db.session.remove()
+            except Exception:
+                pass
+        time.sleep(_DRAW_SSE_POLL_INTERVAL)
+
+
+@app.route('/api/draws/events')
+def draws_events_api():
+    """开奖结果实时推送（SSE）：连接后立即返回各地区最新一期，之后在新开奖写入时自动推送。"""
+    return Response(
+        stream_with_context(_draws_events_generator()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune_strategy_configs=True):
     """更新预测准确率 - 只比较特码和生肖"""
