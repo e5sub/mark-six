@@ -330,6 +330,13 @@ class PredictionRecord(db.Model):
             'region',
             'created_at',
         ),
+        db.Index(
+            'ix_pred_region_strat_upd_created',
+            'region',
+            'strategy',
+            'is_result_updated',
+            'created_at',
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True)

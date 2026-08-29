@@ -14926,7 +14926,7 @@ def _log_draw_update(message, source="manual", region=None):
     print(log_line)
 
 
-def _run_draw_postprocess_for_region(region, current_year, source="manual-postprocess"):
+def _run_draw_postprocess_for_region(region, current_year, source="manual-postprocess", tune_strategy_configs=False):
     with app.app_context():
         try:
             prediction_data, _ = _get_prediction_data(region, current_year)
@@ -14937,19 +14937,21 @@ def _run_draw_postprocess_for_region(region, current_year, source="manual-postpr
             _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_data)}", source=source, region=region)
             generate_auto_predictions(prediction_data, region)
             _log_draw_update("自动预测已完成", source=source, region=region)
-            _log_draw_update("开始刷新本地策略学习参数", source=source, region=region)
-            tuning_started_at = time.time()
-            update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
-            tuning_elapsed = round(time.time() - tuning_started_at, 2)
-            _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
-            _log_draw_update("开奖更新后处理完成（回测已改为定时任务，不再在此触发）", source=source, region=region)
+            # 本地策略学习参数只在定时开奖任务（每天21:40）触发，手动/移动端更新开奖数据不触发
+            if tune_strategy_configs:
+                _log_draw_update("开始刷新本地策略学习参数", source=source, region=region)
+                tuning_started_at = time.time()
+                update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
+                tuning_elapsed = round(time.time() - tuning_started_at, 2)
+                _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
+            _log_draw_update("开奖更新后处理完成（回测已改为定时任务，不在开奖更新时触发）", source=source, region=region)
         except Exception as e:
             _log_draw_update(f"自动预测失败 error={e}", source=source, region=region)
             import traceback
             traceback.print_exc()
 
 
-def _start_draw_postprocess_async(regions, current_year, source="manual-postprocess"):
+def _start_draw_postprocess_async(regions, current_year, source="manual-postprocess", tune_strategy_configs=False):
     normalized_regions = tuple(region for region in (regions or []) if region in ("hk", "macau"))
     if not normalized_regions:
         return False
@@ -14958,7 +14960,7 @@ def _start_draw_postprocess_async(regions, current_year, source="manual-postproc
     for region in normalized_regions:
         def _runner(target_region=region):
             _log_draw_update("后台后处理分区任务开始", source=source, region=target_region)
-            _run_draw_postprocess_for_region(target_region, current_year, source=source)
+            _run_draw_postprocess_for_region(target_region, current_year, source=source, tune_strategy_configs=tune_strategy_configs)
             _log_draw_update("后台后处理分区任务完成", source=source, region=target_region)
 
         threading.Thread(
@@ -15586,7 +15588,12 @@ def update_lottery_data():
             update_prediction_accuracy(macau_data, 'macau', trigger_auto_predictions=False, tune_strategy_configs=False)
             _log_draw_update("澳门预测结算已完成", source="scheduler", region="macau")
 
-            postprocess_started = _start_draw_postprocess_async(updated_region_keys, current_year, source="scheduler-postprocess")
+            postprocess_started = _start_draw_postprocess_async(
+                updated_region_keys,
+                current_year,
+                source="scheduler-postprocess",
+                tune_strategy_configs=True,
+            )
 
             _log_draw_update(
                 f"定时开奖更新任务完成 {'，'.join(updated_regions)}" + ("；自动预测已转入后台继续处理（回测已改为定时任务）" if postprocess_started else ""),

@@ -1005,6 +1005,11 @@ def _latest_unique_backtest_summary(limit=6):
 
 
 def _kickoff_backtest_snapshot_refresh(region):
+    # 页面按需触发的回测快照重算会全量重跑 ML 回测（单次可能运行数十分钟），
+    # 默认关闭；快照由每天 0:00 的定时回测任务统一生成。
+    # 如需按需触发可设置环境变量 ENABLE_BACKTEST_ON_DEMAND=1。
+    if str(__import__('os').environ.get('ENABLE_BACKTEST_ON_DEMAND', '0')).strip().lower() not in ('1', 'true', 'yes', 'on'):
+        return
     region_key = str(region or "").strip().lower()
     if region_key not in ("hk", "macau"):
         return

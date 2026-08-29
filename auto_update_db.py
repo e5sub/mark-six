@@ -151,6 +151,14 @@ def _update_mysql_database():
                     connection.execute(text("ALTER TABLE prediction_record ADD COLUMN prediction_metadata MEDIUMTEXT"))
                     changes.append("Added prediction_record.prediction_metadata")
 
+                if not _mysql_index_exists(connection, "prediction_record", "ix_pred_region_strat_upd_created"):
+                    connection.execute(text(
+                        "ALTER TABLE prediction_record "
+                        "ADD INDEX ix_pred_region_strat_upd_created "
+                        "(region, strategy, is_result_updated, created_at)"
+                    ))
+                    changes.append("Created ix_pred_region_strat_upd_created")
+
             if _mysql_table_exists(connection, "manual_bet_records"):
                 if not _mysql_column_exists(connection, "manual_bet_records", "bettor_name"):
                     connection.execute(text("ALTER TABLE manual_bet_records ADD COLUMN bettor_name VARCHAR(50)"))
@@ -573,6 +581,17 @@ def update_database():
                 print("region/period index for prediction_record created")
             else:
                 print("region/period index for prediction_record already exists")
+
+            region_strategy_index_name = 'ix_pred_region_strat_upd_created'
+            if not check_index_exists(cursor, region_strategy_index_name):
+                print("Creating region/strategy/updated index for prediction_record...")
+                cursor.execute(f'''
+                    CREATE INDEX {region_strategy_index_name}
+                    ON prediction_record (region, strategy, is_result_updated, created_at)
+                ''')
+                print("region/strategy/updated index for prediction_record created")
+            else:
+                print("region/strategy/updated index for prediction_record already exists")
 
         if not check_table_exists(cursor, 'manual_bet_records'):
             print("创建 manual_bet_records 表...")
