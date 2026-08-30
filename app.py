@@ -14941,14 +14941,14 @@ def _run_draw_postprocess_for_region(region, current_year, source="manual-postpr
             _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_data)}", source=source, region=region)
             generate_auto_predictions(prediction_data, region)
             _log_draw_update("自动预测已完成", source=source, region=region)
-            # 本地策略学习参数只在定时开奖任务（每天21:40）触发，手动/移动端更新开奖数据不触发
+            # 本地策略学习参数已移入每天0点回测定时任务触发，开奖/手动/移动端更新链路不再触发
             if tune_strategy_configs:
                 _log_draw_update("开始刷新本地策略学习参数", source=source, region=region)
                 tuning_started_at = time.time()
                 update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
                 tuning_elapsed = round(time.time() - tuning_started_at, 2)
                 _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
-            _log_draw_update("开奖更新后处理完成（回测已改为定时任务，不在开奖更新时触发）", source=source, region=region)
+            _log_draw_update("开奖更新后处理完成（回测与策略调参已移入0点定时任务，不在开奖更新时触发）", source=source, region=region)
         except Exception as e:
             _log_draw_update(f"自动预测失败 error={e}", source=source, region=region)
             import traceback
@@ -15596,11 +15596,11 @@ def update_lottery_data():
                 updated_region_keys,
                 current_year,
                 source="scheduler-postprocess",
-                tune_strategy_configs=True,
+                tune_strategy_configs=False,
             )
 
             _log_draw_update(
-                f"定时开奖更新任务完成 {'，'.join(updated_regions)}" + ("；自动预测已转入后台继续处理（回测已改为定时任务）" if postprocess_started else ""),
+                f"定时开奖更新任务完成 {'，'.join(updated_regions)}" + ("；自动预测已转入后台继续处理（策略调参/回测已移入0点定时任务）" if postprocess_started else ""),
                 source="scheduler",
                 region="all",
             )
@@ -15688,6 +15688,18 @@ def run_scheduled_backtest_job(regions=None, source="scheduler-backtest"):
                         )
                     backtest_elapsed = round(time.time() - backtest_started_at, 2)
                     _log_draw_update(f"定时回测快照已完成 elapsed={backtest_elapsed}s", source=source, region=region)
+                    # 本地策略学习参数刷新也已移入0点任务，与回测解耦后等待最新开奖数据
+                    try:
+                        tuning_started_at = time.time()
+                        _log_draw_update("开始刷新本地策略学习参数", source=source, region=region)
+                        update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
+                        tuning_elapsed = round(time.time() - tuning_started_at, 2)
+                        _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
+                    except Exception as tuning_error:
+                        db.session.rollback()
+                        _log_draw_update(f"本地策略学习参数刷新失败 error={tuning_error}", source=source, region=region)
+                        import traceback
+                        traceback.print_exc()
                 except Exception as region_error:
                     db.session.rollback()
                     _log_draw_update(f"定时回测失败 error={region_error}", source=source, region=region)
@@ -15810,7 +15822,7 @@ def start_scheduler(force=False):
     )
     _scheduler.start()
     if _should_log_startup():
-        print("定时任务已启动：每天20:00自动采集澳门号码生肖；21:40自动更新数据库中的开奖记录；每天0:00刷新回测快照")
+        print("定时任务已启动：每天20:00自动采集澳门号码生肖；21:40自动更新开奖记录并发送预测邮件；每天0:00刷新回测快照与本地策略学习参数")
     return _scheduler
 
 if os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on"):
