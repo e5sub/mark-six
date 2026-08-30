@@ -10451,6 +10451,10 @@ def _predict_with_ml(data, region, variation_key=None):
     }
 
 def get_local_recommendations(strategy, data, region, variation_key=None):
+    from flask import has_app_context
+    if not has_app_context():
+        with app.app_context():
+            return get_local_recommendations(strategy, data, region, variation_key=variation_key)
     all_numbers = list(range(1, 50))
     if not data:
         return _build_default_baseline_prediction()

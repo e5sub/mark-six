@@ -292,8 +292,8 @@ def notify_user(user, title, content, html_content=None, event_type='general', l
         def _send_user_email():
             try:
                 send_html_email(user.email, email_subject or title, html_content or content)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[notify] 用户邮件发送失败 email={user.email} error={e}")
         _run_notify(_send_user_email)
         results['email'] = True
 
@@ -341,8 +341,8 @@ def notify_admins(title, content, html_content=None, event_type='admin', link_ur
             def _send_one(target_email=email):
                 try:
                     send_html_email(target_email, title, html_content or content)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[notify] 管理员邮件发送失败 email={target_email} error={e}")
             _run_notify(_send_one)
         results['email'] = [{'email': email, 'ok': True} for email in sent_to]
 
