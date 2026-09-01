@@ -6587,7 +6587,10 @@ def _significance_gate(count_map, n_draws, trials_per_draw,
             continue
         if p_value < min_p:
             min_p = p_value
-    passed = (chi_p < corrected_alpha) or (min_p < corrected_alpha)
+    # 卡方是对整体分布的单一检验，不应做多重比较校正，直接与 alpha 比较；
+    # 逐号码二项才是 49 次重复检验，需要 Bonferroni 校正（corrected_alpha）。
+    # 之前两处都除以 49 会把正常有信号的窗口误判为"无信号"，导致 hot/cold/trend 全部退化。
+    passed = (chi_p < alpha) or (min_p < corrected_alpha)
     return bool(passed), float(min_p)
 
 
@@ -7019,6 +7022,18 @@ def _take_ranked(ranked_numbers, count, exclude=None):
 def _stable_hash_int(*parts):
     raw = "||".join(str(part) for part in parts)
     return int(hashlib.sha256(raw.encode("utf-8")).hexdigest(), 16)
+
+
+def _stable_uniform_rank(seed_key, all_numbers=None, count=6):
+    """按稳定种子把 1..49 打散后取前 count 个，用于均匀兜底出号。
+
+    与直接取 sorted(all_numbers)[:count]（永远得到 1..6）不同：
+    同一 seed_key（如 variation_key/当前期号）结果稳定可复现，
+    不同期/不同用户得到不同组合，避免"每期号码都差不多"。
+    """
+    numbers = list(all_numbers or range(1, 50))
+    ordered = sorted(numbers, key=lambda n: _stable_hash_int(str(seed_number or ""), int(n)))
+    return ordered[:count]
 
 def _take_personalized_ranked(ranked_numbers, count, variation_key=None, exclude=None, chunk_size=3, window_size=None):
     if not variation_key:
@@ -10686,9 +10701,17 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 # 显著性闸门未通过：窗口内平码频率无统计学显著信号，退回均匀采样。
                 # 用 all_numbers 经 _take_personalized_ranked（支持 variation_key 抖动）均匀抽取 6 个平码，
                 # 避免把噪声当信号排序。
+                uniform_seed_key = variation_key or ""
+                if not uniform_seed_key:
+                    try:
+                        latest_draw = data[0] if data else None
+                        uniform_seed_key = f"{region}:{latest_draw.get('id', '')}" if latest_draw and latest_draw.get('id') else region
+                    except Exception:
+                        uniform_seed_key = region or ""
                 uniform_rank = sorted(all_numbers)
                 normal = sorted(_take_personalized_ranked(
-                    uniform_rank, 6, variation_key=variation_key, window_size=len(uniform_rank)
+                    _stable_uniform_rank(uniform_seed_key, all_numbers),
+                    6, variation_key=variation_key, window_size=len(uniform_rank)
                 ))
             elif strategy == 'hot':
                 normal = sorted(_take_personalized_ranked(
