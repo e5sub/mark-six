@@ -127,11 +127,19 @@ def has_email_config():
     ])
 
 
-def send_html_email(email, subject, html_body):
-    smtp_server = _get_config('smtp_server')
-    smtp_port = int(_get_config('smtp_port', '587') or '587')
-    smtp_username = _get_config('smtp_username')
-    smtp_password = _get_config('smtp_password')
+def send_html_email(email, subject, html_body, smtp_config=None):
+    # SMTP 配置读取依赖数据库（SystemConfig），而邮件发送在线程池线程里没有 Flask 上下文，
+    # 因此配置必须在调用侧（有上下文）读好后传入；未传时才回退为函数内读取。
+    if smtp_config is None:
+        smtp_server = _get_config('smtp_server')
+        smtp_port = int(_get_config('smtp_port', '587') or '587')
+        smtp_username = _get_config('smtp_username')
+        smtp_password = _get_config('smtp_password')
+    else:
+        smtp_server = (smtp_config.get('server') or '').strip()
+        smtp_port = int(smtp_config.get('port', 587) or 587)
+        smtp_username = (smtp_config.get('username') or '').strip()
+        smtp_password = (smtp_config.get('password') or '').strip()
 
     if not all([smtp_server, smtp_username, smtp_password]):
         raise Exception('邮件服务未配置，请联系管理员')
@@ -289,9 +297,16 @@ def notify_user(user, title, content, html_content=None, event_type='general', l
             results['station'] = str(exc)
 
     if user and user.email and _is_enabled('notify_email_enabled', 'true'):
+        smtp_config = {
+            'server': _get_config('smtp_server'),
+            'port': int(_get_config('smtp_port', '587') or '587'),
+            'username': _get_config('smtp_username'),
+            'password': _get_config('smtp_password'),
+        }
+
         def _send_user_email():
             try:
-                send_html_email(user.email, email_subject or title, html_content or content)
+                send_html_email(user.email, email_subject or title, html_content or content, smtp_config=smtp_config)
             except Exception as e:
                 print(f"[notify] 用户邮件发送失败 email={user.email} error={e}")
         _run_notify(_send_user_email)
@@ -330,6 +345,12 @@ def notify_admins(title, content, html_content=None, event_type='admin', link_ur
             results['station'] = str(exc)
 
     if _is_enabled('notify_email_enabled', 'true'):
+        smtp_config = {
+            'server': _get_config('smtp_server'),
+            'port': int(_get_config('smtp_port', '587') or '587'),
+            'username': _get_config('smtp_username'),
+            'password': _get_config('smtp_password'),
+        }
         recipients = list(email_recipients or [])
         if not recipients:
             recipients = [admin.email for admin in admin_users if admin.email]
@@ -340,7 +361,7 @@ def notify_admins(title, content, html_content=None, event_type='admin', link_ur
 
             def _send_one(target_email=email):
                 try:
-                    send_html_email(target_email, title, html_content or content)
+                    send_html_email(target_email, title, html_content or content, smtp_config=smtp_config)
                 except Exception as e:
                     print(f"[notify] 管理员邮件发送失败 email={target_email} error={e}")
             _run_notify(_send_one)
