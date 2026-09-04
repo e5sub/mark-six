@@ -112,6 +112,14 @@ def has_email_config():
 
 
 def send_html_email(email, subject, html_body):
+    from flask import has_app_context
+    if not has_app_context():
+        # 后台线程/定时任务等无 Flask 上下文的调用点：先补上下文再重试，
+        # 否则下面 SystemConfig 查配置会抛 "Working outside of application context"。
+        from app import app
+        with app.app_context():
+            return send_html_email(email, subject, html_body)
+
     smtp_server = _get_config('smtp_server')
     smtp_port = int(_get_config('smtp_port', '587') or '587')
     smtp_username = _get_config('smtp_username')
@@ -126,7 +134,8 @@ def send_html_email(email, subject, html_body):
     msg['To'] = email
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-    server = smtplib.SMTP(smtp_server, smtp_port)
+    # 给 SMTP 每段加超时，避免邮箱服务慢时无限阻塞调用线程。
+    server = smtplib.SMTP(smtp_server, smtp_port, timeout=15)
     server.starttls()
     server.login(smtp_username, smtp_password)
     server.send_message(msg)
@@ -276,6 +285,7 @@ def notify_user(user, title, content, html_content=None, event_type='general', l
             send_html_email(user.email, email_subject or title, html_content or content)
             results['email'] = True
         except Exception as exc:
+            print(f"[notify] 用户邮件发送失败 email={user.email} error={exc}")
             results['email'] = str(exc)
 
     for channel, sender in (
@@ -325,6 +335,7 @@ def notify_admins(title, content, html_content=None, event_type='admin', link_ur
                 send_html_email(email, title, html_content or content)
                 email_results.append({'email': email, 'ok': True})
             except Exception as exc:
+                print(f"[notify] 管理员邮件发送失败 email={email} error={exc}")
                 email_results.append({'email': email, 'ok': False, 'error': str(exc)})
         results['email'] = email_results
 
