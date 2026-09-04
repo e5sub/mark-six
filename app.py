@@ -379,7 +379,7 @@ def _runtime_json_signature(value):
         payload = json.dumps(value or {}, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     except TypeError:
         payload = str(value or "")
-    return hashlib.md5(payload.encode("utf-8")).hexdigest()
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _prediction_cache_meta(region, data):
@@ -418,13 +418,13 @@ def _build_ai_prediction_cache_key(region, data, tuned, ai_config, prompt, tempe
         "draw_count": len(data or []),
         "tuned": tuned_payload,
         "ai": ai_payload,
-        "prompt_hash": hashlib.md5(str(prompt or "").encode("utf-8")).hexdigest(),
+        "prompt_hash": hashlib.sha256(str(prompt or "").encode("utf-8")).hexdigest(),
         "temperature": round(float(temperature or 0.0), 4),
         "sample_count": int(sample_count or 0),
         "candidate_count": int(candidate_count or 0),
     }
     fingerprint = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    return hashlib.md5(fingerprint.encode("utf-8")).hexdigest()
+    return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
 
 
 def _prune_stale_ai_prediction_cache(region, latest_period):
@@ -9192,7 +9192,7 @@ def _build_ml_prediction_cache_key(region, data, config):
         "accuracy_signature": accuracy_signature,
     }
     fingerprint = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    return hashlib.md5(fingerprint.encode("utf-8")).hexdigest()
+    return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
 
 
 def _ml_prediction_cache_meta(region, data):

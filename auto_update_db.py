@@ -206,7 +206,7 @@ def check_column_exists(cursor, table_name, column_name):
 
 def check_table_exists(cursor, table_name):
     """检查表是否存在"""
-    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
     return cursor.fetchone() is not None
 
 
