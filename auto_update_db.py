@@ -135,7 +135,6 @@ def _update_mysql_database():
                     "show_normal_numbers": "BOOLEAN DEFAULT 0",
                     "github_id": "VARCHAR(64)",
                     "github_username": "VARCHAR(120)",
-                    "session_version": "INTEGER NOT NULL DEFAULT 0",
                 }
                 for column_name, ddl in user_columns.items():
                     if not _mysql_column_exists(connection, "user", column_name):
@@ -150,14 +149,6 @@ def _update_mysql_database():
                 if not _mysql_column_exists(connection, "prediction_record", "prediction_metadata"):
                     connection.execute(text("ALTER TABLE prediction_record ADD COLUMN prediction_metadata MEDIUMTEXT"))
                     changes.append("Added prediction_record.prediction_metadata")
-
-                if not _mysql_index_exists(connection, "prediction_record", "ix_pred_region_strat_upd_created"):
-                    connection.execute(text(
-                        "ALTER TABLE prediction_record "
-                        "ADD INDEX ix_pred_region_strat_upd_created "
-                        "(region, strategy, is_result_updated, created_at)"
-                    ))
-                    changes.append("Created ix_pred_region_strat_upd_created")
 
             if _mysql_table_exists(connection, "manual_bet_records"):
                 if not _mysql_column_exists(connection, "manual_bet_records", "bettor_name"):
@@ -307,13 +298,6 @@ def update_database():
             print("github_username column added")
         else:
             print("github_username column already exists")
-
-        if not check_column_exists(cursor, 'user', 'session_version'):
-            print("Adding session_version column...")
-            cursor.execute("ALTER TABLE user ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
-            print("session_version column added")
-        else:
-            print("session_version column already exists")
 
         github_index_name = 'ix_user_github_id'
         if not check_index_exists(cursor, github_index_name):
@@ -581,17 +565,6 @@ def update_database():
                 print("region/period index for prediction_record created")
             else:
                 print("region/period index for prediction_record already exists")
-
-            region_strategy_index_name = 'ix_pred_region_strat_upd_created'
-            if not check_index_exists(cursor, region_strategy_index_name):
-                print("Creating region/strategy/updated index for prediction_record...")
-                cursor.execute(f'''
-                    CREATE INDEX {region_strategy_index_name}
-                    ON prediction_record (region, strategy, is_result_updated, created_at)
-                ''')
-                print("region/strategy/updated index for prediction_record created")
-            else:
-                print("region/strategy/updated index for prediction_record already exists")
 
         if not check_table_exists(cursor, 'manual_bet_records'):
             print("创建 manual_bet_records 表...")

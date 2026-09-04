@@ -479,13 +479,6 @@ def admin_required(f):
             if not user or not user.is_admin:
                 flash('需要管理员权限才能访问此页面', 'error')
                 return redirect(url_for('auth.login'))
-            # 会话版本校验：改密后旧管理员会话立即失效
-            session_version = session.get('session_version')
-            user_version = getattr(user, 'session_version', 0) or 0
-            if session_version is not None and session_version != user_version:
-                session.clear()
-                flash('登录已失效，请重新登录', 'error')
-                return redirect(url_for('auth.login'))
             return f(*args, **kwargs)
         except Exception as e:
             flash(f'权限检查失败: {str(e)}', 'error')
@@ -1156,16 +1149,13 @@ def reset_user_password(user_id):
         new_password = data['new_password']
         if not new_password or len(new_password) < 6:
             return jsonify({'success': False, 'message': '密码长度不能少于6个字符'})
-
+        
         user.set_password(new_password)
-        # 递增 session_version，强制被重置密码的用户重新登录，吊销其历史会话
-        user.session_version = (getattr(user, 'session_version', 0) or 0) + 1
         db.session.commit()
         return jsonify({'success': True, 'message': '密码重置成功'})
     except Exception as e:
         db.session.rollback()
-        print(f"[admin] reset_user_password failed: {e}")
-        return jsonify({'success': False, 'message': '密码重置失败，请稍后重试'})
+        return jsonify({'success': False, 'message': str(e)})
 
 @admin_bp.route('/users/<int:user_id>/delete', methods=['DELETE'])
 @admin_required
@@ -1261,20 +1251,12 @@ SYSTEM_CONFIG_DEFAULTS = {
 @admin_bp.route('/system_config', methods=['GET', 'POST'])
 @admin_required
 def system_config():
-    from models import SENSITIVE_CONFIG_KEYS
     try:
         if request.method == 'POST':
             configs = {
                 key: request.form.get(key, default)
                 for key, default in SYSTEM_CONFIG_DEFAULTS.items()
             }
-
-            # 敏感密钥字段在表单中以掩码回显。若提交值仍为掩码形式（以 * 开头），
-            # 视为未修改，跳过写入以免用掩码覆盖真实密钥；提交明文才视为更新。
-            for sensitive_key in SENSITIVE_CONFIG_KEYS:
-                submitted = configs.get(sensitive_key, '')
-                if submitted.startswith('*'):
-                    configs.pop(sensitive_key, None)
 
             retention_keys = (
                 'prediction_record_retention_days',
@@ -1311,11 +1293,6 @@ def system_config():
             key: SystemConfig.get_config(key, default)
             for key, default in SYSTEM_CONFIG_DEFAULTS.items()
         }
-        # 敏感密钥在后台展示时只回显掩码，避免密钥明文出现在 HTML 中或被插件/缓存留存
-        from models import SENSITIVE_CONFIG_KEYS, mask_sensitive_value
-        for sensitive_key in SENSITIVE_CONFIG_KEYS:
-            if sensitive_key in configs and configs[sensitive_key]:
-                configs[sensitive_key] = mask_sensitive_value(configs[sensitive_key])
 
         return render_template(
             'admin/system_config.html',
@@ -1347,22 +1324,17 @@ def strategy_params():
 @admin_bp.route('/system_config/save', methods=['POST'])
 @admin_required
 def save_system_config():
-    from models import SENSITIVE_CONFIG_KEYS
     try:
         data = request.get_json(silent=True)
         if not data:
             return jsonify({'success': False, 'message': '无效的数据格式'})
 
         for key, value in data.items():
-            # 敏感密钥不接受掩码回写，防止用掩码覆盖真实值
-            if key in SENSITIVE_CONFIG_KEYS and isinstance(value, str) and value.startswith('*'):
-                continue
             SystemConfig.set_config(key, value)
 
         return jsonify({'success': True, 'message': '配置保存成功'})
     except Exception as e:
-        print(f"[admin] save_system_config failed: {e}")
-        return jsonify({'success': False, 'message': '配置保存失败，请稍后重试'})
+        return jsonify({'success': False, 'message': str(e)})
 
 @admin_bp.route('/system_config/retrain_learning', methods=['POST'])
 @admin_required

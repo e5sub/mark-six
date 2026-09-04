@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+﻿from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
 from flask import Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
@@ -13,34 +13,16 @@ import threading
 import hmac
 from contextlib import contextmanager
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 import re
 from urllib.parse import quote_plus, urlparse
 from datetime import datetime, timedelta
 import time
 from markupsafe import escape
-from scipy import stats
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.engine import make_url
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 from werkzeug.middleware.proxy_fix import ProxyFix
-
-# ML 训练数值核心（纯函数，可从 scripts/ml_optimizer.py 独立单测）
-from scripts.ml_optimizer import (
-    adam_init_state as _ml_adam_init_state,
-    adam_update as _ml_adam_update,
-    fit_temperature as _ml_fit_temperature,
-    HEURISTIC_DEFAULT_COEFFS as _ml_heuristic_default_coeffs,
-    heuristic_raw_score as _ml_heuristic_raw_score,
-    heuristic_regression_update as _ml_heuristic_regression_update,
-    normal_head_gradients as _ml_normal_head_gradients,
-    sigmoid as _ml_sigmoid,
-    special_head_gradients as _ml_special_head_gradients,
-    sgd_update as _ml_sgd_update,
-    softmax as _ml_softmax,
-    standardize_feature_map as _ml_standardize_feature_map,
-)
 
 # 导入用户系统模块
 from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord, BacktestRun
@@ -65,13 +47,6 @@ def _env_float(name, default):
         return float(default)
 
 
-def _env_int(name, default):
-    try:
-        return int(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        return int(default)
-
-
 _ML_PREDICTION_CACHE_TTL_SECONDS = 900
 _ML_PREDICTION_CACHE_MAX_ITEMS = 24
 _AI_PREDICTION_CACHE_TTL_SECONDS = 300
@@ -82,19 +57,6 @@ _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
 # Normal-number coverage and zodiac agreement remain tie-break signals only.
 SPECIAL_PRIORITY_TOP6_WEIGHT = 0.12
 SPECIAL_PRIORITY_ZODIAC_WEIGHT = 0.04
-# ML objective weight for log loss in training/validation scoring. Higher emphasizes
-# calibration; chosen so log_loss (~3.89 at uniform over 49) doesn't dominate top6.
-ML_LOG_LOSS_WEIGHT = 0.5
-# Strategies whose signal is purely frequency-driven are gated by significance tests.
-# When no number in the window is statistically above its expected frequency, these
-# strategies fall back to uniform sampling and are downgraded in backtest ranking.
-SIGNIFICANCE_GATE_STRATEGIES = ("hot", "cold", "trend", "markov")
-# Multiplicative penalty applied to a strategy's ranking score when it fails the
-# significance gate (no statistically-significant number in the window).
-SIGNIFICANCE_GATE_PENALTY = 0.5
-# Per-number Bonferroni comparison count (49 numbers in 1..49).
-SIGNIFICANCE_GATE_COMPARISONS = 49
-SIGNIFICANCE_GATE_ALPHA = 0.05
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
 _ml_prediction_build_events = {}
@@ -109,11 +71,6 @@ _SYSTEM_LOG_RETENTION_DAYS = 30
 _SYSTEM_LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 _SYSTEM_LOG_PREFIX_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s?(.*)$")
 _SYSTEM_LOG_INLINE_TIME_RE = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
-# Tee 默认开启（保持向后兼容）；设 ENABLE_SYSTEM_LOG_TEE=0 可彻底关闭落盘，消除日志磁盘 I/O。
-_SYSTEM_LOG_TEE_ENABLED = os.environ.get("ENABLE_SYSTEM_LOG_TEE", "1").lower() in ("1", "true", "yes", "on")
-# 同一天内按大小滚动，避免 system.log 无限增长。
-_SYSTEM_LOG_MAX_BYTES = _env_int("SYSTEM_LOG_MAX_BYTES", 10 * 1024 * 1024)
-_SYSTEM_LOG_BACKUP_COUNT = max(1, _env_int("SYSTEM_LOG_BACKUP_COUNT", 5))
 _system_log_stream_lock = threading.Lock()
 _system_log_tee_installed = False
 
@@ -172,30 +129,24 @@ class _SystemLogFileManager:
         self._file_path = file_path
         self._handle = None
         self._current_date = None
-        self._written_bytes = 0
 
-    def _open(self):
-        # 用默认缓冲（约 8KB）而非行缓冲(buffering=1)，大幅减少每次写盘的系统调用。
-        self._handle = open(self._file_path, "a", encoding="utf-8", buffering=-1, errors="replace")
-        self._current_date = datetime.now().date()
-        try:
-            self._written_bytes = os.fstat(self._handle.fileno()).st_size
-        except OSError:
-            self._written_bytes = 0
-        _cleanup_old_system_log_archives()
-
-    def _close_quietly(self):
+    def _rotate_if_needed(self):
+        today = datetime.now().date()
         if self._handle is None:
+            self._handle = open(self._file_path, "a", encoding="utf-8", buffering=1, errors="replace")
+            self._current_date = today
+            _cleanup_old_system_log_archives()
             return
+
+        if self._current_date == today:
+            return
+
         try:
             self._handle.flush()
             self._handle.close()
         except Exception:
             pass
-        self._handle = None
 
-    def _rotate_by_date(self, today):
-        self._close_quietly()
         if os.path.exists(self._file_path):
             archive_path = _system_log_archive_path(self._current_date or today)
             try:
@@ -207,65 +158,29 @@ class _SystemLogFileManager:
                 os.replace(self._file_path, archive_path)
             except OSError:
                 pass
-        self._open()
 
-    def _rotate_by_size(self):
-        # system.log.N -> system.log.N+1（最老的丢弃），system.log -> system.log.1
-        for index in range(_SYSTEM_LOG_BACKUP_COUNT, 0, -1):
-            candidate = f"{self._file_path}.{index}"
-            if index == _SYSTEM_LOG_BACKUP_COUNT:
-                if os.path.exists(candidate):
-                    try:
-                        os.remove(candidate)
-                    except OSError:
-                        pass
-                continue
-            if os.path.exists(candidate):
-                try:
-                    os.replace(candidate, f"{self._file_path}.{index + 1}")
-                except OSError:
-                    pass
-        if os.path.exists(self._file_path):
-            try:
-                os.replace(self._file_path, f"{self._file_path}.1")
-            except OSError:
-                pass
-
-    def _rotate_if_needed(self):
-        today = datetime.now().date()
-        if self._handle is None:
-            self._open()
-            return
-        if self._current_date != today:
-            self._rotate_by_date(today)
-            return
-        if self._written_bytes >= _SYSTEM_LOG_MAX_BYTES:
-            self._close_quietly()
-            self._rotate_by_size()
-            self._open()
+        self._handle = open(self._file_path, "a", encoding="utf-8", buffering=1, errors="replace")
+        self._current_date = today
+        _cleanup_old_system_log_archives()
 
     def write(self, text):
         self._rotate_if_needed()
         self._handle.write(text)
-        self._written_bytes += len(text)
 
     def flush(self):
         if self._handle is None:
-            self._open()
+            self._rotate_if_needed()
         self._handle.flush()
 
     def truncate(self):
-        self._close_quietly()
-        for index in range(1, _SYSTEM_LOG_BACKUP_COUNT + 1):
-            backup = f"{self._file_path}.{index}"
-            if os.path.exists(backup):
-                try:
-                    os.remove(backup)
-                except OSError:
-                    pass
-        self._handle = open(self._file_path, "w", encoding="utf-8", buffering=-1, errors="replace")
+        if self._handle is not None:
+            try:
+                self._handle.flush()
+                self._handle.close()
+            except Exception:
+                pass
+        self._handle = open(self._file_path, "w", encoding="utf-8", buffering=1, errors="replace")
         self._current_date = datetime.now().date()
-        self._written_bytes = 0
         _cleanup_old_system_log_archives()
 
 
@@ -288,8 +203,6 @@ class _TeeStream:
         text = "" if data is None else str(data)
         if not text:
             return 0
-        # 不再每次写入都 flush：交给文件缓冲 + 操作系统按页刷盘，
-        # 把"每行一次同步磁盘写"降为"缓冲满才写"，大幅降低日志磁盘 I/O。
         with _system_log_stream_lock:
             try:
                 self._original.write(text)
@@ -297,6 +210,10 @@ class _TeeStream:
                 pass
             try:
                 self._file_manager.write(self._with_timestamps(text))
+            except Exception:
+                pass
+            try:
+                self._file_manager.flush()
             except Exception:
                 pass
         return len(text)
@@ -326,46 +243,14 @@ def _install_system_log_tee():
     global _system_log_tee_installed
     if _system_log_tee_installed:
         return
-    if not _SYSTEM_LOG_TEE_ENABLED:
-        # 彻底关闭落盘，所有 print 只走原始 stdout/stderr，零日志磁盘 I/O。
-        _system_log_tee_installed = False
-        return
     try:
         os.makedirs(os.path.dirname(_SYSTEM_LOG_FILE_PATH), exist_ok=True)
         log_manager = _SystemLogFileManager(_SYSTEM_LOG_FILE_PATH)
         sys.stdout = _TeeStream(sys.stdout, log_manager)
         sys.stderr = _TeeStream(sys.stderr, log_manager)
         _system_log_tee_installed = True
-        _start_system_log_flush_thread(log_manager)
     except Exception:
         _system_log_tee_installed = False
-
-
-_system_log_flush_thread = None
-_SYSTEM_LOG_FLUSH_INTERVAL_SECONDS = max(1, _env_int("SYSTEM_LOG_FLUSH_INTERVAL_SECONDS", 5))
-
-
-def _start_system_log_flush_thread(log_manager):
-    """后台定时 flush，保证缓冲日志定期落盘（替代原先每次写都 flush）。"""
-    global _system_log_flush_thread
-    if _system_log_flush_thread is not None:
-        return
-
-    def _flush_loop():
-        while True:
-            try:
-                with _system_log_stream_lock:
-                    log_manager.flush()
-            except Exception:
-                pass
-            time.sleep(_SYSTEM_LOG_FLUSH_INTERVAL_SECONDS)
-
-    _system_log_flush_thread = threading.Thread(
-        target=_flush_loop,
-        name="system-log-flush",
-        daemon=True,
-    )
-    _system_log_flush_thread.start()
 
 
 def get_system_log_file_path():
@@ -409,30 +294,14 @@ def get_system_logs(limit=200):
 
     try:
         tail_lines = []
-        # 文件按时间正序排列（最旧在前）。我们从最新文件开始反向读取，
-        # 只要累计够 limit 行就停止，避免把超大日志文件整文件扫进内存。
-        for log_file in reversed(log_files):
-            try:
-                file_size = os.path.getsize(log_file)
-            except OSError:
-                continue
-            if file_size == 0:
-                continue
-            # 只读最后 256KB（足够覆盖几百到上千行日志），避免全文件扫描。
-            read_bytes = min(file_size, 256 * 1024)
-            with open(log_file, "rb") as raw:
-                raw.seek(-read_bytes, os.SEEK_END)
-                chunk = raw.read()
-            for line in reversed(chunk.decode("utf-8", errors="replace").splitlines()):
-                if not line.strip():
-                    continue
-                tail_lines.append(line)
-                if len(tail_lines) >= normalized_limit:
-                    break
-            if len(tail_lines) >= normalized_limit:
-                break
+        for log_file in log_files:
+            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    tail_lines.append(line.rstrip("\r\n"))
+                    if len(tail_lines) > normalized_limit:
+                        tail_lines.pop(0)
         logs = []
-        for line in tail_lines:
+        for line in reversed(tail_lines):
             log_time, log_line = _split_system_log_timestamp(line)
             logs.append({
                 "time": log_time,
@@ -450,16 +319,6 @@ def clear_system_logs():
                 os.remove(log_file)
             except OSError:
                 pass
-        # 清理由按大小滚动产生的 system.log.1 .. system.log.N 备份。
-        base_dir = os.path.dirname(_SYSTEM_LOG_FILE_PATH)
-        base_name = os.path.basename(_SYSTEM_LOG_FILE_PATH)
-        for index in range(1, _SYSTEM_LOG_BACKUP_COUNT + 1):
-            backup = os.path.join(base_dir, f"{base_name}.{index}")
-            if os.path.exists(backup):
-                try:
-                    os.remove(backup)
-                except OSError:
-                    pass
         if hasattr(sys.stdout, "_file_manager"):
             sys.stdout._file_manager.truncate()
         elif hasattr(sys.stderr, "_file_manager"):
@@ -680,35 +539,18 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
 app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-# 默认开启 Secure 标志，仅在显式 opt-out（SESSION_COOKIE_SECURE=0/false/no 或
-# 开发环境 SESSION_COOKIE_ALLOW_HTTP=1）时关闭，避免生产部署漏配导致 Cookie 走明文 HTTP。
 _session_cookie_secure = os.environ.get("SESSION_COOKIE_SECURE")
-_session_cookie_allow_http = os.environ.get("SESSION_COOKIE_ALLOW_HTTP", "").lower() in ("1", "true", "yes")
-if _session_cookie_secure is not None:
-    app.config["SESSION_COOKIE_SECURE"] = _session_cookie_secure.lower() not in ("0", "false", "no")
-else:
-    app.config["SESSION_COOKIE_SECURE"] = not _session_cookie_allow_http
+app.config["SESSION_COOKIE_SECURE"] = (
+    _session_cookie_secure.lower() in ("1", "true", "yes")
+    if _session_cookie_secure is not None
+    else os.environ.get("FLASK_ENV", "").lower() == "production"
+)
 _trust_proxy_headers = os.environ.get("TRUST_PROXY_HEADERS", "").lower() in ("1", "true", "yes")
 if _trust_proxy_headers:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
-
-@app.after_request
-def _enforce_transport_security(response):
-    """在 HTTPS 请求上回写 HSTS 头，强化传输层安全；不会在 HTTP 明文响应上设置以免锁死。"""
-    if request.is_secure:
-        response.headers.setdefault(
-            "Strict-Transport-Security",
-            "max-age=31536000; includeSubDomains",
-        )
-    return response
-
 _SECURITY_RATE_LIMITS = {}
 _SECURITY_RATE_LIMITS_LOCK = threading.Lock()
-# 限频字典清理：每隔这么多秒清一次空桶，避免 key 单调增长导致内存泄漏。
-_SECURITY_RATE_LIMITS_SWEEP_INTERVAL_SECONDS = _env_int("RATE_LIMIT_SWEEP_INTERVAL_SECONDS", 300)
-_SECURITY_RATE_LIMITS_MAX_WINDOW_SECONDS = 3600
-_security_rate_limits_last_sweep = 0.0
 
 
 def _client_rate_key(scope):
@@ -718,29 +560,10 @@ def _client_rate_key(scope):
     return f"{scope}:user:{user_id}" if user_id else f"{scope}:ip:{remote_addr}"
 
 
-def _sweep_security_rate_limits(now):
-    """丢弃所有已过期/为空的限频桶，防止字典随分散的客户端 IP 单调膨胀。"""
-    global _security_rate_limits_last_sweep
-    if now - _security_rate_limits_last_sweep < _SECURITY_RATE_LIMITS_SWEEP_INTERVAL_SECONDS:
-        return
-    _security_rate_limits_last_sweep = now
-    cutoff = now - _SECURITY_RATE_LIMITS_MAX_WINDOW_SECONDS
-    stale_keys = []
-    for key, timestamps in _SECURITY_RATE_LIMITS.items():
-        fresh = [ts for ts in timestamps if ts >= cutoff]
-        if fresh:
-            _SECURITY_RATE_LIMITS[key] = fresh
-        else:
-            stale_keys.append(key)
-    for key in stale_keys:
-        _SECURITY_RATE_LIMITS.pop(key, None)
-
-
 def _rate_limited(scope, limit, window_seconds):
     now = time.time()
     key = _client_rate_key(scope)
     with _SECURITY_RATE_LIMITS_LOCK:
-        _sweep_security_rate_limits(now)
         bucket = [
             timestamp
             for timestamp in _SECURITY_RATE_LIMITS.get(key, [])
@@ -1022,7 +845,7 @@ def _should_log_startup():
 
 
 @contextmanager
-def _startup_schema_lock(timeout_seconds=300):
+def _startup_schema_lock(timeout_seconds=120):
     import tempfile
     lock_path = os.path.join(tempfile.gettempdir(), "mark-six-schema.lock")
     pid = os.getpid()
@@ -1049,11 +872,10 @@ def _startup_schema_lock(timeout_seconds=300):
                     continue
                 except OSError:
                     pass
-            time.sleep(0.5)
+            time.sleep(0.25)
 
     if not acquired:
-        # 仅告警，不影响启动：schema 同步是幂等的，另一个 worker 正在做或已做完。
-        print("Startup schema lock timeout; another worker likely holds it. Schema sync is idempotent, continuing.")
+        print("Startup schema lock timeout; continuing without exclusive schema lock.")
 
     try:
         yield
@@ -2102,9 +1924,6 @@ def _sync_runtime_database_schema():
             'show_normal_numbers': 'BOOLEAN DEFAULT 0',
             'github_id': 'VARCHAR(64)',
             'github_username': 'VARCHAR(120)',
-            # 会话版本号（改密/重置密码后用于吊销旧会话）。NOT NULL DEFAULT 0，
-            # MySQL 下 ADD COLUMN 带默认值是即时操作，不会全表重写。
-            'session_version': 'INTEGER NOT NULL DEFAULT 0',
         },
         'prediction_record': {
             'prediction_metadata': 'MEDIUMTEXT' if dialect in ('mysql', 'mariadb') else 'TEXT',
@@ -2375,10 +2194,6 @@ if _should_log_startup():
     print(f"澳门API模板: {MACAU_API_URL_TEMPLATE}")
 # 香港数据API
 HK_DATA_SOURCE_URL = "https://api3.marksix6.net/lottery_api.php?type=hk"
-# 进程内短缓存：避免 load_hk_data 每次调用都打远程接口（force_refresh 仍可绕过）。
-_HK_DATA_CACHE_TTL_SECONDS = _env_int("HK_DATA_CACHE_TTL_SECONDS", 60)
-_hk_data_cache_lock = threading.Lock()
-_hk_data_cache = {"data": None, "fetched_at": 0.0}
 HK_NEXT_DRAW_TIME_URL = "https://api3.marksix6.net/"
 
 # --- 号码属性计算与映射 ---
@@ -3056,13 +2871,6 @@ def settle_pending_manual_bets(region, draw_id):
 # --- 数据加载与处理 ---
 def load_hk_data(force_refresh=False):
     """从新接口获取香港开奖数据"""
-    # 进程内短缓存：未强制刷新且缓存未过期时直接返回，避免每次调用都打远程接口。
-    now_ts = time.time()
-    if not force_refresh:
-        with _hk_data_cache_lock:
-            cached = _hk_data_cache.get("data")
-            if cached is not None and now_ts - float(_hk_data_cache.get("fetched_at") or 0.0) < _HK_DATA_CACHE_TTL_SECONDS:
-                return copy.deepcopy(cached)
     try:
         print(f"正在获取香港数据，URL: {HK_DATA_SOURCE_URL}")
         params = {"_": int(time.time())} if force_refresh else None
@@ -3124,16 +2932,10 @@ def load_hk_data(force_refresh=False):
         
         # 按日期和期号排序（降序）
         result = sorted(unique_data, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
-
+        
         if len(result) > 0:
             print(f"最新一期数据: {result[0]}")
-
-        # 成功拿到数据后写入短缓存。
-        if result:
-            with _hk_data_cache_lock:
-                _hk_data_cache["data"] = copy.deepcopy(result)
-                _hk_data_cache["fetched_at"] = time.time()
-
+        
         return result
         
     except Exception as e:
@@ -3253,20 +3055,48 @@ def _is_secondary_hit(prediction, actual_special, actual_zodiac):
 
 
 def _softmax(values):
-    return _ml_softmax(values)
+    if not values:
+        return []
+    max_value = max(values)
+    exp_values = [math.exp(_clamp(value - max_value, -30.0, 30.0)) for value in values]
+    total = sum(exp_values)
+    if total <= 0:
+        fallback = 1.0 / len(values)
+        return [fallback] * len(values)
+    return [value / total for value in exp_values]
 
 
-def _build_ml_heuristic_score_map(feature_table, coeffs=None):
-    """启发打分（与 magic 系数一致的线性组合，末尾归一化到 [0,1]）。
-
-    coeffs 缺省时用固定魔法系数；传入学到的 _ml_heuristic_default_coeffs
-    形态的系数列表则用量纲相同的新系数。归一化保证输出形状仅由相对大小决定。
-    """
+def _build_ml_heuristic_score_map(feature_table):
     score_map = {}
     for key, features in (feature_table or {}).items():
         if not features:
             continue
-        score_map[key] = _ml_heuristic_raw_score(features, coeffs)
+        momentum_short = max(0.0, features[15]) if len(features) > 15 else 0.0
+        momentum_medium = max(0.0, features[16]) if len(features) > 16 else 0.0
+        recent_special_penalty = features[6] if len(features) > 6 else 0.0
+        recent_number_penalty = features[7] if len(features) > 7 else 0.0
+        score_map[key] = (
+            features[0] * 0.22 +
+            features[1] * 0.18 +
+            features[2] * 0.10 +
+            features[3] * 0.06 +
+            features[4] * 0.12 +
+            features[5] * 0.09 +
+            features[8] * 0.07 +
+            features[9] * 0.05 +
+            features[10] * 0.06 +
+            features[11] * 0.05 +
+            momentum_short * 0.10 +
+            momentum_medium * 0.08 -
+            recent_special_penalty * 0.08 -
+            recent_number_penalty * 0.04 +
+            (features[17] * 0.05 if len(features) > 17 else 0.0) +
+            (features[18] * 0.06 if len(features) > 18 else 0.0) -
+            (features[19] * 0.07 if len(features) > 19 else 0.0) +
+            (features[20] * 0.05 if len(features) > 20 else 0.0) +
+            (features[21] * 0.06 if len(features) > 21 else 0.0) +
+            (features[22] * 0.03 if len(features) > 22 else 0.0)
+        )
     return _normalize_metric_map(score_map)
 
 
@@ -3359,18 +3189,6 @@ def _default_strategy_config(strategy):
             "l2": 0.0025,
             "early_stopping_patience": 4,
             "validation_floor": 0.88,
-            "optimizer_mode": "adam",
-            "minibatch_size": 8,
-            "normalize_features": True,
-            "multihead_loss": True,
-            "learn_heuristic": True,
-            "heuristic_lr": 0.01,
-            "ml_signal_gate_enabled": True,
-            "ml_signal_calibration_floor": 0.15,
-            "ml_signal_confidence_floor": 30.0,
-            "temperature_scaling": True,
-            "walkforward": True,
-            "holdout_periods": 8,
             "primary_feature_profile": "full",
             "primary_runtime_profile": "base",
             "blend_candidates": [0.55, 0.7, 0.82],
@@ -3507,39 +3325,6 @@ def _temporary_strict_backtest_strategy(enabled=True):
                 pass
         else:
             _backtest_strict_strategy_local.enabled = previous
-
-
-# ---- 回测/调度加速模式 ------------------------------------------------
-# 0:00 定时回测的耗时主力是 ml：数据 ≥80 期时每期默认跑「base + 5 个 runtime
-# 候选」完整训练（约 6 次训练/期 × 120 期 × 2 分区）。BACKTEST_FAST=1 时：
-# 每期只训 base 配置（跳过候选搜索）、窗口从 POSTPROCESS_BACKTEST_LIMIT 缩到
-# _BACKTEST_FAST_LIMIT 期。默认关闭（恒等于旧行为）。
-_BACKTEST_FAST_LIMIT = 40
-_ml_fast_optimize_local = threading.local()
-
-
-def _backtest_fast_enabled():
-    return os.environ.get("BACKTEST_FAST", "0").lower() in ("1", "true", "yes", "on")
-
-
-@contextmanager
-def _temporary_ml_fast_optimize(enabled):
-    previous = getattr(_ml_fast_optimize_local, "enabled", None)
-    _ml_fast_optimize_local.enabled = bool(enabled)
-    try:
-        yield
-    finally:
-        if previous is None:
-            try:
-                delattr(_ml_fast_optimize_local, "enabled")
-            except AttributeError:
-                pass
-        else:
-            _ml_fast_optimize_local.enabled = previous
-
-
-def _ml_fast_optimize_active():
-    return bool(getattr(_ml_fast_optimize_local, "enabled", False))
 
 
 def _normalize_draw_number(value):
@@ -3946,13 +3731,8 @@ def _maybe_rollback_strategy_config(strategy, region, config):
 
     baseline_score = _safe_float(guard.get("baseline_score"), 0.0)
     current_score = _score_strategy_window_rates(stats)
-    # Step 6：容差改相对 + 绝对下限。高分基线时阈值随基线缩放
-    # （baseline × rel_tolerance），低分基线时落回绝对值 drop_tolerance
-    # 兜底，避免量纲崩坏。旧语义（纯绝对值）在 baseline 低于阈值时保持。
-    absolute_floor = _safe_float(guard.get("drop_tolerance"), 0.8)
-    rel_tolerance = _safe_float(guard.get("rel_tolerance"), 0.15)
-    tolerance_effective = max(baseline_score * rel_tolerance, absolute_floor)
-    degraded = current_score < (baseline_score - tolerance_effective)
+    tolerance = _safe_float(guard.get("drop_tolerance"), 0.8)
+    degraded = current_score < (baseline_score - tolerance)
     consecutive = int(guard.get("consecutive_degrade") or 0)
     consecutive = consecutive + 1 if degraded else 0
     patience = int(guard.get("patience") or 3)
@@ -4077,7 +3857,6 @@ def _maybe_restore_rolled_back_strategy_config(strategy, region, config):
         "patience": int(config.get("rollback_patience") or 3),
         "min_samples": int(config.get("rollback_min_samples") or 8),
         "drop_tolerance": round(float(config.get("rollback_drop_tolerance") or 0.8), 4),
-        "rel_tolerance": round(float(config.get("rollback_rel_tolerance") or 0.15), 4),
         "consecutive_degrade": 0,
         "last_checked_at": "",
     }
@@ -5098,29 +4877,6 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phas
         phase_bonus = (phase_score * 100 * 0.18) if current_phase_label in ("hot", "cold", "concentrated", "dispersed") else 0.0
         sample_bonus = min(2.5, math.log(max(total_samples, 1), 10) * 0.9)
         score = round(sum(window_scores) / len(window_scores) + config_bonus + phase_bonus + sample_bonus, 2)
-        # 显著性闸门：纯频率驱动的策略（hot/cold/trend/markov）在窗口内无统计学显著信号时
-        # 排名降级，让有信号的策略上位。用最小评分窗口（最敏感的近期窗口）做一次检验即可。
-        significance_passed = True
-        significance_penalty = 1.0
-        if strategy in SIGNIFICANCE_GATE_STRATEGIES:
-            gate_window = int(min(windows or (20,)) or 20)
-            significance_passed, significance_penalty = _strategy_significance_penalty(region, strategy, gate_window)
-            score = round(score * significance_penalty, 2)
-        elif strategy == "ml":
-            # Step 5：ml 走模型健康闸门（不掺频率卡方）。信号由最近一次
-            # 预测构建时写入 ml 策略配置；尚未训练时视为信息缺失，放行。
-            ml_gate_config = _load_strategy_config("ml", region)
-            stored_signal = dict(ml_gate_config.get("ml_signal") or {})
-            if stored_signal:
-                ml_diagnosis = _ml_signal_gate({
-                    "calibration_score": float(stored_signal.get("calibration") or 0.0),
-                    "evaluation_draws": int(stored_signal.get("evaluation_draws") or 0),
-                    "ml_signal_confidence": float(stored_signal.get("confidence") or 0.0),
-                }, ml_gate_config)
-                if not ml_diagnosis["passed"]:
-                    significance_passed = False
-                    significance_penalty = SIGNIFICANCE_GATE_PENALTY
-                    score = round(score * significance_penalty, 2)
         scored.append({
             "strategy": strategy,
             "label": _get_strategy_label(strategy),
@@ -5128,7 +4884,6 @@ def _get_recommended_strategy(region, windows=(20, 50, 100), min_samples=5, phas
             "samples": total_samples,
             "phase_score": round(phase_score, 4),
             "phase_samples": int(phase_samples or 0),
-            "significance_passed": bool(significance_passed),
         })
 
     if not scored:
@@ -6465,38 +6220,6 @@ def _build_number_frequency(data):
             counts[str(sno)] += 1
     return {str(i): counts.get(str(i), 0) for i in range(1, 50)}
 
-def _build_normal_number_frequency(data):
-    """仅统计平码（no）出现次数的频率图。
-
-    平码每期 6 个、特码每期 1 个，二者来自同一个 1-49 的池，但是不同的随机变量。
-    选择"6 个平码"时应当用平码频率（信号量是特码频率的 6 倍），而不是把每期只有
-    1 个的特码频率当作平码的排序信号——后者样本极稀疏，几乎是纯噪声。
-    """
-    counts = Counter()
-    for record in data or []:
-        for number in record.get("no", []):
-            if number:
-                counts[str(number)] += 1
-    return {str(i): counts.get(str(i), 0) for i in range(1, 50)}
-
-def _build_overdue_scores_all(data):
-    """统计每个号码距上次出现（平码或特码均可）的间隔期数，覆盖全部 7 个开奖号码。
-
-    旧的 _build_overdue_scores 只看特码 sno 的 gap，等价于每期只观察 1 个号码的缺席情况，
-    严重低估"该号码其实最近开过"的信号。这里统计 7 个开奖号码的整体缺席期数。
-    """
-    scores = {}
-    for number in range(1, 50):
-        gap = len(data or [])
-        target = str(number)
-        for idx, record in enumerate(data or []):
-            drawn = list(record.get("no") or []) + ([record.get("sno")] if record.get("sno") else [])
-            if target in {str(n) for n in drawn if n}:
-                gap = idx
-                break
-        scores[str(number)] = gap
-    return scores
-
 def _build_overdue_scores(data):
     scores = {}
     for number in range(1, 50):
@@ -6534,146 +6257,6 @@ def _normalize_signed_metric_map(metric_map):
         key: round(_clamp(0.5 + (float(value) / (2 * max_abs)), 0.0, 1.0), 4)
         for key, value in metric_map.items()
     }
-
-
-def _significance_gate(count_map, n_draws, trials_per_draw,
-                       comparisons=SIGNIFICANCE_GATE_COMPARISONS,
-                       alpha=SIGNIFICANCE_GATE_ALPHA):
-    """对窗口内频率做显著性检验，判断是否有号码显著高于均匀期望。
-
-    返回 (passed, min_pvalue)：
-    - passed=True 表示存在统计学上显著偏离均匀分布的信号（卡方整体偏离，
-      或至少一个号码的二项检验在 Bonferroni 校正后显著高于期望）。
-    - passed=False 表示窗口频率与均匀分布无显著差异，应视为噪声 → 退回均匀采样。
-
-    count_map: {str(1..49): count}，每号码在该窗口的观测次数。
-    n_draws: 该窗口包含的期数。
-    trials_per_draw: 单期内该变量的期望出现次数（平码 6/49，全号码 7/49）。
-    """
-    if n_draws <= 0:
-        return False, 1.0
-    expected_per_number = max(1e-6, n_draws * float(trials_per_draw))
-    counts = []
-    expected = []
-    for number in range(1, 50):
-        observed = int(count_map.get(str(number), 0) or 0)
-        counts.append(float(observed))
-        expected.append(expected_per_number)
-    # 整体卡方拟合优度：总闸，判断频率是否偏离均匀分布。
-    try:
-        total_observed = sum(counts)
-        chi2, chi_p = stats.chisquare(counts, expected)
-        chi2 = float(chi2)
-        chi_p = float(chi_p)
-    except (ValueError, FloatingPointError):
-        chi_p = 1.0
-    # 逐号码二项检验：找"显著高于期望"的号码（单侧 greater）。
-    # 某号码在每个抽取位置出现的概率 = 1/49（均匀池）；试验总数 = n_draws * 每期球数。
-    # 每期球数 = trials_per_draw * 49（trials_per_draw 是每期该号码的期望出现比例），
-    # 例如平码 trials=6/49 → 每期 6 个球 → binom_trials = n_draws * 6，
-    # 期望 = binom_trials / 49 = n_draws * trials_per_draw（与卡方期望一致）。
-    per_number_p = 1.0 / 49.0
-    binom_trials = max(1, int(round(n_draws * trials_per_draw * 49.0)))
-    min_p = chi_p
-    corrected_alpha = alpha / max(comparisons, 1)
-    for number in range(1, 50):
-        observed = int(count_map.get(str(number), 0) or 0)
-        if observed <= expected_per_number:
-            continue
-        try:
-            result = stats.binomtest(observed, n=binom_trials, p=per_number_p, alternative="greater")
-            p_value = float(result.pvalue)
-        except (ValueError, FloatingPointError):
-            continue
-        if p_value < min_p:
-            min_p = p_value
-    # 卡方是对整体分布的单一检验，不应做多重比较校正，直接与 alpha 比较；
-    # 逐号码二项才是 49 次重复检验，需要 Bonferroni 校正（corrected_alpha）。
-    # 之前两处都除以 49 会把正常有信号的窗口误判为"无信号"，导致 hot/cold/trend 全部退化。
-    passed = (chi_p < alpha) or (min_p < corrected_alpha)
-    return bool(passed), float(min_p)
-
-
-def _load_gate_draws(region, window):
-    """取指定窗口的原始开奖数据（含 sno + no），用于显著性闸门。
-
-    尊重 _current_backtest_cutoff_period，保证回测期与生产期使用同一数据口径。
-    返回 newest-first 的 list（与 _build_number_frequency 等期望的输入顺序一致）。
-    """
-    cutoff = _current_backtest_cutoff_period()
-    if cutoff:
-        draws_desc = _load_region_draw_history(region, limit=max(int(window) * 3, int(window) + 24))
-        if cutoff:
-            kept = []
-            for draw in draws_desc:
-                draw_period = _normalize_period_value(draw.get("id"))
-                if draw_period and _is_period_before(draw_period, cutoff):
-                    kept.append(draw)
-                if len(kept) >= int(window):
-                    break
-            return kept[:int(window)]
-    return _load_region_draw_history(region, limit=int(window))
-
-
-def _ml_signal_gate(model_meta, config=None):
-    """ml 策略的信号闸门。
-
-    不把 ml 掺入频率卡方检验（语义不适合），而是综合三条模型健康线：
-    evaluation_draws 评估样本数、calibration_score 校准分（raw 0-1）、
-    ml_signal_confidence 置信度（_estimate_ml_confidence 的 0-100 输出）。
-    任一条跌破阈值即判「信号不足」，供排名降级（×SIGNIFICANCE_GATE_PENALTY）。
-
-    缺模型信息时保守放行（与频率闸门「无样本即放行」的惯例一致），
-    避免尚未训练首轮模型时 ml 被无条件降级。
-    返回 {"passed": bool, "reasons": [str]}。
-    """
-    if not model_meta:
-        return {"passed": True, "reasons": ["no_model_info"]}
-    gate_config = dict(config or {})
-    if not bool(gate_config.get("ml_signal_gate_enabled", True)):
-        return {"passed": True, "reasons": ["disabled"]}
-    calibration = float(model_meta.get("calibration_score") or 0.0)
-    evaluation_draws = int(model_meta.get("evaluation_draws") or 0)
-    confidence = float(model_meta.get("ml_signal_confidence") or 0.0)
-    floor_calibration = float(gate_config.get("ml_signal_calibration_floor") or 0.15)
-    floor_confidence = float(gate_config.get("ml_signal_confidence_floor") or 30.0)
-    reasons = []
-    if evaluation_draws < 6:
-        reasons.append(f"evaluation_draws={evaluation_draws}<6")
-    if calibration < floor_calibration:
-        reasons.append(f"calibration={calibration:.3f}<{floor_calibration:.2f}")
-    if confidence < floor_confidence:
-        reasons.append(f"confidence={confidence:.0f}<{floor_confidence:.0f}")
-    return {"passed": not reasons, "reasons": reasons}
-
-
-def _strategy_significance_penalty(region, strategy, window):
-    """返回某策略在 window 窗口内是否通过显著性闸门。
-
-    返回 (passed: bool, penalty_factor: float)。未通过时 penalty_factor =
-    SIGNIFICANCE_GATE_PENALTY（用于排名降级）；通过则为 1.0。
-
-    hot/cold/trend 选平码，用平码口径（每期 6 个球，trials≈6/49）。
-    markov 的转移矩阵覆盖全部 7 个开奖号码，用全号码口径（trials≈7/49）。
-    非闸门策略直接返回 (True, 1.0)。
-    """
-    if strategy not in SIGNIFICANCE_GATE_STRATEGIES:
-        return True, 1.0
-    try:
-        draws = _load_gate_draws(region, window)
-    except Exception:
-        return True, 1.0
-    if not draws:
-        return True, 1.0
-    n_draws = len(draws)
-    if strategy == "markov":
-        count_map = _build_number_frequency(draws)
-        trials_per_draw = 7.0 / 49.0
-    else:
-        count_map = _build_normal_number_frequency(draws)
-        trials_per_draw = 6.0 / 49.0
-    passed, _ = _significance_gate(count_map, n_draws, trials_per_draw)
-    return passed, (1.0 if passed else SIGNIFICANCE_GATE_PENALTY)
 
 
 def _feedback_confidence(sample_count, full_confidence=80):
@@ -7022,18 +6605,6 @@ def _take_ranked(ranked_numbers, count, exclude=None):
 def _stable_hash_int(*parts):
     raw = "||".join(str(part) for part in parts)
     return int(hashlib.sha256(raw.encode("utf-8")).hexdigest(), 16)
-
-
-def _stable_uniform_rank(seed_key, all_numbers=None, count=6):
-    """按稳定种子把 1..49 打散后取前 count 个，用于均匀兜底出号。
-
-    与直接取 sorted(all_numbers)[:count]（永远得到 1..6）不同：
-    同一 seed_key（如 variation_key/当前期号）结果稳定可复现，
-    不同期/不同用户得到不同组合，避免"每期号码都差不多"。
-    """
-    numbers = list(all_numbers or range(1, 50))
-    ordered = sorted(numbers, key=lambda n: _stable_hash_int(str(seed_number or ""), int(n)))
-    return ordered[:count]
 
 def _take_personalized_ranked(ranked_numbers, count, variation_key=None, exclude=None, chunk_size=3, window_size=None):
     if not variation_key:
@@ -7796,30 +7367,6 @@ def _predict_with_markov(data, region, variation_key=None):
     trend_norm = _normalize_metric_map(analyze_special_number_frequency(trend_data))
     normal_norm = _normalize_metric_map(_build_number_frequency(recent_data))
     overdue_norm = _normalize_metric_map(_build_overdue_scores(recent_data))
-    # 显著性闸门：markov 用全号码口径（每期 7 个球）。未通过时退化为均匀采样 + 仅保留
-    # 一阶转移矩阵作为弱信号（二阶/属性链置信度衰减为 0）。
-    significance_passed = True
-    try:
-        significance_passed, _ = _significance_gate(
-            _build_number_frequency(recent_data),
-            len(recent_data),
-            7.0 / 49.0,
-        )
-    except Exception:
-        significance_passed = True
-    # 未通过闸门时，砍掉频率/二阶/属性/相位等噪声驱动的权重，只留一阶转移矩阵作为弱信号。
-    gate_weights = dict(weights)
-    if not significance_passed:
-        for noise_key in ("hot", "trend", "normal", "overdue",
-                          "second_order", "phase_transition", "attribute_transition",
-                          "special_attribute"):
-            gate_weights[noise_key] = 0.0
-        # 二阶/属性链的置信度也归零，彻底切断这些信号。
-        second_order_confidence = 0.0
-        special_second_order_confidence = 0.0
-        attribute_profile = {}
-        special_attribute_profile = {}
-        phase_transition_norm = {}
     feedback = _build_prediction_feedback(region, "markov", cutoff_period=cutoff_period)
     failure_profile = _build_markov_failure_profile(region, cutoff_period=cutoff_period)
     ml_distillation = _build_markov_ml_distillation(region, cutoff_period=cutoff_period) if markov_guard.get("mode") == "anchor_guard" else {"confidence": 0.0, "samples": 0, "special": {}, "normal": {}}
@@ -7885,19 +7432,19 @@ def _predict_with_markov(data, region, variation_key=None):
         )
         failure_adjustment = (float((failure_profile.get("candidate") or {}).get(key, 0.5)) - 0.5) * 2.0 * failure_confidence
         score = (
-            float(gate_weights.get("transition", 1.0)) * transition_norm.get(key, 0.0) +
-            float(gate_weights.get("transition_lift", 0.0)) * transition_lift_norm.get(key, 0.0) +
-            float(gate_weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) +
-            float(gate_weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) +
-            float(gate_weights.get("attribute_transition", 0.0)) * attribute_transition_score +
-            float(gate_weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
-            float(gate_weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
-            float(gate_weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
-            float(gate_weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
-            float(gate_weights.get("feedback", 0.0)) * feedback_score +
+            float(weights.get("transition", 1.0)) * transition_norm.get(key, 0.0) +
+            float(weights.get("transition_lift", 0.0)) * transition_lift_norm.get(key, 0.0) +
+            float(weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) +
+            float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) +
+            float(weights.get("attribute_transition", 0.0)) * attribute_transition_score +
+            float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) +
+            float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) +
+            float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
+            float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
+            float(weights.get("feedback", 0.0)) * feedback_score +
             (0.42 if markov_guard.get("mode") == "anchor_guard" else 0.12) * ml_distill_score +
             anchor_weight * anchor_score +
-            float(gate_weights.get("failure", 0.0)) * failure_adjustment +
+            float(weights.get("failure", 0.0)) * failure_adjustment +
             attr +
             repeat_penalty(number)
         )
@@ -7905,15 +7452,15 @@ def _predict_with_markov(data, region, variation_key=None):
         parity_bonus = 0.08 if preferred_parity and _get_parity_zh(number) == preferred_parity else 0.0
         special_scores[number] = round(
             score +
-            float(gate_weights.get("special_transition", 0.0)) * special_transition_norm.get(key, 0.0) +
-            float(gate_weights.get("special_transition_lift", 0.0)) * special_transition_lift_norm.get(key, 0.0) +
-            float(gate_weights.get("special_chain", 0.0)) * (
+            float(weights.get("special_transition", 0.0)) * special_transition_norm.get(key, 0.0) +
+            float(weights.get("special_transition_lift", 0.0)) * special_transition_lift_norm.get(key, 0.0) +
+            float(weights.get("special_chain", 0.0)) * (
                 special_direct_confidence * special_direct_norm.get(key, 0.0) +
                 special_second_order_confidence * special_second_order_norm.get(key, 0.0) * 0.72
             ) +
-            float(gate_weights.get("special_attribute", 0.0)) * special_direct_confidence * special_attribute_transition_score +
-            float(gate_weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) * 0.35 +
-            float(gate_weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) * 0.25 +
+            float(weights.get("special_attribute", 0.0)) * special_direct_confidence * special_attribute_transition_score +
+            float(weights.get("second_order", 0.0)) * second_order_confidence * second_order_norm.get(key, 0.0) * 0.35 +
+            float(weights.get("phase_transition", 0.0)) * phase_transition_norm.get(key, 0.0) * 0.25 +
             (feedback.get("special", {}).get(key, 0.5) - 0.5) * feedback_confidence * 0.32 +
             ((anchor_profile.get("special") or {}).get(key, 0.5) - 0.5) * anchor_confidence * anchor_weight * 0.75 +
             parity_bonus,
@@ -7922,17 +7469,9 @@ def _predict_with_markov(data, region, variation_key=None):
 
     overall_rank = _rank_numbers(number_scores)
     bucket_counts = _resolve_local_bucket_counts(config.get("bucket_counts") or [2, 2, 2], "neutral")
-    if significance_passed:
-        low_bucket = [n for n in overall_rank if n <= 16]
-        mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
-        high_bucket = [n for n in overall_rank if n >= 34]
-    else:
-        # 闸门未通过：退回均匀采样，三个区间按 1-16 / 17-33 / 34-49 均匀打散抽取，
-        # 弱信号（一阶转移）仍体现在 special 选择上，但平码不再受噪声排序支配。
-        uniform_rank = list(range(1, 50))
-        low_bucket = [n for n in uniform_rank if n <= 16]
-        mid_bucket = [n for n in uniform_rank if 17 <= n <= 33]
-        high_bucket = [n for n in uniform_rank if n >= 34]
+    low_bucket = [n for n in overall_rank if n <= 16]
+    mid_bucket = [n for n in overall_rank if 17 <= n <= 33]
+    high_bucket = [n for n in overall_rank if n >= 34]
     normal = []
     normal += _take_personalized_ranked(low_bucket, bucket_counts[0], variation_key=variation_key, window_size=max(pool_size // 2, 6))
     normal += _take_personalized_ranked(mid_bucket, bucket_counts[1], variation_key=variation_key, exclude=normal, window_size=max(pool_size // 2, 6))
@@ -8044,7 +7583,6 @@ def _predict_with_markov(data, region, variation_key=None):
             "markov_source_special_weight": round(float(config.get("source_special_weight") or 1.28), 3),
             "markov_repeat_penalty": round(float(config.get("repeat_penalty", -0.18) or -0.18), 3),
             "markov_weights": dict(weights),
-            "significance_passed": bool(significance_passed),
             "learning_adaptation_mode": config.get("learning_adaptation_mode", "balanced"),
             "markov_guard": dict(markov_guard),
             "markov_latest_sources": transition_profile.get("latest_sources") or [],
@@ -8438,31 +7976,13 @@ def _build_ai_system_prompt():
 
 
 def _build_ai_candidate_context(data, region):
-    strategies = ("ml", "markov", "hybrid", "balanced", "trend")
-
-    def _run_strategy(strategy):
-        try:
-            return strategy, get_local_recommendations(strategy, data, region)
-        except Exception:
-            return strategy, None
-
-    # 并行跑 5 个本地策略以压缩 AI 候选上下文的构建耗时。
-    # 线程安全已勘察通过：模块级缓存均由锁守护 + deepcopy，runtime 缓存/override 是
-    # threading.local（每 worker 独立），DB 读路径在 Flask-SQLAlchemy 的 per-thread
-    # scoped session 下安全。worker 数默认 5；SQLite 生产若并发读告急，可设
-    # AI_CANDIDATE_CONTEXT_WORKERS=3 降并发。
-    max_workers = _clamp(_env_int("AI_CANDIDATE_CONTEXT_WORKERS", len(strategies)), 1, len(strategies))
-    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="ai-candidate") as executor:
-        raw_results = list(executor.map(_run_strategy, strategies))
-
     special_support = Counter()
     normal_support = Counter()
     strategy_lines = []
-    # 保持原有策略顺序（ml→markov→hybrid→balanced→trend），确保输出稳定。
-    results_by_strategy = {strategy: result for strategy, result in raw_results}
-    for strategy in strategies:
-        result = results_by_strategy.get(strategy)
-        if not result:
+    for strategy in ("ml", "markov", "hybrid", "balanced", "trend"):
+        try:
+            result = get_local_recommendations(strategy, data, region)
+        except Exception:
             continue
         special = str((result.get("special") or {}).get("number") or "").strip()
         normal = [int(n) for n in (result.get("normal") or []) if str(n).isdigit()]
@@ -8586,21 +8106,6 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
     recent_special_gap = _build_overdue_scores(short_data[:8] or short_data)
     recent_gap_norm = _normalize_metric_map(recent_special_gap)
 
-    # 特征 23/24：号码最近一次出现的期距（0=最新一期），做过衰减归一，
-    # 表征"冷号过场"的精确出现位置（既有特征只表达"近期出现过/未出现"的布尔形态）。
-    special_gap_map = {}
-    normal_gap_map = {}
-    for gap_idx, row in enumerate(history):
-        special = str(row.get("sno") or "").strip()
-        if special and special not in special_gap_map:
-            special_gap_map[special] = gap_idx
-        for number in (row.get("no") or []):
-            if not number:
-                continue
-            current = str(number).strip()
-            if current and current not in normal_gap_map:
-                normal_gap_map[current] = gap_idx
-
     features = {}
     for number in range(1, 50):
         key = str(number)
@@ -8624,12 +8129,6 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
         normal_support = max(0.0, recent_all.get(key, 0.0) - short_special.get(key, 0.0))
         recent_gap_score = recent_gap_norm.get(key, 0.0)
         interval_balance = 1.0 - min(1.0, abs(number - 25) / 24.0)
-        # 特征 23/24：特码/平码最近出现期距（1/(1+gap)：gap=0 为最新一期，逐期衰减），
-        # 表征该号码近期活跃度的连续形态；从未出现或超出窗口为 0.0。
-        special_gap_score = 1.0 / (1.0 + special_gap_map[key]) if key in special_gap_map else 0.0
-        normal_gap_score = 1.0 / (1.0 + normal_gap_map[key]) if key in normal_gap_map else 0.0
-        # 特征 25 与 15/16（特码动量）互补：平码频率的短/长窗差（趋势极性）。
-        normal_momentum = recent_all.get(key, 0.0) - long_all.get(key, 0.0)
         features[key] = [
             short_special.get(key, 0.0),
             medium_special.get(key, 0.0),
@@ -8654,9 +8153,6 @@ def _build_ml_feature_table(history_data, region, feature_window=60, feedback=No
             round(normal_support, 6),
             round(recent_gap_score, 6),
             round(interval_balance, 6),
-            round(special_gap_score, 6),
-            round(normal_gap_score, 6),
-            round(normal_momentum, 6),
         ]
     return _runtime_cache_set("ml_feature_table", cache_key, features)
 
@@ -8707,32 +8203,25 @@ def _ensure_ml_weight_vector(weights, feature_table):
     return [0.0] * len(first_features)
 
 
-def _update_ml_weights(score_pairs, target_special, weights, bias, step, l2,
-                       optimizer_mode="sgd", optimizer_state=None):
-    """softmax 交叉熵单样本更新（special 头）。
-
-    返回 (weights, bias, probabilities, target_probability)，与旧签名兼容。
-    - sgd：保持原有行为（梯度 + L2 衰减）；
-    - adam：用传入的 optimizer_state 做偏差修正的 Adam 更新（默认无状态时用 sgd）。
-    """
-    optimizer_mode = str(optimizer_mode or "sgd").lower()
-    probabilities, grad_weights, grad_bias = _ml_special_head_gradients(score_pairs, target_special)
-    if optimizer_mode == "adam" and optimizer_state is not None:
-        weights, bias = _ml_adam_update(weights, bias, grad_weights, grad_bias, step, l2, optimizer_state)
-    else:
-        weights, bias = _ml_sgd_update(weights, bias, grad_weights, grad_bias, step, l2)
+def _update_ml_weights(score_pairs, target_special, weights, bias, step, l2):
+    probabilities = _softmax([item[2] for item in score_pairs])
     target_probability = 0.0
-    for row_idx, (key, _, _) in enumerate(score_pairs):
-        if key == target_special:
-            target_probability = probabilities[row_idx]
-            break
+    for row_idx, (key, features, _) in enumerate(score_pairs):
+        probability = probabilities[row_idx]
+        label = 1.0 if key == target_special else 0.0
+        error = label - probability
+        if label > 0:
+            target_probability = probability
+        bias += step * error
+        for feature_idx, feature_value in enumerate(features):
+            weights[feature_idx] += step * (
+                error * feature_value - (l2 * weights[feature_idx])
+            )
     return weights, bias, probabilities, target_probability
 
 
-def _build_ml_probability_map(score_pairs, temperature=1.0):
-    """softmax 概率映射；temperature > 0 时对 logits 做温度缩放（校准概率）。"""
-    temperature = float(temperature or 1.0)
-    probabilities = _softmax([item[2] / temperature for item in score_pairs])
+def _build_ml_probability_map(score_pairs):
+    probabilities = _softmax([item[2] for item in score_pairs])
     return {
         int(key): probabilities[row_idx]
         for row_idx, (key, _, _) in enumerate(score_pairs)
@@ -9004,11 +8493,6 @@ def _estimate_ml_confidence(probability_map, blended_scores, special_num, model)
     )
     confidence *= sample_confidence
     confidence *= _clamp(0.78 + validation_ratio * 0.22, 0.72, 1.04)
-    # 用 log loss 做校准调节：模型越接近均匀分布（log_loss 越高），置信度越低。
-    # uniform_log_loss ≈ ln(49) ≈ 3.89；ratio 越小（模型越好）越接近 1.0。
-    log_loss = float(model.get("log_loss", math.log(49)) or math.log(49))
-    calibration_factor = _clamp(log_loss / max(math.log(49), 1e-6), 0.7, 1.0)
-    confidence *= calibration_factor
     return round(_clamp(confidence, 18.0, 92.0), 2)
 
 
@@ -9110,8 +8594,7 @@ def _build_ml_ensemble_signals(data, region):
     }
 
 
-def _build_ml_dual_score_maps(ranked_numbers, probability_map, heuristic_map, ensemble_signals,
-                              normal_ml_map=None):
+def _build_ml_dual_score_maps(ranked_numbers, probability_map, heuristic_map, ensemble_signals):
     normal_votes = ensemble_signals.get("normal_votes") or Counter()
     special_votes = ensemble_signals.get("special_votes") or Counter()
     special_scores = {}
@@ -9123,8 +8606,6 @@ def _build_ml_dual_score_maps(ranked_numbers, probability_map, heuristic_map, en
         special_vote = float(special_votes.get(number, 0))
         normal_vote = float(normal_votes.get(number, 0))
         rank_bonus = max(0.0, 1.0 - (rank_idx / 18.0))
-        # 多目标头给出的 normal 概率（预测侧注入），无头时退回 special 概率的零头。
-        normal_ml_score = float((normal_ml_map or {}).get(number, 0.0))
 
         special_scores[number] = round(
             prob_score * 0.60 +
@@ -9139,7 +8620,6 @@ def _build_ml_dual_score_maps(ranked_numbers, probability_map, heuristic_map, en
             prob_score * 0.24 +
             normal_vote * 0.24 +
             special_vote * 0.04 +
-            normal_ml_score * 0.15 +
             rank_bonus * 0.12,
             6,
         )
@@ -9148,16 +8628,15 @@ def _build_ml_dual_score_maps(ranked_numbers, probability_map, heuristic_map, en
 
 
 def _score_ml_model(model):
+    top1 = float(model.get("top1_hit_rate", 0.0))
     top6 = float(model.get("top6_hit_rate", 0.0))
     avg_target_probability = float(model.get("avg_target_probability", 0.0))
     calibration_score = float(model.get("calibration_score", 0.0) or 0.0)
-    log_loss = float(model.get("log_loss", math.log(49)) or math.log(49))
     validation_ratio = float(model.get("validation_ratio", 1.0) or 1.0)
     evaluation_draws = int(model.get("evaluation_draws", 0) or 0)
     confidence = min(1.0, evaluation_draws / 20.0) if evaluation_draws > 0 else 0.0
-    # 调参目标改为以 log loss 为主（连续、低方差），不再用 top-1 命中率。
     return round(
-        ((top6 * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35) + (calibration_score * 0.08) - (log_loss * ML_LOG_LOSS_WEIGHT)) *
+        ((top1 * 3.0) + (top6 * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35) + (calibration_score * 0.08)) *
         max(confidence, 0.35) *
         _clamp(0.86 + validation_ratio * 0.14, 0.72, 1.02),
         6,
@@ -9168,17 +8647,6 @@ def _optimize_ml_runtime_config(data, region, config):
     data_size = len(data or [])
     base_config = dict(config or {})
     if data_size < 80:
-        model = _train_ml_number_model(data, region, base_config)
-        model["runtime_config"] = base_config
-        model["runtime_search"] = []
-        model["runtime_profile"] = "base"
-        model["runtime_score"] = _score_ml_model(model)
-        return base_config, model
-
-    # BACKTEST_FAST=1：回测调度期间跳过多候选 runtime 搜索，只训 base 配置。
-    # 只影响定时/调度的回测路径（_temporary_ml_fast_optimize 上下文内），
-    # 实况预测与默认模式行为完全不变。
-    if _ml_fast_optimize_active():
         model = _train_ml_number_model(data, region, base_config)
         model["runtime_config"] = base_config
         model["runtime_search"] = []
@@ -9318,8 +8786,6 @@ def _optimize_ml_runtime_config(data, region, config):
             "selected_blend": model.get("selected_blend"),
             "validation_ratio": round(float(model.get("validation_ratio", 1.0) or 1.0), 4),
             "feature_profile": candidate_config.get("feature_profile", "full"),
-            "brier_score": round(float(model.get("brier_score", 1.0)), 6),
-            "log_loss": round(float(model.get("log_loss", math.log(49))), 6),
         })
         if best is None or adjusted_runtime_score > best:
             best = adjusted_runtime_score
@@ -9340,26 +8806,6 @@ def _train_ml_number_model(data, region, config):
     feature_profile = str(config.get("feature_profile") or "full").strip() or "full"
     early_stopping_patience = _clamp(int(config.get("early_stopping_patience") or 4), 2, 8)
     validation_floor = _clamp(float(config.get("validation_floor") or 0.88), 0.72, 0.98)
-    # 训练优化器与特征处理开关（均为默认开启、可独立回退）。
-    optimizer_mode = str(config.get("optimizer_mode") or "adam").strip().lower() or "adam"
-    if optimizer_mode not in ("adam", "sgd"):
-        optimizer_mode = "adam"
-    minibatch_size = _clamp(int(config.get("minibatch_size") or 8), 1, 32)
-    normalize_features = bool(config.get("normalize_features", True))
-    multihead_loss = bool(config.get("multihead_loss", True))
-    learn_heuristic = bool(config.get("learn_heuristic", True))
-    heuristic_lr = float(config.get("heuristic_lr") or 0.01)
-    # 概率校准与全幅评估：temperature_scaling 对预测分布做温度缩放；
-    # walkforward 拆分选样窗与最终报告窗，模型选择只看选样窗，测试报告只看 holdout 期。
-    temperature_scaling = bool(config.get("temperature_scaling", True))
-    walkforward = bool(config.get("walkforward", True))
-    holdout_periods = _clamp(int(config.get("holdout_periods") or 8), 4, 12)
-    if not walkforward:
-        holdout_periods = 0
-    # heuristic 系数初值：优先取上次训练存下的系数，缺省用固定魔法数。
-    heuristic_coeffs = list(config.get("heuristic_coeffs") or _ml_heuristic_default_coeffs)
-    if len(heuristic_coeffs) != len(_ml_heuristic_default_coeffs):
-        heuristic_coeffs = list(_ml_heuristic_default_coeffs)
 
     recent_desc = list(data or [])[:history_window + feature_window + evaluation_window]
     chronological = list(reversed(recent_desc))
@@ -9375,7 +8821,7 @@ def _train_ml_number_model(data, region, config):
     if not blend_candidates:
         blend_candidates = [0.7]
     blend_stats = {
-        round(candidate, 4): {"top1": 0, "top6": 0, "log_loss": 0.0}
+        round(candidate, 4): {"top1": 0, "top6": 0}
         for candidate in blend_candidates
     }
     final_blend_stats = {
@@ -9391,8 +8837,6 @@ def _train_ml_number_model(data, region, config):
             "draw_samples": 0,
             "evaluation_draws": 0,
             "gradient_updates": 0,
-            "brier_score": 1.0,
-            "log_loss": round(math.log(49), 6),
         }
 
     def get_feature_table(idx):
@@ -9417,63 +8861,29 @@ def _train_ml_number_model(data, region, config):
             feature_cache[cache_key] = feature_table
         return feature_table
 
-    # 训练用特征：normalize_features 开启时对每期特征表做 z-score，
-    # 使各特征处于同一量纲（线性 + softmax 对尺度敏感）。
-    scored_feature_cache = {}
-
-    def get_scored_feature_table(feature_table):
-        if not normalize_features:
-            return feature_table
-        cache_key = id(feature_table)
-        scored = scored_feature_cache.get(cache_key)
-        if scored is None:
-            scored, _ = _ml_standardize_feature_map(feature_table)
-            scored_feature_cache[cache_key] = scored
-        return scored
-
     eval_start = max(min_history, len(chronological) - evaluation_window)
-    # walk-forward：holdout_periods 期作为最终报告窗（不参与模型/系数/温度选择），
-    # 选样窗为 [eval_start, selection_end)；关闭 walkforward 时二者重合（旧行为）。
-    selection_end = len(chronological)
-    if holdout_periods > 0:
-        selection_end = max(eval_start + 1, len(chronological) - holdout_periods)
     eval_weights = None
     eval_bias = 0.0
-    eval_optimizer_state = None
     evaluation_steps = 0
-    selection_steps = 0
     top1_hits = 0
     top6_hits = 0
     target_probability_sum = 0.0
-    brier_hits_sum = 0.0
-    log_loss_hits_sum = 0.0
 
     def evaluate_weight_snapshot(weights, bias):
         if not weights:
-            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0,
-                    "brier": 1.0, "log_loss": math.log(49), "steps": 0}
+            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0, "steps": 0}
         steps = 0
         top1 = 0
         top6 = 0
         target_probability_total = 0.0
-        brier_total = 0.0
-        log_loss_total = 0.0
-        # 模型选择（early stopping / 早停斑块 / 验证分）只看选样窗，holdout 期严禁参与。
-        snapshot_end = len(chronological)
-        if holdout_periods > 0:
-            snapshot_end = selection_end
-        for eval_idx in range(eval_start, snapshot_end):
+        for eval_idx in range(eval_start, len(chronological)):
             target_draw = chronological[eval_idx]
             target_special = str(target_draw.get("sno") or "").strip()
             if not target_special:
                 continue
             feature_table = get_feature_table(eval_idx)
             snapshot_weights = _ensure_ml_weight_vector(list(weights), feature_table)
-            score_pairs = _build_ml_score_pairs(
-                get_scored_feature_table(feature_table),
-                snapshot_weights,
-                bias
-            )
+            score_pairs = _build_ml_score_pairs(feature_table, snapshot_weights, bias)
             if not score_pairs:
                 continue
             target_number = int(target_special)
@@ -9486,7 +8896,7 @@ def _train_ml_number_model(data, region, config):
                 top1 += 1
             if target_number in ranked_numbers[:6]:
                 top6 += 1
-            p_target = next(
+            target_probability_total += next(
                 (
                     probabilities[row_idx]
                     for row_idx, (key, _, _) in enumerate(score_pairs)
@@ -9494,29 +8904,17 @@ def _train_ml_number_model(data, region, config):
                 ),
                 0.0,
             )
-            target_probability_total += p_target
-            # 概率校准指标：Brier 分（越小越好）和 log loss（越小越好）。
-            # 用 max(...) 防 log(0)；log loss 用饱和值 1e-12 截断。
-            brier_total += (1.0 - p_target) ** 2
-            log_loss_total += -math.log(max(p_target, 1e-12))
             steps += 1
         if steps <= 0:
-            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0,
-                    "brier": 1.0, "log_loss": math.log(49), "steps": 0}
+            return {"score": 0.0, "top1": 0, "top6": 0, "target_probability": 0.0, "steps": 0}
         top1_rate = top1 / steps
         top6_rate = top6 / steps
         avg_target_probability = target_probability_total / steps
-        avg_brier = brier_total / steps
-        avg_log_loss = log_loss_total / steps
-        # 目标改为以 log loss 为主（连续、低方差），不再用 top-1 命中率（小样本方差大）。
-        # 评分越高越好，故 log loss 取负号；保留 top6 和 avg_target_probability 作弱信号。
         return {
-            "score": (top6_rate * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35) - (avg_log_loss * ML_LOG_LOSS_WEIGHT),
+            "score": (top1_rate * 3.0) + (top6_rate * SPECIAL_PRIORITY_TOP6_WEIGHT) + (avg_target_probability * 0.35),
             "top1": top1,
             "top6": top6,
             "target_probability": avg_target_probability,
-            "brier": avg_brier,
-            "log_loss": avg_log_loss,
             "steps": steps,
         }
 
@@ -9528,20 +8926,22 @@ def _train_ml_number_model(data, region, config):
 
         feature_table = get_feature_table(idx)
         eval_weights = _ensure_ml_weight_vector(eval_weights, feature_table)
-        if eval_optimizer_state is None and optimizer_mode == "adam":
-            eval_optimizer_state = _ml_adam_init_state(len(eval_weights))
-        score_pairs = _build_ml_score_pairs(
-            get_scored_feature_table(feature_table),
-            eval_weights,
-            eval_bias,
-        )
+        score_pairs = _build_ml_score_pairs(feature_table, eval_weights, eval_bias)
         if not score_pairs:
             continue
 
         if idx >= eval_start:
             target_number = int(target_special)
             probabilities = _softmax([item[2] for item in score_pairs])
-            p_target_eval = next(
+            ranked_numbers = [
+                int(item[0])
+                for item in sorted(score_pairs, key=lambda item: item[2], reverse=True)
+            ]
+            if ranked_numbers and ranked_numbers[0] == target_number:
+                top1_hits += 1
+            if target_number in ranked_numbers[:6]:
+                top6_hits += 1
+            target_probability_sum += next(
                 (
                     probabilities[row_idx]
                     for row_idx, (key, _, _) in enumerate(score_pairs)
@@ -9549,27 +8949,8 @@ def _train_ml_number_model(data, region, config):
                 ),
                 0.0,
             )
-            # walk-forward：holdout 期只累积最终报告指标，选样窗只做选择统计，
-            # 两者互不混用（关闭 walkforward 时两窗重合，等价旧行为）。
-            in_report_window = holdout_periods <= 0 or idx >= selection_end
-            in_selection_window = holdout_periods <= 0 or idx < selection_end
-            if in_report_window:
-                ranked_numbers = [
-                    int(item[0])
-                    for item in sorted(score_pairs, key=lambda item: item[2], reverse=True)
-                ]
-                if ranked_numbers and ranked_numbers[0] == target_number:
-                    top1_hits += 1
-                if target_number in ranked_numbers[:6]:
-                    top6_hits += 1
-                target_probability_sum += p_target_eval
-                # 累积报告期 Brier / log loss，作为最终模型诊断指标。
-                brier_hits_sum += (1.0 - p_target_eval) ** 2
-                log_loss_hits_sum += -math.log(max(p_target_eval, 1e-12))
-                evaluation_steps += 1
 
-            if in_selection_window:
-                heuristic_map = _build_ml_heuristic_score_map(feature_table)
+            heuristic_map = _build_ml_heuristic_score_map(feature_table)
             probability_map = {
                 int(key): probabilities[row_idx]
                 for row_idx, (key, _, _) in enumerate(score_pairs)
@@ -9582,21 +8963,6 @@ def _train_ml_number_model(data, region, config):
                     stats["top1"] += 1
                 if target_number in blended_rank[:6]:
                     stats["top6"] += 1
-                # 按 blend 计算的 log loss：把 blended_scores 当 logits 过 softmax 得到分布，
-                # 取目标号码概率做 -log。用于 blend 选择目标（取代纯 top-1 命中率）。
-                blended_probs = _softmax([
-                    float(blended_scores.get(int(item[0]), 0.0))
-                    for item in score_pairs
-                ])
-                blend_target_p = next(
-                    (
-                        blended_probs[row_idx]
-                        for row_idx, (key, _, _) in enumerate(score_pairs)
-                        if key == target_special
-                    ),
-                    1e-12,
-                )
-                stats["log_loss"] += -math.log(max(blend_target_p, 1e-12))
                 special_score_map, normal_score_map = _build_ml_dual_score_maps(
                     blended_rank,
                     probability_map,
@@ -9646,7 +9012,7 @@ def _train_ml_number_model(data, region, config):
                 )
                 if candidate_special == target_number:
                     final_blend_stats[round(candidate, 4)]["top1"] += 1
-            selection_steps += 1
+            evaluation_steps += 1
 
         eval_weights, eval_bias, _, _ = _update_ml_weights(
             score_pairs,
@@ -9655,8 +9021,6 @@ def _train_ml_number_model(data, region, config):
             eval_bias,
             learning_rate,
             l2,
-            optimizer_mode=optimizer_mode,
-            optimizer_state=eval_optimizer_state,
         )
 
     fit_weights = None
@@ -9672,19 +9036,9 @@ def _train_ml_number_model(data, region, config):
     epochs_completed = 0
     stopped_early = False
     validation_history = []
-    fit_optimizer_state = None
-    fit_normal_weights = None
-    fit_normal_bias = 0.0
-    fit_normal_optimizer_state = None
 
     for epoch in range(epochs):
         step = learning_rate * learning_rate_scale * (0.94 ** epoch)
-        # minibatch 累积梯度（pending_*），攒够 minibatch_size 后按优化器更新。
-        pending_grad_weights = None
-        pending_grad_bias = 0.0
-        pending_normal_grad_weights = None
-        pending_normal_grad_bias = 0.0
-        pending_samples = 0
         for idx in range(train_start, len(chronological)):
             target_draw = chronological[idx]
             target_special = str(target_draw.get("sno") or "").strip()
@@ -9692,138 +9046,21 @@ def _train_ml_number_model(data, region, config):
                 continue
 
             feature_table = get_feature_table(idx)
-            scored_feature_table = get_scored_feature_table(feature_table)
             fit_weights = _ensure_ml_weight_vector(fit_weights, feature_table)
-            if fit_optimizer_state is None and optimizer_mode == "adam":
-                fit_optimizer_state = _ml_adam_init_state(len(fit_weights))
-            score_pairs = _build_ml_score_pairs(
-                scored_feature_table,
-                fit_weights,
-                fit_bias,
-            )
+            score_pairs = _build_ml_score_pairs(feature_table, fit_weights, fit_bias)
             if not score_pairs:
                 continue
 
-            _, grad_weights, grad_bias = _ml_special_head_gradients(score_pairs, target_special)
-            if pending_grad_weights is None:
-                pending_grad_weights = [gradient for gradient in grad_weights]
-            else:
-                for gradient_idx in range(len(grad_weights)):
-                    pending_grad_weights[gradient_idx] += grad_weights[gradient_idx]
-            pending_grad_bias += grad_bias
-            pending_samples += 1
+            fit_weights, fit_bias, _, _ = _update_ml_weights(
+                score_pairs,
+                target_special,
+                fit_weights,
+                fit_bias,
+                step,
+                l2,
+            )
             fit_steps += 1
             gradient_updates += len(score_pairs)
-
-            # 多目标头：normal 多标签（该期 6 个平码）独立的 sigmoid 头。
-            if multihead_loss:
-                target_normals = _extract_draw_numbers(target_draw, include_special=False)
-                if fit_normal_weights is None:
-                    fit_normal_weights = [0.0] * len(fit_weights)
-                if fit_normal_optimizer_state is None and optimizer_mode == "adam":
-                    fit_normal_optimizer_state = _ml_adam_init_state(len(fit_normal_weights))
-                _, normal_grad_weights, normal_grad_bias = _ml_normal_head_gradients(
-                    score_pairs,
-                    target_normals,
-                )
-                if pending_normal_grad_weights is None:
-                    pending_normal_grad_weights = [gradient for gradient in normal_grad_weights]
-                else:
-                    for gradient_idx in range(len(normal_grad_weights)):
-                        pending_normal_grad_weights[gradient_idx] += normal_grad_weights[gradient_idx]
-                pending_normal_grad_bias += normal_grad_bias
-
-            if pending_samples >= minibatch_size:
-                if optimizer_mode == "adam":
-                    fit_weights, fit_bias = _ml_adam_update(
-                        fit_weights,
-                        fit_bias,
-                        [a / pending_samples for a in pending_grad_weights],
-                        pending_grad_bias / pending_samples,
-                        step,
-                        l2,
-                        fit_optimizer_state,
-                    )
-                else:
-                    fit_weights, fit_bias = _ml_sgd_update(
-                        fit_weights,
-                        fit_bias,
-                        [a / pending_samples for a in pending_grad_weights],
-                        pending_grad_bias / pending_samples,
-                        step,
-                        l2,
-                    )
-                if pending_normal_grad_weights is not None:
-                    if optimizer_mode == "adam":
-                        fit_normal_weights, fit_normal_bias = _ml_adam_update(
-                            fit_normal_weights,
-                            fit_normal_bias,
-                            [a / pending_samples for a in pending_normal_grad_weights],
-                            pending_normal_grad_bias / pending_samples,
-                            step,
-                            l2,
-                            fit_normal_optimizer_state,
-                        )
-                    else:
-                        fit_normal_weights, fit_normal_bias = _ml_sgd_update(
-                            fit_normal_weights,
-                            fit_normal_bias,
-                            [a / pending_samples for a in pending_normal_grad_weights],
-                            pending_normal_grad_bias / pending_samples,
-                            step,
-                            l2,
-                        )
-                pending_grad_weights = None
-                pending_grad_bias = 0.0
-                pending_normal_grad_weights = None
-                pending_normal_grad_bias = 0.0
-                pending_samples = 0
-        # epoch 末尾不足一个 minibatch 的残余梯度也要落一次。
-        if pending_samples > 0 and pending_grad_weights is not None:
-            if optimizer_mode == "adam":
-                fit_weights, fit_bias = _ml_adam_update(
-                    fit_weights,
-                    fit_bias,
-                    [a / pending_samples for a in pending_grad_weights],
-                    pending_grad_bias / pending_samples,
-                    step,
-                    l2,
-                    fit_optimizer_state,
-                )
-            else:
-                fit_weights, fit_bias = _ml_sgd_update(
-                    fit_weights,
-                    fit_bias,
-                    [a / pending_samples for a in pending_grad_weights],
-                    pending_grad_bias / pending_samples,
-                    step,
-                    l2,
-                )
-            if pending_normal_grad_weights is not None:
-                if optimizer_mode == "adam":
-                    fit_normal_weights, fit_normal_bias = _ml_adam_update(
-                        fit_normal_weights,
-                        fit_normal_bias,
-                        [a / pending_samples for a in pending_normal_grad_weights],
-                        pending_normal_grad_bias / pending_samples,
-                        step,
-                        l2,
-                        fit_normal_optimizer_state,
-                    )
-                else:
-                    fit_normal_weights, fit_normal_bias = _ml_sgd_update(
-                        fit_normal_weights,
-                        fit_normal_bias,
-                        [a / pending_samples for a in pending_normal_grad_weights],
-                        pending_normal_grad_bias / pending_samples,
-                        step,
-                        l2,
-                    )
-            pending_grad_weights = None
-            pending_grad_bias = 0.0
-            pending_normal_grad_weights = None
-            pending_normal_grad_bias = 0.0
-            pending_samples = 0
         epochs_completed = epoch + 1
         validation_snapshot = evaluate_weight_snapshot(fit_weights, fit_bias)
         validation_score = float(validation_snapshot.get("score") or 0.0)
@@ -9834,8 +9071,6 @@ def _train_ml_number_model(data, region, config):
             "top6": int(validation_snapshot.get("top6") or 0),
             "steps": int(validation_snapshot.get("steps") or 0),
             "learning_rate": round(step, 6),
-            "brier": round(float(validation_snapshot.get("brier") or 1.0), 6),
-            "log_loss": round(float(validation_snapshot.get("log_loss") or math.log(49)), 6),
         })
         if validation_score > best_validation_score + 0.00001:
             best_validation_score = validation_score
@@ -9856,86 +9091,11 @@ def _train_ml_number_model(data, region, config):
         fit_weights = best_fit_weights
         fit_bias = best_fit_bias
 
-    # Step 4：heuristic 系数校准。模型定稿后，用最终 special/normal 头在评估
-    # 窗口各期的预测概率作软目标，对 heuristic 系数做轻量回归更新，使启发打分
-    # 朝模型置信度方向漂移（输出量纲仍由 _normalize_metric_map 归一，保持不变）。
-    if learn_heuristic and fit_weights:
-        for eval_idx in range(eval_start, selection_end):
-            if not str(chronological[eval_idx].get("sno") or "").strip():
-                continue
-            calibration_table = get_feature_table(eval_idx)
-            if not calibration_table:
-                continue
-            if fit_normal_weights:
-                calibration_pairs = _build_ml_score_pairs(
-                    get_scored_feature_table(calibration_table),
-                    fit_normal_weights,
-                    fit_normal_bias,
-                )
-                calibration_targets = {
-                    key: _ml_sigmoid(value)
-                    for key, _features, value in calibration_pairs
-                }
-            else:
-                calibration_pairs = _build_ml_score_pairs(
-                    get_scored_feature_table(calibration_table),
-                    fit_weights,
-                    fit_bias,
-                )
-                calibration_probs = _softmax([item[2] for item in calibration_pairs])
-                calibration_targets = {
-                    key: calibration_probs[row_idx]
-                    for row_idx, (key, _features, _value) in enumerate(calibration_pairs)
-                }
-            calibration_samples = [
-                (features, calibration_targets[key])
-                for key, features in calibration_table.items()
-                if features and key in calibration_targets
-            ]
-            if len(calibration_samples) >= 3:
-                heuristic_coeffs = _ml_heuristic_regression_update(
-                    heuristic_coeffs,
-                    calibration_samples,
-                    heuristic_lr,
-                )
-
-    # Step 5：温度校准。在选样窗上拟合温度参数（一维网格），让最终 softmax 分布被校准；
-    # 预测端以 logits/温度 重新归一（见 _build_ml_probability_map）。温度只作用于概率分布，
-    # 输出结构不变。样本不足或全平局时保持 1.0（等价关闭该层）。
-    model_temperature = 1.0
-    if temperature_scaling and fit_weights:
-        temperature_samples = []
-        for eval_idx in range(eval_start, selection_end):
-            temperature_draw = chronological[eval_idx]
-            temperature_target = str(temperature_draw.get("sno") or "").strip()
-            if not temperature_target:
-                continue
-            temperature_table = get_feature_table(eval_idx)
-            if not temperature_table:
-                continue
-            temperature_pairs = _build_ml_score_pairs(
-                get_scored_feature_table(temperature_table),
-                fit_weights,
-                fit_bias,
-            )
-            if not temperature_pairs:
-                continue
-            temperature_samples.append((
-                [item[0] for item in temperature_pairs],
-                [item[2] for item in temperature_pairs],
-                temperature_target,
-            ))
-        if temperature_samples:
-            model_temperature = float(_ml_fit_temperature(temperature_samples) or 1.0)
-
-        # Step 6：blend 选择（只在选样窗统计，见 blend_stats 的累积范围）。
-        selected_blend = blend_candidates[0]
-        best_score = -1.0
+    selected_blend = blend_candidates[0]
+    best_score = -1.0
     for candidate in blend_candidates:
         stats = blend_stats[round(candidate, 4)]
-        # blend 选择目标改为以 log loss 为主（连续、低方差），不再用 top-1 命中率。
-        avg_log_loss = (stats["log_loss"] / max(selection_steps, 1)) if selection_steps else math.log(49)
-        candidate_score = (stats["top6"] * SPECIAL_PRIORITY_TOP6_WEIGHT) - (avg_log_loss * ML_LOG_LOSS_WEIGHT)
+        candidate_score = (stats["top1"] * 3.0) + (stats["top6"] * SPECIAL_PRIORITY_TOP6_WEIGHT)
         if candidate_score > best_score:
             best_score = candidate_score
             selected_blend = candidate
@@ -9944,15 +9104,9 @@ def _train_ml_number_model(data, region, config):
     return {
         "weights": [round(weight, 6) for weight in (fit_weights or [])],
         "bias": round(fit_bias, 6),
-        "normal_weights": [round(weight, 6) for weight in (fit_normal_weights or [])],
-        "normal_bias": round(fit_normal_bias, 6),
-        "heuristic_coeffs": [round(coeff, 6) for coeff in heuristic_coeffs],
         "samples": fit_steps,
         "draw_samples": fit_steps,
         "evaluation_draws": evaluation_steps,
-        "selection_draws": selection_steps,
-        "holdout_periods": holdout_periods,
-        "temperature": round(model_temperature, 6),
         "gradient_updates": gradient_updates,
         "epochs_completed": epochs_completed,
         "stopped_early": stopped_early,
@@ -9982,17 +9136,13 @@ def _train_ml_number_model(data, region, config):
         ),
         "top1_hit_rate": round((top1_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
         "top6_hit_rate": round((top6_hits / evaluation_steps), 6) if evaluation_steps else 0.0,
-        "final_top1_hit_rate": round((selected_final_stats.get("top1", 0) / selection_steps), 6) if selection_steps else 0.0,
-        # 概率校准诊断指标（越小越好）：Brier 分与 log loss。
-        "brier_score": round((brier_hits_sum / evaluation_steps), 6) if evaluation_steps else 1.0,
-        "log_loss": round((log_loss_hits_sum / evaluation_steps), 6) if evaluation_steps else round(math.log(49), 6),
+        "final_top1_hit_rate": round((selected_final_stats.get("top1", 0) / evaluation_steps), 6) if evaluation_steps else 0.0,
         "selected_blend": round(selected_blend, 4),
         "blend_stats": {
             str(candidate): {
-                "top1_hit_rate": round((blend_stats[round(candidate, 4)]["top1"] / selection_steps), 6) if selection_steps else 0.0,
-                "top6_hit_rate": round((blend_stats[round(candidate, 4)]["top6"] / selection_steps), 6) if selection_steps else 0.0,
-                "final_top1_hit_rate": round((final_blend_stats[round(candidate, 4)]["top1"] / selection_steps), 6) if selection_steps else 0.0,
-                "log_loss": round((blend_stats[round(candidate, 4)]["log_loss"] / selection_steps), 6) if selection_steps else round(math.log(49), 6),
+                "top1_hit_rate": round((blend_stats[round(candidate, 4)]["top1"] / evaluation_steps), 6) if evaluation_steps else 0.0,
+                "top6_hit_rate": round((blend_stats[round(candidate, 4)]["top6"] / evaluation_steps), 6) if evaluation_steps else 0.0,
+                "final_top1_hit_rate": round((final_blend_stats[round(candidate, 4)]["top1"] / evaluation_steps), 6) if evaluation_steps else 0.0,
             }
             for candidate in blend_candidates
         },
@@ -10013,7 +9163,7 @@ def _build_ml_prediction_cache_key(region, data, config):
             "total": int(total or 0),
         }
     payload = {
-        "cache_version": 7,
+        "cache_version": 4,
         "region": normalized_region,
         "backtest_cutoff_period": _current_backtest_cutoff_period(),
         "periods": head_periods,
@@ -10023,21 +9173,6 @@ def _build_ml_prediction_cache_key(region, data, config):
         "primary_feature_profile": str(config.get("primary_feature_profile") or ""),
         "preferred_runtime_profiles": list(config.get("preferred_runtime_profiles") or []),
         "preferred_feature_profiles": list(config.get("preferred_feature_profiles") or []),
-        # 六项优化各自的开关/参数参与缓存键：任一改动即时生产缓存。
-        "optimizer_mode": str(config.get("optimizer_mode") or "adam"),
-        "minibatch_size": int(config.get("minibatch_size") or 8),
-        "normalize_features": bool(config.get("normalize_features", True)),
-        "multihead_loss": bool(config.get("multihead_loss", True)),
-        "learn_heuristic": bool(config.get("learn_heuristic", True)),
-        "heuristic_lr": float(config.get("heuristic_lr") or 0.01),
-        "heuristic_coeffs_signature": round(sum(float(x) for x in (config.get("heuristic_coeffs") or [])), 8),
-        "ml_signal_gate_enabled": bool(config.get("ml_signal_gate_enabled", True)),
-        "ml_signal_calibration_floor": float(config.get("ml_signal_calibration_floor") or 0.15),
-        "ml_signal_confidence_floor": float(config.get("ml_signal_confidence_floor") or 30.0),
-        "temperature_scaling": bool(config.get("temperature_scaling", True)),
-        "walkforward": bool(config.get("walkforward", True)),
-        "holdout_periods": int(config.get("holdout_periods") or 8),
-        "feature_processing_version": 2,
         "blend_candidates": list(config.get("blend_candidates") or []),
         "profile_learning_confidence": float(config.get("profile_learning_confidence") or 0.0),
         "history_window": int(config.get("history_window") or 0),
@@ -10175,52 +9310,22 @@ def _build_uncached_ml_prediction_artifacts(enriched_data, supplemental_draws, r
         feature_table,
         runtime_config.get("feature_profile") or model.get("feature_profile"),
     )
-    # 训练端若开启了特征标准化，预测端必须用同一标准化口径计算分数。
-    score_feature_table = feature_table
-    if bool(runtime_config.get("normalize_features", True)):
-        score_feature_table, _ = _ml_standardize_feature_map(feature_table)
     score_pairs = _build_ml_score_pairs(
-        score_feature_table,
+        feature_table,
         model.get("weights", []),
         model.get("bias", 0.0),
     )
-    # 温度校准：训练端学到的温度作用于最终概率（相邻几期 logits 缩放）。
-    probability_map = _build_ml_probability_map(
-        score_pairs,
-        float(model.get("temperature") or 1.0),
-    )
-    # heuristic 与概率分是不同的维度（heuristic 系数基于原始量纲设计），始终用原始特征。
-    # 模型若有训好的系数（Step 4 在线学习产物），用它替换固定魔法数。
-    heuristic_map = _build_ml_heuristic_score_map(
-        feature_table,
-        model.get("heuristic_coeffs"),
-    )
+    probability_map = _build_ml_probability_map(score_pairs)
+    heuristic_map = _build_ml_heuristic_score_map(feature_table)
     blend_weight = float(model.get("selected_blend", 0.7) or 0.7)
     blended_scores = _blend_ml_rankings(probability_map, heuristic_map, blend_weight)
     ranked_numbers = _rank_numbers(blended_scores)
     ensemble_signals = _build_ml_ensemble_signals(enriched_data, region)
-    # 多目标头：若训练产出 normal_weights，用同一特征算出每个号码的 normal 概率，
-    # 注入 dual score map 以改善平码选择（面向 top-6 命中）。
-    normal_ml_map = None
-    normal_weights = list(model.get("normal_weights") or [])
-    if not runtime_config.get("multihead_loss", True) or not normal_weights:
-        normal_weights = []
-    if normal_weights:
-        normal_pairs = _build_ml_score_pairs(
-            score_feature_table,
-            normal_weights,
-            float(model.get("normal_bias") or 0.0),
-        )
-        normal_ml_map = {
-            number: round(_ml_sigmoid(score), 6)
-            for number, _, score in normal_pairs
-        }
     special_score_map, normal_score_map = _build_ml_dual_score_maps(
         ranked_numbers,
         probability_map,
         heuristic_map,
         ensemble_signals,
-        normal_ml_map=normal_ml_map,
     )
 
     return {
@@ -10385,10 +9490,6 @@ def _predict_with_ml(data, region, variation_key=None):
         "final_top1_hit_rate": round(float(model.get("final_top1_hit_rate", 0.0)) * 100, 2),
         "avg_target_probability": round(float(model.get("avg_target_probability", 0.0)) * 100, 2),
         "calibration_score": round(float(model.get("calibration_score", 0.0)) * 100, 2),
-        "brier_score": round(float(model.get("brier_score", 1.0)), 6),
-        "log_loss": round(float(model.get("log_loss", math.log(49))), 6),
-        "temperature": round(float(model.get("temperature") or 1.0), 6),
-        "selection_draws": int(model.get("selection_draws") or 0),
         "selected_blend": round(blend_weight * 100, 2),
         "normal_numbers": list(normal),
         "selected_special_number": str(special_num),
@@ -10432,32 +9533,6 @@ def _predict_with_ml(data, region, variation_key=None):
     }
     model_meta["display_copy"] = _build_ml_display_copy(model_meta)
 
-    # Step 5：把模型健康信号（评估样本数/校准分/置信度）写入 model_meta，
-    # 并按需持久化到 ml 策略配置，供 _get_recommended_strategy 排名门控读取。
-    model_meta["ml_signal_confidence"] = round(special_probability, 2)
-    ml_signal_diagnosis = _ml_signal_gate({
-        "calibration_score": float(model.get("calibration_score") or 0.0),
-        "evaluation_draws": int(model.get("evaluation_draws") or 0),
-        "ml_signal_confidence": float(model_meta.get("ml_signal_confidence") or 0.0),
-    }, runtime_config)
-    model_meta["ml_signal_passed"] = bool(ml_signal_diagnosis["passed"])
-    model_meta["ml_signal_reasons"] = list(ml_signal_diagnosis["reasons"])
-    try:
-        current_config = _load_strategy_config("ml", region)
-        stored_signal = dict(current_config.get("ml_signal") or {})
-        new_signal = {
-            "passed": bool(ml_signal_diagnosis["passed"]),
-            "calibration": round(float(model.get("calibration_score") or 0.0), 6),
-            "evaluation_draws": int(model.get("evaluation_draws") or 0),
-            "confidence": round(special_probability, 2),
-            "at": datetime.now().isoformat(),
-        }
-        if stored_signal != new_signal:
-            current_config["ml_signal"] = new_signal
-            _save_strategy_config("ml", region, current_config)
-    except Exception:
-        pass
-
     return {
         "normal": normal,
         "special": {"number": str(special_num), "sno_zodiac": number_to_zodiac.get(str(special_num), "")},
@@ -10466,10 +9541,6 @@ def _predict_with_ml(data, region, variation_key=None):
     }
 
 def get_local_recommendations(strategy, data, region, variation_key=None):
-    from flask import has_app_context
-    if not has_app_context():
-        with app.app_context():
-            return get_local_recommendations(strategy, data, region, variation_key=variation_key)
     all_numbers = list(range(1, 50))
     if not data:
         return _build_default_baseline_prediction()
@@ -10507,14 +9578,6 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             if not any(v > 0 for v in special_freq.values()):
                 raise ValueError("No frequency data")
 
-            # 平码专用频率图：选 6 个平码时用这个（每期 6 个球，信号量是特码的 6 倍），
-            # 避免把每期只有 1 个的特码频率当作平码排序依据（特码→平码变量混淆）。
-            normal_hot_freq = _build_normal_number_frequency(recent_data)
-            normal_trend_freq = _build_normal_number_frequency(trend_data)
-            normal_short_freq = _build_normal_number_frequency(recent_data[:10] if len(recent_data) >= 10 else recent_data)
-            normal_medium_freq = _build_normal_number_frequency(recent_data[:24] if len(recent_data) >= 24 else recent_data)
-            overdue_all = _build_overdue_scores_all(recent_data)
-
             hot_norm = _normalize_metric_map(special_freq)
             trend_norm = _normalize_metric_map(trend_freq)
             short_norm = _normalize_metric_map(short_freq)
@@ -10522,14 +9585,6 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             normal_norm = _normalize_metric_map(all_freq)
             overdue_norm = _normalize_metric_map(overdue)
             cold_norm = {str(i): round(1.0 - hot_norm.get(str(i), 0.0), 4) for i in range(1, 50)}
-
-            # 平码排序信号：用平码频率而非特码频率；overdue 用全号码口径
-            normal_hot_norm = _normalize_metric_map(normal_hot_freq)
-            normal_trend_norm = _normalize_metric_map(normal_trend_freq)
-            normal_short_norm = _normalize_metric_map(normal_short_freq)
-            normal_medium_norm = _normalize_metric_map(normal_medium_freq)
-            normal_cold_norm = {str(i): round(1.0 - normal_hot_norm.get(str(i), 0.0), 4) for i in range(1, 50)}
-            overdue_all_norm = _normalize_metric_map(overdue_all)
 
             year = _infer_draw_year(recent_data)
             number_to_zodiac = _get_number_to_zodiac_map(year)
@@ -10543,13 +9598,12 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 apply_recent_zodiac_cooldown=(strategy != "cold"),
             )
             feedback_confidence = float(feedback.get("confidence") or 0.0)
-            # 这两个 profile 产出的是平码排序的惩罚分，输入也用平码频率图，保证口径一致
-            trend_reversal_profile = _build_local_trend_reversal_profile(normal_short_norm, normal_medium_norm, normal_hot_norm)
+            trend_reversal_profile = _build_local_trend_reversal_profile(short_norm, medium_norm, hot_norm)
             trend_reversal_scores = trend_reversal_profile.get("scores") or {}
             cold_trap_profile = _build_local_cold_trap_profile(
-                normal_cold_norm,
-                overdue_all_norm,
-                normal_medium_norm,
+                cold_norm,
+                overdue_norm,
+                medium_norm,
                 normal_norm,
                 feedback=feedback,
                 feedback_confidence=feedback_confidence,
@@ -10636,11 +9690,11 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 cold_trap_penalty = cold_trap_scores.get(key, 0.0) if strategy in ("cold", "hybrid") else 0.0
                 
                 score = (
-                    float(weights.get("hot", 0.0)) * normal_hot_norm.get(key, 0.0) * hot_multiplier +
-                    float(weights.get("trend", 0.0)) * normal_trend_norm.get(key, 0.0) * trend_multiplier +
-                    float(weights.get("cold", 0.0)) * normal_cold_norm.get(key, 0.0) * cold_multiplier +
+                    float(weights.get("hot", 0.0)) * hot_norm.get(key, 0.0) * hot_multiplier +
+                    float(weights.get("trend", 0.0)) * trend_norm.get(key, 0.0) * trend_multiplier +
+                    float(weights.get("cold", 0.0)) * cold_norm.get(key, 0.0) * cold_multiplier +
                     float(weights.get("normal", 0.0)) * normal_norm.get(key, 0.0) +
-                    float(weights.get("overdue", 0.0)) * overdue_all_norm.get(key, 0.0) +
+                    float(weights.get("overdue", 0.0)) * overdue_norm.get(key, 0.0) +
                     float(weights.get("feedback", 0.0)) * feedback_score * feedback_multiplier +
                     (attr_score * attribute_multiplier) + (penalty * overheat_multiplier) -
                     (trend_reversal_penalty * 0.85) -
@@ -10654,8 +9708,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
 
             hot_rank = _rank_numbers({
                 number: (
-                    normal_hot_norm.get(str(number), 0.0) +
-                    normal_trend_norm.get(str(number), 0.0) * 0.35 +
+                    hot_norm.get(str(number), 0.0) +
+                    trend_norm.get(str(number), 0.0) * 0.35 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.75) +
                     attribute_score(number) + overheat_penalty(number)
                 )
@@ -10663,8 +9717,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             })
             cold_rank = _rank_numbers({
                 number: (
-                    normal_cold_norm.get(str(number), 0.0) +
-                    overdue_all_norm.get(str(number), 0.0) * 0.8 +
+                    cold_norm.get(str(number), 0.0) +
+                    overdue_norm.get(str(number), 0.0) * 0.8 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.45) +
                     attribute_score(number) + (overheat_penalty(number) * 0.5) -
                     cold_trap_scores.get(str(number), 0.0)
@@ -10673,8 +9727,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             })
             trend_rank = _rank_numbers({
                 number: (
-                    normal_trend_norm.get(str(number), 0.0) * 1.1 +
-                    normal_hot_norm.get(str(number), 0.0) * 0.35 +
+                    trend_norm.get(str(number), 0.0) * 1.1 +
+                    hot_norm.get(str(number), 0.0) * 0.35 +
                     ((feedback.get("special", {}).get(str(number), 0.5) - 0.5) * feedback_confidence * 0.70) +
                     attribute_score(number) + overheat_penalty(number) -
                     trend_reversal_scores.get(str(number), 0.0)
@@ -10683,37 +9737,7 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
             })
             overall_rank = _rank_numbers(number_scores)
 
-            # 显著性闸门：hot/cold/trend 选平码时，若窗口内平码频率无统计学显著信号，
-            # 退回均匀采样——避免把噪声当信号。这里复用已算好的 normal_hot_freq（recent_data
-            # 的平码频率），不额外查库。markov 在 _predict_with_markov 内单独处理。
-            significance_passed = True
-            if strategy in ("hot", "cold", "trend"):
-                try:
-                    significance_passed, _ = _significance_gate(
-                        normal_hot_freq,
-                        len(recent_data),
-                        6.0 / 49.0,
-                    )
-                except Exception:
-                    significance_passed = True
-
-            if not significance_passed and strategy in ("hot", "cold", "trend"):
-                # 显著性闸门未通过：窗口内平码频率无统计学显著信号，退回均匀采样。
-                # 用 all_numbers 经 _take_personalized_ranked（支持 variation_key 抖动）均匀抽取 6 个平码，
-                # 避免把噪声当信号排序。
-                uniform_seed_key = variation_key or ""
-                if not uniform_seed_key:
-                    try:
-                        latest_draw = data[0] if data else None
-                        uniform_seed_key = f"{region}:{latest_draw.get('id', '')}" if latest_draw and latest_draw.get('id') else region
-                    except Exception:
-                        uniform_seed_key = region or ""
-                uniform_rank = sorted(all_numbers)
-                normal = sorted(_take_personalized_ranked(
-                    _stable_uniform_rank(uniform_seed_key, all_numbers),
-                    6, variation_key=variation_key, window_size=len(uniform_rank)
-                ))
-            elif strategy == 'hot':
+            if strategy == 'hot':
                 normal = sorted(_take_personalized_ranked(
                     hot_rank[:max(pool_size, 6)], 6, variation_key=variation_key, window_size=max(pool_size, 12)
                 ))
@@ -10843,7 +9867,6 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                     },
                     "local_combo_shape_profile": combo_shape_profile,
                     "local_hybrid_anneal_profile": hybrid_anneal_profile if strategy == "hybrid" else {},
-                    "significance_passed": bool(significance_passed),
                 },
             }
         except Exception as e:
@@ -12967,10 +11990,9 @@ def _get_prediction_data(region, year):
 
         # 预测阶段只主动补拉目标年份的数据；下一公历年的数据仅使用库内已有记录，
         # 避免在年中请求尚未产生开奖的下一年接口。
-        # 这里用 per-(region, year) 锁 + 冷却时间防止并发冷请求一起打远程接口（stampede）。
         if index == 0:
             try:
-                remote_records = _guarded_sync_for_prediction(region, candidate_year)
+                remote_records = sync_draws_from_api(region, candidate_year, force=True)
                 if remote_records:
                     draw_groups.append(remote_records)
             except Exception as e:
@@ -12979,31 +12001,6 @@ def _get_prediction_data(region, year):
     merged = _merge_draw_history_desc(*draw_groups)
     filtered = _filter_draws_by_zodiac_year(merged, target_zodiac_year)
     return filtered, target_zodiac_year
-
-
-_PREDICTION_SYNC_GUARD_LOCK = threading.Lock()
-_prediction_sync_guard_state = {}  # key: (region, year) -> {"running": bool, "started_at": float}
-_PREDICTION_SYNC_GUARD_COOLDOWN_SECONDS = _env_int("PREDICTION_SYNC_COOLDOWN_SECONDS", 30)
-
-
-def _guarded_sync_for_prediction(region, year):
-    """对预测阶段的强制同步加并发护栏：同一 (region, year) 冷却时间内只允许一次真正远程拉取。"""
-    key = (str(region or "").lower(), str(year))
-    now_ts = time.time()
-    with _PREDICTION_SYNC_GUARD_LOCK:
-        state = _prediction_sync_guard_state.get(key)
-        if state:
-            if state.get("running"):
-                return []  # 已有并发请求在拉，避免重复打远程
-            if now_ts - float(state.get("started_at") or 0.0) < _PREDICTION_SYNC_GUARD_COOLDOWN_SECONDS:
-                return []  # 冷却内不再重复拉
-        _prediction_sync_guard_state[key] = {"running": True, "started_at": now_ts}
-
-    try:
-        return sync_draws_from_api(region, year, force=True)
-    finally:
-        with _PREDICTION_SYNC_GUARD_LOCK:
-            _prediction_sync_guard_state[key] = {"running": False, "started_at": time.time()}
 
 
 def _latest_draw_cache_marker(region):
@@ -14017,10 +13014,9 @@ def _apply_auto_optimized_config(region, strategy, base_config, override, baseli
         "applied_gain": gain,
         "applied_at": now_text,
         "source": source,
-"patience": int(updated.get("rollback_patience") or 3),
-                "min_samples": int(updated.get("rollback_min_samples") or 8),
-                "drop_tolerance": round(float(updated.get("rollback_drop_tolerance") or 0.8), 4),
-                "rel_tolerance": round(float(updated.get("rollback_rel_tolerance") or 0.15), 4),
+        "patience": int(updated.get("rollback_patience") or 3),
+        "min_samples": int(updated.get("rollback_min_samples") or 8),
+        "drop_tolerance": round(float(updated.get("rollback_drop_tolerance") or 0.8), 4),
         "consecutive_degrade": 0,
         "last_checked_at": "",
     }
@@ -14864,7 +13860,7 @@ def unified_predict_api():
         except Exception as e:
             print(f"Prediction failed for region={region}, strategy={resolved_strategy}, year={year}: {e}")
             return jsonify({
-                "error": "预测失败，请稍后再试。",
+                "error": f"预测失败：{str(e)}",
                 "error_type": "prediction_failed",
             }), 500
     
@@ -14936,8 +13932,9 @@ def unified_predict_api():
             db.session.rollback()
             print(f"保存预测记录失败: {e}")
             return jsonify({
-                "error": "保存预测记录失败，请稍后再试。",
+                "error": str(e),
                 "error_type": "database_error",
+                "message": "保存预测记录失败，请稍后再试。"
             }), 500
     
     result["strategy"] = resolved_strategy
@@ -14953,7 +13950,7 @@ def _log_draw_update(message, source="manual", region=None):
     print(log_line)
 
 
-def _run_draw_postprocess_for_region(region, current_year, source="manual-postprocess", tune_strategy_configs=False):
+def _run_draw_postprocess_for_region(region, current_year, source="manual-postprocess"):
     with app.app_context():
         try:
             prediction_data, _ = _get_prediction_data(region, current_year)
@@ -14964,21 +13961,29 @@ def _run_draw_postprocess_for_region(region, current_year, source="manual-postpr
             _log_draw_update(f"开始生成自动预测 draw_count={len(prediction_data)}", source=source, region=region)
             generate_auto_predictions(prediction_data, region)
             _log_draw_update("自动预测已完成", source=source, region=region)
-            # 本地策略学习参数已移入每天0点回测定时任务触发，开奖/手动/移动端更新链路不再触发
-            if tune_strategy_configs:
-                _log_draw_update("开始刷新本地策略学习参数", source=source, region=region)
-                tuning_started_at = time.time()
-                update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
-                tuning_elapsed = round(time.time() - tuning_started_at, 2)
-                _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
-            _log_draw_update("开奖更新后处理完成（回测与策略调参已移入0点定时任务，不在开奖更新时触发）", source=source, region=region)
+            _log_draw_update("开始刷新本地策略学习参数", source=source, region=region)
+            tuning_started_at = time.time()
+            update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
+            tuning_elapsed = round(time.time() - tuning_started_at, 2)
+            _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
+            _log_draw_update("开始刷新回测快照", source=source, region=region)
+            backtest_started_at = time.time()
+            refresh_auto_backtest_snapshot(
+                region,
+                draws=prediction_data,
+                force=True,
+                strategies=POSTPROCESS_BACKTEST_STRATEGIES,
+                limit=POSTPROCESS_BACKTEST_LIMIT,
+            )
+            backtest_elapsed = round(time.time() - backtest_started_at, 2)
+            _log_draw_update(f"回测快照已完成 elapsed={backtest_elapsed}s", source=source, region=region)
         except Exception as e:
-            _log_draw_update(f"自动预测失败 error={e}", source=source, region=region)
+            _log_draw_update(f"自动预测/回测失败 error={e}", source=source, region=region)
             import traceback
             traceback.print_exc()
 
 
-def _start_draw_postprocess_async(regions, current_year, source="manual-postprocess", tune_strategy_configs=False):
+def _start_draw_postprocess_async(regions, current_year, source="manual-postprocess"):
     normalized_regions = tuple(region for region in (regions or []) if region in ("hk", "macau"))
     if not normalized_regions:
         return False
@@ -14987,7 +13992,7 @@ def _start_draw_postprocess_async(regions, current_year, source="manual-postproc
     for region in normalized_regions:
         def _runner(target_region=region):
             _log_draw_update("后台后处理分区任务开始", source=source, region=target_region)
-            _run_draw_postprocess_for_region(target_region, current_year, source=source, tune_strategy_configs=tune_strategy_configs)
+            _run_draw_postprocess_for_region(target_region, current_year, source=source)
             _log_draw_update("后台后处理分区任务完成", source=source, region=target_region)
 
         threading.Thread(
@@ -15615,15 +14620,10 @@ def update_lottery_data():
             update_prediction_accuracy(macau_data, 'macau', trigger_auto_predictions=False, tune_strategy_configs=False)
             _log_draw_update("澳门预测结算已完成", source="scheduler", region="macau")
 
-            postprocess_started = _start_draw_postprocess_async(
-                updated_region_keys,
-                current_year,
-                source="scheduler-postprocess",
-                tune_strategy_configs=False,
-            )
+            postprocess_started = _start_draw_postprocess_async(updated_region_keys, current_year, source="scheduler-postprocess")
 
             _log_draw_update(
-                f"定时开奖更新任务完成 {'，'.join(updated_regions)}" + ("；自动预测已转入后台继续处理（策略调参/回测已移入0点定时任务）" if postprocess_started else ""),
+                f"定时开奖更新任务完成 {'，'.join(updated_regions)}" + ("；自动预测和回测快照已转入后台继续处理" if postprocess_started else ""),
                 source="scheduler",
                 region="all",
             )
@@ -15675,62 +14675,6 @@ def cleanup_expired_data_job():
         except Exception as e:
             db.session.rollback()
             print(f"数据保留清理失败: {e}")
-            import traceback
-            traceback.print_exc()
-
-
-def run_scheduled_backtest_job(regions=None, source="scheduler-backtest"):
-    """定时回测任务：每天 0 点刷新各分区的回测快照。
-
-    与开奖数据更新解耦，避免首页更新开奖数据时触发回测。
-    BACKTEST_FAST=1 时：窗口缩到 _BACKTEST_FAST_LIMIT 期且 ml 只训 base 配置。
-    """
-    target_regions = tuple(regions or ("hk", "macau"))
-    fast_backtest = _backtest_fast_enabled()
-    backtest_limit = _BACKTEST_FAST_LIMIT if fast_backtest else POSTPROCESS_BACKTEST_LIMIT
-    _log_draw_update("开始执行定时回测任务", source=source, region="all")
-    with app.app_context():
-        try:
-            current_year = str(datetime.now().year)
-            for region in target_regions:
-                if region not in ("hk", "macau"):
-                    continue
-                try:
-                    draws = _load_backtest_draws_from_db(region, limit=backtest_limit)
-                    if not draws:
-                        _log_draw_update("无可用于回测的数据，跳过", source=source, region=region)
-                        continue
-                    backtest_started_at = time.time()
-                    with _temporary_ml_fast_optimize(fast_backtest):
-                        refresh_auto_backtest_snapshot(
-                            region,
-                            draws=draws,
-                            force=True,
-                            strategies=POSTPROCESS_BACKTEST_STRATEGIES,
-                            limit=backtest_limit,
-                        )
-                    backtest_elapsed = round(time.time() - backtest_started_at, 2)
-                    _log_draw_update(f"定时回测快照已完成 elapsed={backtest_elapsed}s", source=source, region=region)
-                    # 本地策略学习参数刷新也已移入0点任务，与回测解耦后等待最新开奖数据
-                    try:
-                        tuning_started_at = time.time()
-                        _log_draw_update("开始刷新本地策略学习参数", source=source, region=region)
-                        update_strategy_configs(region, strategies=POSTPROCESS_TUNING_STRATEGIES)
-                        tuning_elapsed = round(time.time() - tuning_started_at, 2)
-                        _log_draw_update(f"本地策略学习参数已刷新 elapsed={tuning_elapsed}s", source=source, region=region)
-                    except Exception as tuning_error:
-                        db.session.rollback()
-                        _log_draw_update(f"本地策略学习参数刷新失败 error={tuning_error}", source=source, region=region)
-                        import traceback
-                        traceback.print_exc()
-                except Exception as region_error:
-                    db.session.rollback()
-                    _log_draw_update(f"定时回测失败 error={region_error}", source=source, region=region)
-                    import traceback
-                    traceback.print_exc()
-            _log_draw_update("定时回测任务完成", source=source, region="all")
-        except Exception as e:
-            _log_draw_update(f"定时回测任务失败 error={e}", source=source, region="all")
             import traceback
             traceback.print_exc()
 
@@ -15825,16 +14769,6 @@ def start_scheduler(force=False):
         coalesce=True
     )
     _scheduler.add_job(
-        run_scheduled_backtest_job,
-        'cron',
-        hour=0,
-        minute=0,
-        kwargs={"regions": ("hk", "macau"), "source": "scheduler-backtest"},
-        id='scheduled_backtest_00',
-        misfire_grace_time=600,
-        coalesce=True
-    )
-    _scheduler.add_job(
         cleanup_expired_data_job,
         'cron',
         hour=3,
@@ -15845,7 +14779,7 @@ def start_scheduler(force=False):
     )
     _scheduler.start()
     if _should_log_startup():
-        print("定时任务已启动：每天20:00自动采集澳门号码生肖；21:40自动更新开奖记录并发送预测邮件；每天0:00刷新回测快照与本地策略学习参数")
+        print("定时任务已启动：每天20:00自动采集澳门号码生肖；21:40自动更新数据库中的开奖记录")
     return _scheduler
 
 if os.environ.get("ENABLE_SCHEDULER", "1").lower() in ("1", "true", "yes", "on"):

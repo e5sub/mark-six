@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Blueprint, jsonify, request, session, url_for
-from markupsafe import escape
 from sqlalchemy import desc
 
 from models import ActivationCode, ActivationCodeRequest, User, db
@@ -38,22 +37,16 @@ def _send_activation_request_result_notification(user, request_record, decision,
     if not user:
         return
 
-    # admin_note 与 code 来自请求体，拼入 HTML 邮件前必须转义，避免存储型 XSS 进入用户邮箱。
-    admin_note_html = str(escape(str(admin_note or '').strip()))
-    code_html = str(escape(str(code or '').strip()))
-    admin_note_text = str(admin_note or '').strip()
-    code_text = str(code or '').strip()
-
     if decision == 'approved':
         title = '您的激活码申请已通过'
         content = '管理员已批准您的激活码申请，系统已为您发放激活码。'
         detail_parts = []
-        if code_text:
-            detail_parts.append(f'激活码：{code_text}')
+        if code:
+            detail_parts.append(f'激活码：{code}')
         if validity_type:
             detail_parts.append(f'有效期：{_validity_label(validity_type)}')
-        if admin_note_text:
-            detail_parts.append(f'管理员备注：{admin_note_text}')
+        if admin_note:
+            detail_parts.append(f'管理员备注：{admin_note}')
         if detail_parts:
             content = f'{content}\n' + '\n'.join(detail_parts)
         html_content = f"""
@@ -63,9 +56,9 @@ def _send_activation_request_result_notification(user, request_record, decision,
                 <h2 style="color: #28a745;">您的激活码申请已通过</h2>
                 <p>管理员已批准您的激活码申请，系统已为您发放激活码。</p>
                 <p><strong>申请编号：</strong>{request_record.id}</p>
-                {f'<p><strong>激活码：</strong>{code_html}</p>' if code_html else ''}
+                {f'<p><strong>激活码：</strong>{code}</p>' if code else ''}
                 {f'<p><strong>有效期：</strong>{_validity_label(validity_type)}</p>' if validity_type else ''}
-                {f'<p><strong>管理员备注：</strong>{admin_note_html}</p>' if admin_note_html else ''}
+                {f'<p><strong>管理员备注：</strong>{admin_note}</p>' if admin_note else ''}
                 <p>您可以前往系统查看相关通知。</p>
             </div>
         </body>
@@ -74,8 +67,8 @@ def _send_activation_request_result_notification(user, request_record, decision,
     else:
         title = '您的激活码申请已被拒绝'
         content = '管理员已拒绝您的激活码申请。'
-        if admin_note_text:
-            content = f'{content}\n管理员备注：{admin_note_text}'
+        if admin_note:
+            content = f'{content}\n管理员备注：{admin_note}'
         html_content = f"""
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -83,7 +76,7 @@ def _send_activation_request_result_notification(user, request_record, decision,
                 <h2 style="color: #dc3545;">您的激活码申请已被拒绝</h2>
                 <p>管理员已拒绝您的激活码申请。</p>
                 <p><strong>申请编号：</strong>{request_record.id}</p>
-                {f'<p><strong>管理员备注：</strong>{admin_note_html}</p>' if admin_note_html else ''}
+                {f'<p><strong>管理员备注：</strong>{admin_note}</p>' if admin_note else ''}
                 <p>如有疑问，可以联系管理员进一步说明。</p>
             </div>
         </body>
