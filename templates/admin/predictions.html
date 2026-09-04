@@ -704,6 +704,22 @@ function toggleGroup(headerCheckbox, groupKey) {
     });
 }
 
+// 程序化 form.submit() 不会触发 submit 事件，
+// CSRF 自动注入脚本无法补上 token，这里手动补上
+function getCsrfToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+}
+
+function attachCsrfToken(form) {
+    if (!form || form.querySelector('input[name="csrf_token"]')) return;
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'csrf_token';
+    input.value = getCsrfToken();
+    form.appendChild(input);
+}
+
 function deleteSelected() {
     const checkboxes = document.querySelectorAll('.prediction-checkbox:checked');
     if (checkboxes.length === 0) {
@@ -711,7 +727,9 @@ function deleteSelected() {
         return;
     }
     if (confirm(`确定要删除选中的 ${checkboxes.length} 条预测记录吗？`)) {
-        document.getElementById('batchDeleteForm').submit();
+        const form = document.getElementById('batchDeleteForm');
+        attachCsrfToken(form);
+        form.submit();
     }
 }
 
@@ -720,6 +738,7 @@ function clearAll() {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = '{{ url_for("admin.clear_all_predictions") }}';
+        attachCsrfToken(form);
         document.body.appendChild(form);
         form.submit();
     }

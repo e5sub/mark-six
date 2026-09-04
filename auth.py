@@ -181,47 +181,50 @@ def _github_mobile_html(title, message):
 
 
 def _resolve_github_login_user(profile, email):
+    """
+    用 GitHub OAuth 身份解析系统账号。
+
+    仅接受两种路径：
+      1) 该 github_id 已绑定过系统账号 → 直接登录；
+      2) 邮箱与 github_id 均无归属 → 视为新用户（允许注册时）注册。
+    通过邮箱匹配既有账号的一定不能自动绑定——邮箱只是注册时自述，未经过
+    邮件验证的账号若凭"邮箱相同"就自动挂钩 GitHub，等于任何 GitHub 邮箱
+    与某账号注册邮箱相同的人都可以接管该账号。
+    """
     github_id = str(profile.get('id') or '').strip()
     github_login_name = str(profile.get('login') or '').strip()
 
     user = User.query.filter_by(github_id=github_id).first() if github_id else None
-    if not user:
-        user = User.query.filter_by(email=email).first()
-    if not user:
-        if not _is_config_enabled('allow_registration', 'true'):
-            raise ValueError('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册')
-
-        first_admin = not _has_admin_account()
-        github_login_name = github_login_name or email.split('@', 1)[0]
-        user = User(
-            username=_unique_github_username(github_login_name),
-            email=email,
-            github_id=github_id or None,
-            github_username=github_login_name,
-            is_admin=first_admin,
-        )
-        user.set_password(secrets.token_urlsafe(32))
-        user.extend_activation(7)
-        user.is_active = True
-        user.auto_prediction_enabled = True
-        db.session.add(user)
-        db.session.commit()
-        _mark_email_verified(user)
+    if user:
         return user
 
-    if github_id and not user.github_id:
-        existing_user = User.query.filter(
-            User.github_id == github_id,
-            User.id != user.id,
-        ).first()
-        if existing_user:
-            raise ValueError('这个 GitHub 账号已经绑定到其他用户')
-        user.github_id = github_id
-        user.github_username = github_login_name
-        db.session.commit()
+    if email:
+        existing = User.query.filter_by(email=email).first()
+        if existing:
+            raise ValueError(
+                '该邮箱已注册本系统账号，请先用账号密码登录，'
+                '然后在账号设置中完成 GitHub 绑定后再使用 GitHub 登录'
+            )
 
-    if _email_verification_required() and not _is_email_verified(user):
-        _mark_email_verified(user)
+    if not _is_config_enabled('allow_registration', 'true'):
+        raise ValueError('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册')
+
+    first_admin = not _has_admin_account()
+    github_login_name = github_login_name or (email.split('@', 1)[0] if email else 'github')
+    user = User(
+        username=_unique_github_username(github_login_name),
+        email=email,
+        github_id=github_id or None,
+        github_username=github_login_name,
+        is_admin=first_admin,
+    )
+    user.set_password(secrets.token_urlsafe(32))
+    user.extend_activation(7)
+    user.is_active = True
+    user.auto_prediction_enabled = True
+    db.session.add(user)
+    db.session.commit()
+    _mark_email_verified(user)
     return user
 
 
@@ -470,8 +473,116 @@ def send_verification_email(user, token):
     """
     _send_html_email(user.email, subject, html_body)
 
-@auth_bp.route('/register', methods=['GET', 'POST'])
-def register():
+
+def _email_change_token_key(user_id):
+    return f"email_change_token_{user_id}"
+
+
+def _clear_email_change_token(user_id):
+    pending = SystemConfig.query.filter_by(
+        key=_email_change_token_key(user_id)
+    ).first()
+    if pending:
+        db.session.delete(pending)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+
+def _create_email_change_token(user, new_email, ttl_hours=24):
+    """为换绑邮箱生成一次性令牌。value 存 token|expires|new_email。"""
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=ttl_hours)
+    payload = f"{token}|{expires_at.isoformat()}|{new_email}"
+    SystemConfig.set_config(
+        _email_change_token_key(user.id),
+        payload,
+        f'Email change token for user {user.id}',
+    )
+    return token
+
+
+def _resolve_email_change_user(token):
+    """根据换绑令牌解析目标用户与新邮箱；无效/过期返回 (None, None)。"""
+    for cfg in SystemConfig.query.filter(SystemConfig.key.like('email_change_token_%')).all():
+        try:
+            stored_token, expires_str, new_email = (cfg.value or '').split('|', 2)
+            expires_at = datetime.fromisoformat(expires_str)
+            if stored_token != token or datetime.utcnow() >= expires_at:
+                continue
+            user_id = int(cfg.key.replace('email_change_token_', ''))
+            user = User.query.get(user_id)
+            if user:
+                return user, new_email
+        except Exception:
+            continue
+    return None, None
+
+
+def send_email_change_verification(user, new_email, token):
+    site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
+    verify_url = url_for('auth.verify_email_change', token=token, _external=True)
+    subject = f'{site_name} - 邮箱更换确认'
+    html_body = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #667eea;">确认更换邮箱</h2>
+            <p>亲爱的 {user.username}：</p>
+            <p>您正在将账号邮箱更换为：<strong>{new_email}</strong></p>
+            <p>请点击下面的按钮完成确认，确认后新邮箱才会生效。</p>
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{verify_url}"
+                   style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                          color: white;
+                          padding: 12px 30px;
+                          text-decoration: none;
+                          border-radius: 25px;
+                          display: inline-block;">
+                    确认更换邮箱
+                </a>
+            </div>
+            <p>如果按钮无法点击，请复制以下链接到浏览器打开：</p>
+            <p style="word-break: break-all; background: #f5f5f5; padding: 10px; border-radius: 5px;">
+                {verify_url}
+            </p>
+            <p style="color: #666; font-size: 14px;">
+                此链接将在 24 小时后失效。如非本人操作，请忽略此邮件。
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+    _send_html_email(new_email, subject, html_body)
+
+
+@auth_bp.route('/verify_email_change/<token>')
+def verify_email_change(token):
+    user, new_email = _resolve_email_change_user(token)
+    if not user or not new_email:
+        flash('邮箱更换链接无效或已过期，请重新申请', 'error')
+        return redirect(url_for('user.dashboard'))
+
+    # 新邮箱可能在此期间被他人注册
+    existing = User.query.filter_by(email=new_email).first()
+    if existing and existing.id != user.id:
+        flash('该邮箱已被其他用户使用，更换失败', 'error')
+        return redirect(url_for('user.dashboard'))
+
+    user.email = new_email
+    _mark_email_verified(user)
+    db.session.commit()
+
+    pending = SystemConfig.query.filter_by(
+        key=_email_change_token_key(user.id)
+    ).first()
+    if pending:
+        db.session.delete(pending)
+        db.session.commit()
+
+    flash('邮箱更换成功', 'success')
+    return redirect(url_for('user.dashboard'))
     if not _is_config_enabled('allow_registration', 'true'):
         flash('当前已关闭新用户注册，如需开通请联系管理员', 'error')
         return redirect(url_for('auth.login'))
@@ -733,44 +844,48 @@ def github_callback():
         flash('GitHub 账号绑定成功', 'success')
         return redirect(url_for('user.dashboard'))
 
+    # 与 _resolve_github_login_user 相同的安全策略：
+    # 未绑定 GitHub 且邮箱已注册的既有账号绝不自动绑定——
+    # 邮箱相同不能作为账号归属凭证，否则任何 GitHub 邮箱与某注册
+    # 邮箱相同的人都能接管该账号。
     user = User.query.filter_by(github_id=github_id).first() if github_id else None
-    if not user:
-        user = User.query.filter_by(email=email).first()
-    if not user:
-        if not _is_config_enabled('allow_registration', 'true'):
-            flash('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册', 'error')
-            return redirect(url_for('auth.login'))
+    if user:
+        if _email_verification_required() and not _is_email_verified(user):
+            _mark_email_verified(user)
+        _login_user_session(user)
+        if user.is_admin:
+            return redirect(url_for('admin.dashboard'))
+        return redirect(url_for('user.dashboard'))
 
-        first_admin = not _has_admin_account()
-        github_login_name = github_login_name or email.split('@', 1)[0]
-        user = User(
-            username=_unique_github_username(github_login_name),
-            email=email,
-            github_id=github_id or None,
-            github_username=github_login_name,
-            is_admin=first_admin,
+    existing_by_email = User.query.filter_by(email=email).first() if email else None
+    if existing_by_email:
+        flash(
+            '该邮箱已注册本系统账号，请先用账号密码登录，'
+            '然后在账号设置中完成 GitHub 绑定后再使用 GitHub 登录',
+            'error',
         )
-        user.set_password(secrets.token_urlsafe(32))
-        user.extend_activation(7)
-        user.is_active = True
-        user.auto_prediction_enabled = True
-        db.session.add(user)
-        db.session.commit()
-        _mark_email_verified(user)
-    elif github_id and not user.github_id:
-        existing_user = User.query.filter(
-            User.github_id == github_id,
-            User.id != user.id,
-        ).first()
-        if existing_user:
-            flash('这个 GitHub 账号已经绑定到其他用户', 'error')
-            return redirect(url_for('auth.login'))
-        user.github_id = github_id
-        user.github_username = github_login_name
-        db.session.commit()
+        return redirect(url_for('auth.login'))
 
-    if _email_verification_required() and not _is_email_verified(user):
-        _mark_email_verified(user)
+    if not _is_config_enabled('allow_registration', 'true'):
+        flash('该 GitHub 邮箱尚未绑定本系统账号，且当前不允许新用户注册', 'error')
+        return redirect(url_for('auth.login'))
+
+    first_admin = not _has_admin_account()
+    github_login_name = github_login_name or email.split('@', 1)[0]
+    user = User(
+        username=_unique_github_username(github_login_name),
+        email=email,
+        github_id=github_id or None,
+        github_username=github_login_name,
+        is_admin=first_admin,
+    )
+    user.set_password(secrets.token_urlsafe(32))
+    user.extend_activation(7)
+    user.is_active = True
+    user.auto_prediction_enabled = True
+    db.session.add(user)
+    db.session.commit()
+    _mark_email_verified(user)
 
     _login_user_session(user)
     if user.is_admin:

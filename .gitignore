@@ -1,0 +1,26 @@
+# 运行数据与密钥（严禁入库；git add . 会带进去）
+data/
+*.db
+*.sqlite
+*.sqlite3
+secret_key.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.env.*
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+
+# 日志与临时
+*.log
+*.pid
+*.lock
+tmp/
+.DS_Store

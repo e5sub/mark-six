@@ -749,6 +749,21 @@ def inject_csrf_helpers(response):
     return response
 
 
+@app.after_request
+def inject_security_headers(response):
+    try:
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        )
+    except Exception as e:
+        print(f"注入安全响应头失败: {e}")
+    return response
+
+
 def _safe_system_config(key, default=""):
     try:
         return SystemConfig.get_config(key, default)

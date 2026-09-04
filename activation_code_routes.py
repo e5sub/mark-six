@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Blueprint, jsonify, request, session, url_for
+from markupsafe import escape
 from sqlalchemy import desc
 
 from models import ActivationCode, ActivationCodeRequest, User, db
@@ -56,9 +57,9 @@ def _send_activation_request_result_notification(user, request_record, decision,
                 <h2 style="color: #28a745;">您的激活码申请已通过</h2>
                 <p>管理员已批准您的激活码申请，系统已为您发放激活码。</p>
                 <p><strong>申请编号：</strong>{request_record.id}</p>
-                {f'<p><strong>激活码：</strong>{code}</p>' if code else ''}
-                {f'<p><strong>有效期：</strong>{_validity_label(validity_type)}</p>' if validity_type else ''}
-                {f'<p><strong>管理员备注：</strong>{admin_note}</p>' if admin_note else ''}
+                {f'<p><strong>激活码：</strong>{escape(code)}</p>' if code else ''}
+                {f'<p><strong>有效期：</strong>{escape(_validity_label(validity_type))}</p>' if validity_type else ''}
+                {f'<p><strong>管理员备注：</strong>{escape(admin_note)}</p>' if admin_note else ''}
                 <p>您可以前往系统查看相关通知。</p>
             </div>
         </body>
@@ -76,7 +77,7 @@ def _send_activation_request_result_notification(user, request_record, decision,
                 <h2 style="color: #dc3545;">您的激活码申请已被拒绝</h2>
                 <p>管理员已拒绝您的激活码申请。</p>
                 <p><strong>申请编号：</strong>{request_record.id}</p>
-                {f'<p><strong>管理员备注：</strong>{admin_note}</p>' if admin_note else ''}
+                {f'<p><strong>管理员备注：</strong>{escape(admin_note)}</p>' if admin_note else ''}
                 <p>如有疑问，可以联系管理员进一步说明。</p>
             </div>
         </body>

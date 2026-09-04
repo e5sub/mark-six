@@ -15,8 +15,8 @@ import urllib3
 import threading
 import time
 from collections import OrderedDict
-from notification_service import cleanup_expired_station_notifications, get_user_notification_config, save_user_notification_config
-from auth import _github_login_enabled
+from notification_service import cleanup_expired_station_notifications, get_user_notification_config, save_user_notification_config, has_email_config
+from auth import _github_login_enabled, _create_email_change_token, _clear_email_change_token, send_email_change_verification
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
 
@@ -3319,16 +3319,30 @@ def update_profile():
     try:
         user = User.query.get(session['user_id'])
         
-        # 更新邮箱
+        # 更新邮箱：必须通过新邮箱验证后才会生效，防止邮箱被他人冒领
         new_email = request.form.get('email')
         if new_email and new_email != user.email:
+            new_email = str(new_email).strip()
             # 检查邮箱是否已被使用
             existing_user = User.query.filter_by(email=new_email).first()
             if existing_user and existing_user.id != user.id:
                 flash('该邮箱已被其他用户使用', 'error')
                 return redirect(url_for('user.dashboard'))
-            
-            user.email = new_email
+
+            if not has_email_config():
+                flash('系统未配置邮箱服务，暂时无法更换邮箱，请联系管理员', 'error')
+                return redirect(url_for('user.dashboard'))
+
+            # 先发验证邮件，确认后 user.email 才真正变更
+            _clear_email_change_token(user.id)
+            token = _create_email_change_token(user, new_email)
+            try:
+                send_email_change_verification(user, new_email, token)
+            except Exception as e:
+                flash(f'验证邮件发送失败：{str(e)}', 'error')
+                return redirect(url_for('user.dashboard'))
+            flash(f'已向新邮箱 {new_email} 发送确认邮件，请查收并点击链接完成更换', 'success')
+            return redirect(url_for('user.dashboard'))
         
         db.session.commit()
         flash('个人信息更新成功', 'success')
