@@ -14533,6 +14533,7 @@ def init_database():
             ('smtp_port', '587', 'SMTP端口'),
             ('smtp_username', '', 'SMTP用户名'),
             ('smtp_password', '', 'SMTP密码'),
+            ('site_base_url', '', '站点对外地址（邮件/回调链接基于此生成，留空则用当前访问域名）'),
             ('notify_email_enabled', 'true', '启用邮件推送'),
         ]
         

@@ -1242,6 +1242,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     'enable_github_login': 'false',
     'github_client_id': '',
     'github_client_secret': '',
+    'site_base_url': '',
     'enable_personalized_predictions': 'false',
     'auto_optimize_enabled': 'false',
     'auto_optimize_level': 'balanced',

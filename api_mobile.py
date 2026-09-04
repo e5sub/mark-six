@@ -23,6 +23,7 @@ from models import (
     db,
 )
 from auth import (
+    _external_url,
     _github_login_enabled,
     _github_oauth_config,
     _mobile_github_state_key,
@@ -489,7 +490,7 @@ def api_github_auth_url():
     )
     query = urlencode({
         "client_id": config["client_id"],
-        "redirect_uri": url_for("auth.github_callback", _external=True),
+        "redirect_uri": _external_url('auth.github_callback'),
         "scope": "read:user user:email",
         "state": state,
         "allow_signup": "true",

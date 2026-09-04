@@ -7,6 +7,7 @@ from sqlalchemy import desc
 
 from models import ActivationCode, ActivationCodeRequest, User, db
 from notification_service import notify_user
+from auth import _external_url
 
 
 activation_code_bp = Blueprint('activation_code', __name__, url_prefix='/admin/activation_codes')
@@ -90,7 +91,7 @@ def _send_activation_request_result_notification(user, request_record, decision,
         content,
         html_content=html_content,
         event_type='activation_request_result',
-        link_url=url_for('user.notifications', _external=True),
+        link_url=_external_url('user.notifications'),
         email_subject=title,
     )
 

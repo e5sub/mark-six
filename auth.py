@@ -92,6 +92,30 @@ def _github_login_enabled():
     return bool(_github_oauth_config())
 
 
+def _external_url(endpoint, **values):
+    """
+    生成站外绝对链接。
+
+    - 后台配置了 site_base_url（站点对外地址）时，以它为准拼链接，
+      这样定时任务、后台线程里发的邮件不会生成 http://127.0.0.1 之类
+      内网地址；
+    - 未配置时回退到 url_for(_external=True)，即按当前请求的主机名生成。
+    """
+    try:
+        base = str(SystemConfig.get_config('site_base_url', '') or '').strip().rstrip('/')
+        if base:
+            relative = url_for(endpoint, **values)
+            if relative.startswith('/'):
+                return base + relative
+            if relative.startswith('http://') or relative.startswith('https://'):
+                # 理论不会走到；防御一下避免拼出双协议
+                return relative
+            return base + '/' + relative
+    except Exception:
+        pass
+    return url_for(endpoint, _external=True, **values)
+
+
 def _login_user_session(user):
     user.check_and_update_activation_status()
     user.last_login = datetime.utcnow()
@@ -247,7 +271,7 @@ def _handle_mobile_github_callback(config, state_payload):
                 'client_id': config['client_id'],
                 'client_secret': config['client_secret'],
                 'code': code,
-                'redirect_uri': url_for('auth.github_callback', _external=True),
+                'redirect_uri': _external_url('auth.github_callback'),
             },
             headers={'Accept': 'application/json'},
             timeout=12,
@@ -274,7 +298,7 @@ def _handle_mobile_github_callback(config, state_payload):
         },
         'Mobile GitHub one-time login token',
     )
-    return redirect(url_for('mobile_api.api_github_success', token=login_token, _external=True))
+    return redirect(_external_url('mobile_api.api_github_success', token=login_token))
 
 
 def _email_verification_status_key(user_id):
@@ -380,7 +404,7 @@ def send_activation_request_notification(request_record):
     recipients = _get_admin_notification_emails()
 
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
-    admin_url = url_for('admin.activation_codes', _external=True)
+    admin_url = _external_url('admin.activation_codes')
     created_at = getattr(request_record, 'created_at', None)
     created_at_text = (
         created_at.strftime('%Y-%m-%d %H:%M:%S UTC')
@@ -440,7 +464,7 @@ def send_activation_request_notification(request_record):
 
 def send_verification_email(user, token):
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
-    verify_url = url_for('auth.verify_email', token=token, _external=True)
+    verify_url = _external_url('auth.verify_email', token=token)
     subject = f'{site_name} - 邮箱验证'
     html_body = f"""
     <html>
@@ -522,7 +546,7 @@ def _resolve_email_change_user(token):
 
 def send_email_change_verification(user, new_email, token):
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
-    verify_url = url_for('auth.verify_email_change', token=token, _external=True)
+    verify_url = _external_url('auth.verify_email_change', token=token)
     subject = f'{site_name} - 邮箱更换确认'
     html_body = f"""
     <html>
@@ -737,7 +761,7 @@ def github_login():
     session['github_oauth_mode'] = 'login'
     query = urlencode({
         'client_id': config['client_id'],
-        'redirect_uri': url_for('auth.github_callback', _external=True),
+        'redirect_uri': _external_url('auth.github_callback'),
         'scope': 'read:user user:email',
         'state': state,
         'allow_signup': 'true',
@@ -760,7 +784,7 @@ def github_bind():
     session['github_oauth_mode'] = 'bind'
     query = urlencode({
         'client_id': config['client_id'],
-        'redirect_uri': url_for('auth.github_callback', _external=True),
+        'redirect_uri': _external_url('auth.github_callback'),
         'scope': 'read:user user:email',
         'state': state,
         'allow_signup': 'true',
@@ -798,7 +822,7 @@ def github_callback():
                 'client_id': config['client_id'],
                 'client_secret': config['client_secret'],
                 'code': code,
-                'redirect_uri': url_for('auth.github_callback', _external=True),
+                'redirect_uri': _external_url('auth.github_callback'),
             },
             headers={'Accept': 'application/json'},
             timeout=12,
@@ -1102,7 +1126,7 @@ def send_reset_email(email, username, token):
     """发送密码重置邮件"""
     site_name = SystemConfig.get_config('site_name', 'AI数据分析预测系统')
 
-    reset_url = url_for('auth.reset_password', token=token, _external=True)
+    reset_url = _external_url('auth.reset_password', token=token)
     subject = f'{site_name} - 密码重置'
     html_body = f"""
     <html>

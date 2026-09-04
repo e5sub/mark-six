@@ -466,6 +466,7 @@ configs = [
     ("enable_github_login", "false", "启用 GitHub 登录"),
     ("github_client_id", "", "GitHub OAuth Client ID"),
     ("github_client_secret", "", "GitHub OAuth Client Secret"),
+    ("site_base_url", "", "站点对外地址（邮件/回调链接基于此生成，留空则用当前访问域名）"),
     ("enable_personalized_predictions", "false", "启用个性化预测"),
     ("auto_optimize_enabled", "false", "启用策略自动优化"),
     ("auto_optimize_level", "balanced", "策略自动优化等级"),

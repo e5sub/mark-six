@@ -281,6 +281,12 @@
                                placeholder="用于邮件和页面展示的站点名称">
                     </div>
                     <div class="config-field">
+                        <label>站点对外地址</label>
+                        <input type="url" name="site_base_url" class="form-control"
+                               value="{{ configs.get('site_base_url', '') }}"
+                               placeholder="https://example.com（邮件/回调链接基于此生成，留空则用当前访问域名）">
+                    </div>
+                    <div class="config-field">
                         <label>SEO 标题</label>
                         <input type="text" name="seo_title" class="form-control"
                                value="{{ configs.get('seo_title') or '彩研所 - 香港澳门彩票数据分析与智能预测' }}"
