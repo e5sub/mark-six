@@ -51,7 +51,7 @@ _ML_PREDICTION_CACHE_TTL_SECONDS = 900
 _ML_PREDICTION_CACHE_MAX_ITEMS = 24
 _AI_PREDICTION_CACHE_TTL_SECONDS = 300
 _AI_HTTP_CONNECT_TIMEOUT_SECONDS = _env_float("AI_HTTP_CONNECT_TIMEOUT_SECONDS", 10)
-_AI_HTTP_READ_TIMEOUT_SECONDS = _env_float("AI_HTTP_READ_TIMEOUT_SECONDS", 90)
+_AI_HTTP_READ_TIMEOUT_SECONDS = _env_float("AI_HTTP_READ_TIMEOUT_SECONDS", 30)
 _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
 # All strategy-selection and tuning layers optimize the special number first.
 # Normal-number coverage and zodiac agreement remain tie-break signals only.
@@ -10088,7 +10088,7 @@ def _build_ai_sampling_temperatures(base_temperature, sample_count):
     return values
 
 
-def _call_ai_completion(ai_config, prompt, temperature=0.35):
+def _call_ai_completion(ai_config, prompt, temperature=0.35, timeout=None):
     payload = {
         "model": ai_config['model'],
         "messages": [
@@ -10098,7 +10098,8 @@ def _call_ai_completion(ai_config, prompt, temperature=0.35):
         "temperature": temperature
     }
     headers = {"Authorization": f"Bearer {ai_config['api_key']}", "Content-Type": "application/json"}
-    response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=_ai_http_timeout())
+    effective_timeout = timeout if timeout is not None else _ai_http_timeout()
+    response = requests.post(ai_config['api_url'], json=payload, headers=headers, timeout=effective_timeout)
     response.raise_for_status()
     if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
         response.encoding = "utf-8"
@@ -10637,11 +10638,23 @@ def _repair_ai_response_text(response_text, region=None):
     return normalized
 
 
-def _call_ai_completion_with_retries(ai_config, prompt, temperature=0.35, max_attempts=2, region=None):
+def _call_ai_completion_with_retries(ai_config, prompt, temperature=0.35, max_attempts=2, region=None, deadline_at=None, connect_timeout=None, min_attempt_seconds=10.0):
     last_error = None
-    for attempt in range(max(1, int(max_attempts or 1))):
+    effective_attempts = max(1, int(max_attempts or 1))
+    connect_timeout = connect_timeout if connect_timeout is not None else _AI_HTTP_CONNECT_TIMEOUT_SECONDS
+    for attempt in range(effective_attempts):
+        # Respect an absolute deadline so slow upstream calls cannot blow past
+        # a gateway timeout window. If the remaining budget cannot accommodate
+        # at least one more meaningful request, stop issuing attempts.
+        if deadline_at is not None:
+            remaining = deadline_at - time.perf_counter()
+            if remaining < max(2.0, float(min_attempt_seconds or 0.0)):
+                break
+            attempt_timeout = (connect_timeout, max(2.0, remaining))
+        else:
+            attempt_timeout = None
         try:
-            response_text = _call_ai_completion(ai_config, prompt, temperature=temperature)
+            response_text = _call_ai_completion(ai_config, prompt, temperature=temperature, timeout=attempt_timeout)
             repaired = _repair_ai_response_text(response_text, region=region)
             if str(repaired or "").strip():
                 return repaired
@@ -10818,10 +10831,12 @@ def _ensure_ai_candidate_coverage(ai_responses, region, context, desired_count=3
     return responses
 
 
-def _extend_ai_responses_for_coverage(ai_config, prompt, responses, region, target_candidates, base_temperature=0.35, max_extra_calls=2):
+def _extend_ai_responses_for_coverage(ai_config, prompt, responses, region, target_candidates, base_temperature=0.35, max_extra_calls=2, deadline_at=None):
     responses = list(responses or [])
     target = max(2, int(target_candidates or 2))
     for extra_index in range(max(0, int(max_extra_calls or 0))):
+        if deadline_at is not None and (deadline_at - time.perf_counter()) < 8.0:
+            break
         if _count_ai_unique_candidates(responses, region=region) >= target:
             break
         extra_temp = round(_clamp(float(base_temperature or 0.35) + 0.12 + extra_index * 0.05, 0.18, 0.58), 2)
@@ -10833,6 +10848,7 @@ def _extend_ai_responses_for_coverage(ai_config, prompt, responses, region, targ
                     temperature=extra_temp,
                     max_attempts=2,
                     region=region,
+                    deadline_at=deadline_at,
                 )
             )
         except Exception:
@@ -10885,6 +10901,7 @@ def _run_ai_prediction_pipeline(
 ):
     started_at = time.perf_counter()
     budget_seconds = _resolve_ai_latency_budget_seconds(tuned, stream_mode=stream_mode)
+    deadline_at = started_at + float(budget_seconds)
     use_cache = not stream_mode and not str(initial_response_text or "").strip()
     cache_key = ""
     cache_region, cache_latest_period = _prediction_cache_meta(region, data)
@@ -10929,6 +10946,7 @@ def _run_ai_prediction_pipeline(
                     temperature=temp,
                     max_attempts=2,
                     region=region,
+                    deadline_at=deadline_at,
                 )
             )
         except Exception:
@@ -10953,6 +10971,7 @@ def _run_ai_prediction_pipeline(
                 candidate_count,
                 base_temperature=temperature,
                 max_extra_calls=extra_calls,
+                deadline_at=deadline_at,
             )
         budget_exhausted = _ai_budget_exhausted(started_at, budget_seconds)
 
