@@ -607,6 +607,10 @@ def verify_email_change(token):
 
     flash('邮箱更换成功', 'success')
     return redirect(url_for('user.dashboard'))
+
+
+@auth_bp.route('/register', methods=['GET', 'POST'])
+def register():
     if not _is_config_enabled('allow_registration', 'true'):
         flash('当前已关闭新用户注册，如需开通请联系管理员', 'error')
         return redirect(url_for('auth.login'))
