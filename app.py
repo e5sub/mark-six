@@ -47,7 +47,7 @@ def _env_float(name, default):
         return float(default)
 
 
-_ML_PREDICTION_CACHE_TTL_SECONDS = 900
+_ML_PREDICTION_CACHE_TTL_SECONDS = 3600
 _ML_PREDICTION_CACHE_MAX_ITEMS = 24
 _AI_PREDICTION_CACHE_TTL_SECONDS = 300
 _AI_HTTP_CONNECT_TIMEOUT_SECONDS = _env_float("AI_HTTP_CONNECT_TIMEOUT_SECONDS", 10)
@@ -9170,15 +9170,8 @@ def _build_ml_prediction_cache_key(region, data, config):
         str(item.get("id") or "").strip()
         for item in list(data or [])[:16]
     ]
-    accuracy_signature = {}
-    for strategy in ("hybrid", "balanced", "markov", "trend", "hot", "cold"):
-        accuracy, total = _calculate_strategy_accuracy(normalized_region, strategy, limit=None)
-        accuracy_signature[strategy] = {
-            "accuracy": round(float(accuracy or 0.0), 6),
-            "total": int(total or 0),
-        }
     payload = {
-        "cache_version": 4,
+        "cache_version": 5,
         "region": normalized_region,
         "backtest_cutoff_period": _current_backtest_cutoff_period(),
         "periods": head_periods,
@@ -9204,7 +9197,6 @@ def _build_ml_prediction_cache_key(region, data, config):
         "ensemble_core_strategies": list(config.get("ensemble_core_strategies") or []),
         "ensemble_replace_margin": float(config.get("ensemble_replace_margin") or 0.0),
         "ensemble_replace_min_samples": int(config.get("ensemble_replace_min_samples") or 0),
-        "accuracy_signature": accuracy_signature,
     }
     fingerprint = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
@@ -12073,6 +12065,13 @@ def save_draws_to_database(draws, region):
         after_latest = _latest_draw_cache_marker(region)
         if count and before_latest != after_latest:
             _clear_draw_dependent_caches(region)
+            # Rebuild the ML artifacts in the background so the first user
+            # request after a draw update still hits the cache.
+            threading.Thread(
+                target=lambda: warmup_ml_prediction_cache(regions=(region,)),
+                name=f"mark-six-ml-warmup-{region}",
+                daemon=True,
+            ).start()
         print(f"成功保存{count}条{region}地区的开奖记录到数据库")
     except Exception as e:
         print(f"保存开奖记录到数据库失败: {e}")
@@ -14718,6 +14717,54 @@ _warmup_thread = None
 _warmup_started = False
 
 
+def warmup_ml_prediction_cache(regions=None):
+    """Pre-build ML prediction artifacts for the given regions.
+
+    Runs inside an application context so DB access is available. Safe to call
+    repeatedly: existing cache entries short-circuit the build.
+    """
+    regions = tuple(regions or ("hk", "macau"))
+    with app.app_context():
+        for region in regions:
+            try:
+                data, _ = _get_prediction_data(region, str(datetime.now().year))
+                if not data:
+                    continue
+                _build_ml_prediction_artifacts(data, region)
+                print(f"ML 预测缓存预热完成：{region}")
+            except Exception as e:
+                print(f"ML 预测缓存预热失败 region={region}: {e}")
+
+
+_ml_warmup_thread = None
+_ml_warmup_started = False
+
+
+def start_async_ml_warmup(regions=None):
+    """Kick off ML cache warmup in a background thread (non-blocking)."""
+    global _ml_warmup_thread, _ml_warmup_started
+    enabled = os.environ.get("ENABLE_STARTUP_ML_WARMUP", "1").lower() in ("1", "true", "yes", "on")
+    if not enabled or _ml_warmup_started:
+        return None
+
+    target_regions = tuple(regions or ("hk", "macau"))
+
+    def _runner():
+        try:
+            warmup_ml_prediction_cache(regions=target_regions)
+        except Exception as e:
+            print(f"Async ML warmup failed: {e}")
+
+    _ml_warmup_thread = threading.Thread(
+        target=_runner,
+        name="mark-six-ml-warmup",
+        daemon=True,
+    )
+    _ml_warmup_thread.start()
+    _ml_warmup_started = True
+    return _ml_warmup_thread
+
+
 def start_async_backtest_warmup():
     """Run backtest warmup in a background thread so startup is non-blocking."""
     global _warmup_thread, _warmup_started
@@ -14827,6 +14874,11 @@ try:
     start_async_backtest_warmup()
 except Exception as e:
     print(f"离线回测快照预热失败: {e}")
+
+try:
+    start_async_ml_warmup()
+except Exception as e:
+    print(f"ML 预测缓存预热失败: {e}")
 
 if __name__ == '__main__':
     # 初始化数据库
