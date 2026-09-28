@@ -2425,6 +2425,12 @@ def _parse_hk_next_draw_time_from_text(text):
     raw = match.group(1).strip()
     return _normalize_datetime_string(raw) or raw
 
+def _parse_datetime_ymdhm(value):
+    try:
+        return datetime.strptime(str(value).strip(), "%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return None
+
 def _compute_next_hk_draw_time(now=None):
     now = now or datetime.now()
     draw_hour = 21
@@ -2469,6 +2475,13 @@ def update_hk_next_draw_time_cache(force=False):
             value = _parse_hk_next_draw_time_from_text(response.text)
     except Exception as e:
         print(f"获取香港下期时间失败: {e}")
+
+    if value:
+        fetched_dt = _parse_datetime_ymdhm(value)
+        if fetched_dt and fetched_dt <= now:
+            # 上游API可能返回过期时间（页面长期不更新），过期则丢弃，改用本地推算
+            print(f"香港下期时间API返回过期值({value})，改用本地推算")
+            value = None
 
     if not value:
         value = _format_datetime_ymdhm(_compute_next_hk_draw_time(now))
