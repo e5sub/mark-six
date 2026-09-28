@@ -2211,6 +2211,24 @@ if _should_log_startup():
 HK_DATA_SOURCE_URL = "https://api3.marksix6.net/lottery_api.php?type=hk"
 HK_NEXT_DRAW_TIME_URL = "https://api3.marksix6.net/"
 
+# 香港赛马会官方数据源（bet.hkjc.com/ch/marksix/home 页面背后的 GraphQL 接口）
+HKJC_GRAPHQL_URL = "https://info.cld.hkjc.com/graphql/base/"
+HKJC_DRAW_HOUR = 21
+HKJC_DRAW_MINUTE = 32  # 官方仅公布开奖日期，开奖时刻沿用系统现有 21:32 约定
+HKJC_GRAPHQL_MARKSIX_QUERY = (
+    "fragment lotteryDrawsFragment on LotteryDraw {"
+    "  id year no openDate closeDate drawDate status"
+    "  snowballCode snowballName_en snowballName_ch"
+    "  lotteryPool { sell status totalInvestment jackpot unitBet"
+    "    estimatedPrize derivedFirstPrizeDiv lotteryPrizes { type winningUnit dividend } }"
+    "  drawResult { drawnNo xDrawnNo }"
+    "}"
+    "query marksixQuery($lastNDraw: Int) {"
+    "  timeOffset { m6 ts }"
+    "  lotteryDraws(lastNDraw: $lastNDraw) { ...lotteryDrawsFragment }"
+    "}"
+)
+
 # --- 号码属性计算与映射 ---
 ZODIAC_MAPPING_SEQUENCE = ("虎", "兔", "龙", "蛇", "牛", "鼠", "猪", "狗", "鸡", "猴", "羊", "马")
 RED_BALLS = [1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46]
@@ -2431,6 +2449,151 @@ def _parse_datetime_ymdhm(value):
     except (TypeError, ValueError):
         return None
 
+def _hkjc_number_color(number):
+    """官方接口只返回号码，波色按项目既有红蓝绿球表推断"""
+    try:
+        number = int(number)
+    except (TypeError, ValueError):
+        return ""
+    if number in RED_BALLS:
+        return "red"
+    if number in BLUE_BALLS:
+        return "blue"
+    if number in GREEN_BALLS:
+        return "green"
+    return ""
+
+def _parse_hkjc_date_part(value):
+    """官方日期形如 '2026-09-26+08:00' / '2026-09-26T21:15:00+08:00'，取其日期部分"""
+    match = re.search(r'(\d{4}-\d{2}-\d{2})', str(value or ""))
+    return match.group(1) if match else str(value or "")
+
+def _convert_hkjc_period(year, number):
+    """官方期号 {year: '2026', no: 104} -> '2026104'；2 位年份按 2000 年代补齐；亦兼容 '2026104N' 等"""
+    year = str(year or "").strip()
+    try:
+        number_str = str(int(number))
+    except (TypeError, ValueError):
+        number_str = ""
+    if re.fullmatch(r"\d{2}", year):
+        year = "20" + year
+    if re.fullmatch(r"\d{4}", year) and number_str.isdigit():
+        return year + "{:0>3}".format(number_str)
+    # 兜底：接受 '26/104'、'2026/104'、'2026104N' 等形态
+    raw = (year + "/" + number_str).strip("/")
+    if not raw:
+        return ""
+    digits = re.sub(r"[^\d/]+", "", raw)
+    parts = [p for p in digits.split("/") if p]
+    if len(parts) == 2:
+        yy, seq = parts
+        if len(yy) == 2:
+            yy = "20" + yy
+        if yy and seq:
+            return yy + "{:0>3}".format(seq)
+    return digits or raw
+
+def _normalize_hkjc_draw_record(record):
+    """把官方 GraphQL 单期记录转换为项目标准格式（与 load_hk_data 输出一致）"""
+    if not isinstance(record, dict):
+        return None
+    draw_result = record.get("drawResult") or {}
+    drawn_no = draw_result.get("drawnNo") or []
+    x_drawn_no = draw_result.get("xDrawnNo")
+    try:
+        numbers = [str(int(n)) for n in drawn_no]
+    except (TypeError, ValueError):
+        numbers = []
+    if len(numbers) != 6:
+        return None
+    if x_drawn_no is None:
+        return None
+    try:
+        special = str(int(x_drawn_no))
+    except (TypeError, ValueError):
+        return None
+    all_numbers = numbers + [special]
+    wave = ",".join(_hkjc_number_color(n) for n in all_numbers) or ""
+    return {
+        "id": _convert_hkjc_period(record.get("year"), record.get("no")),
+        "date": _parse_hkjc_date_part(record.get("drawDate")),
+        "no": numbers,
+        "sno": special,
+        "sno_zodiac": "",
+        "raw_zodiac": "",
+        "raw_wave": wave,
+    }
+
+def fetch_hk_results_from_hkjc(limit=12):
+    """从香港赛马会官方 GraphQL 接口拉取最近 N 期开奖结果；失败返回 []"""
+    try:
+        payload = {
+            "operationName": "marksixQuery",
+            "variables": {"lastNDraw": int(limit)},
+            "query": HKJC_GRAPHQL_MARKSIX_QUERY,
+        }
+        response = requests.post(
+            HKJC_GRAPHQL_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+        draws = ((data.get("data") or {}).get("lotteryDraws")) or []
+        normalized = []
+        for record in draws:
+            if str(record.get("status", "")).lower() != "result":
+                continue
+            item = _normalize_hkjc_draw_record(record)
+            if item and item.get("id"):
+                normalized.append(item)
+        print(f"香港官方接口返回开奖记录: {len(normalized)} 条")
+        return normalized
+    except Exception as e:
+        print(f"获取香港官方数据失败: {e}")
+        return []
+
+def fetch_hkjc_latest_and_next():
+    """调用官方接口获取最近两期（上一期结果 + 下期定义），返回 (latest, next) 或 (None,None)"""
+    try:
+        payload = {
+            "operationName": "marksixQuery",
+            "variables": {"lastNDraw": 1},
+            "query": HKJC_GRAPHQL_MARKSIX_QUERY,
+        }
+        response = requests.post(
+            HKJC_GRAPHQL_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+        draws = ((data.get("data") or {}).get("lotteryDraws")) or []
+        latest = None
+        next_draw = None
+        for record in draws:
+            status = str(record.get("status", "")).lower()
+            if status == "result" and latest is None:
+                latest = _normalize_hkjc_draw_record(record)
+            elif next_draw is None:
+                # 官方最近两期：第一期为上一期结果，第二期即为下期（状态如 Defined/Bet）
+                next_draw = record
+        return latest, next_draw
+    except Exception as e:
+        print(f"获取香港官方下期数据失败: {e}")
+        return None, None
+
+def _hkjc_next_draw_time_text(next_record):
+    """官方给出开奖日期（无具体时刻），拼上系统约定的 21:32"""
+    if not isinstance(next_record, dict):
+        return None
+    draw_date = _parse_hkjc_date_part(next_record.get("drawDate"))
+    if not re.search(r"\d{4}-\d{2}-\d{2}", draw_date):
+        return None
+    return "{} {:02d}:{:02d}".format(draw_date, HKJC_DRAW_HOUR, HKJC_DRAW_MINUTE)
+
 def _compute_next_hk_draw_time(now=None):
     now = now or datetime.now()
     draw_hour = 21
@@ -2467,14 +2630,29 @@ def update_hk_next_draw_time_cache(force=False):
                 pass
 
     value = None
+    # 1. 优先用香港赛马会官方接口（权威，能反映停办/加场等官方调整）
     try:
-        response = requests.get(HK_NEXT_DRAW_TIME_URL, timeout=10)
-        if response.ok:
-            if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
-                response.encoding = "utf-8"
-            value = _parse_hk_next_draw_time_from_text(response.text)
+        _, next_record = fetch_hkjc_latest_and_next()
+        if next_record:
+            official = _hkjc_next_draw_time_text(next_record)
+            if official:
+                official_dt = _parse_datetime_ymdhm(official)
+                if official_dt and official_dt > now:
+                    print(f"香港下期时间(官方): {official}")
+                    value = official
     except Exception as e:
-        print(f"获取香港下期时间失败: {e}")
+        print(f"获取香港官方下期时间失败: {e}")
+
+    # 2. 官方不可用时回退旧接口
+    if not value:
+        try:
+            response = requests.get(HK_NEXT_DRAW_TIME_URL, timeout=10)
+            if response.ok:
+                if not response.encoding or response.encoding.lower() in ("iso-8859-1", "latin-1"):
+                    response.encoding = "utf-8"
+                value = _parse_hk_next_draw_time_from_text(response.text)
+        except Exception as e:
+            print(f"获取香港下期时间失败: {e}")
 
     if value:
         fetched_dt = _parse_datetime_ymdhm(value)
@@ -2898,9 +3076,12 @@ def settle_pending_manual_bets(region, draw_id):
 
 # --- 数据加载与处理 ---
 def load_hk_data(force_refresh=False):
-    """从新接口获取香港开奖数据"""
+    """香港开奖数据：香港赛马会官方接口为增量权威来源，旧接口兜底，合并去重"""
+    # 官方权威数据（最近 N 期，能反映停办/加场等官方调整），作为增量来源
+    official_data = fetch_hk_results_from_hkjc(limit=12)
+    print(f"香港官方数据源返回: {len(official_data)} 条")
+    print(f"正在获取香港数据，URL: {HK_DATA_SOURCE_URL}")
     try:
-        print(f"正在获取香港数据，URL: {HK_DATA_SOURCE_URL}")
         params = {"_": int(time.time())} if force_refresh else None
         response = requests.get(HK_DATA_SOURCE_URL, params=params, timeout=15)
         response.raise_for_status()
@@ -2960,15 +3141,26 @@ def load_hk_data(force_refresh=False):
         
         # 按日期和期号排序（降序）
         result = sorted(unique_data, key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
-        
+
         if len(result) > 0:
             print(f"最新一期数据: {result[0]}")
-        
+
+        # 合并官方数据：旧源为主（生肖/波色完整），官方补充旧源回报缺失的期号
+        existing_ids = {rec.get("id") for rec in result}
+        added_count = 0
+        for rec in official_data:
+            if rec.get("id") and rec.get("id") not in existing_ids:
+                result.append(rec)
+                added_count += 1
+        if added_count:
+            result.sort(key=lambda x: (x.get('date', ''), x.get('id', '')), reverse=True)
+            print(f"香港官方数据源补充 {added_count} 条新开奖记录")
+
         return result
-        
+
     except Exception as e:
         print(f"从URL获取香港数据失败: {e}")
-        return []
+        return official_data
 
 def _fetch_macau_data_from_api(year):
     url = MACAU_API_URL_TEMPLATE.format(year=year)
