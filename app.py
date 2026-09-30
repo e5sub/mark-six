@@ -2666,13 +2666,23 @@ def _compute_next_macau_draw_time(now=None):
     return today_draw + timedelta(days=1)
 
 def update_hk_next_draw_time_cache(force=False):
+    """刷新香港下期开奖时间缓存（存 system_config 表）。
+
+    缓存策略：取到的下期时间在开奖前一直有效，未到期直接复用缓存、
+    不请求任何外部接口；时间过了才在下次访问时重新拉取（10 分钟节流兜底）。
+    手动更新接口和定时任务传 force=True 绕过缓存强制刷新。
+    """
     now = datetime.now()
     if not force:
+        cached_dt = _parse_datetime_ymdhm(SystemConfig.get_config('hk_next_draw_time', ''))
+        if cached_dt and cached_dt > now:
+            # 缓存的下期时间还没到，直接复用，不请求外部接口
+            return
         cached_at = SystemConfig.get_config('hk_next_draw_time_cached_at', '').strip()
         if cached_at:
             try:
-                cached_dt = datetime.fromisoformat(cached_at)
-                if now - cached_dt < timedelta(minutes=30):
+                # 兜底节流：缓存值缺失或解析失败时，也限制外部接口请求频率
+                if now - datetime.fromisoformat(cached_at) < timedelta(minutes=10):
                     return
             except ValueError:
                 pass
