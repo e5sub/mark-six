@@ -867,6 +867,7 @@ def macau_draw_import():
         # 处理并保存数据
         created_count = 0
         updated_count = 0
+        skipped_count = 0
         
         ZODIAC_TRAD_TO_SIMP = {'鼠':'鼠','牛':'牛','虎':'虎','兔':'兔','龍':'龙','蛇':'蛇','馬':'马','羊':'羊','猴':'猴','雞':'鸡','狗':'狗','豬':'猪'}
         
@@ -874,6 +875,12 @@ def macau_draw_import():
             try:
                 draw_id = str(record.get('expect', '')).strip()
                 if not draw_id:
+                    continue
+
+                # 期号与所选年份必须一致（例如 2024101 属于 2024 年），
+                # 否则丢弃，避免数据源年份错位把其他年度的开奖导入进来
+                if not draw_id.startswith(str(year)):
+                    skipped_count += 1
                     continue
                 
                 # 提取号码
@@ -931,7 +938,8 @@ def macau_draw_import():
         ZodiacSetting._macau_year_match_cache.clear()
         
         flash(
-            f'澳门开奖数据 {year} 年导入完成：新增 {created_count} 期，更新 {updated_count} 期，共计 {len(records)} 期。',
+            f'澳门开奖数据 {year} 年导入完成：新增 {created_count} 期，更新 {updated_count} 期，'
+            f'跳过 {skipped_count} 条（期号与所选年份不符），共计 {len(records)} 期。',
             'success'
         )
     except requests.exceptions.RequestException as e:
@@ -941,6 +949,133 @@ def macau_draw_import():
         flash(f'澳门开奖数据导入失败: {str(e)}', 'error')
     
     return redirect(url_for('admin.macau_draw_import_page'))
+
+
+@admin_bp.route('/hk_draw_import')
+@admin_required
+def hk_draw_import_page():
+    """香港开奖数据导入页面"""
+    from datetime import datetime, timedelta
+    current_year = datetime.now().year
+    # 可导入的年份范围
+    available_years = list(range(current_year - 10, current_year + 2))
+
+    return render_template('admin/hk_draw_import.html',
+                         current_year=current_year,
+                         available_years=available_years)
+
+
+@admin_bp.route('/hk_draw_import/collect', methods=['POST'])
+@admin_required
+def hk_draw_import():
+    """香港开奖数据按年份导入"""
+    try:
+        year = request.form.get('year', type=int)
+        if not year or year < 2000 or year > 2100:
+            flash('年份不正确，请选择有效的年份。', 'error')
+            return redirect(url_for('admin.hk_draw_import_page'))
+
+        # 从API获取香港开奖数据（与澳门同一数据源，hkjc 为香港六合彩）
+        HK_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/hkjc/y/{year}"
+        url = HK_API_URL_TEMPLATE.format(year=year)
+
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        api_data = response.json()
+
+        if not api_data or not api_data.get("data"):
+            flash(f'香港API未返回 {year} 年的数据，请检查网络连接或稍后重试。', 'warning')
+            return redirect(url_for('admin.hk_draw_import_page'))
+
+        records = api_data.get("data", [])
+        if not records:
+            flash(f'未获取到 {year} 年的香港开奖数据。', 'warning')
+            return redirect(url_for('admin.hk_draw_import_page'))
+
+        # 处理并保存数据
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+
+        ZODIAC_TRAD_TO_SIMP = {'鼠':'鼠','牛':'牛','虎':'虎','兔':'兔','龍':'龙','蛇':'蛇','馬':'马','羊':'羊','猴':'猴','雞':'鸡','狗':'狗','豬':'猪'}
+
+        for record in records:
+            try:
+                draw_id = str(record.get('expect', '')).strip()
+                if not draw_id:
+                    continue
+
+                # 期号与所选年份必须一致（例如 2024101 属于 2024 年），
+                # 否则丢弃，避免数据源年份错位把其他年度的开奖导入进来
+                if not draw_id.startswith(str(year)):
+                    skipped_count += 1
+                    continue
+
+                # 提取号码
+                raw_numbers = str(record.get('openCode', '')).split(',')
+                normal_numbers = [f"{int(n):02d}" for n in raw_numbers[:6] if n and int(n) >= 1 and int(n) <= 49]
+                special_number = f"{int(raw_numbers[6]):02d}" if len(raw_numbers) > 6 and int(raw_numbers[6]) >= 1 and int(raw_numbers[6]) <= 49 else ''
+
+                if not normal_numbers or not special_number:
+                    continue
+
+                # 提取生肖
+                raw_zodiacs_trad = str(record.get('zodiac', '')).split(',')
+                raw_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in raw_zodiacs_trad]
+                special_zodiac = raw_zodiacs[-1] if len(raw_zodiacs) >= 7 else ''
+
+                # 提取波色
+                raw_wave = str(record.get('wave', ''))
+
+                # 提取日期
+                draw_date = str(record.get('openTime', '')).strip()
+
+                # 检查是否已存在
+                existing = LotteryDraw.query.filter_by(region='hk', draw_id=draw_id).first()
+
+                if existing:
+                    # 仅在数据缺失时更新
+                    if not existing.special_number or not existing.special_zodiac:
+                        existing.normal_numbers = ','.join(normal_numbers)
+                        existing.special_number = special_number
+                        existing.special_zodiac = special_zodiac
+                        existing.raw_zodiac = ','.join(raw_zodiacs)
+                        existing.raw_wave = raw_wave
+                        if draw_date:
+                            existing.draw_date = draw_date
+                        updated_count += 1
+                else:
+                    # 创建新记录
+                    new_draw = LotteryDraw(
+                        region='hk',
+                        draw_id=draw_id,
+                        draw_date=draw_date,
+                        normal_numbers=','.join(normal_numbers),
+                        special_number=special_number,
+                        special_zodiac=special_zodiac,
+                        raw_zodiac=','.join(raw_zodiacs),
+                        raw_wave=raw_wave,
+                    )
+                    db.session.add(new_draw)
+                    created_count += 1
+            except Exception as e:
+                print(f"处理香港开奖记录失败: {e}")
+                continue
+
+        db.session.commit()
+
+        flash(
+            f'香港开奖数据 {year} 年导入完成：新增 {created_count} 期，更新 {updated_count} 期，'
+            f'跳过 {skipped_count} 条（期号与所选年份不符），共计 {len(records)} 期。',
+            'success'
+        )
+    except requests.exceptions.RequestException as e:
+        flash(f'网络请求失败: {str(e)}，请检查网络连接', 'error')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'香港开奖数据导入失败: {str(e)}', 'error')
+
+    return redirect(url_for('admin.hk_draw_import_page'))
 
 
 @admin_bp.route('/users')
