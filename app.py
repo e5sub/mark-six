@@ -13590,21 +13590,36 @@ def draws_api():
                 zodiac_year = ZodiacSetting.get_zodiac_year_for_date(record.get('date'))
                 mapping = zodiac_map_cache.get(zodiac_year)
                 if mapping is None:
-                    mapping = ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+                    settings_mapping = ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+                    # 数据库配置可能只配了部分号码，合并默认规则保证 1-49 全量有生肖
+                    full_mapping = {}
+                    for num in range(1, 50):
+                        full_mapping[str(num)] = (
+                            settings_mapping.get(num)
+                            or ZodiacSetting.get_default_zodiac_for_number(num, zodiac_year)
+                            or ''
+                        )
+                    mapping = full_mapping
                     zodiac_map_cache[zodiac_year] = mapping
                 if not mapping:
                     mapping = fallback_number_to_zodiac
 
             normalized_mapping = {str(key): value for key, value in mapping.items()}
+            # 库内已存生肖优先（导入时已按农历年兜底补齐），避免映射缺失时把已有值覆盖为空
+            db_sno_zodiac = str(record.get('sno_zodiac') or '').strip()
+            db_raw_zodiac = str(record.get('raw_zodiac') or '').split(',')
             sno = record.get('sno')
-            record['sno_zodiac'] = normalized_mapping.get(str(sno), '')
-            
+            record['sno_zodiac'] = db_sno_zodiac or normalized_mapping.get(str(sno), '')
+
             normal_numbers = record.get('no', [])
             normal_zodiacs = []
-            for num in normal_numbers:
-                normal_zodiacs.append(normalized_mapping.get(str(num), ''))
-            record['raw_zodiac'] = ','.join(normal_zodiacs + [normalized_mapping.get(str(sno), '')])
-            
+            for i, num in enumerate(normal_numbers):
+                existing = db_raw_zodiac[i].strip() if i < len(db_raw_zodiac) and db_raw_zodiac[i] else ''
+                normal_zodiacs.append(existing or normalized_mapping.get(str(num), ''))
+            if record['sno_zodiac']:
+                normal_zodiacs.append(record['sno_zodiac'])
+            record['raw_zodiac'] = ','.join(normal_zodiacs)
+
             details_breakdown = []
             all_numbers = record.get('no', []) + [record.get('sno')]
             for i, num_str in enumerate(all_numbers):
@@ -13614,7 +13629,7 @@ def draws_api():
                 details_breakdown.append({
                     "position": f"平码 {i + 1}" if i < 6 else "特码", "number": num_str,
                     "color_en": color_en, "color_zh": COLOR_MAP_EN_TO_ZH.get(color_en, ''),
-                    "zodiac": mapping.get(num_str, '')
+                    "zodiac": normal_zodiacs[i] if i < len(normal_zodiacs) else normalized_mapping.get(str(num_str), '')
                 })
             record['details_breakdown'] = details_breakdown
         data = sorted(data, key=lambda x: x.get('date', ''), reverse=True)
