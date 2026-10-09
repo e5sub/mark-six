@@ -1207,6 +1207,63 @@ def hk_draw_import():
     return redirect(url_for('admin.hk_draw_import_page'))
 
 
+@admin_bp.route('/hk_draw_import/fix_zodiac', methods=['POST'])
+@admin_required
+def hk_draw_import_fix_zodiac():
+    """扫描全部香港开奖记录，对生肖缺失/不完整的记录按农历年澳门生肖兜底补齐。
+
+    只补齐缺失部分，已有的完整生肖不覆盖；不涉及导入数据源。
+    """
+    try:
+        draws = LotteryDraw.query.filter_by(region='hk').all()
+        zodiac_year_cache = {}
+        fixed_count = 0
+        complete_count = 0
+        skip_count = 0
+        for draw in draws:
+            try:
+                if _lottery_draw_zodiac_complete(draw):
+                    complete_count += 1
+                    continue
+                normal_numbers = [n.strip() for n in str(draw.normal_numbers or '').split(',') if str(n).strip()]
+                special_number = str(draw.special_number or '').strip()
+                if not normal_numbers or not special_number:
+                    skip_count += 1
+                    continue
+
+                # 已有生肖保留（api_zodiacs 位置对齐），缺失部分按农历年兜底
+                existing_zodiacs = [z.strip() for z in str(draw.raw_zodiac or '').split(',')]
+                raw_zodiac, special_zodiac = _complete_draw_zodiacs(
+                    normal_numbers, special_number, existing_zodiacs,
+                    draw.draw_date or '', zodiac_year_cache,
+                )
+                if not raw_zodiac:
+                    skip_count += 1
+                    continue
+
+                draw.raw_zodiac = raw_zodiac
+                if special_zodiac:
+                    draw.special_zodiac = special_zodiac
+                fixed_count += 1
+            except Exception as e:
+                print(f"补齐香港缺失生肖失败 {draw.draw_id}: {e}")
+                skip_count += 1
+                continue
+
+        db.session.commit()
+        flash(
+            f'香港缺失生肖补齐完成：修复 {fixed_count} 期，原本完整 {complete_count} 期，'
+            f'跳过 {skip_count} 期（无号码或处理失败）。',
+            'success'
+        )
+        print(f"[香港数据源] 缺失生肖补齐完成: 修复 {fixed_count}, 原本完整 {complete_count}, 跳过 {skip_count}")
+    except Exception as e:
+        db.session.rollback()
+        flash(f'香港缺失生肖补齐失败: {str(e)}', 'error')
+
+    return redirect(url_for('admin.hk_draw_import_page'))
+
+
 @admin_bp.route('/users')
 @admin_required
 def users():
