@@ -1028,29 +1028,64 @@ def hk_draw_import_page():
 @admin_bp.route('/hk_draw_import/collect', methods=['POST'])
 @admin_required
 def hk_draw_import():
-    """香港开奖数据按年份导入"""
+    """香港开奖数据按年份导入（官方 HKJC 数据优先，第三方源补齐历史）"""
     try:
         year = request.form.get('year', type=int)
         if not year or year < 2000 or year > 2100:
             flash('年份不正确，请选择有效的年份。', 'error')
             return redirect(url_for('admin.hk_draw_import_page'))
 
-        # 从API获取香港开奖数据（与澳门同一数据源，hkjc 为香港六合彩）
-        HK_API_URL_TEMPLATE = "https://api.macaumarksix.com/history/hkjc/y/{year}"
-        url = HK_API_URL_TEMPLATE.format(year=year)
+        from app import _hkjc_graph_post, _normalize_hkjc_draw_record, _hkjc_number_color
 
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        api_data = response.json()
+        # 汇总结果：draw_id -> (normal_numbers 升序, special_number, draw_date, api_zodiacs, sno_zodiac)
+        merged_draws = {}
+        source_flags = {}  # draw_id -> '官方HKJC' / '第三方源'
 
-        if not api_data or not api_data.get("data"):
-            flash(f'香港API未返回 {year} 年的数据，请检查网络连接或稍后重试。', 'warning')
-            return redirect(url_for('admin.hk_draw_import_page'))
+        # 1) 官方 HKJC 数据优先（号码顺序与官网一致、期号 2026107 格式，无生肖字段）
+        try:
+            data = _hkjc_graph_post(
+                "marksixResult",
+                {"lastNDraw": None, "startDate": None, "endDate": None, "drawType": "All"},
+            )
+            official_draws = []
+            for record in ((data or {}).get("lotteryDraws") or []):
+                if str(record.get("status", "")).lower() != "result":
+                    continue
+                item = _normalize_hkjc_draw_record(record)
+                if item and item.get("id") and str(item["id"]).startswith(str(year)):
+                    official_draws.append(item)
+            # 官方返回的 drawnNo 即官网展示顺序（升序），直接采用
+            for item in official_draws:
+                draw_id = item["id"]
+                merged_draws[draw_id] = {
+                    "normal_numbers": list(item.get("no") or []),
+                    "special": item.get("sno") or "",
+                    "date": item.get("date") or "",
+                    "api_zodiacs": [],  # 官方无生肖，全部以兜底逻辑补齐
+                    "sno_zodiac": "",
+                }
+                source_flags[draw_id] = "official HKJC"
+        except Exception as e:
+            print(f"官方香港接口拉取失败: {e}")
 
-        records = api_data.get("data", [])
-        if not records:
-            flash(f'未获取到 {year} 年的香港开奖数据。', 'warning')
-            return redirect(url_for('admin.hk_draw_import_page'))
+        # 2) 第三方补充源：官方接口仅提供最近约 60 期，历史期由第三方补齐
+        try:
+            response = requests.get(
+                "https://api.macaumarksix.com/history/hkjc/y/{year}".format(year=year),
+                timeout=30,
+            )
+            response.raise_for_status()
+            api_data = response.json()
+        except requests.exceptions.RequestException as e:
+            api_data = None
+            print(f"香港历史数据源拉取失败: {e}")
+
+        if not merged_draws and (not api_data or not api_data.get("data")):
+            if not merged_draws:
+                flash(f'未获取到 {year} 年的香港开奖数据，请检查网络连接或稍后重试。', 'warning')
+                return redirect(url_for('admin.hk_draw_import_page'))
+
+        records = (api_data or {}).get("data", []) or []
 
         # 处理并保存数据
         created_count = 0
@@ -1060,54 +1095,85 @@ def hk_draw_import():
         zodiac_year_cache = {}  # 农历年 -> 号码生肖映射（澳门兜底口径），整次导入复用
         force_overwrite = str(request.form.get('force_overwrite', '') or '') == '1'
 
+        # 3) 第三方补充源的处理：号码按官网展示顺序（升序）排序，使与官方接口一致
+        merged_ids = set(merged_draws.keys())
         for record in records:
             try:
                 draw_id = str(record.get('expect', '')).strip()
                 if not draw_id:
                     continue
-
-                # 期号与所选年份必须一致（例如 2024101 属于 2024 年），
-                # 否则丢弃，避免数据源年份错位把其他年度的开奖导入进来
                 if not draw_id.startswith(str(year)):
                     skipped_count += 1
                     continue
+                if draw_id in merged_ids:
+                    # 官方已有该期，不再重复处理
+                    continue
 
-                # 提取号码
                 raw_numbers = str(record.get('openCode', '')).split(',')
-                normal_numbers = [f"{int(n):02d}" for n in raw_numbers[:6] if n and int(n) >= 1 and int(n) <= 49]
-                special_number = f"{int(raw_numbers[6]):02d}" if len(raw_numbers) > 6 and int(raw_numbers[6]) >= 1 and int(raw_numbers[6]) <= 49 else ''
+                try:
+                    raw_nums = [int(n) for n in raw_numbers if str(n).strip()]
+                except ValueError:
+                    continue
+                if len(raw_nums) < 7:
+                    continue
+                if not all(1 <= n <= 49 for n in raw_nums[:7]):
+                    continue
 
+                # 普通6个 + 特码；普通号码按升序（与官方官网展示一致），生肖跟着号码重排
+                zodiac_parts = str(record.get('zodiac', '')).split(',')
+                normal_pairs = sorted(
+                    (raw_nums[i], zodiac_parts[i] if i < len(zodiac_parts) else '')
+                    for i in range(6)
+                )
+                normal_numbers = [f"{n:02d}" for n, _ in normal_pairs]
+                special = f"{raw_nums[6]:02d}"
+                api_zodiacs = [z for _, z in normal_pairs]
+                sno_zodiac = zodiac_parts[6] if len(zodiac_parts) > 6 else ''
+
+                merged_draws[draw_id] = {
+                    "normal_numbers": normal_numbers,
+                    "special": special,
+                    "date": str(record.get('openTime', '')).strip(),
+                    "api_zodiacs": api_zodiacs,
+                    "sno_zodiac": sno_zodiac,
+                }
+                source_flags[draw_id] = "third_party"
+            except Exception as e:
+                print(f"处理香港历史记录 {record.get('expect')} 失败: {e}")
+                continue
+
+        # 4) 统一保存
+        for draw_id, entry in merged_draws.items():
+            try:
+                normal_numbers = entry["normal_numbers"]
+                special_number = entry["special"]
+                draw_date = entry.get("date") or ""
                 if not normal_numbers or not special_number:
                     continue
 
-                # 提取生肖（接口缺失的号码按农历年澳门生肖兜底）
-                raw_zodiacs_trad = str(record.get('zodiac', '')).split(',')
-
-                # 提取波色
-                raw_wave = str(record.get('wave', ''))
-
-                # 提取日期
-                draw_date = str(record.get('openTime', '')).strip()
                 raw_zodiac, special_zodiac = _complete_draw_zodiacs(
-                    normal_numbers, special_number, raw_zodiacs_trad, draw_date, zodiac_year_cache
+                    normal_numbers, special_number, entry.get("api_zodiacs") or [], draw_date, zodiac_year_cache
+                )
+                if not special_zodiac and entry.get("sno_zodiac"):
+                    special_zodiac = ZODIAC_TRAD_TO_SIMP.get(entry["sno_zodiac"], entry["sno_zodiac"])
+
+                # 波色：按号码统一重算（红蓝绿球表），不依赖数据源自带顺序
+                raw_wave = ",".join(
+                    _hkjc_number_color(n) for n in normal_numbers + [special_number]
                 )
 
-                # 检查是否已存在
                 existing = LotteryDraw.query.filter_by(region='hk', draw_id=draw_id).first()
-
                 if existing:
-                    # 未勾选强制覆盖时，仅在生肖缺失时更新
                     if force_overwrite or not _lottery_draw_zodiac_complete(existing):
                         existing.normal_numbers = ','.join(normal_numbers)
                         existing.special_number = special_number
-                        existing.special_zodiac = special_zodiac
+                        existing.special_zodiac = special_zodiac or existing.special_zodiac or ''
                         existing.raw_zodiac = raw_zodiac
                         existing.raw_wave = raw_wave
                         if draw_date:
                             existing.draw_date = draw_date
                         updated_count += 1
                 else:
-                    # 创建新记录
                     new_draw = LotteryDraw(
                         region='hk',
                         draw_id=draw_id,
@@ -1121,20 +1187,21 @@ def hk_draw_import():
                     db.session.add(new_draw)
                     created_count += 1
             except Exception as e:
-                print(f"处理香港开奖记录失败: {e}")
+                print(f"保存香港开奖号码记录失败: {e}")
                 continue
 
         db.session.commit()
 
+        official_count = sum(1 for f in source_flags.values() if f == "official HKJC")
         flash(
             f'香港开奖数据 {year} 年导入完成：新增 {created_count} 期，更新 {updated_count} 期，'
-            f'跳过 {skipped_count} 条（期号与所选年份不符），共计 {len(records)} 期。',
+            f'跳过 {skipped_count} 条（期号与所选年份不符），共计 {len(merged_draws)} 期'
+            f'（其中官方接口 {official_count} 期）。',
             'success'
         )
     except requests.exceptions.RequestException as e:
         flash(f'网络请求失败: {str(e)}，请检查网络连接', 'error')
     except Exception as e:
-        db.session.rollback()
         flash(f'香港开奖数据导入失败: {str(e)}', 'error')
 
     return redirect(url_for('admin.hk_draw_import_page'))
