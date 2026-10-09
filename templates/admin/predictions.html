@@ -468,9 +468,19 @@
                         连错 {{ stat.miss_streak }} 期 |
                         已开奖 {{ stat.resolved_periods }} 期
                     </div>
+                    <div style="font-size:0.8rem; color:#94a3b8; margin-top:0.25rem;">
+                        特码 {{ stat.top1_rate }}%（随机 {{ stat.baseline.top1 }}%）·
+                        六码 {{ stat.top6_rate }}%（随机 {{ stat.baseline.top6 }}%）·
+                        生肖 {{ stat.zodiac_rate }}%（随机 {{ stat.baseline.zodiac }}%）·
+                        七码 {{ stat.coverage_rate }}%（随机 {{ stat.baseline.coverage }}%）
+                    </div>
                 </div>
             </div>
             {% endfor %}
+        </div>
+        <div style="font-size:0.78rem; color:#64748b; margin-top:0.5rem;">
+            命中口径：特码=特码 1 码命中；六码=特码落在 6 个普通号内；生肖=特码生肖一致；七码=特码落在 7 个号码内。
+            随机基线为 49 选 7 的数学期望，命中率长期贴着基线属正常现象。
         </div>
     </div>
     {% endif %}
@@ -506,6 +516,14 @@
                             <span class="group-stat-chip">未中 {{ group.miss_count }}</span>
                             <span class="group-stat-chip">待开 {{ group.pending_count }}</span>
                         </div>
+                        {% if group.coverage %}
+                        <div class="group-stats" style="font-size:0.78rem; color:#94a3b8;">
+                            <span>综合覆盖 {{ group.coverage.unique_count }} 个号码（特码落入概率 {{ group.coverage.coverage_probability }}%，单策略七码 {{ group.coverage.seven_number_baseline }}%）</span>
+                            {% if group.coverage.consensus_numbers %}
+                            <span>共识 {{ group.coverage.consensus_numbers|join('、') }}</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                     </div>
 
                     <div class="period-group-meta">

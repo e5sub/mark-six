@@ -28,6 +28,38 @@
 
 <div class="panel">
     <div class="panel-header">
+        <div>
+            <div class="panel-title">预测命中口径</div>
+            <div class="panel-subtitle">
+                基于已开奖的 {{ stats.accuracy_breakdown.total or 0 }} 条预测记录，括号内为 49 选 7 的随机基线
+            </div>
+        </div>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:1rem; padding: 1rem;">
+        <div>
+            <div class="overview-value">{{ stats.accuracy_breakdown.top1 or 0 }}%</div>
+            <div class="overview-label">特码命中（随机 {{ stats.hit_baselines.top1 }}%）</div>
+        </div>
+        <div>
+            <div class="overview-value">{{ stats.accuracy_breakdown.top6 or 0 }}%</div>
+            <div class="overview-label">六码覆盖（随机 {{ stats.hit_baselines.top6 }}%）</div>
+        </div>
+        <div>
+            <div class="overview-value">{{ stats.accuracy_breakdown.zodiac or 0 }}%</div>
+            <div class="overview-label">生肖命中（随机 {{ stats.hit_baselines.zodiac }}%）</div>
+        </div>
+        <div>
+            <div class="overview-value">{{ stats.accuracy_breakdown.coverage or 0 }}%</div>
+            <div class="overview-label">七码覆盖（随机 {{ stats.hit_baselines.coverage }}%）</div>
+        </div>
+    </div>
+    <div style="font-size:0.78rem; color:#94a3b8; padding: 0 1rem 1rem;">
+        特码命中是唯一 2% 量级的口径，单看它会显得“命中率极低”；六码/生肖/七码覆盖同样是有效命中口径，
+        长期贴着随机基线属正常现象。
+    </div>
+</div>
+<div class="panel">
+    <div class="panel-header">
         <h2>快捷操作</h2>
     </div>
     <div class="quick-actions">

@@ -60,6 +60,16 @@ _RUNTIME_ANALYSIS_CACHE_MAX_ITEMS = 256
 # Normal-number coverage and zodiac agreement remain tie-break signals only.
 SPECIAL_PRIORITY_TOP6_WEIGHT = 0.12
 SPECIAL_PRIORITY_ZODIAC_WEIGHT = 0.04
+# 自动调参评分口径：单期特码命中（top1）在 72 期样本里的随机波动可达 ±2.4pp，
+# 旧口径（1.0/0.12/0.04）下 top1 贡献了约九成的分数方差，参数取舍基本由噪声决定。
+# 改为以 top6 为主、生肖为辅、top1 仅作次级参考。
+AUTO_OPTIMIZE_TOP1_WEIGHT = 0.3
+AUTO_OPTIMIZE_TOP6_WEIGHT = 1.0
+AUTO_OPTIMIZE_ZODIAC_WEIGHT = 0.6
+# 新旧口径下“候选-基准”分差的噪声标准差之比（约 6.16 / 2.46 ≈ 2.5）。
+# 历史阈值配置（min_gain、restore_margin）仍按旧口径填写，比较前统一换算，
+# 保证判定严格程度不变，只是不再由 top1 噪声主导。
+AUTO_OPTIMIZE_SCORE_SCALE = 2.5
 _ml_prediction_cache = {}
 _ml_prediction_cache_lock = threading.Lock()
 _ml_prediction_build_events = {}
@@ -69,6 +79,7 @@ _runtime_analysis_cache_local = threading.local()
 _strategy_config_override_local = threading.local()
 _backtest_cutoff_period_local = threading.local()
 _backtest_strict_strategy_local = threading.local()
+_coverage_avoid_local = threading.local()
 _SYSTEM_LOG_FILE_PATH = os.path.join(data_dir, "system.log")
 _SYSTEM_LOG_RETENTION_DAYS = 30
 _SYSTEM_LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -3667,6 +3678,45 @@ def _backtest_strict_strategy_enabled():
     return bool(getattr(_backtest_strict_strategy_local, "enabled", False))
 
 
+def _coverage_avoid_numbers():
+    """当前线程正在生效的“已被其它策略占用”号码集合（无则返回 None）。"""
+    return getattr(_coverage_avoid_local, "numbers", None)
+
+
+@contextmanager
+def _temporary_coverage_avoid_numbers(numbers=None):
+    """同一期多策略生成时共享的占号集合，用于跨策略去重叠。
+
+    只在生成路径临时生效；回测、单策略生成等场景不设置，行为保持不变。
+    """
+    previous = getattr(_coverage_avoid_local, "numbers", None)
+    current = set(int(number) for number in (numbers or ()))
+    _coverage_avoid_local.numbers = current
+    try:
+        yield current
+    finally:
+        if previous is None:
+            try:
+                delattr(_coverage_avoid_local, "numbers")
+            except AttributeError:
+                pass
+        else:
+            _coverage_avoid_local.numbers = previous
+
+
+def _prediction_record_numbers(prediction):
+    """取出一条预测记录用到的 7 个号码（6 普通号 + 特码）。"""
+    numbers = set()
+    for value in str(getattr(prediction, "normal_numbers", "") or "").split(","):
+        value = value.strip()
+        if value.isdigit():
+            numbers.add(int(value))
+    special = str(getattr(prediction, "special_number", "") or "").strip()
+    if special.isdigit():
+        numbers.add(int(special))
+    return numbers
+
+
 @contextmanager
 def _temporary_backtest_cutoff_period(period):
     previous = getattr(_backtest_cutoff_period_local, "period", None)
@@ -4054,13 +4104,19 @@ def _calculate_strategy_hit_rate_windows(region, strategy, windows=(12, 36, 72))
 
 
 def _score_strategy_window_rates(summary):
+    """把窗口命中率（0-1 小数）换算到统一的调参评分口径。
+
+    历史实现使用 top1*100 + top6*35 + zodiac*15 的另一套尺度，而
+    rollback_guard 里记录的 baseline_score 来自 _score_auto_optimize_summary，
+    两者尺度不同导致回滚判定基本失效（随机水平 7.6 vs 3.8）。这里统一到
+    同一评分函数，保证基准与现值可比。
+    """
     aggregate = dict((summary or {}).get("aggregate") or {})
-    return round(
-        _safe_float(aggregate.get("top1"), 0.0) * 100.0 +
-        _safe_float(aggregate.get("top6"), 0.0) * 35.0 +
-        _safe_float(aggregate.get("zodiac"), 0.0) * 15.0,
-        4,
-    )
+    return _score_auto_optimize_window({
+        "top1_hit_rate": _safe_float(aggregate.get("top1"), 0.0) * 100.0,
+        "top6_hit_rate": _safe_float(aggregate.get("top6"), 0.0) * 100.0,
+        "zodiac_hit_rate": _safe_float(aggregate.get("zodiac"), 0.0) * 100.0,
+    })
 
 
 def _build_config_rollback_snapshot(config):
@@ -4105,7 +4161,7 @@ def _maybe_rollback_strategy_config(strategy, region, config):
 
     baseline_score = _safe_float(guard.get("baseline_score"), 0.0)
     current_score = _score_strategy_window_rates(stats)
-    tolerance = _safe_float(guard.get("drop_tolerance"), 0.8)
+    tolerance = _legacy_auto_optimize_threshold(_safe_float(guard.get("drop_tolerance"), 0.8))
     degraded = current_score < (baseline_score - tolerance)
     consecutive = int(guard.get("consecutive_degrade") or 0)
     consecutive = consecutive + 1 if degraded else 0
@@ -4202,7 +4258,7 @@ def _maybe_restore_rolled_back_strategy_config(strategy, region, config):
 
     current_score = _score_auto_optimize_summary(current_summary)
     candidate_score = _score_auto_optimize_summary(candidate_summary)
-    restore_margin = _safe_float(guard.get("restore_margin"), 0.9)
+    restore_margin = _legacy_auto_optimize_threshold(_safe_float(guard.get("restore_margin"), 0.9))
     guard.update({
         "last_current_score": round(current_score, 4),
         "last_candidate_score": round(candidate_score, 4),
@@ -6234,24 +6290,24 @@ def update_strategy_configs(region, strategies=None):
         print(f"Markov profile promotion failed for {region}: {e}")
 
 def _get_number_to_zodiac_map(year):
+    """号码 -> 生肖映射，只读本地缓存/规则，绝不触发外网请求。
+
+    预测/回测等运行路径会频繁调用本函数；外网数据只由后台任务
+    （启动预热、每日采集）写入 ZodiacMappingCache，这里缺失时用本地
+    生肖设置或生肖年规则补齐，避免预测请求被外网超时拖慢。
+    """
     number_to_zodiac = {}
     try:
         from models import ZodiacSetting
         mapping = ZodiacSetting.get_mapping_for_macau_year(year)
         if mapping:
             number_to_zodiac = {str(number): zodiac for number, zodiac in mapping.items()}
+        if len(number_to_zodiac) < 49:
+            local_mapping = ZodiacSetting.get_all_settings_for_year(year) or {}
+            for number, zodiac in local_mapping.items():
+                number_to_zodiac.setdefault(str(number), zodiac)
     except Exception as e:
         print(f"Failed to build zodiac mapping: {e}")
-
-    if not number_to_zodiac:
-        macau_data = get_macau_data(str(year))
-        for record in macau_data:
-            all_numbers = record.get('no', []) + [record.get('sno')]
-            zodiacs = record.get('raw_zodiac', '').split(',')
-            if len(all_numbers) == len(zodiacs):
-                for i, num in enumerate(all_numbers):
-                    if num:
-                        number_to_zodiac[num] = zodiacs[i]
 
     return number_to_zodiac
 
@@ -6855,7 +6911,9 @@ def _build_attribute_preferences(data, region, feedback, year, apply_recent_zodi
         )
         for color in ("红", "蓝", "绿")
     }
-    zodiac_keys = set(zodiac_scores) | set(feedback_zodiac)
+    # 键顺序必须固定：下游多处 max(...items()) 在打分相同时取先遇到的键，
+    # 而集合迭代顺序随 PYTHONHASHSEED 变化，会让同一期算出不同的号码。
+    zodiac_keys = sorted(set(zodiac_scores) | set(feedback_zodiac))
     merged_zodiac = {
         zodiac: round(
             zodiac_scores.get(zodiac, 0.0) * history_weight +
@@ -6893,7 +6951,8 @@ def _build_attribute_preferences(data, region, feedback, year, apply_recent_zodi
                 elif heat == 1:
                     cooled *= 0.9
                 merged_zodiac[zodiac] = round(max(0.0, cooled), 4)
-    parity_keys = set(parity_scores) | set(feedback_parity)
+    # 同上：固定为“单、双”顺序（与 parity_scores 的构造顺序一致），打平时稳定偏向“单”。
+    parity_keys = [parity for parity in ("单", "双") if parity in parity_scores or parity in feedback_parity]
     merged_parity = {
         parity: round(
             parity_scores.get(parity, 0.0) * history_weight +
@@ -6980,7 +7039,8 @@ def _stable_hash_int(*parts):
     return int(hashlib.sha256(raw.encode("utf-8")).hexdigest(), 16)
 
 def _take_personalized_ranked(ranked_numbers, count, variation_key=None, exclude=None, chunk_size=3, window_size=None):
-    if not variation_key:
+    avoid_numbers = _coverage_avoid_numbers()
+    if not variation_key and not avoid_numbers:
         return _take_ranked(ranked_numbers, count, exclude=exclude)
 
     exclude_set = {int(num) for num in (exclude or [])}
@@ -6997,8 +7057,17 @@ def _take_personalized_ranked(ranked_numbers, count, variation_key=None, exclude
         chunk = head[index:index + chunk_size]
         if not chunk:
             continue
-        shift = _stable_hash_int(variation_key, index, len(chunk)) % len(chunk)
+        shift = _stable_hash_int(variation_key, index, len(chunk)) % len(chunk) if variation_key else 0
         personalized.extend(chunk[shift:] + chunk[:shift])
+
+    if avoid_numbers:
+        # 去重叠：候选窗口本身就是策略自己的备选池（档内轮换用的就是它），
+        # 窗口内优先选其它策略没占用的号码，再回退到已占用的号码，
+        # 提高多策略合并后的覆盖号码数而不扩大候选范围。
+        personalized = (
+            [number for number in personalized if number not in avoid_numbers] +
+            [number for number in personalized if number in avoid_numbers]
+        )
 
     chosen = []
     for number in personalized + tail:
@@ -9019,7 +9088,9 @@ def _score_ml_model(model):
 def _optimize_ml_runtime_config(data, region, config):
     data_size = len(data or [])
     base_config = dict(config or {})
-    if data_size < 80:
+    # 回测里每个历史期都会重新训练模型，完整候选搜索约 5-6 秒/期，
+    # 72 期就是好几分钟；回测评估的是线上正在使用的配置，直接用主配置训练。
+    if data_size < 80 or _backtest_strict_strategy_enabled():
         model = _train_ml_number_model(data, region, base_config)
         model["runtime_config"] = base_config
         model["runtime_search"] = []
@@ -10206,7 +10277,8 @@ def get_local_recommendations(strategy, data, region, variation_key=None):
                 special_candidates,
                 1,
                 variation_key=variation_key,
-                window_size=max(special_pool_size // 2, 2)
+                # 去重叠开启时允许在整个特码候选池内选号，否则维持原来的前半个池
+                window_size=len(special_candidates) if _coverage_avoid_numbers() else max(special_pool_size // 2, 2)
             )
             special_num = special_pick[0] if special_pick else special_candidates[0]
             special_zodiac = number_to_zodiac.get(str(special_num), "")
@@ -12991,21 +13063,26 @@ def _auto_optimize_level():
     return level if level in {"mild", "balanced", "aggressive"} else "balanced"
 
 
+def _legacy_auto_optimize_threshold(value):
+    """把按旧评分口径配置的阈值换算到当前尺度，保持判定严格程度不变。"""
+    return float(value or 0.0) * AUTO_OPTIMIZE_SCORE_SCALE
+
+
 def _auto_optimize_min_gain():
     try:
         value = float(SystemConfig.get_config("auto_optimize_min_gain", "0.6"))
     except (TypeError, ValueError):
         value = 0.6
-    return round(_clamp(value, 0.1, 8.0), 2)
+    return round(_legacy_auto_optimize_threshold(_clamp(value, 0.1, 8.0)), 2)
 
 
 def _score_auto_optimize_summary(summary):
     summary = dict(summary or {})
     windows = list(summary.get("windows") or [])
     overall_score = (
-        _safe_float(summary.get("top1_hit_rate"), 0.0) * 1.0 +
-        _safe_float(summary.get("top6_hit_rate"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT +
-        _safe_float(summary.get("zodiac_hit_rate"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT
+        _safe_float(summary.get("top1_hit_rate"), 0.0) * AUTO_OPTIMIZE_TOP1_WEIGHT +
+        _safe_float(summary.get("top6_hit_rate"), 0.0) * AUTO_OPTIMIZE_TOP6_WEIGHT +
+        _safe_float(summary.get("zodiac_hit_rate"), 0.0) * AUTO_OPTIMIZE_ZODIAC_WEIGHT
     )
     weighted_score = overall_score * 0.22
     weight_total = 0.22
@@ -13024,9 +13101,9 @@ def _score_auto_optimize_summary(summary):
 def _score_auto_optimize_window(window):
     window = dict(window or {})
     return round(
-        _safe_float(window.get("top1_hit_rate"), 0.0) * 1.0 +
-        _safe_float(window.get("top6_hit_rate"), 0.0) * SPECIAL_PRIORITY_TOP6_WEIGHT +
-        _safe_float(window.get("zodiac_hit_rate"), 0.0) * SPECIAL_PRIORITY_ZODIAC_WEIGHT,
+        _safe_float(window.get("top1_hit_rate"), 0.0) * AUTO_OPTIMIZE_TOP1_WEIGHT +
+        _safe_float(window.get("top6_hit_rate"), 0.0) * AUTO_OPTIMIZE_TOP6_WEIGHT +
+        _safe_float(window.get("zodiac_hit_rate"), 0.0) * AUTO_OPTIMIZE_ZODIAC_WEIGHT,
         4,
     )
 
@@ -13057,10 +13134,10 @@ def _passes_recent_window_guard(baseline_summary, candidate_summary, min_gain):
     if not checked:
         return True
 
-    allowed_drop = max(0.35, float(min_gain or 0.0) * 0.65)
+    allowed_drop = max(_legacy_auto_optimize_threshold(0.35), float(min_gain or 0.0) * 0.65)
     if checked[0] < -allowed_drop:
         return False
-    if len(checked) >= 2 and all(gain < -0.05 for gain in checked):
+    if len(checked) >= 2 and all(gain < -_legacy_auto_optimize_threshold(0.05) for gain in checked):
         return False
     return True
 
@@ -13081,8 +13158,8 @@ def _passes_markov_window_consistency_gate(baseline_summary, candidate_summary, 
         for baseline, candidate in paired_windows
     ]
     required_improved_windows = min(2, len(gains))
-    improved_windows = sum(1 for gain in gains if gain >= 0.05)
-    worst_allowed_drop = -max(float(min_gain or 0.0), 0.8)
+    improved_windows = sum(1 for gain in gains if gain >= _legacy_auto_optimize_threshold(0.05))
+    worst_allowed_drop = -max(float(min_gain or 0.0), _legacy_auto_optimize_threshold(0.8))
     return improved_windows >= required_improved_windows and min(gains) >= worst_allowed_drop
 
 
@@ -13861,44 +13938,50 @@ def generate_auto_predictions(data, region):
             has_new_predictions = False
             seen_strategies = set()
 
-            for strategy in strategies:
-                if strategy == 'ai':
-                    continue
-                resolved_strategy = strategy
+            # 同一期各策略之间去重叠：同档候选里优先选其它策略没占用的号码，
+            # 让 6 个策略合并后的覆盖号码更多（单策略候选质量档次不变）。
+            with _temporary_coverage_avoid_numbers() as coverage_numbers:
+                for strategy in strategies:
+                    if strategy == 'ai':
+                        continue
+                    resolved_strategy = strategy
 
-                if resolved_strategy in seen_strategies:
-                    continue
-                seen_strategies.add(resolved_strategy)
+                    if resolved_strategy in seen_strategies:
+                        continue
+                    seen_strategies.add(resolved_strategy)
 
-                if personalized_mode:
-                    existing = PredictionRecord.query.filter_by(
-                        user_id=user.id,
-                        region=region,
-                        period=next_period,
-                        strategy=resolved_strategy
-                    ).first()
-                else:
-                    # 非差异化：所有用户共享同一份预测记录，本周期内先生成的直接复用
-                    if resolved_strategy in shared_predictions:
-                        existing = shared_predictions[resolved_strategy]
-                    else:
+                    if personalized_mode:
                         existing = PredictionRecord.query.filter_by(
-                            user_id=SHARED_PREDICTION_USER_ID,
+                            user_id=user.id,
                             region=region,
                             period=next_period,
                             strategy=resolved_strategy
                         ).first()
+                    else:
+                        # 非差异化：所有用户共享同一份预测记录，本周期内先生成的直接复用
+                        if resolved_strategy in shared_predictions:
+                            existing = shared_predictions[resolved_strategy]
+                        else:
+                            existing = PredictionRecord.query.filter_by(
+                                user_id=SHARED_PREDICTION_USER_ID,
+                                region=region,
+                                period=next_period,
+                                strategy=resolved_strategy
+                            ).first()
 
-                if not existing:
-                    pred = generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
-                    if pred:
-                        user_predictions.append(pred)
-                        has_new_predictions = True
-                        if not personalized_mode:
-                            shared_predictions[resolved_strategy] = pred
-                            shared_fresh_strategies.add(resolved_strategy)
-                else:
-                    user_predictions.append(existing)
+                    if not existing:
+                        pred = generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
+                        if pred:
+                            user_predictions.append(pred)
+                            has_new_predictions = True
+                            if not personalized_mode:
+                                shared_predictions[resolved_strategy] = pred
+                                shared_fresh_strategies.add(resolved_strategy)
+                    else:
+                        user_predictions.append(existing)
+
+                    if user_predictions:
+                        coverage_numbers.update(_prediction_record_numbers(user_predictions[-1]))
 
             # 非差异化下本轮新生成的共享预测，也给其他用户补发一份汇总邮件（与原来"每人生成即通知"行为一致）
             if not personalized_mode and shared_fresh_strategies and user.email and user_predictions:
@@ -15271,7 +15354,14 @@ def _refresh_and_backfill_zodiacs():
 
     try:
         with app.app_context():
-            ZodiacSetting.refresh_macau_zodiac_mapping()
+            # 农历新年前后的期数仍可能属于上一生肖年，两个年份一起刷新，
+            # 保证跨年期间预测路径也能读到映射缓存。
+            current_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+            for zodiac_year in (current_year, current_year - 1):
+                try:
+                    ZodiacSetting.refresh_macau_zodiac_mapping(zodiac_year)
+                except Exception as e:
+                    print(f"澳门生肖映射刷新失败（{zodiac_year}）: {e}")
     except Exception as e:
         print(f"澳门生肖映射刷新失败: {e}")
     try:

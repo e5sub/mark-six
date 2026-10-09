@@ -1,5 +1,5 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw, MacauCollectedData, ZodiacSetting, prediction_scope_user_ids
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw, MacauCollectedData, ZodiacSetting, prediction_scope_user_ids, PREDICTION_HIT_BASELINES, build_coverage_recommendation
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
@@ -2365,6 +2365,8 @@ def predictions():
                 else 999
             )
         )
+        # 综合覆盖：把本期各策略的号码合并去重，展示覆盖号码数与覆盖概率
+        group['coverage'] = build_coverage_recommendation(group['list'])
 
     groups_per_page = 4
     total_groups = len(grouped_predictions)
@@ -2412,7 +2414,11 @@ def predictions():
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
-        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0)),
+        # 生肖命中（与特码是否命中无关）
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, _zodiac_hit_expr()), 1), else_=0)),
+        # 六码覆盖：特码落在 6 个普通号内
+        db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, _actual_in_normal_expr()), 1), else_=0))
     ).filter(_prediction_scope_filter(session['user_id'])).one()
 
     total_predictions = _count_distinct_prediction_periods(
@@ -2424,12 +2430,18 @@ def predictions():
     wrong_predictions = _count_missed_prediction_periods(
         PredictionRecord.query.filter(_prediction_scope_filter(session['user_id']))
     )
+    zodiac_hit_predictions = stats_row[5] or 0
+    top6_hit_predictions = stats_row[6] or 0
 
     accurate_predictions = special_hit_predictions
     
     accuracy_rate = (accurate_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     special_hit_rate = (special_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
     normal_hit_rate = (normal_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    zodiac_hit_rate = (zodiac_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    top6_hit_rate = (top6_hit_predictions / updated_predictions * 100) if updated_predictions > 0 else 0
+    # 七码覆盖 = 特码命中 + 特码落在普通号内（两者互斥）
+    coverage_hit_rate = ((special_hit_predictions + top6_hit_predictions) / updated_predictions * 100) if updated_predictions > 0 else 0
     
     regions = {
         record.region
@@ -2539,6 +2551,10 @@ def predictions():
                           accuracy=round(accuracy_rate, 2),
                           special_hit_rate=round(special_hit_rate, 2),
                           normal_hit_rate=round(normal_hit_rate, 2),
+                          zodiac_hit_rate=round(zodiac_hit_rate, 2),
+                          top6_hit_rate=round(top6_hit_rate, 2),
+                          coverage_hit_rate=round(coverage_hit_rate, 2),
+                          hit_baselines=PREDICTION_HIT_BASELINES,
                           prediction_summary_cards=prediction_summary_cards)
 
 

@@ -240,6 +240,15 @@ class ActivationCodeRequest(db.Model):
 # 唯一约束，保证同一地区同一期同一策略全局只有一条共享记录）
 SHARED_PREDICTION_USER_ID = -1
 
+# 随机基线（49 选 6 + 1 特码），用于展示命中率时的对照口径：
+# 特码 1/49≈2.0%，六码 6/49≈12.2%，生肖约 1/12≈8.3%，七码 7/49≈14.3%
+PREDICTION_HIT_BASELINES = {
+    'top1': 2.0,
+    'top6': 12.2,
+    'zodiac': 8.3,
+    'coverage': 14.3,
+}
+
 
 def personalized_predictions_enabled():
     """差异化预测是否开启（与 app.py 中同名函数保持一致）"""
@@ -256,6 +265,40 @@ def prediction_scope_user_ids(user_id):
     if personalized_predictions_enabled():
         return [user_id]
     return [user_id, SHARED_PREDICTION_USER_ID]
+
+
+def build_coverage_recommendation(predictions):
+    """把同一期多个策略的预测号码合并去重，给出“综合覆盖”号码与覆盖概率。
+
+    覆盖概率 = 覆盖号码数 / 49：特码是 49 个号码里均匀的一个，
+    所以覆盖 k 个号码时“特码落在其中”的概率正好是 k/49。
+    """
+    votes = {}
+    for prediction in predictions or ():
+        numbers = set()
+        for value in str(getattr(prediction, 'normal_numbers', '') or '').split(','):
+            value = value.strip()
+            if value.isdigit():
+                numbers.add(int(value))
+        special = str(getattr(prediction, 'special_number', '') or '').strip()
+        if special.isdigit():
+            numbers.add(int(special))
+        for number in numbers:
+            votes[number] = votes.get(number, 0) + 1
+
+    if not votes:
+        return None
+
+    items = sorted(votes.items(), key=lambda item: (-item[1], item[0]))
+    unique_count = len(items)
+    return {
+        'numbers': [{'number': number, 'votes': count} for number, count in items],
+        'unique_count': unique_count,
+        'picks_total': sum(votes.values()),
+        'consensus_numbers': [number for number, count in items if count >= 2],
+        'coverage_probability': round(unique_count / 49 * 100, 1),
+        'seven_number_baseline': PREDICTION_HIT_BASELINES['coverage'],
+    }
 
 
 class PredictionRecord(db.Model):

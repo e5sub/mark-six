@@ -130,6 +130,28 @@
         </div>
     </div>
 
+    {% if period_group.coverage %}
+    <div class="coverage-summary"
+         style="margin: 0 0 0.75rem; padding: 0.6rem 0.75rem; border-radius: 8px; background: rgba(99, 102, 241, 0.12); border-left: 3px solid #6366f1;">
+        <div style="font-size: 0.85rem; color: #c7d2fe; margin-bottom: 0.35rem;">
+            🧮 综合覆盖：合并 {{ period_group.list|length }} 个策略共 {{ period_group.coverage.unique_count }} 个号码，
+            特码落在其中概率约 {{ period_group.coverage.coverage_probability }}%（单策略七码为 {{ period_group.coverage.seven_number_baseline }}%）
+            {% if period_group.coverage.consensus_numbers %}
+            ｜共识号码 {{ period_group.coverage.consensus_numbers|join('、') }}
+            {% endif %}
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.3rem;">
+            {% for item in period_group.coverage.numbers %}
+            <span title="{{ item.votes }} 个策略选中"
+                  style="display:inline-flex; align-items:center; gap:0.2rem; font-size:0.78rem; padding:0.1rem 0.4rem; border-radius:999px; background: rgba(148,163,184,0.18); color: {{ '#f8fafc' if item.votes >= 2 else '#94a3b8' }};">
+                {{ item.number }}
+                {% if item.votes >= 2 %}<b>×{{ item.votes }}</b>{% endif %}
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="period-strategy-grid">
         {% for prediction in period_group.list %}
         <div class="strategy-compare-card">
@@ -207,6 +229,37 @@
         <div class="stat-number">{{ normal_hit_rate or 0 }}%</div>
         <div class="stat-label">平码/生肖命中率</div>
     </div>
+</div>
+
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1rem;">
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 1.6rem; margin-bottom: 0.5rem; color: #ffc107;">🎯</div>
+        <div class="stat-number">{{ special_hit_rate or 0 }}%</div>
+        <div class="stat-label">特码命中率（随机 {{ hit_baselines.top1 }}%）</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 1.6rem; margin-bottom: 0.5rem; color: #17a2b8;">🎲</div>
+        <div class="stat-number">{{ top6_hit_rate or 0 }}%</div>
+        <div class="stat-label">六码覆盖（随机 {{ hit_baselines.top6 }}%）</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 1.6rem; margin-bottom: 0.5rem; color: #6f42c1;">🐉</div>
+        <div class="stat-number">{{ zodiac_hit_rate or 0 }}%</div>
+        <div class="stat-label">生肖命中（随机 {{ hit_baselines.zodiac }}%）</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-icon" style="font-size: 1.6rem; margin-bottom: 0.5rem; color: #28a745;">🧮</div>
+        <div class="stat-number">{{ coverage_hit_rate or 0 }}%</div>
+        <div class="stat-label">七码覆盖（随机 {{ hit_baselines.coverage }}%）</div>
+    </div>
+</div>
+
+<div style="font-size:0.78rem; color:#94a3b8; margin-top:0.5rem;">
+    命中口径：特码=特码 1 码命中；六码=特码落在 6 个普通号内；生肖=特码生肖一致；七码=特码落在 7 个号码内。
+    括号内为 49 选 7 的随机基线，命中率长期贴近基线属正常现象，连续多期偏离才是异常信号。
 </div>
 
 {% if prediction_summary_cards %}

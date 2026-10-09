@@ -17,6 +17,8 @@ from models import (
     BacktestRun,
     UserNotification,
     personalized_predictions_enabled,
+    PREDICTION_HIT_BASELINES,
+    build_coverage_recommendation,
 )
 from datetime import datetime, timedelta
 import csv
@@ -227,6 +229,38 @@ LEARNING_PANEL_TERM_LABELS['attribute_transition'] = '属性转移'
 LEARNING_PANEL_TERM_LABELS['special_transition'] = '特码转移'
 LEARNING_PANEL_TERM_LABELS['failure'] = '失误修正'
 PREDICTION_STRATEGY_LABELS['markov'] = '马尔科夫预测'
+
+
+def _actual_in_normal_expr():
+    """SQL 条件：特码（actual_special_number）出现在普通号（normal_numbers）中。"""
+    try:
+        dialect = db.engine.dialect.name
+    except Exception:
+        dialect = ''
+    if dialect in ('mysql', 'mariadb'):
+        return func.find_in_set(
+            PredictionRecord.actual_special_number,
+            PredictionRecord.normal_numbers
+        ) > 0
+
+    actual_as_string = db.cast(PredictionRecord.actual_special_number, db.String)
+    return or_(
+        PredictionRecord.normal_numbers.contains(',' + actual_as_string + ','),
+        PredictionRecord.normal_numbers.startswith(actual_as_string + ','),
+        PredictionRecord.normal_numbers.endswith(',' + actual_as_string)
+    )
+
+
+def _zodiac_hit_expr():
+    """SQL 条件：预测特码生肖与实际特码生肖一致（两边都非空）。"""
+    return and_(
+        PredictionRecord.special_zodiac.isnot(None),
+        PredictionRecord.actual_special_zodiac.isnot(None),
+        func.trim(PredictionRecord.special_zodiac) != '',
+        func.trim(PredictionRecord.actual_special_zodiac) != '',
+        func.trim(PredictionRecord.special_zodiac) == func.trim(PredictionRecord.actual_special_zodiac)
+    )
+
 
 def _normalize_visual_weights(weight_map):
     cleaned = OrderedDict()
@@ -647,30 +681,46 @@ def dashboard():
         
         # 命中率统计全部下推到 SQL 聚合，避免把整表记录拉进 Python 逐条比较
         def _accuracy_stats(strategy=None):
-            hit_condition = and_(
+            resolved_condition = and_(
                 PredictionRecord.is_result_updated.is_(True),
                 PredictionRecord.special_number.isnot(None),
                 PredictionRecord.actual_special_number.isnot(None),
+            )
+            hit_condition = and_(
+                resolved_condition,
                 func.trim(PredictionRecord.special_number) == func.trim(PredictionRecord.actual_special_number),
             )
+            top6_condition = and_(resolved_condition, _actual_in_normal_expr())
+            zodiac_condition = and_(resolved_condition, _zodiac_hit_expr())
             query = db.session.query(
                 func.count(PredictionRecord.id),
                 func.sum(case((hit_condition, 1), else_=0)),
-            ).filter(
-                PredictionRecord.is_result_updated.is_(True),
-                PredictionRecord.special_number.isnot(None),
-                PredictionRecord.actual_special_number.isnot(None),
-            )
+                func.sum(case((top6_condition, 1), else_=0)),
+                func.sum(case((zodiac_condition, 1), else_=0)),
+            ).filter(resolved_condition)
             if strategy:
                 query = query.filter(PredictionRecord.strategy == strategy)
-            total_count, correct_count = query.one()
+            total_count, top1_count, top6_count, zodiac_count = query.one()
             total_count = int(total_count or 0)
-            correct_count = int(correct_count or 0)
-            return round(correct_count / total_count * 100, 1) if total_count > 0 else 0.0
+            top1_count = int(top1_count or 0)
+            top6_count = int(top6_count or 0)
+            zodiac_count = int(zodiac_count or 0)
 
-        avg_accuracy = _accuracy_stats()
-        balanced_accuracy = _accuracy_stats('balanced')
-        ai_accuracy = _accuracy_stats('ai')
+            def _rate(count):
+                return round(count / total_count * 100, 1) if total_count > 0 else 0.0
+
+            return {
+                'total': total_count,
+                'top1': _rate(top1_count),
+                'top6': _rate(top6_count),
+                'zodiac': _rate(zodiac_count),
+                'coverage': _rate(top1_count + top6_count),
+            }
+
+        accuracy_breakdown = _accuracy_stats()
+        avg_accuracy = accuracy_breakdown['top1']
+        balanced_accuracy = _accuracy_stats('balanced')['top1']
+        ai_accuracy = _accuracy_stats('ai')['top1']
         
         total_invite_codes = InviteCode.query.count()
         used_invite_codes = InviteCode.query.filter_by(is_used=True).count()
@@ -725,6 +775,8 @@ def dashboard():
             'avg_accuracy': avg_accuracy,
             'balanced_accuracy': balanced_accuracy,
             'ai_accuracy': ai_accuracy,
+            'accuracy_breakdown': accuracy_breakdown,
+            'hit_baselines': PREDICTION_HIT_BASELINES,
             'recent_signups_7d': recent_signups_7d,
             'recent_predictions_7d': recent_predictions_7d,
             'pending_predictions': pending_predictions,
@@ -751,6 +803,8 @@ def dashboard():
             'avg_accuracy': 0.0,
             'balanced_accuracy': 0.0,
             'ai_accuracy': 0.0,
+            'accuracy_breakdown': {'total': 0, 'top1': 0.0, 'top6': 0.0, 'zodiac': 0.0, 'coverage': 0.0},
+            'hit_baselines': PREDICTION_HIT_BASELINES,
             'recent_signups_7d': 0,
             'recent_predictions_7d': 0,
             'pending_predictions': 0,
@@ -1828,29 +1882,30 @@ def predictions():
         prediction_summary_cards = []
         for region in regions:
             # 用 SQL 按“期”聚合，避免把整个地区的历史记录全部拉进 Python
+            resolved_condition = (
+                (PredictionRecord.is_result_updated.is_(True))
+                & (PredictionRecord.special_number.isnot(None))
+                & (PredictionRecord.actual_special_number.isnot(None))
+            )
+            # 特码落在 6 个普通号内（“六码覆盖”），与特码命中互斥
+            actual_in_normal_condition = resolved_condition & _actual_in_normal_expr()
+            zodiac_match_condition = resolved_condition & _zodiac_hit_expr()
+
             history_query = db.session.query(
                 PredictionRecord.period.label('period'),
                 func.min(PredictionRecord.created_at).label('period_created_at'),
                 func.min(PredictionRecord.id).label('period_first_id'),
+                func.max(case((resolved_condition, 1), else_=0)).label('period_has_result'),
                 func.max(case(
                     (
-                        (PredictionRecord.is_result_updated.is_(True))
-                        & (PredictionRecord.special_number.isnot(None))
-                        & (PredictionRecord.actual_special_number.isnot(None)),
-                        1,
-                    ),
-                    else_=0,
-                )).label('period_has_result'),
-                func.max(case(
-                    (
-                        (PredictionRecord.is_result_updated.is_(True))
-                        & (PredictionRecord.special_number.isnot(None))
-                        & (PredictionRecord.actual_special_number.isnot(None))
+                        resolved_condition
                         & (func.trim(PredictionRecord.special_number) == func.trim(PredictionRecord.actual_special_number)),
                         1,
                     ),
                     else_=0,
                 )).label('period_is_hit'),
+                func.max(case((actual_in_normal_condition, 1), else_=0)).label('period_top6_hit'),
+                func.max(case((zodiac_match_condition, 1), else_=0)).label('period_zodiac_hit'),
             ).filter(PredictionRecord.region == region)
             if filters:
                 history_query = history_query.filter(*filters)
@@ -1860,6 +1915,8 @@ def predictions():
             ).all()
 
             total_special_hits = 0
+            total_top6_hits = 0
+            total_zodiac_hits = 0
             consecutive_special_misses = 0
             consecutive_special_hits = 0
             max_consecutive_special_hits = 0
@@ -1870,6 +1927,10 @@ def predictions():
                 if not row.period_has_result:
                     continue
                 resolved_periods += 1
+                if row.period_top6_hit:
+                    total_top6_hits += 1
+                if row.period_zodiac_hit:
+                    total_zodiac_hits += 1
                 if row.period_is_hit:
                     total_special_hits += 1
                     consecutive_special_hits += 1
@@ -1882,6 +1943,9 @@ def predictions():
                     if consecutive_special_misses > max_consecutive_special_misses:
                         max_consecutive_special_misses = consecutive_special_misses
 
+            def _period_rate(count):
+                return round(count / resolved_periods * 100, 1) if resolved_periods else 0.0
+
             prediction_summary_cards.append({
                 'region': region,
                 'region_label': '香港' if region == 'hk' else '澳门' if region == 'macau' else region,
@@ -1890,6 +1954,12 @@ def predictions():
                 'max_hit_streak': max_consecutive_special_hits,
                 'max_miss_streak': max_consecutive_special_misses,
                 'resolved_periods': resolved_periods,
+                # 多级命中口径：特码 1/49、六码 6/49、生肖约 1/12、七码 7/49
+                'top1_rate': _period_rate(total_special_hits),
+                'top6_rate': _period_rate(total_top6_hits),
+                'zodiac_rate': _period_rate(total_zodiac_hits),
+                'coverage_rate': _period_rate(total_special_hits + total_top6_hits),
+                'baseline': PREDICTION_HIT_BASELINES,
             })
 
         prediction_summary_cards.sort(
@@ -2086,6 +2156,8 @@ def predictions():
             group['pending_count'] = sum(1 for item in group['items'] if not item.is_result_updated)
             group['miss_count'] = sum(1 for item in group['items'] if item.is_result_updated and item.result_class == 'miss')
             group['strategy_count'] = len(group['items'])
+            # 综合覆盖：本期各策略号码合并去重后的覆盖号码数与覆盖概率
+            group['coverage'] = build_coverage_recommendation(group['items'])
             group['usernames'] = sorted(group['_users'])
             group['top_usernames'] = group['usernames'][:3]
             group['more_user_count'] = max(0, len(group['usernames']) - len(group['top_usernames']))
