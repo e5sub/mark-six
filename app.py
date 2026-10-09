@@ -807,6 +807,25 @@ _startup_log_lock_acquired = False
 def _pid_is_running(pid):
     if pid <= 0:
         return False
+    if os.name == "nt":
+        # Windows 下 os.kill(pid, 0) 不是可靠的存活探测，改用 OpenProcess 查询退出码
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return False
+                return exit_code.value == STILL_ACTIVE
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
     try:
         os.kill(pid, 0)
     except OSError:
@@ -862,6 +881,22 @@ def _should_log_startup():
     return True
 
 
+# 启动时同步表结构通常只需几秒，锁文件存在超过该时长即视为残留（进程已退出但 PID 被复用等）
+SCHEMA_LOCK_STALE_SECONDS = 600
+
+def _read_lock_pid(lock_path):
+    try:
+        with open(lock_path, "r") as f:
+            return int((f.read() or "").strip() or "0")
+    except Exception:
+        return 0
+
+def _lock_file_age_seconds(lock_path):
+    try:
+        return max(0.0, time.time() - os.path.getmtime(lock_path))
+    except OSError:
+        return None
+
 @contextmanager
 def _startup_schema_lock(timeout_seconds=120):
     import tempfile
@@ -878,13 +913,16 @@ def _startup_schema_lock(timeout_seconds=120):
             acquired = True
             break
         except FileExistsError:
-            existing_pid = 0
-            try:
-                with open(lock_path, "r") as f:
-                    existing_pid = int((f.read() or "").strip() or "0")
-            except Exception:
-                existing_pid = 0
-            if existing_pid and not _pid_is_running(existing_pid):
+            existing_pid = _read_lock_pid(lock_path)
+            age = _lock_file_age_seconds(lock_path)
+            stale = age is None  # 文件刚被其他进程清理，直接重试
+            if not stale and existing_pid and not _pid_is_running(existing_pid):
+                stale = True  # 持有进程已退出
+            if not stale and age is not None and age > SCHEMA_LOCK_STALE_SECONDS:
+                stale = True  # 持有进程疑似已崩溃（或 PID 被其他进程复用）
+            if not stale and not existing_pid and age is not None and age > 5:
+                stale = True  # 空/损坏的锁文件，等了几秒仍无持有者信息
+            if stale:
                 try:
                     os.remove(lock_path)
                     continue
@@ -893,7 +931,15 @@ def _startup_schema_lock(timeout_seconds=120):
             time.sleep(0.25)
 
     if not acquired:
-        print("Startup schema lock timeout; continuing without exclusive schema lock.")
+        holder_detail = ""
+        holder_pid = _read_lock_pid(lock_path)
+        holder_age = _lock_file_age_seconds(lock_path)
+        if holder_pid:
+            if holder_age is not None:
+                holder_detail = f" (锁持有者 pid={holder_pid}，锁已存在 {holder_age:.0f}s，可能是残留锁：可手动删除 {lock_path})"
+            else:
+                holder_detail = f" (锁持有者 pid={holder_pid}，可手动删除 {lock_path})"
+        print("Startup schema lock timeout; continuing without exclusive schema lock." + holder_detail)
 
     try:
         yield
