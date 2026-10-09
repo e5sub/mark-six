@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 import uuid
 import hashlib
+import json
 
 db = SQLAlchemy()
 LargeText = db.Text().with_variant(MEDIUMTEXT(), 'mysql').with_variant(MEDIUMTEXT(), 'mariadb')
@@ -578,6 +579,59 @@ class ZodiacSetting(db.Model):
         return base_year
 
     @staticmethod
+    def _load_cached_macau_mapping(year):
+        """从持久化缓存表读取澳门生肖映射（只读数据库，不发外网请求）"""
+        try:
+            row = ZodiacMappingCache.query.filter_by(year=int(year)).first()
+            if not row or not row.mapping_json:
+                return {}
+            data = json.loads(row.mapping_json)
+            mapping = {}
+            for key, value in (data or {}).items():
+                try:
+                    mapping[int(key)] = value
+                except (TypeError, ValueError):
+                    continue
+            return mapping
+        except Exception as e:
+            print(f"读取澳门生肖映射缓存失败: {e}")
+            return {}
+
+    @staticmethod
+    def _save_cached_macau_mapping(year, mapping):
+        """把澳门生肖映射写入持久化缓存表"""
+        try:
+            year = int(year)
+            payload = json.dumps({str(k): v for k, v in (mapping or {}).items()}, ensure_ascii=False)
+            row = ZodiacMappingCache.query.filter_by(year=year).first()
+            if row is None:
+                row = ZodiacMappingCache(year=year, mapping_json=payload, source='macau_api')
+                db.session.add(row)
+            else:
+                row.mapping_json = payload
+                row.source = 'macau_api'
+                row.fetched_at = datetime.now()
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"写入澳门生肖映射缓存失败: {e}")
+
+    @staticmethod
+    def refresh_macau_zodiac_mapping(year=None):
+        """显式刷新澳门生肖映射（会访问外网）。
+
+        仅供后台任务调用（启动预热、每日采集任务）。成功后会同步更新
+        内存缓存与持久化缓存表，Web 渲染路径只读缓存、永不发外网请求。
+        """
+        try:
+            year = int(year) if year is not None else ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+        except (TypeError, ValueError):
+            year = datetime.now().year
+        ZodiacSetting._macau_zodiac_cache.pop(year, None)
+        ZodiacSetting._macau_year_match_cache.pop(year, None)
+        return ZodiacSetting._get_macau_zodiac_mapping(year)
+
+    @staticmethod
     def _get_macau_zodiac_mapping(year):
         try:
             year = int(year)
@@ -628,7 +682,9 @@ class ZodiacSetting(db.Model):
             if len(number_to_zodiac) >= 49:
                 break
 
-        ZodiacSetting._macau_zodiac_cache[year] = number_to_zodiac
+        if number_to_zodiac:
+            ZodiacSetting._macau_zodiac_cache[year] = number_to_zodiac
+            ZodiacSetting._save_cached_macau_mapping(year, number_to_zodiac)
         return number_to_zodiac
 
     @staticmethod
@@ -649,6 +705,11 @@ class ZodiacSetting(db.Model):
 
     @staticmethod
     def get_mapping_for_macau_year(year):
+        """获取澳门年份对应的号码->生肖映射（只读缓存，不访问外网）。
+
+        依次尝试：内存缓存 -> 持久化缓存表 -> 与本地生肖设置匹配；
+        全部不可用时返回空映射，由调用方回退到默认规则。
+        """
         try:
             year = int(year)
         except (TypeError, ValueError):
@@ -657,9 +718,17 @@ class ZodiacSetting(db.Model):
         cached = ZodiacSetting._macau_year_match_cache.get(year)
         if cached is not None:
             return cached
-        mapping = ZodiacSetting._get_macau_zodiac_mapping(year)
+
+        mapping = ZodiacSetting._macau_zodiac_cache.get(year)
+        if not mapping:
+            mapping = ZodiacSetting._load_cached_macau_mapping(year)
+            if mapping:
+                ZodiacSetting._macau_zodiac_cache[year] = mapping
+
         if len(mapping) < 49:
-            ZodiacSetting._macau_year_match_cache[year] = mapping
+            # 空映射不写缓存，等后台任务补齐持久化缓存后可自动生效
+            if mapping:
+                ZodiacSetting._macau_year_match_cache[year] = mapping
             return mapping
 
         years = [row[0] for row in db.session.query(ZodiacSetting.year).distinct().all()]
@@ -673,7 +742,7 @@ class ZodiacSetting(db.Model):
                 return settings_mapping
 
         ZodiacSetting._macau_year_match_cache[year] = mapping
-        return mapping    
+        return mapping
     @staticmethod
     def get_zodiac_for_number(year, number):
         """获取指定年份指定号码的生肖"""
@@ -873,6 +942,26 @@ class ZodiacSetting(db.Model):
         table['rows'].append(last_row)
         
         return table
+
+
+class ZodiacMappingCache(db.Model):
+    """澳门生肖号码映射的持久化缓存表。
+
+    页面渲染等 Web 请求路径只读这里的缓存，绝不直接访问外网；
+    外部接口的拉取/刷新由后台任务（启动预热、每日采集任务）负责。
+    """
+    __tablename__ = 'zodiac_mapping_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    year = db.Column(db.Integer, nullable=False, unique=True)
+    mapping_json = db.Column(LargeText, nullable=False)  # {"号码": "生肖"} JSON
+    source = db.Column(db.String(32), default='macau_api')
+    fetched_at = db.Column(db.DateTime, default=datetime.now)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    def __repr__(self):
+        return f'<ZodiacMappingCache {self.year}: {len(self.mapping_json or "")}b>'
 
 class ManualBetRecord(db.Model):
     __tablename__ = 'manual_bet_records'

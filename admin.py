@@ -24,7 +24,7 @@ import json
 import io
 import threading
 from collections import OrderedDict
-from sqlalchemy import func, case, or_
+from sqlalchemy import func, case, or_, and_
 from retention_service import cleanup_expired_data
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -645,41 +645,32 @@ def dashboard():
             User.activation_expires_at < now
         ).count()
         
-        # 计算不同策略的准确率（只对比特码）
-        def calculate_accuracy(strategy):
-            predictions = PredictionRecord.query.filter_by(strategy=strategy, is_result_updated=True).all()
-            if not predictions:
-                return 0.0
-            
-            correct_count = 0
-            total_count = 0
-            
-            for pred in predictions:
-                if pred.actual_special_number and pred.special_number:
-                    total_count += 1
-                    if pred.special_number == pred.actual_special_number:
-                        correct_count += 1
-            
+        # 命中率统计全部下推到 SQL 聚合，避免把整表记录拉进 Python 逐条比较
+        def _accuracy_stats(strategy=None):
+            hit_condition = and_(
+                PredictionRecord.is_result_updated.is_(True),
+                PredictionRecord.special_number.isnot(None),
+                PredictionRecord.actual_special_number.isnot(None),
+                func.trim(PredictionRecord.special_number) == func.trim(PredictionRecord.actual_special_number),
+            )
+            query = db.session.query(
+                func.count(PredictionRecord.id),
+                func.sum(case((hit_condition, 1), else_=0)),
+            ).filter(
+                PredictionRecord.is_result_updated.is_(True),
+                PredictionRecord.special_number.isnot(None),
+                PredictionRecord.actual_special_number.isnot(None),
+            )
+            if strategy:
+                query = query.filter(PredictionRecord.strategy == strategy)
+            total_count, correct_count = query.one()
+            total_count = int(total_count or 0)
+            correct_count = int(correct_count or 0)
             return round(correct_count / total_count * 100, 1) if total_count > 0 else 0.0
-        
-        # 计算平均准确率（只对比特码）
-        all_predictions = PredictionRecord.query.filter_by(is_result_updated=True).all()
-        if all_predictions:
-            correct_count = 0
-            total_count = 0
-            
-            for pred in all_predictions:
-                if pred.actual_special_number and pred.special_number:
-                    total_count += 1
-                    if pred.special_number == pred.actual_special_number:
-                        correct_count += 1
-            
-            avg_accuracy = round(correct_count / total_count * 100, 1) if total_count > 0 else 0.0
-        else:
-            avg_accuracy = 0.0
-        
-        balanced_accuracy = calculate_accuracy('balanced')
-        ai_accuracy = calculate_accuracy('ai')
+
+        avg_accuracy = _accuracy_stats()
+        balanced_accuracy = _accuracy_stats('balanced')
+        ai_accuracy = _accuracy_stats('ai')
         
         total_invite_codes = InviteCode.query.count()
         used_invite_codes = InviteCode.query.filter_by(is_used=True).count()
@@ -1836,32 +1827,37 @@ def predictions():
 
         prediction_summary_cards = []
         for region in regions:
-            history_query = PredictionRecord.query.filter(PredictionRecord.region == region)
+            # 用 SQL 按“期”聚合，避免把整个地区的历史记录全部拉进 Python
+            history_query = db.session.query(
+                PredictionRecord.period.label('period'),
+                func.min(PredictionRecord.created_at).label('period_created_at'),
+                func.min(PredictionRecord.id).label('period_first_id'),
+                func.max(case(
+                    (
+                        (PredictionRecord.is_result_updated.is_(True))
+                        & (PredictionRecord.special_number.isnot(None))
+                        & (PredictionRecord.actual_special_number.isnot(None)),
+                        1,
+                    ),
+                    else_=0,
+                )).label('period_has_result'),
+                func.max(case(
+                    (
+                        (PredictionRecord.is_result_updated.is_(True))
+                        & (PredictionRecord.special_number.isnot(None))
+                        & (PredictionRecord.actual_special_number.isnot(None))
+                        & (func.trim(PredictionRecord.special_number) == func.trim(PredictionRecord.actual_special_number)),
+                        1,
+                    ),
+                    else_=0,
+                )).label('period_is_hit'),
+            ).filter(PredictionRecord.region == region)
             if filters:
                 history_query = history_query.filter(*filters)
-            history_records = history_query.order_by(
-                PredictionRecord.created_at.asc(),
-                PredictionRecord.id.asc()
+            history_rows = history_query.group_by(PredictionRecord.period).order_by(
+                func.min(PredictionRecord.created_at).asc(),
+                func.min(PredictionRecord.id).asc()
             ).all()
-
-            period_results = OrderedDict()
-
-            for record in history_records:
-                period_key = record.period
-                if period_key not in period_results:
-                    period_results[period_key] = {
-                        'has_result': False,
-                        'is_hit': False,
-                    }
-
-                if (
-                    record.is_result_updated
-                    and record.special_number
-                    and record.actual_special_number
-                ):
-                    period_results[period_key]['has_result'] = True
-                    if str(record.special_number).strip() == str(record.actual_special_number).strip():
-                        period_results[period_key]['is_hit'] = True
 
             total_special_hits = 0
             consecutive_special_misses = 0
@@ -1870,11 +1866,11 @@ def predictions():
             max_consecutive_special_misses = 0
             resolved_periods = 0
 
-            for result in period_results.values():
-                if not result['has_result']:
+            for row in history_rows:
+                if not row.period_has_result:
                     continue
                 resolved_periods += 1
-                if result['is_hit']:
+                if row.period_is_hit:
                     total_special_hits += 1
                     consecutive_special_hits += 1
                     consecutive_special_misses = 0
@@ -1900,8 +1896,33 @@ def predictions():
             key=lambda item: 0 if item['region'] == 'hk' else 1 if item['region'] == 'macau' else 2
         )
         
-        pending_updates = []
-        # 为预测记录添加用户名，并兜底补齐缺失生肖
+        # 生肖解析：每页按年加载一次“设置+默认规则”映射，只做展示计算，
+        # 不再逐条查库/写库（历史缺失数据的持久化补齐由后台任务负责）
+        zodiac_maps = {}
+
+        def _resolve_zodiac(number, year):
+            try:
+                num = int(number)
+            except (TypeError, ValueError):
+                return ''
+
+            year_map = zodiac_maps.get(year)
+            if year_map is None:
+                year_map = {}
+                for setting in ZodiacSetting.query.filter_by(year=year).all():
+                    for n in (setting.numbers or '').split(','):
+                        try:
+                            year_map[int(n)] = setting.zodiac
+                        except (TypeError, ValueError):
+                            continue
+                zodiac_maps[year] = year_map
+
+            zodiac = year_map.get(num)
+            if zodiac:
+                return zodiac
+            return ZodiacSetting.get_default_zodiac_for_number(num, year) or ''
+
+        # 为预测记录添加用户名
         strategy_order = {
             'hot': 1,
             'cold': 2,
@@ -1932,37 +1953,17 @@ def predictions():
 
             pred.display_special_zodiac = (pred.special_zodiac or '').strip()
             if not pred.display_special_zodiac and pred.special_number:
-                try:
-                    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(
-                        pred.created_at or datetime.now()
-                    )
-                    pred.display_special_zodiac = (
-                        ZodiacSetting.get_zodiac_for_number(
-                            zodiac_year, pred.special_number
-                        ) or ''
-                    ).strip()
-                    if pred.display_special_zodiac:
-                        pred.special_zodiac = pred.display_special_zodiac
-                        pending_updates.append(pred)
-                except Exception:
-                    pred.display_special_zodiac = ''
+                pred.display_special_zodiac = _resolve_zodiac(
+                    pred.special_number,
+                    ZodiacSetting.get_zodiac_year_for_date(pred.created_at or datetime.now()),
+                )
 
             pred.display_actual_special_zodiac = (pred.actual_special_zodiac or '').strip()
             if not pred.display_actual_special_zodiac and pred.actual_special_number:
-                try:
-                    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(
-                        pred.created_at or datetime.now()
-                    )
-                    pred.display_actual_special_zodiac = (
-                        ZodiacSetting.get_zodiac_for_number(
-                            zodiac_year, pred.actual_special_number
-                        ) or ''
-                    ).strip()
-                    if pred.display_actual_special_zodiac:
-                        pred.actual_special_zodiac = pred.display_actual_special_zodiac
-                        pending_updates.append(pred)
-                except Exception:
-                    pred.display_actual_special_zodiac = ''
+                pred.display_actual_special_zodiac = _resolve_zodiac(
+                    pred.actual_special_number,
+                    ZodiacSetting.get_zodiac_year_for_date(pred.created_at or datetime.now()),
+                )
 
             normal_numbers = [
                 value.strip()
@@ -2006,12 +2007,6 @@ def predictions():
             else:
                 pred.result_label = '待开奖'
                 pred.result_class = 'pending'
-
-        if pending_updates:
-            try:
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
 
         prediction_groups_map = OrderedDict()
         group_meta_map = {

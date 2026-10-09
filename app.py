@@ -18,7 +18,7 @@ from urllib.parse import quote_plus, urlparse
 from datetime import datetime, timedelta
 import time
 from markupsafe import escape
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event, inspect, and_, or_
 from sqlalchemy.engine import make_url
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
@@ -285,6 +285,26 @@ def _list_system_log_files():
     return [path for path, _ in files]
 
 
+def _read_log_tail_lines(log_file, limit):
+    """只读取日志文件末尾的若干行，避免整文件扫描（日志很大时显著更快）。"""
+    if limit <= 0:
+        return []
+    try:
+        with open(log_file, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            block_size = min(size, max(65536, limit * 512))
+            f.seek(size - block_size)
+            data = f.read(block_size)
+    except OSError:
+        return []
+
+    lines = data.decode("utf-8", errors="replace").splitlines()
+    if block_size < size and lines:
+        lines = lines[1:]  # 丢弃可能被截断的首行
+    return lines[-limit:]
+
+
 def get_system_logs(limit=200):
     try:
         normalized_limit = max(1, min(int(limit or 200), 1000))
@@ -296,13 +316,15 @@ def get_system_logs(limit=200):
         return []
 
     try:
+        # 从最新文件往前取，每份文件只读尾部，凑够 limit 行即可
         tail_lines = []
-        for log_file in log_files:
-            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    tail_lines.append(line.rstrip("\r\n"))
-                    if len(tail_lines) > normalized_limit:
-                        tail_lines.pop(0)
+        for log_file in reversed(log_files):
+            need = normalized_limit - len(tail_lines)
+            if need <= 0:
+                break
+            file_lines = _read_log_tail_lines(log_file, need)
+            if file_lines:
+                tail_lines = file_lines + tail_lines
         logs = []
         for line in reversed(tail_lines):
             log_time, log_line = _split_system_log_timestamp(line)
@@ -15119,6 +15141,8 @@ def collect_macau_source_data_job():
                 f"澳门号码生肖自动采集完成：year={current_year} "
                 f"parsed={len(items)} created={created_count} updated={updated_count} skipped={skipped_count}"
             )
+            # 采集完成后顺带刷新澳门生肖映射缓存并补齐缺失生肖
+            _refresh_and_backfill_zodiacs()
         except Exception as e:
             print(f"澳门号码生肖自动采集失败: {e}")
             import traceback
@@ -15126,6 +15150,214 @@ def collect_macau_source_data_job():
             db.session.rollback()
         finally:
             db.session.remove()
+
+
+def backfill_missing_prediction_zodiacs(batch_size=500, max_records=None):
+    """补齐历史预测记录中缺失的生肖（后台任务调用，页面渲染不再现查现补）。
+
+    使用“id 游标 + 分批提交”避免重复扫描，保证即使部分行无法解析也能终止。
+    返回本次更新的记录条数。
+    """
+    from models import ZodiacSetting
+
+    updated = 0
+    year_settings_maps = {}
+
+    def _year_zodiac_map(year):
+        if year not in year_settings_maps:
+            mapping = {}
+            for setting in ZodiacSetting.query.filter_by(year=year).all():
+                for num in (setting.numbers or '').split(','):
+                    try:
+                        mapping[int(num)] = setting.zodiac
+                    except (TypeError, ValueError):
+                        continue
+            year_settings_maps[year] = mapping
+        return year_settings_maps[year]
+
+    def _resolve_zodiac(number, year):
+        try:
+            num = int(number)
+        except (TypeError, ValueError):
+            return None
+        zodiac = _year_zodiac_map(year).get(num)
+        if zodiac:
+            return zodiac
+        return ZodiacSetting.get_default_zodiac_for_number(num, year) or None
+
+    last_id = 0
+    while True:
+        if max_records is not None and updated >= max_records:
+            break
+        rows = (
+            PredictionRecord.query.filter(
+                PredictionRecord.id > last_id,
+                and_(
+                    or_(
+                        PredictionRecord.special_zodiac.is_(None),
+                        PredictionRecord.special_zodiac == '',
+                    ),
+                    PredictionRecord.special_number.isnot(None),
+                ),
+            )
+            .order_by(PredictionRecord.id.asc())
+            .limit(batch_size)
+            .all()
+        )
+        if not rows:
+            break
+        last_id = rows[-1].id
+        for record in rows:
+            zodiac = _resolve_zodiac(record.special_number, ZodiacSetting.get_zodiac_year_for_date(record.created_at))
+            if zodiac:
+                record.special_zodiac = zodiac
+            # 实际开奖号码的生肖一并补齐
+            if record.actual_special_number and not (record.actual_special_zodiac or '').strip():
+                zodiac = _resolve_zodiac(
+                    record.actual_special_number, ZodiacSetting.get_zodiac_year_for_date(record.created_at)
+                )
+                if zodiac:
+                    record.actual_special_zodiac = zodiac
+        try:
+            db.session.commit()
+            updated += len(rows)
+        except Exception as e:
+            db.session.rollback()
+            print(f"预测生肖补齐提交失败: {e}")
+            break
+
+    # 补 actual_special_zodiac（上一轮只处理了特码生肖为空的行）
+    last_id = 0
+    while True:
+        if max_records is not None and updated >= max_records:
+            break
+        rows = (
+            PredictionRecord.query.filter(
+                PredictionRecord.id > last_id,
+                and_(
+                    or_(
+                        PredictionRecord.actual_special_zodiac.is_(None),
+                        PredictionRecord.actual_special_zodiac == '',
+                    ),
+                    PredictionRecord.actual_special_number.isnot(None),
+                ),
+            )
+            .order_by(PredictionRecord.id.asc())
+            .limit(batch_size)
+            .all()
+        )
+        if not rows:
+            break
+        last_id = rows[-1].id
+        for record in rows:
+            zodiac = _resolve_zodiac(
+                record.actual_special_number, ZodiacSetting.get_zodiac_year_for_date(record.created_at)
+            )
+            if zodiac:
+                record.actual_special_zodiac = zodiac
+        try:
+            db.session.commit()
+            updated += len(rows)
+        except Exception as e:
+            db.session.rollback()
+            print(f"预测生肖补齐提交失败: {e}")
+            break
+    return updated
+
+
+def _refresh_and_backfill_zodiacs():
+    """刷新澳门生肖映射并补齐缺失生肖（后台线程 / 每日采集任务共用）。"""
+    from models import ZodiacSetting
+
+    try:
+        with app.app_context():
+            ZodiacSetting.refresh_macau_zodiac_mapping()
+    except Exception as e:
+        print(f"澳门生肖映射刷新失败: {e}")
+    try:
+        with app.app_context():
+            updated = backfill_missing_prediction_zodiacs()
+            if updated:
+                print(f"预测记录生肖补齐完成：共更新 {updated} 条")
+    except Exception as e:
+        print(f"预测记录生肖补齐失败: {e}")
+
+
+_zodiac_backfill_thread = None
+_zodiac_backfill_started = False
+_zodiac_backfill_lock_path = None
+_zodiac_backfill_lock_acquired = False
+
+
+def _try_acquire_zodiac_backfill_lock():
+    import tempfile
+    global _zodiac_backfill_lock_path, _zodiac_backfill_lock_acquired
+    if _zodiac_backfill_lock_acquired:
+        return True
+    lock_path = os.path.join(tempfile.gettempdir(), "mark-six-zodiac-backfill.lock")
+    pid = os.getpid()
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, "w") as f:
+            f.write(str(pid))
+        _zodiac_backfill_lock_path = lock_path
+        _zodiac_backfill_lock_acquired = True
+        return True
+    except FileExistsError:
+        try:
+            with open(lock_path, "r") as f:
+                existing_pid = int((f.read() or "").strip() or "0")
+        except Exception:
+            existing_pid = 0
+        if existing_pid and _pid_is_running(existing_pid):
+            return False
+        try:
+            os.remove(lock_path)
+        except OSError:
+            return False
+        return _try_acquire_zodiac_backfill_lock()
+
+
+def _release_zodiac_backfill_lock():
+    global _zodiac_backfill_lock_path, _zodiac_backfill_lock_acquired
+    if not _zodiac_backfill_lock_acquired or not _zodiac_backfill_lock_path:
+        return
+    try:
+        os.remove(_zodiac_backfill_lock_path)
+    except OSError:
+        pass
+    _zodiac_backfill_lock_path = None
+    _zodiac_backfill_lock_acquired = False
+
+
+def start_async_zodiac_backfill():
+    """启动后台线程：刷新澳门生肖映射 + 补齐历史缺失生肖（非阻塞）。"""
+    global _zodiac_backfill_thread, _zodiac_backfill_started
+    enabled = os.environ.get("ENABLE_STARTUP_ZODIAC_BACKFILL", "1").lower() in ("1", "true", "yes", "on")
+    if not enabled or _zodiac_backfill_started:
+        return None
+
+    if not _try_acquire_zodiac_backfill_lock():
+        return None
+
+    def _runner():
+        try:
+            # 避开所有 Worker 的 ensure_runtime_database_schema 阶段
+            time.sleep(3.0)
+            _refresh_and_backfill_zodiacs()
+        except Exception as e:
+            print(f"Async zodiac backfill failed: {e}")
+        finally:
+            _release_zodiac_backfill_lock()
+
+    _zodiac_backfill_thread = threading.Thread(
+        target=_runner,
+        name="mark-six-zodiac-backfill",
+        daemon=True,
+    )
+    _zodiac_backfill_thread.start()
+    _zodiac_backfill_started = True
+    return _zodiac_backfill_thread
 
 
 def cleanup_expired_data_job():
@@ -15426,6 +15658,11 @@ try:
     start_async_ml_warmup()
 except Exception as e:
     print(f"ML 预测缓存预热失败: {e}")
+
+try:
+    start_async_zodiac_backfill()
+except Exception as e:
+    print(f"预测生肖补齐预热失败: {e}")
 
 if __name__ == '__main__':
     # 初始化数据库
