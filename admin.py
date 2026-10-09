@@ -928,6 +928,7 @@ def macau_draw_import():
         skipped_count = 0
         
         zodiac_year_cache = {}  # 农历年 -> 号码生肖映射（澳门兜底口径），整次导入复用
+        force_overwrite = str(request.form.get('force_overwrite', '') or '') == '1'
         
         for record in records:
             try:
@@ -965,8 +966,8 @@ def macau_draw_import():
                 existing = LotteryDraw.query.filter_by(region='macau', draw_id=draw_id).first()
                 
                 if existing:
-                    # 仅在数据缺失时更新
-                    if not _lottery_draw_zodiac_complete(existing):
+                    # 未勾选强制覆盖时，仅在生肖缺失时更新
+                    if force_overwrite or not _lottery_draw_zodiac_complete(existing):
                         existing.normal_numbers = ','.join(normal_numbers)
                         existing.special_number = special_number
                         existing.special_zodiac = special_zodiac
@@ -1057,6 +1058,7 @@ def hk_draw_import():
         skipped_count = 0
 
         zodiac_year_cache = {}  # 农历年 -> 号码生肖映射（澳门兜底口径），整次导入复用
+        force_overwrite = str(request.form.get('force_overwrite', '') or '') == '1'
 
         for record in records:
             try:
@@ -1094,8 +1096,8 @@ def hk_draw_import():
                 existing = LotteryDraw.query.filter_by(region='hk', draw_id=draw_id).first()
 
                 if existing:
-                    # 仅在数据缺失时更新
-                    if not _lottery_draw_zodiac_complete(existing):
+                    # 未勾选强制覆盖时，仅在生肖缺失时更新
+                    if force_overwrite or not _lottery_draw_zodiac_complete(existing):
                         existing.normal_numbers = ','.join(normal_numbers)
                         existing.special_number = special_number
                         existing.special_zodiac = special_zodiac

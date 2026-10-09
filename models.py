@@ -953,48 +953,47 @@ class LotteryDraw(db.Model):
             special_number = draw_data.get('sno', '')
             all_numbers = normal_numbers + [special_number] if special_number else normal_numbers
             
-            # 尝试从ZodiacSetting获取生肖设置
-            zodiac_settings = ZodiacSetting.get_all_settings_for_year(current_year)
-            
-            # 如果有生肖设置，使用设置的生肖；
-            # 设置覆盖不到的号码按该农历年（澳门号码生肖规则）兜底，避免落库后缺生肖
-            if zodiac_settings:
-                # 更新特码生肖
-                if special_number:
-                    try:
-                        special_number_int = int(special_number)
-                        special_zodiac = zodiac_settings.get(
-                            special_number_int,
-                            draw_data.get('sno_zodiac', ''),
-                        ) or ''
-                        if not special_zodiac:
-                            special_zodiac = ZodiacSetting.get_default_zodiac_for_number(
-                                special_number_int, current_year
-                            ) or ''
-                    except (ValueError, TypeError):
-                        special_zodiac = draw_data.get('sno_zodiac', '')
-                else:
-                    special_zodiac = draw_data.get('sno_zodiac', '')
-                
-                # 更新所有号码的生肖
-                raw_zodiacs = []
-                for num in all_numbers:
-                    try:
-                        num_int = int(num)
-                        zodiac = (
-                            zodiac_settings.get(num_int, '')
-                            or ZodiacSetting.get_default_zodiac_for_number(num_int, current_year)
-                            or ''
-                        )
-                        raw_zodiacs.append(zodiac)
-                    except (ValueError, TypeError):
-                        raw_zodiacs.append('')
-                
-                raw_zodiac = ','.join(raw_zodiacs)
+            # 尝试从ZodiacSetting获取生肖设置；设置覆盖不到的号码
+            # 按该农历年（澳门号码生肖规则）兜底，任何情况下都不再透传空值
+            zodiac_settings = ZodiacSetting.get_all_settings_for_year(current_year) or {}
+
+            def _fallback_zodiac(num_int):
+                try:
+                    return ZodiacSetting.get_default_zodiac_for_number(int(num_int), current_year) or ''
+                except (TypeError, ValueError):
+                    return ''
+
+            # 数据源返回的生肖（可能是空串），作为兜底的第二顺位
+            source_zodiacs = str(draw_data.get('raw_zodiac', '') or '').split(',')
+            source_special_zodiac = str(draw_data.get('sno_zodiac', '') or '').strip()
+
+            # 特码生肖：设置 > 源数据 > 默认规则
+            if special_number:
+                try:
+                    special_number_int = int(special_number)
+                    special_zodiac = (
+                        zodiac_settings.get(special_number_int, '')
+                        or source_special_zodiac
+                        or _fallback_zodiac(special_number_int)
+                    )
+                except (ValueError, TypeError):
+                    special_zodiac = source_special_zodiac
             else:
-                # 如果没有设置，使用原始数据
-                special_zodiac = draw_data.get('sno_zodiac', '')
-                raw_zodiac = draw_data.get('raw_zodiac', '')
+                special_zodiac = source_special_zodiac
+
+            # 全部号码的生肖：设置 > 源数据对应位 > 默认规则
+            raw_zodiacs = []
+            for index, num in enumerate(all_numbers):
+                try:
+                    num_int = int(num)
+                except (ValueError, TypeError):
+                    raw_zodiacs.append('')
+                    continue
+                source_z = source_zodiacs[index].strip() if index < len(source_zodiacs) else ''
+                zodiac = zodiac_settings.get(num_int, '') or source_z or _fallback_zodiac(num_int)
+                raw_zodiacs.append(zodiac)
+            
+            raw_zodiac = ','.join(raw_zodiacs)
             
             if existing:
                 # 更新现有记录

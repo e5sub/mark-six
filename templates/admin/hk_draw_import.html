@@ -27,10 +27,16 @@
                 <strong>导入说明</strong>
                 <div>• 系统会从香港开奖数据源获取该年份的所有开奖期数</div>
                 <div>• 已有的记录会检查是否需要更新（仅在数据缺失时更新）</div>
+                <div>• 勾选“强制覆盖”后，已有记录也会用源数据重新写入（生肖缺失的号码按澳门农历年生肖兜底补齐）</div>
                 <div>• 新的期数会直接添加到数据库</div>
                 <div>• 导入过程可能需要 1-2 分钟，请耐心等待</div>
                 <div>• 数据源仅提供最近约 6 年的完整数据，更早年份（如 2016-2019）可能为空或期号不符，系统会自动跳过</div>
             </div>
+
+            <label class="force-label">
+                <input type="checkbox" name="force_overwrite" value="1" id="forceOverwrite">
+                <span>强制覆盖已有记录（重新写入生肖/波色，并补齐缺失生肖）</span>
+            </label>
 
             <div class="submit-row">
                 <button type="submit" class="action-btn action-import">开始导入</button>
@@ -149,6 +155,21 @@
     display: flex;
     gap: 0.75rem;
     margin-top: 0.5rem;
+}
+
+.force-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #cbd5e1;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.force-label input {
+    accent-color: #3b82f6;
+    width: 15px;
+    height: 15px;
 }
 
 .action-btn {
