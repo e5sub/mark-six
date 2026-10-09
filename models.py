@@ -956,13 +956,21 @@ class LotteryDraw(db.Model):
             # 尝试从ZodiacSetting获取生肖设置
             zodiac_settings = ZodiacSetting.get_all_settings_for_year(current_year)
             
-            # 如果有生肖设置，使用设置的生肖
+            # 如果有生肖设置，使用设置的生肖；
+            # 设置覆盖不到的号码按该农历年（澳门号码生肖规则）兜底，避免落库后缺生肖
             if zodiac_settings:
                 # 更新特码生肖
                 if special_number:
                     try:
                         special_number_int = int(special_number)
-                        special_zodiac = zodiac_settings.get(special_number_int, draw_data.get('sno_zodiac', ''))
+                        special_zodiac = zodiac_settings.get(
+                            special_number_int,
+                            draw_data.get('sno_zodiac', ''),
+                        ) or ''
+                        if not special_zodiac:
+                            special_zodiac = ZodiacSetting.get_default_zodiac_for_number(
+                                special_number_int, current_year
+                            ) or ''
                     except (ValueError, TypeError):
                         special_zodiac = draw_data.get('sno_zodiac', '')
                 else:
@@ -973,7 +981,11 @@ class LotteryDraw(db.Model):
                 for num in all_numbers:
                     try:
                         num_int = int(num)
-                        zodiac = zodiac_settings.get(num_int, '')
+                        zodiac = (
+                            zodiac_settings.get(num_int, '')
+                            or ZodiacSetting.get_default_zodiac_for_number(num_int, current_year)
+                            or ''
+                        )
                         raw_zodiacs.append(zodiac)
                     except (ValueError, TypeError):
                         raw_zodiacs.append('')

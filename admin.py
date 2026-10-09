@@ -61,6 +61,64 @@ def _retrain_region_labels(regions):
     return [_retrain_region_label(region) for region in (regions or [])]
 
 
+# 繁体/简体生肖对照（用于导入开奖数据）
+ZODIAC_TRAD_TO_SIMP = {
+    '鼠': '鼠', '牛': '牛', '虎': '虎', '兔': '兔', '龍': '龙', '蛇': '蛇',
+    '馬': '马', '羊': '羊', '猴': '猴', '雞': '鸡', '狗': '狗', '豬': '猪',
+}
+_VALID_ZODIAC_VALUES = set(ZODIAC_TRAD_TO_SIMP.values())
+
+
+def _lottery_draw_zodiac_complete(draw):
+    """开奖记录的生肖是否完整（特码生肖及 raw_zodiac 7 项都非空）"""
+    if not draw or not draw.special_number or not draw.special_zodiac or not draw.raw_zodiac:
+        return False
+    return all(bool(z.strip()) for z in draw.raw_zodiac.split(','))
+
+
+def _complete_draw_zodiacs(normal_numbers, special_number, api_zodiacs, draw_date, year_cache):
+    """补齐开奖记录的生肖：
+
+    接口返回的生肖位置缺失/为空时，按该期开奖日期所在农历年的
+    澳门号码生肖映射兜底（优先数据库设置，其次澳门接口，最后默认规则）。
+    返回 (raw_zodiac_csv, special_zodiac)。
+    """
+    if api_zodiacs is None:
+        api_zodiacs = []
+
+    zodiac_year = ZodiacSetting.get_zodiac_year_for_date(str(draw_date or '').strip() or None)
+    number_to_zodiac = year_cache.get(zodiac_year)
+    if number_to_zodiac is None:
+        settings_mapping = ZodiacSetting.get_all_settings_for_year(zodiac_year) or {}
+        number_to_zodiac = {}
+        for number in range(1, 50):
+            number_to_zodiac[number] = (
+                settings_mapping.get(number)
+                or ZodiacSetting.get_default_zodiac_for_number(number, zodiac_year)
+                or ''
+            )
+        year_cache[zodiac_year] = number_to_zodiac
+
+    all_numbers = list(normal_numbers) + ([special_number] if special_number else [])
+    zodiacs = []
+    for index, num_str in enumerate(all_numbers):
+        api_zodiac = str(api_zodiacs[index]).strip() if index < len(api_zodiacs) else ''
+        api_zodiac = ZODIAC_TRAD_TO_SIMP.get(api_zodiac, api_zodiac)
+        if api_zodiac in _VALID_ZODIAC_VALUES:
+            zodiacs.append(api_zodiac)
+            continue
+        try:
+            number = int(num_str)
+        except (TypeError, ValueError):
+            zodiacs.append('')
+            continue
+        zodiacs.append(number_to_zodiac.get(number, ''))
+
+    raw_zodiac = ','.join(zodiacs)
+    special_zodiac = zodiacs[-1] if special_number and zodiacs else ''
+    return raw_zodiac, special_zodiac
+
+
 def _set_retrain_learning_status(**updates):
     with _retrain_learning_lock:
         _retrain_learning_status.update(updates)
@@ -869,7 +927,7 @@ def macau_draw_import():
         updated_count = 0
         skipped_count = 0
         
-        ZODIAC_TRAD_TO_SIMP = {'鼠':'鼠','牛':'牛','虎':'虎','兔':'兔','龍':'龙','蛇':'蛇','馬':'马','羊':'羊','猴':'猴','雞':'鸡','狗':'狗','豬':'猪'}
+        zodiac_year_cache = {}  # 农历年 -> 号码生肖映射（澳门兜底口径），整次导入复用
         
         for record in records:
             try:
@@ -891,27 +949,28 @@ def macau_draw_import():
                 if not normal_numbers or not special_number:
                     continue
                 
-                # 提取生肖
+                # 提取生肖（接口缺失的号码按农历年澳门生肖兜底）
                 raw_zodiacs_trad = str(record.get('zodiac', '')).split(',')
-                raw_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in raw_zodiacs_trad]
-                special_zodiac = raw_zodiacs[-1] if len(raw_zodiacs) >= 7 else ''
                 
                 # 提取波色
                 raw_wave = str(record.get('wave', ''))
                 
                 # 提取日期
                 draw_date = str(record.get('openTime', '')).strip()
+                raw_zodiac, special_zodiac = _complete_draw_zodiacs(
+                    normal_numbers, special_number, raw_zodiacs_trad, draw_date, zodiac_year_cache
+                )
                 
                 # 检查是否已存在
                 existing = LotteryDraw.query.filter_by(region='macau', draw_id=draw_id).first()
                 
                 if existing:
                     # 仅在数据缺失时更新
-                    if not existing.special_number or not existing.special_zodiac:
+                    if not _lottery_draw_zodiac_complete(existing):
                         existing.normal_numbers = ','.join(normal_numbers)
                         existing.special_number = special_number
                         existing.special_zodiac = special_zodiac
-                        existing.raw_zodiac = ','.join(raw_zodiacs)
+                        existing.raw_zodiac = raw_zodiac
                         existing.raw_wave = raw_wave
                         if draw_date:
                             existing.draw_date = draw_date
@@ -925,7 +984,7 @@ def macau_draw_import():
                         normal_numbers=','.join(normal_numbers),
                         special_number=special_number,
                         special_zodiac=special_zodiac,
-                        raw_zodiac=','.join(raw_zodiacs),
+                        raw_zodiac=raw_zodiac,
                         raw_wave=raw_wave,
                     )
                     db.session.add(new_draw)
@@ -997,7 +1056,7 @@ def hk_draw_import():
         updated_count = 0
         skipped_count = 0
 
-        ZODIAC_TRAD_TO_SIMP = {'鼠':'鼠','牛':'牛','虎':'虎','兔':'兔','龍':'龙','蛇':'蛇','馬':'马','羊':'羊','猴':'猴','雞':'鸡','狗':'狗','豬':'猪'}
+        zodiac_year_cache = {}  # 农历年 -> 号码生肖映射（澳门兜底口径），整次导入复用
 
         for record in records:
             try:
@@ -1019,27 +1078,28 @@ def hk_draw_import():
                 if not normal_numbers or not special_number:
                     continue
 
-                # 提取生肖
+                # 提取生肖（接口缺失的号码按农历年澳门生肖兜底）
                 raw_zodiacs_trad = str(record.get('zodiac', '')).split(',')
-                raw_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in raw_zodiacs_trad]
-                special_zodiac = raw_zodiacs[-1] if len(raw_zodiacs) >= 7 else ''
 
                 # 提取波色
                 raw_wave = str(record.get('wave', ''))
 
                 # 提取日期
                 draw_date = str(record.get('openTime', '')).strip()
+                raw_zodiac, special_zodiac = _complete_draw_zodiacs(
+                    normal_numbers, special_number, raw_zodiacs_trad, draw_date, zodiac_year_cache
+                )
 
                 # 检查是否已存在
                 existing = LotteryDraw.query.filter_by(region='hk', draw_id=draw_id).first()
 
                 if existing:
                     # 仅在数据缺失时更新
-                    if not existing.special_number or not existing.special_zodiac:
+                    if not _lottery_draw_zodiac_complete(existing):
                         existing.normal_numbers = ','.join(normal_numbers)
                         existing.special_number = special_number
                         existing.special_zodiac = special_zodiac
-                        existing.raw_zodiac = ','.join(raw_zodiacs)
+                        existing.raw_zodiac = raw_zodiac
                         existing.raw_wave = raw_wave
                         if draw_date:
                             existing.draw_date = draw_date
@@ -1053,7 +1113,7 @@ def hk_draw_import():
                         normal_numbers=','.join(normal_numbers),
                         special_number=special_number,
                         special_zodiac=special_zodiac,
-                        raw_zodiac=','.join(raw_zodiacs),
+                        raw_zodiac=raw_zodiac,
                         raw_wave=raw_wave,
                     )
                     db.session.add(new_draw)
