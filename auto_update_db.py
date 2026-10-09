@@ -103,6 +103,34 @@ def _mysql_ensure_system_config(connection, key, value, description):
     )
 
 
+def _mysql_migrate_notification_retention(connection, changes):
+    """站内通知保留天数：旧默认 365 天 → 30 天（仅当仍是旧默认值时迁移）。"""
+    result = connection.execute(text(
+        """
+        UPDATE system_config
+        SET `value` = '30'
+        WHERE `key` = 'user_notification_retention_days'
+          AND `value` = '365'
+        """
+    ))
+    if result.rowcount:
+        changes.append("Set user_notification_retention_days from 365 to 30")
+
+
+def _sqlite_migrate_notification_retention(cursor):
+    """站内通知保留天数：旧默认 365 天 → 30 天（仅当仍是旧默认值时迁移）。"""
+    cursor.execute(
+        """
+        UPDATE system_config
+        SET value = '30'
+        WHERE key = 'user_notification_retention_days'
+          AND value = '365'
+        """
+    )
+    if cursor.rowcount:
+        print("user_notification_retention_days 已从 365 天调整为 30 天")
+
+
 def _update_mysql_database():
     database_uri = _build_mysql_database_uri()
     backend = (make_url(database_uri).get_backend_name() or "").lower()
@@ -122,12 +150,16 @@ def _update_mysql_database():
                 ("github_client_id", "", "GitHub OAuth Client ID"),
                 ("github_client_secret", "", "GitHub OAuth Client Secret"),
                 ("prediction_record_retention_days", "365", "预测记录保留天数，0 表示永久保留"),
-                ("user_notification_retention_days", "365", "站内通知保留天数，0 表示永久保留"),
+                ("user_notification_retention_days", "30", "站内通知保留天数，0 表示永久保留"),
                 ("backtest_runs_retention_days", "90", "回测快照保留天数，0 表示永久保留"),
                 ("macau_collected_data_retention_days", "365", "澳门采集记录保留天数，0 表示永久保留"),
             ]
             for key, value, description in configs:
                 _mysql_ensure_system_config(connection, key, value, description)
+
+            # 存量库迁移：站内通知保留期从旧的默认 365 天改为 30 天（管理员自定义过的值不覆盖）
+            if _mysql_table_exists(connection, "system_config"):
+                _mysql_migrate_notification_retention(connection, changes)
 
             if _mysql_table_exists(connection, "user"):
                 user_columns = {
@@ -149,6 +181,22 @@ def _update_mysql_database():
                 if not _mysql_column_exists(connection, "prediction_record", "prediction_metadata"):
                     connection.execute(text("ALTER TABLE prediction_record ADD COLUMN prediction_metadata MEDIUMTEXT"))
                     changes.append("Added prediction_record.prediction_metadata")
+
+                # 未开启差异化时，共享预测记录使用哨兵 user_id（不指向真实用户），需移除 user_id 外键
+                fk_rows = connection.execute(text(
+                    """
+                    SELECT CONSTRAINT_NAME
+                    FROM information_schema.KEY_COLUMN_USAGE
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'prediction_record'
+                      AND COLUMN_NAME = 'user_id'
+                      AND REFERENCED_TABLE_NAME IS NOT NULL
+                    """
+                )).fetchall()
+                for fk_row in fk_rows:
+                    fk_name = fk_row[0]
+                    connection.execute(text(f"ALTER TABLE prediction_record DROP FOREIGN KEY `{fk_name}`"))
+                    changes.append(f"Dropped prediction_record FK {fk_name} (shared predictions)")
 
             if _mysql_table_exists(connection, "manual_bet_records"):
                 if not _mysql_column_exists(connection, "manual_bet_records", "bettor_name"):
@@ -257,9 +305,11 @@ def update_database():
             ensure_system_config(cursor, 'github_client_id', '', 'GitHub OAuth Client ID')
             ensure_system_config(cursor, 'github_client_secret', '', 'GitHub OAuth Client Secret')
             ensure_system_config(cursor, 'prediction_record_retention_days', '365', '预测记录保留天数，0 表示永久保留')
-            ensure_system_config(cursor, 'user_notification_retention_days', '365', '站内通知保留天数，0 表示永久保留')
+            ensure_system_config(cursor, 'user_notification_retention_days', '30', '站内通知保留天数，0 表示永久保留')
             ensure_system_config(cursor, 'backtest_runs_retention_days', '90', '回测快照保留天数，0 表示永久保留')
             ensure_system_config(cursor, 'macau_collected_data_retention_days', '365', '澳门采集记录保留天数，0 表示永久保留')
+            # 存量库迁移：站内通知保留期从旧的默认 365 天改为 30 天（管理员自定义过的值不覆盖）
+            _sqlite_migrate_notification_retention(cursor)
         
         # 检查并添加 auto_prediction_regions 字段
         if not check_column_exists(cursor, 'user', 'auto_prediction_regions'):

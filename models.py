@@ -234,6 +234,29 @@ class ActivationCodeRequest(db.Model):
     def __repr__(self):
         return f'<ActivationCodeRequest {self.username}-{self.status}>'
 
+# 未开启差异化预测时，共享预测记录统一挂在这个哨兵 user_id 下
+# （不指向任何真实用户，配合 uq_prediction_record_user_region_period_strategy
+# 唯一约束，保证同一地区同一期同一策略全局只有一条共享记录）
+SHARED_PREDICTION_USER_ID = -1
+
+
+def personalized_predictions_enabled():
+    """差异化预测是否开启（与 app.py 中同名函数保持一致）"""
+    raw = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower()
+    return raw in {'true', '1', 'yes', 'on'}
+
+
+def prediction_scope_user_ids(user_id):
+    """该用户视角可见的预测记录 user_id 列表。
+
+    差异化关闭时共享记录属于所有用户，查询需把哨兵 id 一并纳入；
+    开启时各用户记录彼此独立，只查自己。
+    """
+    if personalized_predictions_enabled():
+        return [user_id]
+    return [user_id, SHARED_PREDICTION_USER_ID]
+
+
 class PredictionRecord(db.Model):
     __table_args__ = (
         db.UniqueConstraint(

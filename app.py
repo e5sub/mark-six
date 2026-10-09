@@ -25,7 +25,10 @@ from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 # 导入用户系统模块
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord, BacktestRun
+from models import (
+    db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord, BacktestRun,
+    SHARED_PREDICTION_USER_ID, personalized_predictions_enabled, prediction_scope_user_ids,
+)
 from retention_service import cleanup_expired_data
 from auth import auth_bp
 from admin import admin_bp
@@ -6655,8 +6658,7 @@ def _blend_prediction_feedback_items(*weighted_feedbacks):
     return merged
 
 def _personalized_predictions_enabled():
-    raw = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower()
-    return raw in {'true', '1', 'yes', 'on'}
+    return personalized_predictions_enabled()
 
 def _build_prediction_feedback(region, strategy, limit=240, cutoff_period=None):
     cutoff_period = cutoff_period or _current_backtest_cutoff_period()
@@ -13772,6 +13774,11 @@ def generate_auto_predictions(data, region):
         if changed:
             db.session.commit()
 
+        personalized_mode = _personalized_predictions_enabled()
+        # 本轮自动预测中新建的共享预测（非差异化时所有用户共用一份）
+        shared_predictions = {}
+        shared_fresh_strategies = set()
+
         for user in auto_predict_users:
             strategies = user.auto_prediction_strategies.split(',') if user.auto_prediction_strategies else list(LOCAL_STRATEGY_KEYS)
             strategies = [strategy for strategy in strategies if strategy in LOCAL_STRATEGY_KEYS]
@@ -13795,23 +13802,44 @@ def generate_auto_predictions(data, region):
                     continue
                 seen_strategies.add(resolved_strategy)
 
-                existing = PredictionRecord.query.filter_by(
-                    user_id=user.id,
-                    region=region,
-                    period=next_period,
-                    strategy=resolved_strategy
-                ).first()
+                if personalized_mode:
+                    existing = PredictionRecord.query.filter_by(
+                        user_id=user.id,
+                        region=region,
+                        period=next_period,
+                        strategy=resolved_strategy
+                    ).first()
+                else:
+                    # 非差异化：所有用户共享同一份预测记录，本周期内先生成的直接复用
+                    if resolved_strategy in shared_predictions:
+                        existing = shared_predictions[resolved_strategy]
+                    else:
+                        existing = PredictionRecord.query.filter_by(
+                            user_id=SHARED_PREDICTION_USER_ID,
+                            region=region,
+                            period=next_period,
+                            strategy=resolved_strategy
+                        ).first()
 
                 if not existing:
                     pred = generate_prediction_for_user(user, region, next_period, resolved_strategy, data)
                     if pred:
                         user_predictions.append(pred)
                         has_new_predictions = True
+                        if not personalized_mode:
+                            shared_predictions[resolved_strategy] = pred
+                            shared_fresh_strategies.add(resolved_strategy)
                 else:
                     user_predictions.append(existing)
-            
+
+            # 非差异化下本轮新生成的共享预测，也给其他用户补发一份汇总邮件（与原来"每人生成即通知"行为一致）
+            if not personalized_mode and shared_fresh_strategies and user.email and user_predictions:
+                try:
+                    send_combined_prediction_email(user, user_predictions, region, next_period, latest_draw)
+                except Exception as e:
+                    print(f"自动发送合并预测邮件给 {user.username} 失败：{e}")
             # 如果生成了全新的预测，合并发送一封汇总邮件
-            if has_new_predictions and user.email:
+            elif has_new_predictions and user.email:
                 try:
                     send_combined_prediction_email(user, user_predictions, region, next_period, latest_draw)
                 except Exception as e:
@@ -13821,14 +13849,20 @@ def generate_auto_predictions(data, region):
         db.session.rollback()
 
 def generate_prediction_for_user(user, region, period, strategy, data):
-    """为指定用户生成预测（排除 AI 策略）"""
+    """为指定用户生成预测（排除 AI 策略）。
+
+    未开启差异化预测时，记录落在共享哨兵 user_id 下（每期每策略只存一份）。
+    """
     try:
         if strategy == 'ai':
             print(f"已跳过用户 {user.username} 的AI自动预测")
             return None
 
+        personalized_mode = _personalized_predictions_enabled()
+        record_user_id = user.id if personalized_mode else SHARED_PREDICTION_USER_ID
+
         variation_key = None
-        if _personalized_predictions_enabled():
+        if personalized_mode:
             variation_key = f"user:{user.id}|region:{region}|period:{period}|strategy:{strategy}"
         result = get_local_recommendations(strategy, data, region, variation_key=variation_key)
         result = _ensure_period_unique_special(
@@ -13836,7 +13870,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
             strategy,
             region,
             period,
-            user_id=user.id,
+            user_id=record_user_id,
             prediction_zodiac_year=_infer_draw_year(data),
         )
 
@@ -13845,7 +13879,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
             return None
 
         prediction = PredictionRecord(
-            user_id=user.id,
+            user_id=record_user_id,
             region=region,
             strategy=strategy,
             period=period,
@@ -13865,7 +13899,7 @@ def generate_prediction_for_user(user, region, period, strategy, data):
             db.session.rollback()
             existing = (
                 PredictionRecord.query.filter_by(
-                    user_id=user.id,
+                    user_id=record_user_id,
                     region=region,
                     period=period,
                     strategy=strategy
@@ -13900,6 +13934,8 @@ def unified_predict_api():
     # 检查用户是否登录和激活（对于需要保存记录的功能）
     user_id = user.id
     is_active = True
+    # 未开启差异化预测时，全站共享同一份预测记录（挂哨兵 user_id 下）
+    record_user_id = user_id if _personalized_predictions_enabled() else SHARED_PREDICTION_USER_ID
     
     # 获取下一期期数（使用最近一期的下一期）
     if data:
@@ -13912,10 +13948,10 @@ def unified_predict_api():
     else:
         current_period = _default_period(region)
     
-    # 检查用户是否已经为当前期和当前策略生成过预测
+    # 检查用户是否已经为当前期和当前策略生成过预测（非差异化时检查共享记录即可）
     if user_id and is_active:
         existing = PredictionRecord.query.filter_by(
-            user_id=user_id,
+            user_id=record_user_id,
             region=region,
             period=current_period,
             strategy=resolved_strategy  # 添加策略作为过滤条件
@@ -13958,7 +13994,7 @@ def unified_predict_api():
                 resolved_strategy,
                 region,
                 current_period,
-                user_id=user_id,
+                user_id=record_user_id,
                 prediction_zodiac_year=prediction_zodiac_year,
             )
             adjusted_special = str((result.get("special") or {}).get("number") or "").strip()
@@ -14089,7 +14125,7 @@ def unified_predict_api():
                                 resolved_strategy,
                                 region,
                                 current_period,
-                                user_id=user_id,
+                                user_id=record_user_id,
                                 prediction_zodiac_year=prediction_zodiac_year,
                             )
 
@@ -14111,7 +14147,7 @@ def unified_predict_api():
                                     "message": "正在保存预测记录..."
                                 })
                                 prediction = PredictionRecord(
-                                    user_id=user_id,
+                                    user_id=record_user_id,
                                     region=region,
                                     strategy=resolved_strategy,
                                     period=current_period,
@@ -14177,7 +14213,7 @@ def unified_predict_api():
                 resolved_strategy,
                 region,
                 current_period,
-                user_id=user_id,
+                user_id=record_user_id,
                 prediction_zodiac_year=prediction_zodiac_year,
             )
     else:
@@ -14192,7 +14228,7 @@ def unified_predict_api():
                     resolved_strategy,
                     region,
                     current_period,
-                    user_id=user_id,
+                    user_id=record_user_id,
                     prediction_zodiac_year=prediction_zodiac_year,
                 )
         except Exception as e:
@@ -14206,7 +14242,7 @@ def unified_predict_api():
     if user_id and is_active and not result.get('error'):
         try:
             prediction = PredictionRecord(
-                user_id=user_id,
+                user_id=record_user_id,
                 region=region,
                 strategy=resolved_strategy,
                 period=current_period,
@@ -14228,7 +14264,7 @@ def unified_predict_api():
                 db.session.rollback()
                 existing = (
                     PredictionRecord.query.filter_by(
-                        user_id=user_id,
+                        user_id=record_user_id,
                         region=region,
                         period=current_period,
                         strategy=resolved_strategy

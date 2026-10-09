@@ -1,5 +1,5 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
-from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw, MacauCollectedData, ZodiacSetting
+from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw, MacauCollectedData, ZodiacSetting, prediction_scope_user_ids
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta
@@ -53,6 +53,17 @@ def clear_user_runtime_caches():
         _ml_stats_cache.clear()
     with _backtest_refresh_lock:
         _backtest_refresh_state.clear()
+
+
+def _prediction_scope_filter(user_id):
+    """某用户视角可见的预测记录过滤条件。
+
+    未开启差异化预测时，全站共享预测记录（哨兵 user_id）也属于该用户。
+    """
+    scope_ids = prediction_scope_user_ids(user_id)
+    if len(scope_ids) == 1:
+        return PredictionRecord.user_id == scope_ids[0]
+    return PredictionRecord.user_id.in_(scope_ids)
 
 
 def _count_distinct_prediction_periods(query):
@@ -667,7 +678,9 @@ def _strategy_backtests(user_id):
     ranked = []
     labels = _strategy_label_map()
     for strategy in LOCAL_STRATEGIES:
-        base_query = PredictionRecord.query.filter_by(user_id=user_id, strategy=strategy)
+        base_query = PredictionRecord.query.filter(
+            _prediction_scope_filter(user_id), PredictionRecord.strategy == strategy
+        )
         window_stats = [_calculate_accuracy_window(base_query, window) for window in windows]
         backtests[strategy] = window_stats
 
@@ -1433,43 +1446,44 @@ def dashboard():
     learning_comparison = _build_learning_comparison()
     latest_backtests = _latest_unique_backtest_summary()
     
-    user_predictions_query = PredictionRecord.query.filter_by(user_id=user.id)
+    user_predictions_query = PredictionRecord.query.filter(_prediction_scope_filter(user.id))
     total_predictions = _count_distinct_prediction_periods(user_predictions_query)
-    updated_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
+    updated_predictions = PredictionRecord.query.filter(
+        _prediction_scope_filter(user.id),
+        PredictionRecord.is_result_updated == True
     ).filter(
         PredictionRecord.actual_special_number != None
     ).count()
-    updated_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
+    updated_predictions = PredictionRecord.query.filter(
+        _prediction_scope_filter(user.id),
+        PredictionRecord.is_result_updated == True
     ).filter(
         PredictionRecord.actual_special_number != None
     ).count()
-    updated_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
+    updated_predictions = PredictionRecord.query.filter(
+        _prediction_scope_filter(user.id),
+        PredictionRecord.is_result_updated == True
     ).filter(
         PredictionRecord.actual_special_number != None
     ).count()
-    updated_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
+    updated_predictions = PredictionRecord.query.filter(
+        _prediction_scope_filter(user.id),
+        PredictionRecord.is_result_updated == True
     ).filter(
         PredictionRecord.actual_special_number != None
     ).count()
-    updated_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
+    updated_predictions = PredictionRecord.query.filter(
+        _prediction_scope_filter(user.id),
+        PredictionRecord.is_result_updated == True
     ).filter(
         PredictionRecord.actual_special_number != None
     ).count()
-    recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
+    recent_predictions = PredictionRecord.query.filter(_prediction_scope_filter(user.id))\
         .order_by(PredictionRecord.created_at.desc()).limit(5).all()
     
     def calculate_user_accuracy(strategy=None):
-        query = PredictionRecord.query.filter_by(user_id=user.id, is_result_updated=True)
+        query = PredictionRecord.query.filter(
+            _prediction_scope_filter(user.id), PredictionRecord.is_result_updated == True)
         if strategy:
             query = query.filter_by(strategy=strategy)
 
@@ -1498,22 +1512,22 @@ def dashboard():
         for meta in STRATEGY_META
     }
 
-    updated_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
+    updated_predictions = PredictionRecord.query.filter(
+        _prediction_scope_filter(user.id),
+        PredictionRecord.is_result_updated == True
     ).filter(
         PredictionRecord.actual_special_number != None
     ).count()
-    special_hit_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
+    special_hit_predictions = PredictionRecord.query.filter(
+        _prediction_scope_filter(user.id),
+        PredictionRecord.is_result_updated == True
     ).filter(
         PredictionRecord.actual_special_number != None,
         PredictionRecord.special_number == PredictionRecord.actual_special_number
     ).count()
-    normal_hit_predictions = PredictionRecord.query.filter_by(
-        user_id=user.id,
-        is_result_updated=True
+    normal_hit_predictions = PredictionRecord.query.filter(
+        _prediction_scope_filter(user.id),
+        PredictionRecord.is_result_updated == True
     ).filter(
         PredictionRecord.actual_special_number != None,
         PredictionRecord.special_number != PredictionRecord.actual_special_number,
@@ -1674,9 +1688,9 @@ def _build_ml_prediction_query(user_id, region='', period='', result='', start_d
 
 
 def _build_strategy_prediction_query(user_id, strategy, region='', period='', result='', start_date='', end_date=''):
-    query = PredictionRecord.query.filter_by(
-        user_id=user_id,
-        strategy=strategy,
+    query = PredictionRecord.query.filter(
+        _prediction_scope_filter(user_id),
+        PredictionRecord.strategy == strategy,
     )
 
     if region:
@@ -1827,7 +1841,8 @@ def _get_ml_stats(user_id):
 
     def _load_recent_resolved_rows(region=None, limit=_ML_STREAK_SCAN_LIMIT):
         base_query = PredictionRecord.query.filter(
-            PredictionRecord.user_id == user_id,
+            _prediction_scope_filter(user_id),
+
             PredictionRecord.strategy == 'ml',
             PredictionRecord.is_result_updated.is_(True),
             PredictionRecord.actual_special_number != None,
@@ -1890,7 +1905,8 @@ def _get_ml_stats(user_id):
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
     ).filter(
-        PredictionRecord.user_id == user_id,
+        _prediction_scope_filter(user_id),
+
         PredictionRecord.strategy == 'ml',
     ).one()
 
@@ -1914,7 +1930,8 @@ def _get_ml_stats(user_id):
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
     ).filter(
-        PredictionRecord.user_id == user_id,
+        _prediction_scope_filter(user_id),
+
         PredictionRecord.strategy == 'ml',
         PredictionRecord.region.in_(tuple(region_label_map.keys())),
     ).group_by(PredictionRecord.region).all()
@@ -1994,7 +2011,8 @@ def _get_strategy_stats(user_id, strategy):
 
     def _load_recent_resolved_rows(region=None, limit=_ML_STREAK_SCAN_LIMIT):
         base_query = PredictionRecord.query.filter(
-            PredictionRecord.user_id == user_id,
+            _prediction_scope_filter(user_id),
+
             PredictionRecord.strategy == strategy,
             PredictionRecord.is_result_updated.is_(True),
             PredictionRecord.actual_special_number != None,
@@ -2057,7 +2075,8 @@ def _get_strategy_stats(user_id, strategy):
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
     ).filter(
-        PredictionRecord.user_id == user_id,
+        _prediction_scope_filter(user_id),
+
         PredictionRecord.strategy == strategy,
     ).one()
 
@@ -2077,7 +2096,8 @@ def _get_strategy_stats(user_id, strategy):
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
     ).filter(
-        PredictionRecord.user_id == user_id,
+        _prediction_scope_filter(user_id),
+
         PredictionRecord.strategy == strategy,
         PredictionRecord.region.in_(tuple(region_label_map.keys())),
     ).group_by(PredictionRecord.region).all()
@@ -2215,7 +2235,7 @@ def predictions():
     strategy = request.args.get('strategy', '')
     result = request.args.get('result', '')
     
-    query = PredictionRecord.query.filter_by(user_id=session['user_id'])
+    query = PredictionRecord.query.filter(_prediction_scope_filter(session['user_id']))
     
     # 筛选条件
     if region:
@@ -2393,16 +2413,16 @@ def predictions():
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
-    ).filter(PredictionRecord.user_id == session['user_id']).one()
+    ).filter(_prediction_scope_filter(session['user_id'])).one()
 
     total_predictions = _count_distinct_prediction_periods(
-        PredictionRecord.query.filter_by(user_id=session['user_id'])
+        PredictionRecord.query.filter(_prediction_scope_filter(session['user_id']))
     )
     updated_predictions = stats_row[1] or 0
     special_hit_predictions = stats_row[2] or 0
     normal_hit_predictions = stats_row[3] or 0
     wrong_predictions = _count_missed_prediction_periods(
-        PredictionRecord.query.filter_by(user_id=session['user_id'])
+        PredictionRecord.query.filter(_prediction_scope_filter(session['user_id']))
     )
 
     accurate_predictions = special_hit_predictions
@@ -2580,9 +2600,9 @@ def ml_records():
         **_get_ml_stats(session['user_id']),
     )
 
-    query = PredictionRecord.query.filter_by(
-        user_id=session['user_id'],
-        strategy='ml',
+    query = PredictionRecord.query.filter(
+        _prediction_scope_filter(session['user_id']),
+        PredictionRecord.strategy == 'ml',
     )
 
     if region:
@@ -2711,7 +2731,7 @@ def ml_records():
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, ~_secondary_hit_expr()), 1), else_=0))
     ).filter(
-        PredictionRecord.user_id == session['user_id'],
+        _prediction_scope_filter(session['user_id']),
         PredictionRecord.strategy == 'ml',
     ).one()
 
@@ -2732,7 +2752,7 @@ def ml_records():
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
         db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0))
     ).filter(
-        PredictionRecord.user_id == session['user_id'],
+        _prediction_scope_filter(session['user_id']),
         PredictionRecord.strategy == 'ml',
         PredictionRecord.region.in_(tuple(region_label_map.keys())),
     ).group_by(PredictionRecord.region).all()
@@ -2772,7 +2792,7 @@ def ml_records():
             db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number == actual_special), 1), else_=0)),
             db.func.sum(db.case((db.and_(PredictionRecord.is_result_updated == True, actual_special != None, special_number != actual_special, _secondary_hit_expr()), 1), else_=0))
         ).filter(
-            PredictionRecord.user_id == session['user_id'],
+            _prediction_scope_filter(session['user_id']),
             PredictionRecord.strategy == 'ml',
             PredictionRecord.region == region_key,
         ).one()
@@ -3079,10 +3099,10 @@ def check_prediction_exists():
     if not region or not period:
         return jsonify({'exists': False})
 
-    query = PredictionRecord.query.filter_by(
-        user_id=session['user_id'],
-        region=region,
-        period=period
+    query = PredictionRecord.query.filter(
+        _prediction_scope_filter(session['user_id']),
+        PredictionRecord.region == region,
+        PredictionRecord.period == period,
     )
     if strategy:
         query = query.filter_by(strategy=strategy)
@@ -3403,7 +3423,7 @@ def analytics():
     learning_comparison = _build_learning_comparison()
     latest_backtests = _latest_unique_backtest_summary()
     
-    user_predictions_query = PredictionRecord.query.filter_by(user_id=user.id)
+    user_predictions_query = PredictionRecord.query.filter(_prediction_scope_filter(user.id))
     total_predictions = _count_distinct_prediction_periods(user_predictions_query)
     updated_predictions = _count_distinct_prediction_periods(user_predictions_query.filter(
         PredictionRecord.is_result_updated == True,
@@ -3426,12 +3446,12 @@ def analytics():
     accurate_predictions = special_hit_predictions
     
     wrong_predictions = _count_missed_prediction_periods(
-        PredictionRecord.query.filter_by(user_id=user.id)
+        PredictionRecord.query.filter(_prediction_scope_filter(user.id))
     )
     
     # 计算不同策略的命中率
     def calculate_strategy_stats(strategy=None):
-        query = PredictionRecord.query.filter_by(user_id=user.id)
+        query = PredictionRecord.query.filter(_prediction_scope_filter(user.id))
         if strategy:
             query = query.filter_by(strategy=strategy)
         
@@ -3487,7 +3507,8 @@ def analytics():
         }
     
     def calculate_region_stats(region):
-        query = PredictionRecord.query.filter_by(user_id=user.id, region=region)
+        query = PredictionRecord.query.filter(
+            _prediction_scope_filter(user.id), PredictionRecord.region == region)
 
         def count_periods(period_query):
             return period_query.with_entities(PredictionRecord.period).distinct().count()
@@ -3571,7 +3592,7 @@ def analytics():
                 best_accuracy = accuracy_value
                 best_strategy = meta
     
-    recent_predictions = PredictionRecord.query.filter_by(user_id=user.id)\
+    recent_predictions = PredictionRecord.query.filter(_prediction_scope_filter(user.id))\
         .order_by(PredictionRecord.created_at.desc()).limit(10).all()
     
     from datetime import timedelta
@@ -3583,7 +3604,7 @@ def analytics():
         date_end = datetime.combine(date, datetime.max.time())
         
         day_query = PredictionRecord.query.filter(
-            PredictionRecord.user_id == user.id,
+            _prediction_scope_filter(user.id),
             PredictionRecord.created_at >= date_start,
             PredictionRecord.created_at <= date_end
         )
@@ -3595,7 +3616,7 @@ def analytics():
         })
 
     def calculate_trend_summary(start_at=None, end_at=None):
-        query = PredictionRecord.query.filter(PredictionRecord.user_id == user.id)
+        query = PredictionRecord.query.filter(_prediction_scope_filter(user.id))
         if start_at:
             query = query.filter(PredictionRecord.created_at >= start_at)
         if end_at:

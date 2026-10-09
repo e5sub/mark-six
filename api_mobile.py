@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+﻿from datetime import datetime, timedelta
 import json
 import math
 import time
@@ -21,6 +21,7 @@ from models import (
     User,
     ZodiacSetting,
     db,
+    prediction_scope_user_ids,
 )
 from auth import (
     _external_url,
@@ -1692,8 +1693,16 @@ def _mobile_secondary_hit_expr():
     return db.or_(actual_in_normal, zodiac_hit)
 
 
+def _prediction_scope_filter(user_id):
+    """某用户视角可见的预测记录过滤条件（非差异化时含共享记录）"""
+    scope_ids = prediction_scope_user_ids(user_id)
+    if len(scope_ids) == 1:
+        return PredictionRecord.user_id == scope_ids[0]
+    return PredictionRecord.user_id.in_(scope_ids)
+
+
 def _build_region_summaries(user_id, region_filter=None):
-    query = PredictionRecord.query.filter_by(user_id=user_id)
+    query = PredictionRecord.query.filter(_prediction_scope_filter(user_id))
     if region_filter:
         query = query.filter_by(region=region_filter)
     all_predictions = query.with_entities(
@@ -1945,7 +1954,7 @@ def api_predictions():
     include_total = request.args.get("include_total", "1").strip() != "0"
     year_param = request.args.get("year", "").strip()
 
-    query = PredictionRecord.query.filter_by(user_id=user.id)
+    query = PredictionRecord.query.filter(_prediction_scope_filter(user.id))
     if region:
         query = query.filter_by(region=region)
     if period:
@@ -2194,7 +2203,9 @@ def _build_mobile_backtests(user_id):
     backtests = {}
     ranked = []
     for strategy in LOCAL_STRATEGIES:
-        base_query = PredictionRecord.query.filter_by(user_id=user_id, strategy=strategy)
+        base_query = PredictionRecord.query.filter(
+            _prediction_scope_filter(user_id), PredictionRecord.strategy == strategy
+        )
         windows = [_calculate_accuracy_window(base_query, window) for window in (20, 50, 100)]
         backtests[strategy] = windows
 
@@ -2247,7 +2258,7 @@ def api_accuracy():
     if error:
         return error
 
-    base_query = PredictionRecord.query.filter_by(user_id=user.id)
+    base_query = PredictionRecord.query.filter(_prediction_scope_filter(user.id))
     overall = _calculate_accuracy(base_query)
     overall["total"] = _count_distinct_prediction_periods(base_query)
 

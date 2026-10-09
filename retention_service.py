@@ -7,7 +7,7 @@ from models import BacktestRun, MacauCollectedData, PredictionRecord, SystemConf
 
 RETENTION_CONFIG_DEFAULTS = {
     'prediction_record_retention_days': 365,
-    'user_notification_retention_days': 365,
+    'user_notification_retention_days': 30,
     'backtest_runs_retention_days': 90,
     'macau_collected_data_retention_days': 365,
 }

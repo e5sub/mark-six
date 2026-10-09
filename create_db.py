@@ -453,7 +453,7 @@ configs = [
     ("invite_daily_limit", "3", "每日邀请码生成限制"),
     ("invite_code_validity_days", "7", "邀请码有效期天数"),
     ("prediction_record_retention_days", "365", "预测记录保留天数，0 表示永久保留"),
-    ("user_notification_retention_days", "365", "站内通知保留天数，0 表示永久保留"),
+    ("user_notification_retention_days", "30", "站内通知保留天数，0 表示永久保留"),
     ("backtest_runs_retention_days", "90", "回测快照保留天数，0 表示永久保留"),
     ("macau_collected_data_retention_days", "365", "澳门采集记录保留天数，0 表示永久保留"),
     ("system_name", "AI数据分析预测系统", "系统名称"),

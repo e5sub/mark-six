@@ -8,6 +8,7 @@ from models import (
     ActivationCode,
     ActivationCodeRequest,
     PredictionRecord,
+    SHARED_PREDICTION_USER_ID,
     SystemConfig,
     InviteCode,
     ZodiacSetting,
@@ -15,6 +16,7 @@ from models import (
     LotteryDraw,
     BacktestRun,
     UserNotification,
+    personalized_predictions_enabled,
 )
 from datetime import datetime, timedelta
 import csv
@@ -1550,7 +1552,7 @@ SYSTEM_CONFIG_DEFAULTS = {
     'invite_daily_limit': '3',
     'invite_code_validity_days': '7',
     'prediction_record_retention_days': '365',
-    'user_notification_retention_days': '365',
+    'user_notification_retention_days': '30',
     'backtest_runs_retention_days': '90',
     'macau_collected_data_retention_days': '365',
     'system_name': 'AI数据分析预测系统',
@@ -1757,15 +1759,30 @@ def predictions():
         period_filter = request.args.get('period', '').strip()
 
         filters = []
+        # 非差异化预测时，共享预测记录（哨兵 user_id）属于所有用户，按用户筛选时一并显示
+        personalized_enabled = personalized_predictions_enabled()
         if user_query:
             if user_query.isdigit():
-                filters.append(PredictionRecord.user_id == int(user_query))
+                user_id_value = int(user_query)
+                if personalized_enabled:
+                    filters.append(PredictionRecord.user_id == user_id_value)
+                else:
+                    filters.append(or_(
+                        PredictionRecord.user_id == user_id_value,
+                        PredictionRecord.user_id == SHARED_PREDICTION_USER_ID,
+                    ))
             else:
                 search_term = f"%{user_query}%"
                 user_ids = User.query.filter(
                     (User.username.like(search_term)) | (User.email.like(search_term))
                 ).with_entities(User.id)
-                filters.append(PredictionRecord.user_id.in_(user_ids))
+                if personalized_enabled:
+                    filters.append(PredictionRecord.user_id.in_(user_ids))
+                else:
+                    filters.append(or_(
+                        PredictionRecord.user_id.in_(user_ids),
+                        PredictionRecord.user_id == SHARED_PREDICTION_USER_ID,
+                    ))
 
         if region_filter:
             filters.append(PredictionRecord.region == region_filter)
@@ -1896,11 +1913,13 @@ def predictions():
             'ai': 8,
         }
         
-        personalized_enabled = str(SystemConfig.get_config('enable_personalized_predictions', 'false')).strip().lower() == 'true'
+        personalized_enabled = personalized_predictions_enabled()
 
         for pred in page_records:
             if personalized_enabled:
-                if pred.user_id:
+                if pred.user_id == SHARED_PREDICTION_USER_ID:
+                    pred.username = '共享预测'
+                elif pred.user_id:
                     user = User.query.get(pred.user_id)
                     pred.username = user.username if user else '已删除用户'
                 else:
