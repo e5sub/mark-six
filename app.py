@@ -12439,6 +12439,7 @@ def _get_prediction_data(region, year):
             )
         except Exception as e:
             print(f"从数据库获取 {region} 地区 {candidate_year} 年数据失败: {e}")
+            _recover_db_session()
 
         if year_records:
             draw_groups.append(year_records)
@@ -12459,6 +12460,45 @@ def _get_prediction_data(region, year):
     return filtered, target_zodiac_year
 
 
+DB_DISCONNECT_ERRNOS = (2002, 2003, 2006, 2013, 2055)
+
+
+def _is_db_disconnect_error(error):
+    """判断异常是否为数据库连接断开类错误（连接被服务端中断）。"""
+    origin = getattr(error, "orig", error)
+    args = getattr(origin, "args", ()) or ()
+    if args and args[0] in DB_DISCONNECT_ERRNOS:
+        return True
+    text = str(origin).lower()
+    return any(
+        marker in text
+        for marker in (
+            "lost connection",
+            "server has gone away",
+            "connection reset",
+            "broken pipe",
+            "can't reconnect until invalid transaction",
+        )
+    )
+
+
+def _recover_db_session():
+    """回滚失效事务，让会话可以重新取用数据库连接。
+
+    MySQL 连接中断后会话事务会停留在失效状态，只捕获异常而不回滚的话，
+    之后所有查询都会报 "Can't reconnect until invalid transaction is
+    rolled back"，整个流程会持续失败。
+    """
+    try:
+        db.session.rollback()
+    except Exception as e:
+        print(f"数据库会话回滚失败: {e}")
+        try:
+            db.session.remove()
+        except Exception as cleanup_error:
+            print(f"数据库会话清理失败: {cleanup_error}")
+
+
 def _latest_draw_cache_marker(region):
     try:
         record = (
@@ -12467,6 +12507,7 @@ def _latest_draw_cache_marker(region):
             .first()
         )
     except Exception:
+        _recover_db_session()
         return None
     if not record:
         return None
@@ -12586,7 +12627,7 @@ def _resolve_learning_scope_zodiac_year(region, cutoff_period=None, fallback_dat
             if draw and draw.draw_date:
                 return ZodiacSetting.get_zodiac_year_for_date(draw.draw_date)
         except Exception:
-            pass
+            _recover_db_session()
 
     for draw in fallback_data or []:
         try:
@@ -12613,16 +12654,24 @@ def _build_learning_draw_year_map(region):
     except Exception:
         return {}
 
-    try:
-        draw_records = (
-            LotteryDraw.query.filter_by(region=region)
-            .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
-            .limit(LEARNING_SCOPE_DRAW_LIMIT)
-            .all()
-        )
-    except Exception as e:
-        print(f"加载{region}学习样本开奖范围失败: {e}")
-        return {}
+    draw_records = []
+    for attempt in range(2):
+        try:
+            draw_records = (
+                LotteryDraw.query.filter_by(region=region)
+                .order_by(LotteryDraw.draw_date.desc(), LotteryDraw.draw_id.desc())
+                .limit(LEARNING_SCOPE_DRAW_LIMIT)
+                .all()
+            )
+            break
+        except Exception as e:
+            _recover_db_session()
+            if attempt == 0 and _is_db_disconnect_error(e):
+                print(f"加载{region}学习样本开奖范围连接中断，重试中: {e}")
+                time.sleep(0.5)
+                continue
+            print(f"加载{region}学习样本开奖范围失败: {e}")
+            return {}
 
     draw_year_map = {}
     for draw in draw_records:
@@ -12645,19 +12694,27 @@ def _build_learning_draw_year_map(region):
 
 
 def _load_learning_scope_predictions(region, strategy, limit=None, minimum_samples=LEARNING_SCOPE_MIN_SAMPLES, cutoff_period=None):
-    try:
-        query = PredictionRecord.query.filter_by(
-            region=region,
-            strategy=strategy,
-            is_result_updated=True,
-        ).filter(PredictionRecord.actual_special_number != None)
-        predictions = query.order_by(PredictionRecord.created_at.desc()).limit(500).all()
-    except SystemExit as e:
-        print(f"_load_learning_scope_predictions aborted due to SystemExit: {e}")
-        return []
-    except Exception as e:
-        print(f"_load_learning_scope_predictions failed: {e}")
-        return []
+    predictions = []
+    for attempt in range(2):
+        try:
+            query = PredictionRecord.query.filter_by(
+                region=region,
+                strategy=strategy,
+                is_result_updated=True,
+            ).filter(PredictionRecord.actual_special_number != None)
+            predictions = query.order_by(PredictionRecord.created_at.desc()).limit(500).all()
+            break
+        except SystemExit as e:
+            print(f"_load_learning_scope_predictions aborted due to SystemExit: {e}")
+            return []
+        except Exception as e:
+            _recover_db_session()
+            if attempt == 0 and _is_db_disconnect_error(e):
+                print(f"_load_learning_scope_predictions 连接中断，重试中: {e}")
+                time.sleep(0.5)
+                continue
+            print(f"_load_learning_scope_predictions failed: {e}")
+            return []
 
     if not predictions:
         return []
@@ -12738,6 +12795,7 @@ def _ensure_ml_prediction_history(data, region, minimum_draws=36, target_draws=2
         )
     except Exception as e:
         print(f"补充{region}机器学习历史样本失败: {e}")
+        _recover_db_session()
         return primary, 0
 
     current_year_db_records = _filter_draws_by_zodiac_year(db_records, current_zodiac_year)
