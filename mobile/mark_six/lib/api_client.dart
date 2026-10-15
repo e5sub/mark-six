@@ -203,6 +203,12 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  /// 澳门采集五码五肖（只展示，不写入预测记录）
+  Future<Map<String, dynamic>> macauFiveZodiac() async {
+    final response = await get('/api/macau_five_zodiac');
+    return _ensureJsonMap(response.data);
+  }
+
   Stream<Map<String, dynamic>> predictAiStream({
     required String region,
     required String year,

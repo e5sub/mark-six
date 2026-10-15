@@ -4183,11 +4183,14 @@ class PredictScreen extends StatefulWidget {
 }
 
 class _PredictScreenState extends State<PredictScreen> {
+  static const String _macauFiveZodiacKey = 'macau_five_zodiac';
+
   String _region = 'macau';
   String _strategy = 'ml';
   bool _loading = false;
   String _aiText = '';
   Map<String, dynamic>? _result;
+  Map<String, dynamic>? _macauFiveZodiac;
   List<String> _normalZodiacs = [];
   String _specialZodiac = '';
   bool _loadingRecords = false;
@@ -4212,6 +4215,18 @@ class _PredictScreenState extends State<PredictScreen> {
     'ai': 'AI智能',
   };
 
+  // 五码五肖仅澳门地区展示，排在“综合”之后。
+  List<MapEntry<String, String>> get _strategyChipEntries {
+    final entries = <MapEntry<String, String>>[];
+    for (final entry in _strategyLabels.entries) {
+      entries.add(entry);
+      if (entry.key == 'hybrid' && _region == 'macau') {
+        entries.add(const MapEntry(_macauFiveZodiacKey, '五码五肖'));
+      }
+    }
+    return entries;
+  }
+
   final Map<String, IconData> _strategyIcons = const {
     'ml': Icons.memory,
     'markov': Icons.account_tree,
@@ -4221,6 +4236,7 @@ class _PredictScreenState extends State<PredictScreen> {
     'cold': Icons.ac_unit,
     'trend': Icons.trending_up,
     'ai': Icons.auto_awesome,
+    _macauFiveZodiacKey: Icons.casino,
   };
 
   LinearGradient? _strategyGradient(String key) {
@@ -4257,6 +4273,10 @@ class _PredictScreenState extends State<PredictScreen> {
         return const LinearGradient(
           colors: [Color(0xFF17A2B8), Color(0xFF6F42C1)],
         );
+      case _macauFiveZodiacKey:
+        return const LinearGradient(
+          colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
+        );
     }
     return null;
   }
@@ -4277,6 +4297,10 @@ class _PredictScreenState extends State<PredictScreen> {
             return;
           }
           setState(() => _strategy = key);
+          if (key == _macauFiveZodiacKey) {
+            await _handleMacauFiveZodiac();
+            return;
+          }
           _handlePredict();
         },
         child: Opacity(
@@ -4409,8 +4433,41 @@ class _PredictScreenState extends State<PredictScreen> {
   void _resetPrediction() {
     _result = null;
     _aiText = '';
+    _macauFiveZodiac = null;
     _normalZodiacs = [];
     _specialZodiac = '';
+  }
+
+  Future<void> _handleMacauFiveZodiac() async {
+    if (!widget.appState.activationValid) {
+      await _promptActivation();
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _resetPrediction();
+    });
+    try {
+      final res = await ApiClient.instance.macauFiveZodiac();
+      if (res.containsKey('error')) {
+        if (!mounted) return;
+        _showMessage(
+          res['error']?.toString() ?? '获取五码五肖失败',
+        );
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _macauFiveZodiac = res;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('获取五码五肖失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   void _upsertPredictionRecordFromResult({
@@ -5187,6 +5244,355 @@ class _PredictScreenState extends State<PredictScreen> {
             }),
           ],
         ],
+      ),
+    );
+  }
+
+  // 命中的号码/特码用金色光圈标出
+  Widget _wrapFiveZodiacHitRing({required bool hit, required Widget child}) {
+    if (!hit) return child;
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFFFACC15), width: 2),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildFiveZodiacChip(String zodiac, {bool hit = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: hit ? const Color(0x33FACC15) : const Color(0x1A2563EB),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: hit ? const Color(0xB3FACC15) : const Color(0x592563EB),
+        ),
+      ),
+      child: Text(
+        zodiac,
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          color: hit ? const Color(0xFFB45309) : const Color(0xFF1E3A8A),
+        ),
+      ),
+    );
+  }
+
+  // 命中标签，口径与网页端「澳门采集」统计一致
+  Widget _buildFiveZodiacResultPill(Map<String, dynamic> hit) {
+    final key = hit['result_key']?.toString() ?? 'wrong';
+    final label = hit['result_label']?.toString() ?? '未命中';
+    var color = const Color(0xFFB91C1C);
+    var background = const Color(0x1FDC2626);
+    if (key == 'any_hit' || key == 'number_hit') {
+      color = const Color(0xFF15803D);
+      background = const Color(0x1F16A34A);
+    } else if (key == 'zodiac_hit') {
+      color = const Color(0xFF1D4ED8);
+      background = const Color(0x1F2563EB);
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  // 开奖特码 + 生肖 + 开奖日期
+  Widget _buildFiveZodiacDrawRow(Map<String, dynamic> hit) {
+    final special = hit['special_number']?.toString().trim() ?? '';
+    final zodiac = hit['special_zodiac']?.toString().trim() ?? '';
+    final drawDate = hit['draw_date']?.toString().trim() ?? '';
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text(
+          '开奖特码',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        if (special.isNotEmpty)
+          _wrapFiveZodiacHitRing(
+            hit: true,
+            child: _Ball(
+              number: special,
+              color: ballColor(special),
+              size: 32,
+              fontSize: 12,
+            ),
+          ),
+        if (zodiac.isNotEmpty)
+          Text(
+            zodiac,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFFB45309),
+            ),
+          ),
+        if (drawDate.isNotEmpty)
+          Text(
+            drawDate,
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+          ),
+      ],
+    );
+  }
+
+  // 本期/最近一期开奖命中结果面板
+  Widget _buildFiveZodiacHitPanel({
+    required String title,
+    required Map<String, dynamic> hit,
+    required bool showNumbers,
+  }) {
+    final numbers = (hit['numbers'] as List<dynamic>? ?? [])
+        .map((value) => value.toString())
+        .where((value) => value.isNotEmpty)
+        .toList();
+    final zodiacs = (hit['zodiacs'] as List<dynamic>? ?? [])
+        .map((value) => value.toString())
+        .where((value) => value.isNotEmpty)
+        .toList();
+    final hitNumber = hit['special_number']?.toString().trim() ?? '';
+    final hitZodiac = hit['special_zodiac']?.toString().trim() ?? '';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _buildFiveZodiacResultPill(hit),
+            ],
+          ),
+          if (showNumbers && numbers.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              '五码',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: numbers
+                  .map(
+                    (number) => _wrapFiveZodiacHitRing(
+                      hit: hitNumber.isNotEmpty && number == hitNumber,
+                      child: _Ball(
+                        number: number,
+                        color: ballColor(number),
+                        size: 32,
+                        fontSize: 12,
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+          if (showNumbers && zodiacs.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              '五肖',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: zodiacs
+                  .map(
+                    (zodiac) => _buildFiveZodiacChip(
+                      zodiac,
+                      hit: hitZodiac.isNotEmpty && zodiac == hitZodiac,
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+          const SizedBox(height: 10),
+          _buildFiveZodiacDrawRow(hit),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMacauFiveZodiacCard() {
+    final data = _macauFiveZodiac;
+    if (data == null) {
+      return const SizedBox.shrink();
+    }
+    final numbers = (data['numbers'] as List<dynamic>? ?? [])
+        .map((value) => value.toString())
+        .where((value) => value.isNotEmpty)
+        .toList();
+    final zodiacs = (data['zodiacs'] as List<dynamic>? ?? [])
+        .map((value) => value.toString())
+        .where((value) => value.isNotEmpty)
+        .toList();
+    final period = data['period']?.toString() ?? '';
+    if (numbers.isEmpty && zodiacs.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final hit = data['hit'] is Map
+        ? Map<String, dynamic>.from(data['hit'] as Map)
+        : null;
+    final currentHit = (hit != null && hit['is_current'] == true) ? hit : null;
+    final currentHitNumber =
+        currentHit?['special_number']?.toString().trim() ?? '';
+    final currentHitZodiac =
+        currentHit?['special_zodiac']?.toString().trim() ?? '';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD97706),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  '五码五肖',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (period.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '第$period期',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (numbers.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                '五码',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: numbers
+                    .map(
+                      (number) => _wrapFiveZodiacHitRing(
+                        hit: currentHitNumber.isNotEmpty &&
+                            number == currentHitNumber,
+                        child: _Ball(
+                          number: number,
+                          color: ballColor(number),
+                          size: 36,
+                          fontSize: 13,
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            if (zodiacs.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                '五肖',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: zodiacs
+                    .map(
+                      (zodiac) => _buildFiveZodiacChip(
+                        zodiac,
+                        hit: currentHitZodiac.isNotEmpty &&
+                            zodiac == currentHitZodiac,
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            if (currentHit != null) ...[
+              const SizedBox(height: 14),
+              _buildFiveZodiacHitPanel(
+                title: period.isEmpty ? '本期开奖结果' : '本期开奖结果 · 第$period期',
+                hit: currentHit,
+                showNumbers: false,
+              ),
+            ] else if (hit != null) ...[
+              const SizedBox(height: 14),
+              _buildFiveZodiacHitPanel(
+                title:
+                    '最近一期命中 · 第${hit['period']?.toString() ?? ''}期',
+                hit: hit,
+                showNumbers: true,
+              ),
+            ] else ...[
+              const SizedBox(height: 12),
+              Text(
+                '最近一期采集尚未开奖，暂无命中结果。',
+                style: TextStyle(fontSize: 11, color: Colors.orange.shade700),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              '数据来自澳门采集源，仅供参考。',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -6146,7 +6552,7 @@ class _PredictScreenState extends State<PredictScreen> {
                         return Wrap(
                           spacing: spacing,
                           runSpacing: spacing,
-                          children: _strategyLabels.entries.map((entry) {
+                          children: _strategyChipEntries.map((entry) {
                             return SizedBox(
                               width: itemWidth,
                               child: _buildStrategyChip(
@@ -6201,6 +6607,10 @@ class _PredictScreenState extends State<PredictScreen> {
             Expanded(
               child: ListView(
                 children: [
+                  if (_macauFiveZodiac != null) ...[
+                    _buildMacauFiveZodiacCard(),
+                    const SizedBox(height: 16),
+                  ],
                   if (_result != null || _aiMarkdownText.isNotEmpty) ...[
                     _buildAiMarkdownCard(),
                     const SizedBox(height: 16),

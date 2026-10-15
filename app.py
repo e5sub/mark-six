@@ -27,12 +27,12 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 # 导入用户系统模块
 from models import (
     db, User, PredictionRecord, SystemConfig, InviteCode, LotteryDraw, ManualBetRecord, BacktestRun,
-    SHARED_PREDICTION_USER_ID, personalized_predictions_enabled, prediction_scope_user_ids,
+    MacauCollectedData, SHARED_PREDICTION_USER_ID, personalized_predictions_enabled, prediction_scope_user_ids,
 )
 from retention_service import cleanup_expired_data
 from auth import auth_bp
 from admin import admin_bp
-from user import user_bp
+from user import user_bp, _get_macau_collection_actual_map
 from activation_code_routes import activation_code_bp
 from invite_routes import invite_bp
 from api_mobile import mobile_api_bp
@@ -14525,6 +14525,107 @@ def unified_predict_api():
     result["prediction_zodiac_year"] = prediction_zodiac_year
     result = _attach_prediction_display_copy(result, strategy, resolved_strategy)
     return jsonify(result)
+
+
+def _split_collected_values(value):
+    return [item.strip() for item in str(value or '').split(',') if item and item.strip()]
+
+
+def _build_macau_collection_latest_hit(records, current_period):
+    """最近一期已开奖采集记录的五码五肖命中结果。
+
+    命中口径与「澳门采集」统计页保持一致：五码命中特码、五肖命中特码生肖。
+    """
+    candidates = []
+    for record in records:
+        numbers = _split_collected_values(record.numbers)[:5]
+        zodiacs = _split_collected_values(record.zodiacs)[:5]
+        if not numbers and not zodiacs:
+            continue
+        candidates.append({
+            "period": str(record.period or '').strip(),
+            "numbers": numbers,
+            "zodiacs": zodiacs,
+        })
+    if not candidates:
+        return None
+
+    actual_map = _get_macau_collection_actual_map(records)
+    for candidate in candidates:
+        actual = actual_map.get(candidate["period"])
+        if not actual:
+            continue
+        special_number = actual.get('special_number', '')
+        special_zodiac = actual.get('special_zodiac', '')
+        number_hit = bool(special_number) and special_number in candidate["numbers"]
+        zodiac_hit = bool(special_zodiac) and special_zodiac in candidate["zodiacs"]
+        if number_hit and zodiac_hit:
+            result_key, result_label = 'any_hit', '双项命中'
+        elif number_hit:
+            result_key, result_label = 'number_hit', '号码命中'
+        elif zodiac_hit:
+            result_key, result_label = 'zodiac_hit', '生肖命中'
+        else:
+            result_key, result_label = 'wrong', '未命中'
+        return {
+            "period": candidate["period"],
+            "is_current": candidate["period"] == current_period,
+            "numbers": candidate["numbers"],
+            "zodiacs": candidate["zodiacs"],
+            "special_number": special_number,
+            "special_zodiac": special_zodiac,
+            "draw_date": actual.get('draw_date', ''),
+            "number_hit": number_hit,
+            "zodiac_hit": zodiac_hit,
+            "result_key": result_key,
+            "result_label": result_label,
+        }
+    return None
+
+
+@app.route('/api/macau_five_zodiac')
+def macau_five_zodiac_api():
+    """澳门采集五码五肖：只读取最新采集结果用于展示，不写入预测记录。"""
+    _, auth_error = _require_active_session_json()
+    if auth_error:
+        return auth_error
+
+    records = MacauCollectedData.query.filter_by(region='macau').order_by(
+        MacauCollectedData.period.desc()
+    ).limit(50).all()
+    if not records:
+        return jsonify({
+            "error": "暂无澳门采集数据，请先在「澳门采集」页面执行采集",
+            "error_type": "empty_collection",
+        }), 404
+
+    selected = records[0]
+    for record in records:
+        if _split_collected_values(record.numbers) or _split_collected_values(record.zodiacs):
+            selected = record
+            break
+
+    numbers = _split_collected_values(selected.numbers)[:5]
+    zodiacs = _split_collected_values(selected.zodiacs)[:5]
+    if not numbers and not zodiacs:
+        return jsonify({
+            "error": "暂无澳门采集数据，请先在「澳门采集」页面执行采集",
+            "error_type": "empty_collection",
+        }), 404
+
+    payload = {
+        "region": "macau",
+        "period": str(selected.period or '').strip(),
+        "source_period": str(selected.source_period or '').strip(),
+        "numbers": numbers,
+        "zodiacs": zodiacs,
+    }
+
+    latest_hit = _build_macau_collection_latest_hit(records, payload["period"])
+    if latest_hit:
+        payload["hit"] = latest_hit
+    return jsonify(payload)
+
 
 def _log_draw_update(message, source="manual", region=None):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
