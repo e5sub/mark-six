@@ -968,11 +968,18 @@ const FIVE_ZODIAC_HIT_STYLES = {
     wrong: { color: '#fca5a5', background: 'rgba(220, 38, 38, 0.18)' },
 };
 
+// 「五码五肖」与「最近一期命中」并排两栏，窄屏自动换行堆叠
+const FIVE_ZODIAC_ROW_STYLE = 'display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px;';
+const FIVE_ZODIAC_COLUMN_STYLE = 'flex: 1 1 210px; min-width: 0; padding: 12px; border-radius: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.18);';
+const FIVE_ZODIAC_COLUMN_TITLE_STYLE = 'text-align: center; color: #f8fafc; font-weight: 700; font-size: 0.9rem;';
+const FIVE_ZODIAC_COLUMN_META_STYLE = 'margin-top: 6px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px;';
+const FIVE_ZODIAC_GROUP_LABEL_STYLE = 'text-align: center; margin-bottom: 6px; color: #cbd5e1; font-size: 0.8rem; font-weight: 700;';
+
 // 命中的号码用金色光圈标出
 function fiveZodiacBallHtml(number, hitNumber) {
     const isHit = hitNumber && String(number) === String(hitNumber);
-    const ringStyle = isHit ? ' outline: 3px solid #facc15; outline-offset: 3px;' : '';
-    return `<div class="lottery-ball ${getBallColorClass(number)}" style="${ringStyle}">${number}</div>`;
+    const ringStyle = isHit ? ' outline: 3px solid #facc15; outline-offset: 2px;' : '';
+    return `<div class="lottery-ball ${getBallColorClass(number)}" style="width: 30px; height: 30px; font-size: 0.82rem; margin: 0;${ringStyle}">${number}</div>`;
 }
 
 // 命中的生肖用金色标签标出
@@ -981,12 +988,30 @@ function fiveZodiacChipHtml(zodiac, hitZodiac) {
     const style = isHit
         ? 'background: rgba(250, 204, 21, 0.2); color: #fde68a; border: 1px solid rgba(250, 204, 21, 0.7);'
         : 'background: rgba(59, 130, 246, 0.15); color: #dbeafe; border: 1px solid rgba(96, 165, 250, 0.35);';
-    return `<span style="${style} border-radius: 999px; padding: 6px 16px; font-weight: 700;">${zodiac}</span>`;
+    return `<span style="${style} border-radius: 999px; padding: 4px 9px; font-size: 0.8rem; font-weight: 700;">${zodiac}</span>`;
 }
 
 function fiveZodiacResultPillHtml(hit) {
     const style = FIVE_ZODIAC_HIT_STYLES[hit.result_key] || FIVE_ZODIAC_HIT_STYLES.wrong;
-    return `<span style="padding: 4px 14px; border-radius: 999px; font-size: 0.85rem; font-weight: 700; color: ${style.color}; background: ${style.background};">${hit.result_label}</span>`;
+    return `<span style="padding: 3px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; color: ${style.color}; background: ${style.background};">${hit.result_label}</span>`;
+}
+
+// 一栏内的「五码 + 五肖」
+function fiveZodiacPicksHtml(numbers, zodiacs, hitNumber, hitZodiac) {
+    let html = '';
+    if (numbers.length > 0) {
+        html += `<div style="${FIVE_ZODIAC_GROUP_LABEL_STYLE}">五码</div>`;
+        html += '<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; margin-bottom: 10px;">';
+        numbers.forEach(num => { html += fiveZodiacBallHtml(num, hitNumber); });
+        html += '</div>';
+    }
+    if (zodiacs.length > 0) {
+        html += `<div style="${FIVE_ZODIAC_GROUP_LABEL_STYLE}">五肖</div>`;
+        html += '<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;">';
+        zodiacs.forEach(zodiac => { html += fiveZodiacChipHtml(zodiac, hitZodiac); });
+        html += '</div>';
+    }
+    return html;
 }
 
 // 开奖特码 + 生肖 + 日期
@@ -995,11 +1020,11 @@ function fiveZodiacDrawResultHtml(hit) {
     const zodiac = String(hit.special_zodiac || '').trim();
     const drawDate = String(hit.draw_date || '').trim();
     return `
-        <div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px;">
-            <span style="color: #94a3b8; font-size: 0.85rem;">开奖特码</span>
-            <div class="lottery-ball special ${getBallColorClass(special)}">${special || '-'}</div>
-            ${zodiac ? `<span style="color: #fde68a; font-weight: 700;">${zodiac}</span>` : ''}
-            ${drawDate ? `<span style="color: #94a3b8; font-size: 0.8rem;">${drawDate}</span>` : ''}
+        <div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px;">
+            <span style="color: #94a3b8; font-size: 0.8rem;">开奖特码</span>
+            <div class="lottery-ball special ${getBallColorClass(special)}" style="width: 34px; height: 34px; font-size: 0.85rem; margin: 0;">${special || '-'}</div>
+            ${zodiac ? `<span style="color: #fde68a; font-weight: 700; font-size: 0.85rem;">${zodiac}</span>` : ''}
+            ${drawDate ? `<span style="color: #94a3b8; font-size: 0.75rem;">${drawDate}</span>` : ''}
         </div>
     `;
 }
@@ -1021,7 +1046,7 @@ function displayMacauFiveZodiac(data) {
     const currentHitZodiac = currentHit ? String(currentHit.special_zodiac || '').trim() : '';
 
     let html = `
-        <div style="text-align: center; margin-bottom: 20px;">
+        <div style="text-align: center; margin-bottom: 14px;">
             <span style="background: rgba(255, 193, 7, 0.14); color: #fbbf24; padding: 5px 15px; border-radius: 20px; font-weight: 600;">
                 <i class="fas fa-dice-five"></i> 五码五肖
             </span>
@@ -1031,33 +1056,22 @@ function displayMacauFiveZodiac(data) {
         </div>
     `;
 
-    if (numbers.length > 0) {
-        html += '<div style="text-align: center; margin-bottom: 8px; color: #f8fafc; font-weight: 700;">五码</div>';
-        html += '<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px;">';
-        numbers.forEach(num => {
-            html += fiveZodiacBallHtml(num, currentHitNumber);
-        });
-        html += '</div>';
-    }
+    const leftColumn = `
+        <div style="${FIVE_ZODIAC_COLUMN_STYLE}">
+            <div style="${FIVE_ZODIAC_COLUMN_TITLE_STYLE}">本期五码五肖</div>
+            <div style="margin-top: 10px;">
+                ${fiveZodiacPicksHtml(numbers, zodiacs, currentHitNumber, currentHitZodiac)}
+            </div>
+        </div>
+    `;
 
-    if (zodiacs.length > 0) {
-        html += '<div style="text-align: center; margin-bottom: 8px; color: #f8fafc; font-weight: 700;">五肖</div>';
-        html += '<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 10px;">';
-        zodiacs.forEach(zodiac => {
-            html += fiveZodiacChipHtml(zodiac, currentHitZodiac);
-        });
-        html += '</div>';
-    }
-
+    let rightColumn = '';
     if (currentHit) {
-        html += `
-            <div style="margin-top: 18px; padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.18);">
-                <div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
-                    <span style="color: #f8fafc; font-weight: 700;">本期开奖结果</span>
-                    ${period ? `<span style="color: #94a3b8; font-size: 0.85rem;">第${period}期</span>` : ''}
-                    ${fiveZodiacResultPillHtml(currentHit)}
-                </div>
-                ${fiveZodiacDrawResultHtml(currentHit)}
+        rightColumn = `
+            <div style="${FIVE_ZODIAC_COLUMN_STYLE}">
+                <div style="${FIVE_ZODIAC_COLUMN_TITLE_STYLE}">本期开奖结果</div>
+                <div style="${FIVE_ZODIAC_COLUMN_META_STYLE}">${fiveZodiacResultPillHtml(currentHit)}</div>
+                <div style="margin-top: 12px;">${fiveZodiacDrawResultHtml(currentHit)}</div>
             </div>
         `;
     } else if (hit) {
@@ -1066,44 +1080,34 @@ function displayMacauFiveZodiac(data) {
         const hitNumber = String(hit.special_number || '').trim();
         const hitZodiac = String(hit.special_zodiac || '').trim();
 
-        html += `
-            <div style="margin-top: 18px; padding: 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.18);">
-                <div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
-                    <span style="color: #f8fafc; font-weight: 700;">最近一期命中</span>
-                    <span style="color: #94a3b8; font-size: 0.85rem;">第${hit.period}期</span>
+        rightColumn = `
+            <div style="${FIVE_ZODIAC_COLUMN_STYLE}">
+                <div style="${FIVE_ZODIAC_COLUMN_TITLE_STYLE}">最近一期命中</div>
+                <div style="${FIVE_ZODIAC_COLUMN_META_STYLE}">
+                    <span style="color: #94a3b8; font-size: 0.8rem;">第${hit.period}期</span>
                     ${fiveZodiacResultPillHtml(hit)}
                 </div>
+                <div style="margin-top: 10px;">
+                    ${fiveZodiacPicksHtml(hitNumbers, hitZodiacs, hitNumber, hitZodiac)}
+                    <div style="margin-top: 10px;">${fiveZodiacDrawResultHtml(hit)}</div>
+                </div>
+            </div>
         `;
+    }
 
-        if (hitNumbers.length > 0) {
-            html += '<div style="text-align: center; margin-bottom: 6px; color: #cbd5e1; font-size: 0.85rem; font-weight: 700;">五码</div>';
-            html += '<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; margin-bottom: 12px;">';
-            hitNumbers.forEach(num => {
-                html += fiveZodiacBallHtml(num, hitNumber);
-            });
-            html += '</div>';
-        }
-
-        if (hitZodiacs.length > 0) {
-            html += '<div style="text-align: center; margin-bottom: 6px; color: #cbd5e1; font-size: 0.85rem; font-weight: 700;">五肖</div>';
-            html += '<div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">';
-            hitZodiacs.forEach(zodiac => {
-                html += fiveZodiacChipHtml(zodiac, hitZodiac);
-            });
-            html += '</div>';
-        }
-
-        html += `${fiveZodiacDrawResultHtml(hit)}</div>`;
+    if (rightColumn) {
+        html += `<div style="${FIVE_ZODIAC_ROW_STYLE}">${leftColumn}${rightColumn}</div>`;
     } else {
+        html += `<div style="${FIVE_ZODIAC_ROW_STYLE}">${leftColumn}</div>`;
         html += `
-            <div style="margin-top: 18px; text-align: center; color: #fde68a; font-size: 0.85rem;">
+            <div style="margin-top: 12px; text-align: center; color: #fde68a; font-size: 0.85rem;">
                 最近一期采集尚未开奖，暂无命中结果。
             </div>
         `;
     }
 
     html += `
-        <div style="margin-top: 18px; text-align: center; color: #94a3b8; font-size: 0.85rem;">
+        <div style="margin-top: 14px; text-align: center; color: #94a3b8; font-size: 0.85rem;">
             数据来自澳门采集源，仅供参考。
         </div>
     `;
