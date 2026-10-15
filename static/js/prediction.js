@@ -929,7 +929,24 @@ function updateMacauFiveZodiacVisibility() {
 // 获取澳门采集的五码五肖（只展示，不写入预测记录）
 function getMacauFiveZodiac() {
     const indicator = document.getElementById('predictionIndicator');
-    if (indicator) indicator.style.display = 'block';
+    const titleEl = indicator ? indicator.querySelector('p:first-child') : null;
+    const subEl = indicator ? indicator.querySelector('p:last-child') : null;
+    const origTitle = titleEl ? titleEl.textContent : '';
+    const origSub = subEl ? subEl.textContent : '';
+
+    if (indicator) {
+        if (titleEl) titleEl.textContent = '正在获取五码五肖';
+        if (subEl) subEl.textContent = '若尚未采集将自动采集，请稍候...';
+        indicator.style.display = 'block';
+    }
+
+    const restoreIndicator = () => {
+        if (indicator) {
+            indicator.style.display = 'none';
+            if (titleEl && origTitle) titleEl.textContent = origTitle;
+            if (subEl && origSub) subEl.textContent = origSub;
+        }
+    };
 
     fetch('/api/macau_five_zodiac')
         .then(response => response.json()
@@ -941,11 +958,11 @@ function getMacauFiveZodiac() {
                 return data;
             }))
         .then(data => {
-            if (indicator) indicator.style.display = 'none';
+            restoreIndicator();
             displayMacauFiveZodiac(data);
         })
         .catch(error => {
-            if (indicator) indicator.style.display = 'none';
+            restoreIndicator();
             console.error('获取五码五肖失败:', error);
             const predictionResult = document.getElementById('predictionResult');
             const predictionContent = document.getElementById('predictionContent');

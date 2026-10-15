@@ -14583,19 +14583,99 @@ def _build_macau_collection_latest_hit(records, current_period):
     return None
 
 
+_macau_collection_lock = threading.Lock()
+_last_macau_auto_collection_time = 0.0
+
+
+def _trigger_macau_source_collection(year=None, min_interval=10.0):
+    """自动触发澳门数据采集并落库。带并发锁与防抖，避免重复抓取。"""
+    global _last_macau_auto_collection_time
+    now = time.time()
+
+    with _macau_collection_lock:
+        if min_interval > 0 and (now - _last_macau_auto_collection_time < min_interval):
+            return False, "recently_collected"
+
+        from user import _collect_macau_source_data, _save_macau_collection_items
+        from models import ZodiacSetting
+
+        target_year = year or datetime.now().year
+        try:
+            items, _ = _collect_macau_source_data(target_year)
+            valid_items = [
+                item for item in items
+                if item.get('period') and (item.get('numbers') or item.get('zodiacs'))
+            ]
+            if not valid_items:
+                _last_macau_auto_collection_time = time.time()
+                return False, "no_items_found"
+
+            created, updated, skipped = _save_macau_collection_items(target_year, valid_items)
+            _last_macau_auto_collection_time = time.time()
+            print(
+                f"[MacauCollectionAuto] 自动采集完成: year={target_year}, "
+                f"valid={len(valid_items)}, created={created}, updated={updated}, skipped={skipped}"
+            )
+
+            # 在后台线程异步刷新生肖映射，不阻塞当前响应
+            def _bg_refresh():
+                try:
+                    with app.app_context():
+                        z_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+                        ZodiacSetting.refresh_macau_zodiac_mapping(z_year)
+                except Exception as ex:
+                    print(f"[MacauCollectionAuto] 生肖刷新失败: {ex}")
+                finally:
+                    db.session.remove()
+
+            threading.Thread(target=_bg_refresh, daemon=True).start()
+            return True, f"created={created},updated={updated}"
+        except Exception as e:
+            _last_macau_auto_collection_time = time.time()
+            db.session.rollback()
+            print(f"[MacauCollectionAuto] 自动采集异常: {e}")
+            return False, str(e)
+
+
 @app.route('/api/macau_five_zodiac')
 def macau_five_zodiac_api():
-    """澳门采集五码五肖：只读取最新采集结果用于展示，不写入预测记录。"""
+    """澳门采集五码五肖：只读取最新采集结果用于展示，不写入预测记录。
+    如果数据库中没有采集数据，则自动触发一次采集并落库。
+    """
     _, auth_error = _require_active_session_json()
     if auth_error:
         return auth_error
 
+    force_collect = request.args.get('collect') in ('1', 'true') or request.args.get('refresh') in ('1', 'true')
+
     records = MacauCollectedData.query.filter_by(region='macau').order_by(
         MacauCollectedData.period.desc()
     ).limit(50).all()
+
+    has_valid_data = any(
+        bool(_split_collected_values(r.numbers) or _split_collected_values(r.zodiacs))
+        for r in records
+    )
+
+    auto_collected = False
+    collect_error = None
+    if not has_valid_data or force_collect:
+        success, msg = _trigger_macau_source_collection(min_interval=0.0 if force_collect else 10.0)
+        auto_collected = success
+        if not success and msg not in ("recently_collected",):
+            collect_error = msg
+        records = MacauCollectedData.query.filter_by(region='macau').order_by(
+            MacauCollectedData.period.desc()
+        ).limit(50).all()
+
     if not records:
+        error_msg = "暂无澳门采集数据"
+        if collect_error:
+            error_msg += f"，自动采集失败：{collect_error}"
+        else:
+            error_msg += "，已尝试自动采集但未获取到数据，请稍后重试或在「澳门采集」页面检查采集源"
         return jsonify({
-            "error": "暂无澳门采集数据，请先在「澳门采集」页面执行采集",
+            "error": error_msg,
             "error_type": "empty_collection",
         }), 404
 
@@ -14608,8 +14688,22 @@ def macau_five_zodiac_api():
     numbers = _split_collected_values(selected.numbers)[:5]
     zodiacs = _split_collected_values(selected.zodiacs)[:5]
     if not numbers and not zodiacs:
+        success, msg = _trigger_macau_source_collection(min_interval=0.0)
+        if success:
+            auto_collected = True
+            records = MacauCollectedData.query.filter_by(region='macau').order_by(
+                MacauCollectedData.period.desc()
+            ).limit(50).all()
+            for record in records:
+                if _split_collected_values(record.numbers) or _split_collected_values(record.zodiacs):
+                    selected = record
+                    break
+            numbers = _split_collected_values(selected.numbers)[:5]
+            zodiacs = _split_collected_values(selected.zodiacs)[:5]
+
+    if not numbers and not zodiacs:
         return jsonify({
-            "error": "暂无澳门采集数据，请先在「澳门采集」页面执行采集",
+            "error": "暂无澳门采集数据，已尝试自动采集但未获取到有效五码五肖，请稍后再试",
             "error_type": "empty_collection",
         }), 404
 
@@ -14620,6 +14714,8 @@ def macau_five_zodiac_api():
         "numbers": numbers,
         "zodiacs": zodiacs,
     }
+    if auto_collected:
+        payload["auto_collected"] = True
 
     latest_hit = _build_macau_collection_latest_hit(records, payload["period"])
     if latest_hit:
