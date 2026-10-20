@@ -17,6 +17,7 @@ import re
 from urllib.parse import quote_plus, urlparse
 from datetime import datetime, timedelta
 import time
+from types import SimpleNamespace
 from markupsafe import escape
 from sqlalchemy import create_engine, event, inspect, and_, or_
 from sqlalchemy.engine import make_url
@@ -36,7 +37,7 @@ from user import user_bp, _get_macau_collection_actual_map
 from activation_code_routes import activation_code_bp
 from invite_routes import invite_bp
 from api_mobile import mobile_api_bp
-from notification_service import notify_user
+from notification_service import notify_user, dispatch_notification
 
 # --- 配置信息 ---
 data_dir = os.path.join(os.getcwd(), 'data')
@@ -13886,6 +13887,57 @@ def _winning_notification_recipient_ids(pred):
     return recipients
 
 
+WINNING_SNAPSHOT_FIELDS = (
+    'strategy',
+    'period',
+    'region',
+    'normal_numbers',
+    'special_number',
+    'special_zodiac',
+    'actual_special_number',
+    'actual_special_zodiac',
+)
+
+
+def _winning_prediction_snapshot(pred):
+    """把命中预测拍成纯数据，供后台线程使用（ORM 实例不能跨线程读）。"""
+    snapshot = {'id': getattr(pred, 'id', None)}
+    for field in WINNING_SNAPSHOT_FIELDS:
+        snapshot[field] = getattr(pred, field, None) or ''
+    return snapshot
+
+
+def deliver_winning_notification(user_id, snapshots, region, draw_data=None):
+    """后台线程执行：重新取用户后发送合并命中通知（邮件/站内/其它渠道）。"""
+    if not snapshots:
+        return
+    user = User.query.get(user_id)
+    if not user or not user.email:
+        return
+    predictions = [SimpleNamespace(**snapshot) for snapshot in snapshots]
+    send_combined_winning_email(user, predictions, region, draw_data)
+    print(
+        f"[notify] 已发送命中通知 user={user.username} region={region} "
+        f"period={snapshots[0].get('period')} strategies={len(snapshots)}"
+    )
+
+
+def _queue_winning_notification_emails(user_hits, region, data):
+    """把每个用户的命中通知排队到后台串行发送，避免阻塞开奖同步请求。"""
+    draw_by_period = {}
+    for draw in data or []:
+        period = draw.get('id')
+        if period and period not in draw_by_period:
+            draw_by_period[period] = draw
+
+    for user_id, hit_preds in user_hits.items():
+        snapshots = [_winning_prediction_snapshot(pred) for pred in hit_preds]
+        if not snapshots:
+            continue
+        draw_data = draw_by_period.get(snapshots[0].get('period'))
+        dispatch_notification(deliver_winning_notification, user_id, snapshots, region, draw_data)
+
+
 def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune_strategy_configs=True):
     """更新预测准确率 - 只比较特码和生肖"""
     try:
@@ -13957,15 +14009,10 @@ def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune
         # 提交更改
         db.session.commit()
 
-        # 统一发送合并后的中奖邮件
-        for user_id, hit_preds in user_hits.items():
-            try:
-                user = User.query.get(user_id)
-                if user and user.email:
-                    draw_data = next((d for d in data if d.get('id') == hit_preds[0].period), None)
-                    send_combined_winning_email(user, hit_preds, region, draw_data)
-            except Exception as e:
-                print(f"发送合并中奖邮件失败: {e}")
+        # 统一发送合并后的中奖邮件。SMTP 是阻塞 IO，共享预测模式下又要发给所有订阅用户，
+        # 因此只在这里做数据快照，真正的发送丢到后台单线程串行执行。
+        if user_hits:
+            _queue_winning_notification_emails(user_hits, region, data)
 
         # 根据最新准确率调整策略参数。开奖同步接口会把这一步放到后台，避免慢回测/AI 调用阻塞请求。
         if tune_strategy_configs:

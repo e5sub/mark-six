@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
+import atexit
 import json
 import ipaddress
+import os
 import smtplib
 import socket
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -12,6 +16,71 @@ import requests
 
 from models import db, SystemConfig, User, UserNotification
 from retention_service import cleanup_expired_station_notifications
+
+
+# 通知发送默认走后台线程池：max_workers=1 保证串行发送，既不阻塞请求线程，
+# 也不会在开奖同步时对 SMTP 发起大量并发连接被服务商限流。
+# 设 NOTIFY_ASYNC=0 可退回同步发送（便于本地调试/测试）。
+_NOTIFY_ASYNC_DISABLED = str(os.environ.get('NOTIFY_ASYNC', '1')).strip().lower() in {'0', 'false', 'no', 'off'}
+_notify_executor = None
+_notify_executor_lock = threading.Lock()
+
+
+def _get_notify_executor():
+    global _notify_executor
+    if _notify_executor is None:
+        with _notify_executor_lock:
+            if _notify_executor is None:
+                executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='notify')
+                # 进程退出时把队列里剩下的通知发完，避免热重启丢邮件。
+                atexit.register(executor.shutdown, wait=True)
+                _notify_executor = executor
+    return _notify_executor
+
+
+def _call_in_app_context(fn, args, kwargs):
+    """在后台线程里补一个 Flask 应用上下文；顺带回收该线程的数据库会话。"""
+    from flask import has_app_context
+
+    if has_app_context():
+        return fn(*args, **kwargs)
+
+    from app import app
+
+    with app.app_context():
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            try:
+                db.session.remove()
+            except Exception:
+                pass
+
+
+def dispatch_notification(fn, *args, **kwargs):
+    """把通知发送丢给后台串行线程池执行。
+
+    调用方负责把 ORM 实例转成纯数据（跨线程访问已提交的 ORM 对象会因过期而报错），
+    后台任务只接收 id 和标量。返回 None，不阻塞调用方。
+    """
+    if _NOTIFY_ASYNC_DISABLED:
+        return _call_in_app_context(fn, args, kwargs)
+
+    task_name = getattr(fn, '__name__', str(fn))
+
+    def _task():
+        try:
+            _call_in_app_context(fn, args, kwargs)
+        except Exception as exc:
+            print(f"[notify] 后台通知任务失败 task={task_name} error={exc}")
+
+    try:
+        _get_notify_executor().submit(_task)
+    except Exception as exc:
+        # 线程池不可用（如解释器正在关闭）时退化为同步执行，至少不丢通知。
+        print(f"[notify] 通知任务入队失败，改为同步执行 task={task_name} error={exc}")
+        _task()
+    return None
 
 
 def _is_enabled(key, default='false'):
