@@ -13852,6 +13852,40 @@ def draws_api():
     # 如果是第一页，返回前50条数据，否则返回分页数据
     return jsonify(data)
 
+def _winning_notification_recipient_ids(pred):
+    """命中通知的收件人 user_id 列表。
+
+    差异化预测：记录属于某个用户，只通知他本人。
+    共享预测（记录挂在 SHARED_PREDICTION_USER_ID 哨兵下）：全站共用同一份号码，
+    所有订阅该地区、开启了自动预测且邮箱有效的激活用户都应收到命中通知。
+    """
+    owner_id = getattr(pred, 'user_id', None)
+    if owner_id and owner_id != SHARED_PREDICTION_USER_ID:
+        return [owner_id]
+
+    region = getattr(pred, 'region', None)
+    candidates = User.query.filter(
+        User.is_active == True,
+        User.auto_prediction_enabled == True,
+    ).all()
+
+    recipients = []
+    for candidate in candidates:
+        if not candidate.email:
+            continue
+        try:
+            if candidate.is_activation_expired():
+                continue
+        except Exception:
+            pass
+        raw_regions = getattr(candidate, 'auto_prediction_regions', None)
+        regions = [item.strip() for item in raw_regions.split(',')] if raw_regions else ['hk', 'macau']
+        if region and region not in regions:
+            continue
+        recipients.append(candidate.id)
+    return recipients
+
+
 def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune_strategy_configs=True):
     """更新预测准确率 - 只比较特码和生肖"""
     try:
@@ -13914,11 +13948,11 @@ def update_prediction_accuracy(data, region, trigger_auto_predictions=True, tune
             pred.accuracy_score = accuracy
             pred.is_result_updated = True
             
-            # 如果预测成功（特码命中），收集到待发送列表以便发送合并通知邮件
+            # 如果预测成功（特码命中），收集到待发送列表以便发送合并通知邮件。
+            # 共享预测模式下记录挂在哨兵 user_id 上，需要展开成真实收件人。
             if special_hit == 1:
-                if pred.user_id not in user_hits:
-                    user_hits[pred.user_id] = []
-                user_hits[pred.user_id].append(pred)
+                for recipient_id in _winning_notification_recipient_ids(pred):
+                    user_hits.setdefault(recipient_id, []).append(pred)
         
         # 提交更改
         db.session.commit()
