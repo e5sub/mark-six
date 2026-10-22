@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 import uuid
 import hashlib
@@ -403,7 +403,7 @@ class InviteCode(db.Model):
         """检查邀请码是否过期"""
         if not self.expires_at:
             return False
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(timezone.utc).replace(tzinfo=None) > self.expires_at
     
     def use_invite_code(self, user):
         """使用邀请码进行邀请注册"""

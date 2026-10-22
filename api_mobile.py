@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta
+﻿from datetime import datetime, timedelta, timezone
 import json
 import math
 import time
@@ -416,7 +416,7 @@ def _user_payload(user):
 
 def _start_user_session(user):
     user.check_and_update_activation_status()
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(timezone.utc).replace(tzinfo=None)
     user.login_count = (user.login_count or 0) + 1
     db.session.commit()
 
@@ -483,7 +483,7 @@ def api_github_auth_url():
         return _json_error("GitHub 登录尚未配置", status=404, code="github_not_configured")
 
     state = secrets.token_urlsafe(24)
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=10)
     _store_config_json(
         _mobile_github_state_key(state),
         {"state": state, "expires_at": expires_at.isoformat()},
@@ -519,8 +519,8 @@ def api_github_complete():
     try:
         expires_at = datetime.fromisoformat((login_payload or {}).get("expires_at", ""))
     except Exception:
-        expires_at = datetime.utcnow() - timedelta(seconds=1)
-    if not login_payload or datetime.utcnow() >= expires_at:
+        expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+    if not login_payload or datetime.now(timezone.utc).replace(tzinfo=None) >= expires_at:
         return _json_error("GitHub login token expired", status=401, code="github_token_expired")
 
     user = User.query.get(login_payload.get("user_id"))
@@ -701,7 +701,7 @@ def api_forgot_password():
 
     reset_token = secrets.token_urlsafe(32)
     token_key = f"reset_token_{user.id}"
-    token_data = f"{reset_token}|{(datetime.utcnow() + timedelta(hours=1)).isoformat()}"
+    token_data = f"{reset_token}|{(datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)).isoformat()}"
     SystemConfig.set_config(token_key, token_data, "密码重置令牌")
 
     try:

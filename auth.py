@@ -2,7 +2,7 @@
 from models import db, User, ActivationCode, ActivationCodeRequest, SystemConfig, InviteCode
 from werkzeug.security import generate_password_hash
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import secrets
 import requests
@@ -118,7 +118,7 @@ def _external_url(endpoint, **values):
 
 def _login_user_session(user):
     user.check_and_update_activation_status()
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(timezone.utc).replace(tzinfo=None)
     user.login_count = (user.login_count or 0) + 1
     db.session.commit()
 
@@ -256,8 +256,8 @@ def _handle_mobile_github_callback(config, state_payload):
     try:
         expires_at = datetime.fromisoformat((state_payload or {}).get('expires_at', ''))
     except Exception:
-        expires_at = datetime.utcnow() - timedelta(seconds=1)
-    if not state_payload or datetime.utcnow() >= expires_at:
+        expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+    if not state_payload or datetime.now(timezone.utc).replace(tzinfo=None) >= expires_at:
         return _github_mobile_html('登录失败', 'GitHub 登录状态已失效，请重试'), 400
 
     code = request.args.get('code', '')
@@ -294,7 +294,7 @@ def _handle_mobile_github_callback(config, state_payload):
         _mobile_github_login_key(login_token),
         {
             'user_id': user.id,
-            'expires_at': (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
+            'expires_at': (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5)).isoformat(),
         },
         'Mobile GitHub one-time login token',
     )
@@ -342,7 +342,7 @@ def _mark_email_verified(user):
 
 def _create_email_verification_token(user, ttl_hours=24):
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(hours=ttl_hours)
+    expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=ttl_hours)
     payload = f"{token}|{expires_at.isoformat()}|{user.email}"
     SystemConfig.set_config(
         _email_verification_token_key(user.id),
@@ -357,7 +357,7 @@ def _resolve_email_verification_user(token):
         try:
             stored_token, expires_str, email = (config.value or '').split('|', 2)
             expires_at = datetime.fromisoformat(expires_str)
-            if stored_token != token or datetime.utcnow() >= expires_at:
+            if stored_token != token or datetime.now(timezone.utc).replace(tzinfo=None) >= expires_at:
                 continue
             user_id = int(config.key.replace('email_verify_token_', ''))
             user = User.query.get(user_id)
@@ -409,7 +409,7 @@ def send_activation_request_notification(request_record):
     created_at_text = (
         created_at.strftime('%Y-%m-%d %H:%M:%S UTC')
         if created_at else
-        datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y-%m-%d %H:%M:%S UTC')
     )
     request_note = (getattr(request_record, 'request_note', '') or '').strip() or '无'
     subject = f'{site_name} - 新的激活码申请'
@@ -517,7 +517,7 @@ def _clear_email_change_token(user_id):
 def _create_email_change_token(user, new_email, ttl_hours=24):
     """为换绑邮箱生成一次性令牌。value 存 token|expires|new_email。"""
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(hours=ttl_hours)
+    expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=ttl_hours)
     payload = f"{token}|{expires_at.isoformat()}|{new_email}"
     SystemConfig.set_config(
         _email_change_token_key(user.id),
@@ -533,7 +533,7 @@ def _resolve_email_change_user(token):
         try:
             stored_token, expires_str, new_email = (cfg.value or '').split('|', 2)
             expires_at = datetime.fromisoformat(expires_str)
-            if stored_token != token or datetime.utcnow() >= expires_at:
+            if stored_token != token or datetime.now(timezone.utc).replace(tzinfo=None) >= expires_at:
                 continue
             user_id = int(cfg.key.replace('email_change_token_', ''))
             user = User.query.get(user_id)
@@ -1059,7 +1059,7 @@ def forgot_password():
         
         # 将令牌存储到系统配置中，设置 1 小时过期
         token_key = f"reset_token_{user.id}"
-        token_data = f"{reset_token}|{(datetime.utcnow() + timedelta(hours=1)).isoformat()}"
+        token_data = f"{reset_token}|{(datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)).isoformat()}"
         SystemConfig.set_config(token_key, token_data, "密码重置令牌")
         
         # 发送邮件
@@ -1083,7 +1083,7 @@ def reset_password(token):
             stored_token, expires_str = config.value.split('|')
             expires_at = datetime.fromisoformat(expires_str)
             
-            if stored_token == token and datetime.utcnow() < expires_at:
+            if stored_token == token and datetime.now(timezone.utc).replace(tzinfo=None) < expires_at:
                 user_id = int(config.key.replace('reset_token_', ''))
                 user = User.query.get(user_id)
                 break

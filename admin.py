@@ -20,7 +20,7 @@ from models import (
     PREDICTION_HIT_BASELINES,
     build_coverage_recommendation,
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import csv
 import json
 import io
@@ -1573,7 +1573,7 @@ def activation_codes():
     """激活码管理页面 - 使用AJAX加载数据"""
     try:
         # 不再在这里加载数据，而是通过JavaScript从API获取
-        return render_template('admin/activation_codes.html', now=datetime.utcnow())
+        return render_template('admin/activation_codes.html', now=datetime.now(timezone.utc).replace(tzinfo=None))
     except Exception as e:
         flash(f'加载激活码页面失败: {str(e)}', 'error')
         return redirect(url_for('admin.dashboard'))
@@ -2588,7 +2588,7 @@ def generate_invite_codes():
             if expires_days and expires_days.isdigit():
                 days = int(expires_days)
                 if days > 0:
-                    code.expires_at = datetime.utcnow() + timedelta(days=days)
+                    code.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=days)
             
             db.session.add(code)
             generated_codes.append(code.code)

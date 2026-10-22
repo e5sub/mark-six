@@ -2,7 +2,7 @@
 from models import db, User, PredictionRecord, SystemConfig, InviteCode, BacktestRun, UserNotification, LotteryDraw, MacauCollectedData, ZodiacSetting, prediction_scope_user_ids, PREDICTION_HIT_BASELINES, build_coverage_recommendation
 from sqlalchemy import func, case
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from types import SimpleNamespace
 from functools import wraps
@@ -3329,7 +3329,7 @@ def generate_invite_code():
         invite_code.created_by = user.username
         
         from datetime import timedelta
-        invite_code.expires_at = datetime.utcnow() + timedelta(days=7)
+        invite_code.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=7)
         
         db.session.add(invite_code)
         db.session.commit()
@@ -3615,7 +3615,7 @@ def analytics():
     
     trend_data = []
     for i in range(6, -1, -1):
-        date = datetime.utcnow().date() - timedelta(days=i)
+        date = datetime.now(timezone.utc).replace(tzinfo=None).date() - timedelta(days=i)
         date_start = datetime.combine(date, datetime.min.time())
         date_end = datetime.combine(date, datetime.max.time())
         
@@ -3655,7 +3655,7 @@ def analytics():
             'accuracy': round((special_hit / updated * 100), 1) if updated > 0 else 0,
         }
 
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
     today_start = datetime.combine(today, datetime.min.time())
     today_end = datetime.combine(today, datetime.max.time())
     week_start = datetime.combine(today - timedelta(days=6), datetime.min.time())
