@@ -1,6 +1,7 @@
 ﻿from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, Response
 from functools import wraps
 from urllib.parse import urlparse
+from security_policy import password_policy_error
 import requests
 from models import (
     db,
@@ -1451,8 +1452,11 @@ def add_user():
             return jsonify({'success': False, 'message': '用户名不能为空'})
         if not email:
             return jsonify({'success': False, 'message': '邮箱不能为空'})
-        if not password or len(password) < 6:
-            return jsonify({'success': False, 'message': '密码长度不能少于6个字符'})
+        if not password:
+            return jsonify({'success': False, 'message': '密码不能为空'})
+        password_error = password_policy_error(password)
+        if password_error:
+            return jsonify({'success': False, 'message': password_error})
 
         # 检查用户名是否已存在
         if User.query.filter_by(username=username).first():
@@ -1515,8 +1519,11 @@ def reset_user_password(user_id):
             return jsonify({'success': False, 'message': '缺少新密码参数'})
         
         new_password = data['new_password']
-        if not new_password or len(new_password) < 6:
-            return jsonify({'success': False, 'message': '密码长度不能少于6个字符'})
+        if not new_password:
+            return jsonify({'success': False, 'message': '新密码不能为空'})
+        password_error = password_policy_error(new_password)
+        if password_error:
+            return jsonify({'success': False, 'message': password_error})
         
         user.set_password(new_password)
         db.session.commit()

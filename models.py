@@ -522,6 +522,10 @@ class UserNotification(db.Model):
     event_type = db.Column(db.String(50), default='general')
     title = db.Column(db.String(160), nullable=False)
     content = db.Column(LargeText)
+    # 'text' 表示纯文本（渲染时依赖 Jinja 自动转义）；'html' 表示经
+    # html_sanitizer 白名单净化后的富文本，可在模板中按安全 HTML 输出。
+    # NULL 仅出现在该列引入之前写入的历史记录上，渲染时会走兼容判定。
+    content_format = db.Column(db.String(10))
     link_url = db.Column(db.String(255))
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.now)

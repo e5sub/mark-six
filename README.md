@@ -273,6 +273,56 @@ set ENABLE_SCHEDULER=0
 python reset_admin.py --username 你的管理员用户名 --password 新密码
 ```
 
+## 安全与代理配置
+
+系统的登录限流默认只认 TCP 层对端 IP，**不会**采信客户端自带的
+`X-Forwarded-For`，避免伪造请求头绕过登录/注册限流。部署在反向代理之后时，
+按实际情况选择一种方式：
+
+| 部署方式 | 需要设置的环境变量 | 说明 |
+| --- | --- | --- |
+| 直接暴露端口（无代理） | 都不设置 | 使用对端真实 IP，最安全 |
+| Nginx / Caddy 反代 | `TRUST_PROXY_HEADERS=1` | 由 `ProxyFix` 解析 `X-Forwarded-For` |
+| 仅 Cloudflare 回源 | `TRUST_CF_HEADERS=1` | 使用 `CF-Connecting-IP` |
+
+`docker-compose.yml` 默认把端口映射到 `127.0.0.1`，只允许本机反代访问。
+如果改成 `5000:5000`（绑定 `0.0.0.0`）而同时保留 `TRUST_PROXY_HEADERS=1`，
+客户端可直连并伪造转发头绕过限流。
+
+其他安全策略：
+
+- 密码长度要求 8–128 位，注册、重置密码、后台改密、移动端注册口径一致。
+- 同一账号 15 分钟内连续失败 5 次会被临时锁定；同一来源 IP 15 分钟内上限 30 次。
+  密码正确时始终放行，账号计数只影响错误密码的提示文案，避免被用来锁死真实用户。
+- 通知中心的富文本内容在落库前与渲染前各做一次白名单净化（`html_sanitizer.py`），
+  只保留排版标签，剥离脚本、事件属性与危险 CSS。
+- 所有邮件正文里的用户名、邮箱、备注等用户可控字段均做 HTML 转义；纯文本通知
+  统一经 `text_to_html()` 转义后再拼进邮件模板，邮件头也会去掉换行防注入。
+
+### 内容安全策略（CSP）
+
+页面响应默认带 CSP，`script-src` 采用 nonce + `strict-dynamic`：
+
+- nonce 在 **模板编译期** 由 Jinja 扩展写入（`content_security.py`），只覆盖模板里
+  真实存在的 `<script>`。用户注入的 HTML 不走模板编译，因此拿不到 nonce，被
+  `script-src` 直接拦下——这也是不能在响应期扫描正文补 nonce 的原因。
+- `object-src 'none'`、`base-uri 'self'`、`form-action 'self'`、`frame-ancestors 'self'`
+  以及受限的 `connect-src` / `img-src` 切断外带通道：即使有脚本执行，也无法加载
+  远程 payload 或把数据送出去。
+- 静态文件与 JSON 响应使用 `default-src 'none'`，防止被当作文档解析。
+- 内联事件处理器（`onclick=` 等）默认保留 `'unsafe-inline'`，以兼容现有页面写法。
+
+相关环境变量：
+
+| 变量 | 默认 | 作用 |
+| --- | --- | --- |
+| `CSP_ENABLED` | `1` | 设为 `0` 关闭 CSP |
+| `CSP_REPORT_ONLY` | 空 | 设为 `1` 时只发 `Content-Security-Policy-Report-Only`，不拦截 |
+| `CSP_INLINE_HANDLERS` | `1` | 设为 `0` 时把内联事件处理器折算成 sha256 白名单（`'unsafe-hashes'`），更严格，但要求浏览器支持 `script-src-attr` |
+
+首次上线建议先用 `CSP_REPORT_ONLY=1` 观察一两天：若浏览器控制台没有报错，再切到
+强制模式。
+
 ## 免责声明
 
 本系统仅供学习、研究和数据分析参考使用。任何预测结果都不构成投资、投注或其他决策建议。请理性使用。

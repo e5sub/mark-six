@@ -33,6 +33,12 @@ from auth import (
     send_reset_email,
     send_activation_request_notification,
 )
+from rate_limiter import client_ip, rate_blocked, rate_record, rate_reset
+from security_policy import (
+    LOGIN_ACCOUNT_FAILURE_LIMIT,
+    LOGIN_FAILURE_WINDOW_SECONDS,
+    password_policy_error,
+)
 
 
 mobile_api_bp = Blueprint("mobile_api", __name__, url_prefix="/api/mobile")
@@ -306,8 +312,9 @@ def _json_error(message, status=400, code="bad_request"):
 
 
 def _client_ip():
-    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",", 1)[0].strip()
-    return request.headers.get("CF-Connecting-IP") or forwarded or request.remote_addr or "unknown"
+    # 统一走 rate_limiter.client_ip()：默认只信任 TCP 对端地址，
+    # 仅在显式配置 TRUST_CF_HEADERS / TRUST_PROXY_HEADERS 时才采信转发头。
+    return client_ip()
 
 
 def _rate_limited(key, limit, window_seconds):
@@ -594,8 +601,9 @@ def api_register():
         return _json_error("missing required fields")
     if password != confirm_password:
         return _json_error("passwords do not match")
-    if len(password) < 6:
-        return _json_error("password must be at least 6 characters")
+    password_error = password_policy_error(password)
+    if password_error:
+        return _json_error(password_error)
 
     if User.query.filter_by(username=username).first():
         return _json_error("username already exists")
@@ -658,12 +666,23 @@ def api_login():
     if not username_or_email or not password:
         return _json_error("missing username/email or password")
 
+    # 账号维度防爆破：与 Web 登录保持一致，只有失败才记账；
+    # 密码正确始终放行，避免攻击者用错误密码锁死真实用户。
+    account_key = f"mobile_login:account:{username_or_email.strip().lower()}"
     user = User.query.filter(
         (User.username == username_or_email) | (User.email == username_or_email)
     ).first()
     if not user or not user.check_password(password):
+        account_locked = rate_blocked(
+            account_key, LOGIN_ACCOUNT_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_SECONDS
+        )
+        rate_record(account_key, LOGIN_FAILURE_WINDOW_SECONDS)
+        if account_locked:
+            return _json_error("too many login attempts for this account",
+                               status=429, code="account_locked")
         return _json_error("invalid credentials", status=401, code="invalid_credentials")
 
+    rate_reset(account_key)
     _start_user_session(user)
 
     return jsonify(

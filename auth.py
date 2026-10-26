@@ -6,8 +6,16 @@ from datetime import datetime, timedelta, timezone
 import json
 import secrets
 import requests
+from html import escape
 from urllib.parse import urlencode
 from notification_service import has_email_config, notify_admins, send_html_email
+from rate_limiter import client_ip, rate_blocked, rate_record, rate_reset
+from security_policy import (
+    LOGIN_ACCOUNT_FAILURE_LIMIT,
+    LOGIN_FAILURE_WINDOW_SECONDS,
+    LOGIN_IP_FAILURE_LIMIT,
+    password_policy_error,
+)
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -412,6 +420,10 @@ def send_activation_request_notification(request_record):
         datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y-%m-%d %H:%M:%S UTC')
     )
     request_note = (getattr(request_record, 'request_note', '') or '').strip() or '无'
+    # 用户可控字段写入 HTML 正文前必须转义，否则可借申请备注注入任意标签/脚本。
+    request_note_html = escape(request_note)
+    username_html = escape(str(getattr(request_record, 'username', '') or ''))
+    email_html = escape(str(getattr(request_record, 'email', '') or ''))
     subject = f'{site_name} - 新的激活码申请'
     text_body = (
         f"新的激活码申请\n"
@@ -431,20 +443,20 @@ def send_activation_request_notification(request_record):
             <p>有用户刚刚提交了激活码申请，请尽快处理。</p>
             <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
                 <tr><td style="padding: 8px; border: 1px solid #eee; width: 140px;"><strong>申请编号</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.id}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>用户名</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.username}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>邮箱</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.email}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>状态</strong></td><td style="padding: 8px; border: 1px solid #eee;">{request_record.status}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>用户名</strong></td><td style="padding: 8px; border: 1px solid #eee;">{username_html}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>邮箱</strong></td><td style="padding: 8px; border: 1px solid #eee;">{email_html}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>状态</strong></td><td style="padding: 8px; border: 1px solid #eee;">{escape(str(request_record.status or ""))}</td></tr>
                 <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>申请时间</strong></td><td style="padding: 8px; border: 1px solid #eee;">{created_at_text}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>备注</strong></td><td style="padding: 8px; border: 1px solid #eee; white-space: pre-wrap;">{request_note}</td></tr>
+                <tr><td style="padding: 8px; border: 1px solid #eee;"><strong>备注</strong></td><td style="padding: 8px; border: 1px solid #eee; white-space: pre-wrap;">{request_note_html}</td></tr>
             </table>
             <div style="margin: 30px 0; text-align: center;">
-                <a href="{admin_url}"
+                <a href="{escape(admin_url)}"
                    style="background: #28a745; color: white; text-decoration: none; padding: 12px 24px; border-radius: 6px; display: inline-block;">
                     打开后台管理界面
                 </a>
             </div>
             <p style="color: #999; font-size: 12px; text-align: center;">
-                此邮件由 {site_name} 自动发送，请勿回复。
+                此邮件由 {escape(site_name)} 自动发送，请勿回复。
             </p>
         </div>
     </body>
@@ -471,7 +483,7 @@ def send_verification_email(user, token):
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #667eea;">验证您的邮箱</h2>
-            <p>亲爱的 {user.username}：</p>
+            <p>亲爱的 {escape(user.username)}：</p>
             <p>请点击下面的按钮完成邮箱验证，验证通过后即可正常登录使用系统。</p>
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{verify_url}"
@@ -553,8 +565,8 @@ def send_email_change_verification(user, new_email, token):
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #667eea;">确认更换邮箱</h2>
-            <p>亲爱的 {user.username}：</p>
-            <p>您正在将账号邮箱更换为：<strong>{new_email}</strong></p>
+            <p>亲爱的 {escape(user.username)}：</p>
+            <p>您正在将账号邮箱更换为：<strong>{escape(new_email)}</strong></p>
             <p>请点击下面的按钮完成确认，确认后新邮箱才会生效。</p>
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{verify_url}"
@@ -639,8 +651,9 @@ def register():
             flash('两次输入的密码不一致', 'error')
             return _render_auth_template('auth/register.html')
         
-        if len(password) < 6:
-            flash('密码长度至少6位', 'error')
+        password_error = password_policy_error(password)
+        if password_error:
+            flash(password_error, 'error')
             return _render_auth_template('auth/register.html')
         
         # 检查用户名和邮箱是否已存在
@@ -726,12 +739,23 @@ def login():
         if not username_or_email or not password:
             flash('请输入用户名/邮箱和密码', 'error')
             return _render_auth_template('auth/login.html')
+
+        # 登录防爆破：账号维度 + 来源 IP 维度双计数，只有失败才记账。
+        account_key = f"login:account:{username_or_email.strip().lower()}"
+        ip_key = f"login:ip:{client_ip()}"
+        if rate_blocked(ip_key, LOGIN_IP_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_SECONDS):
+            flash('当前网络登录尝试过于频繁，请 15 分钟后再试', 'error')
+            return _render_auth_template('auth/login.html')
         
         # 支持用户名或邮箱登录
         user = User.query.filter((User.username == username_or_email) | 
                                 (User.email == username_or_email)).first()
+        password_ok = bool(user and user.check_password(password))
         
-        if user and user.check_password(password):
+        if password_ok:
+            # 密码正确始终放行：账号维度的失败计数只影响「错误密码」的响应，
+            # 否则攻击者可用错误密码把真实用户锁在门外（锁定型 DoS）。
+            rate_reset(account_key)
             if _email_verification_required() and not _is_email_verified(user):
                 try:
                     verification_token = _create_email_verification_token(user)
@@ -748,7 +772,15 @@ def login():
             else:
                 return redirect(url_for('user.dashboard'))
         else:
-            flash('用户名、邮箱或密码错误', 'error')
+            account_locked = rate_blocked(
+                account_key, LOGIN_ACCOUNT_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_SECONDS
+            )
+            rate_record(account_key, LOGIN_FAILURE_WINDOW_SECONDS)
+            rate_record(ip_key, LOGIN_FAILURE_WINDOW_SECONDS)
+            if account_locked:
+                flash('该账号登录失败次数过多，请 15 分钟后再试，或使用“忘记密码”重置密码', 'error')
+            else:
+                flash('用户名、邮箱或密码错误', 'error')
     
     return _render_auth_template('auth/login.html')
 
@@ -1106,8 +1138,9 @@ def reset_password(token):
             flash('两次输入的密码不一致', 'error')
             return render_template('auth/reset_password.html')
         
-        if len(password) < 6:
-            flash('密码长度至少6位', 'error')
+        password_error = password_policy_error(password)
+        if password_error:
+            flash(password_error, 'error')
             return render_template('auth/reset_password.html')
         
         # 更新密码
@@ -1137,8 +1170,8 @@ def send_reset_email(email, username, token):
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
             <h2 style="color: #667eea;">密码重置请求</h2>
-            <p>亲爱的 {username}：</p>
-            <p>您正在重置 {site_name} 的密码。请点击下面的链接设置新密码：</p>
+            <p>亲爱的 {escape(username)}：</p>
+            <p>您正在重置 {escape(site_name)} 的密码。请点击下面的链接设置新密码：</p>
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{reset_url}" 
                    style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -1159,7 +1192,7 @@ def send_reset_email(email, username, token):
             </p>
             <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
             <p style="color: #999; font-size: 12px; text-align: center;">
-                {site_name} 自动发送，请勿回复此邮件
+                {escape(site_name)} 自动发送，请勿回复此邮件
             </p>
         </div>
     </body>

@@ -16,6 +16,8 @@ import threading
 import time
 from collections import OrderedDict
 from notification_service import cleanup_expired_station_notifications, get_user_notification_config, save_user_notification_config, has_email_config
+from html_sanitizer import looks_like_rich_notification, sanitize_html
+from security_policy import password_policy_error
 from auth import _github_login_enabled, _create_email_change_token, _clear_email_change_token, send_email_change_verification
 
 user_bp = Blueprint('user', __name__, url_prefix='/user')
@@ -190,6 +192,10 @@ def _lunar_year_special_stats(lunar_year=None):
     return lunar_year, result
 
 
+# 富文本渲染前的兜底检测：命中即说明净化环节出了预期外的问题，直接降级为纯文本。
+_UNSAFE_HTML_RE = re.compile(r"<\s*(?:script|iframe|object|embed|svg|math)\b|\son[a-z]+\s*=", re.IGNORECASE)
+
+
 def _notification_event_label(event_type):
     labels = {
         'prediction_generated': '预测汇总',
@@ -202,7 +208,27 @@ def _notification_event_label(event_type):
 
 def _format_notification_item(item):
     raw_content = str(item.content or '')
-    is_html_content = '<div' in raw_content and 'prediction-summary-notice' in raw_content
+    # 富文本判定：优先用落库时写入的 content_format；没有该标记的历史记录
+    # 才回退到模板特征匹配。无论走哪条分支，最终都经过 sanitize_html
+    # 白名单净化，绝不把原始内容直接交给模板的 |safe。
+    content_format = str(getattr(item, 'content_format', '') or '').strip().lower()
+    if content_format == 'html':
+        html_content = sanitize_html(raw_content)
+        is_html_content = bool(html_content)
+    elif content_format == 'text':
+        # 明确标记为纯文本：一律交给 Jinja 转义，不做任何 HTML 解析
+        html_content = ''
+        is_html_content = False
+    else:
+        # NULL = content_format 列引入之前的历史记录，按模板特征识别后净化
+        html_content = sanitize_html(raw_content) if looks_like_rich_notification(raw_content) else ''
+        is_html_content = bool(html_content)
+
+    # 兜底自检：净化结果若仍出现脚本或事件处理器，直接降级为纯文本。
+    if html_content and _UNSAFE_HTML_RE.search(html_content):
+        html_content = ''
+        is_html_content = False
+
     lines = [
         str(line or '').strip()
         for line in raw_content.splitlines()
@@ -250,7 +276,7 @@ def _format_notification_item(item):
         'summary': summary,
         'details': detail_lines,
         'predictions': prediction_lines,
-        'html_content': raw_content if is_html_content else '',
+        'html_content': html_content if is_html_content else '',
     }
 
 
@@ -3410,8 +3436,9 @@ def change_password():
             flash('两次输入的新密码不一致', 'error')
             return redirect(url_for('user.dashboard'))
         
-        if len(new_password) < 6:
-            flash('新密码长度至少 6 位', 'error')
+        password_error = password_policy_error(new_password)
+        if password_error:
+            flash(password_error, 'error')
             return redirect(url_for('user.dashboard'))
         
         # 更新密码

@@ -7,6 +7,8 @@ services:
       - FLASK_ENV=production
       - FLASK_DEBUG=0
       - PYTHONUNBUFFERED=1
+      # 仅当容器确实部署在可信反向代理（Nginx/Caddy/Cloudflare Tunnel）之后时才可置 1，
+      # 否则客户端可自带 X-Forwarded-For 绕过登录限流。
       - TRUST_PROXY_HEADERS=1
       - AI_HTTP_CONNECT_TIMEOUT_SECONDS=10
       - AI_HTTP_READ_TIMEOUT_SECONDS=90
@@ -22,5 +24,7 @@ services:
     volumes: 
       - ./data:/app/data
     ports:
-      - "5000:5000"
+      # 只监听本机回环：对外必须经由前置反向代理访问。若改成 "5000:5000"
+      # （绑定 0.0.0.0），客户端可直连并伪造 X-Forwarded-For 绕过限流。
+      - "127.0.0.1:5000:5000"
     restart: unless-stopped

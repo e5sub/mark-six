@@ -32,6 +32,8 @@
                     {% endif %}
 
                     {% if card.html_content %}
+                    {# html_content 已在 user.py 中经 html_sanitizer 白名单净化，
+                       这里才允许 |safe。切勿直接换成 item.content。 #}
                     <div class="notification-html-content">
                         {{ card.html_content|safe }}
                     </div>

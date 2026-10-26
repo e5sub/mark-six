@@ -10,12 +10,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape
 from urllib.parse import urlparse
 
 import requests
 
 from models import db, SystemConfig, User, UserNotification
 from retention_service import cleanup_expired_station_notifications
+from html_sanitizer import sanitize_html
 
 
 # 通知发送默认走后台线程池：max_workers=1 保证串行发送，既不阻塞请求线程，
@@ -142,6 +144,26 @@ def _plain_text(value):
     return str(value or '').replace('<br>', '\n').replace('<br/>', '\n')
 
 
+def text_to_html(text):
+    """把纯文本包成邮件 HTML 片段。
+
+    通知内容常常拼了用户可控字段（用户名、备注、申请留言）。这类内容只能
+    当文本渲染，绝不能原样当 HTML 发出去，否则收件人打开邮件就会执行其中的
+    标签/脚本（邮件正文注入）。
+    """
+    body = escape(_plain_text(text), quote=False).replace('\n', '<br>')
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;'
+        'color:#333;">' + body + '</div>'
+    )
+
+
+def _sanitize_mail_header(value, fallback=''):
+    """邮件头禁止换行，否则可被注入额外头部（收件人/抄送劫持）。"""
+    cleaned = ' '.join(str(value or '').split())
+    return cleaned or fallback
+
+
 def _is_public_http_url(raw_url):
     try:
         parsed = urlparse(str(raw_url or '').strip())
@@ -197,10 +219,14 @@ def send_html_email(email, subject, html_body):
     if not all([smtp_server, smtp_username, smtp_password]):
         raise Exception('邮件服务未配置，请联系管理员')
 
+    recipient = _sanitize_mail_header(email)
+    if not recipient:
+        raise Exception('邮件收件人为空')
+
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
+    msg['Subject'] = _sanitize_mail_header(subject, '通知')
     msg['From'] = smtp_username
-    msg['To'] = email
+    msg['To'] = recipient
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
     # 给 SMTP 每段加超时，避免邮箱服务慢时无限阻塞调用线程。
@@ -311,11 +337,26 @@ def create_station_notification(user, title, content, event_type='general', link
 
     cleanup_expired_station_notifications(user.id, commit=False)
 
+    raw_content = str(content or '')
+    if preserve_html:
+        # 富文本必须先过白名单净化再落库，页面侧才允许按 HTML 渲染。
+        stored_content = sanitize_html(raw_content)
+        content_format = 'html'
+        if not stored_content:
+            stored_content = raw_content
+            content_format = 'text'
+    else:
+        # 纯文本：原样落库并由页面自动转义。注意 content 可能被上游拼接了
+        # 用户输入，因此绝不能在页面侧按 HTML 渲染（见 user.py 的格式判定）。
+        stored_content = _plain_text(raw_content)
+        content_format = 'text'
+
     record = UserNotification(
         user_id=user.id,
         event_type=event_type,
         title=title,
-        content=str(content or '') if preserve_html else _plain_text(content),
+        content=stored_content,
+        content_format=content_format,
         link_url=link_url or '',
     )
     db.session.add(record)
@@ -351,7 +392,7 @@ def notify_user(user, title, content, html_content=None, event_type='general', l
 
     if user and user.email and _is_enabled('notify_email_enabled', 'true'):
         try:
-            send_html_email(user.email, email_subject or title, html_content or content)
+            send_html_email(user.email, email_subject or title, html_content or text_to_html(content))
             results['email'] = True
         except Exception as exc:
             print(f"[notify] 用户邮件发送失败 email={user.email} error={exc}")
@@ -401,7 +442,7 @@ def notify_admins(title, content, html_content=None, event_type='admin', link_ur
                 continue
             sent_to.add(email)
             try:
-                send_html_email(email, title, html_content or content)
+                send_html_email(email, title, html_content or text_to_html(content))
                 email_results.append({'email': email, 'ok': True})
             except Exception as exc:
                 print(f"[notify] 管理员邮件发送失败 email={email} error={exc}")

@@ -6910,7 +6910,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               return;
                             }
                             if (next.length < 6) {
-                              _showMessage('新密码至少6位');
+                              _showMessage('新密码至少8位');
                               return;
                             }
                             if (next != confirm) {

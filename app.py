@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for, flash
+from flask import Flask, g, jsonify, render_template, request, session, redirect, url_for, flash
 from flask import Response, stream_with_context
 from flask_login import LoginManager, current_user
 import json
@@ -31,6 +31,16 @@ from models import (
     MacauCollectedData, SHARED_PREDICTION_USER_ID, personalized_predictions_enabled, prediction_scope_user_ids,
 )
 from retention_service import cleanup_expired_data
+from jinja2.ext import Extension
+from rate_limiter import client_ip, rate_limited
+from content_security import (
+    MINIMAL_POLICY,
+    build_policy,
+    collect_handler_hashes,
+    find_unprotected_scripts,
+    inject_template_nonce,
+    new_nonce,
+)
 from auth import auth_bp
 from admin import admin_bp
 from user import user_bp, _get_macau_collection_actual_map
@@ -586,32 +596,59 @@ _trust_proxy_headers = os.environ.get("TRUST_PROXY_HEADERS", "").lower() in ("1"
 if _trust_proxy_headers:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
-_SECURITY_RATE_LIMITS = {}
-_SECURITY_RATE_LIMITS_LOCK = threading.Lock()
+# CSP 开关：CSP_ENABLED=0 关闭；CSP_REPORT_ONLY=1 只上报不拦截（灰度观察用）；
+# CSP_INLINE_HANDLERS=0 把内联事件处理器也纳入 hash 白名单（更严格，但需要
+# 目标浏览器支持 script-src-attr + unsafe-hashes）。
+_CSP_ENABLED = os.environ.get("CSP_ENABLED", "1").lower() not in ("0", "false", "no")
+_CSP_REPORT_ONLY = os.environ.get("CSP_REPORT_ONLY", "").lower() in ("1", "true", "yes")
+_CSP_INLINE_HANDLERS = os.environ.get("CSP_INLINE_HANDLERS", "1").lower() not in ("0", "false", "no")
+
+
+class _CspNonceExtension(Extension):
+    """在模板**编译期**把 <script> 改写成带 nonce 的形式。
+
+    放在编译期而不是响应期，是为了让 nonce 只覆盖服务端模板产出的脚本；
+    用户注入的 HTML 不经过模板编译，因此拿不到 nonce，会被 CSP 拦下。
+    """
+
+    def preprocess(self, source, name, filename=None):
+        return inject_template_nonce(source)
+
+
+try:
+    app.jinja_env.add_extension(_CspNonceExtension)
+except Exception as _csp_ext_error:  # 扩展注册失败时退化为不加 nonce，CSP 仍会收紧其余指令
+    print(f"注册 CSP nonce 扩展失败: {_csp_ext_error}")
+
+
+@app.before_request
+def _init_csp_nonce():
+    g.csp_nonce = new_nonce()
+
+
+@app.context_processor
+def _inject_csp_nonce():
+    nonce = getattr(g, "csp_nonce", None)
+    if not nonce:
+        nonce = new_nonce()
+        try:
+            g.csp_nonce = nonce
+        except Exception:
+            pass
+    return {"csp_nonce": nonce}
 
 
 def _client_rate_key(scope):
     user_id = session.get("user_id")
-    remote_addr = request.headers.get("X-Forwarded-For", request.remote_addr or "")
-    remote_addr = remote_addr.split(",", 1)[0].strip()
-    return f"{scope}:user:{user_id}" if user_id else f"{scope}:ip:{remote_addr}"
+    # 已登录用户按账号限流；未登录只信任 TCP 对端地址，避免伪造
+    # X-Forwarded-For 绕过限流（详见 rate_limiter.client_ip）。
+    if user_id:
+        return f"{scope}:user:{user_id}"
+    return f"{scope}:ip:{client_ip()}"
 
 
 def _rate_limited(scope, limit, window_seconds):
-    now = time.time()
-    key = _client_rate_key(scope)
-    with _SECURITY_RATE_LIMITS_LOCK:
-        bucket = [
-            timestamp
-            for timestamp in _SECURITY_RATE_LIMITS.get(key, [])
-            if now - timestamp < window_seconds
-        ]
-        if len(bucket) >= limit:
-            _SECURITY_RATE_LIMITS[key] = bucket
-            return True
-        bucket.append(now)
-        _SECURITY_RATE_LIMITS[key] = bucket
-    return False
+    return rate_limited(_client_rate_key(scope), limit, window_seconds)
 
 
 def _same_origin_request():
@@ -730,7 +767,7 @@ def security_request_guards():
 
 _CSRF_AUTO_SCRIPT = """
 <meta name="csrf-token" content="{token}">
-<script>
+<script nonce="{nonce}">
 (function() {{
   var token = "{token}";
   function isUnsafe(method) {{
@@ -768,6 +805,60 @@ _CSRF_AUTO_SCRIPT = """
 
 
 @app.after_request
+def apply_content_security_policy(response):
+    """给响应加 CSP；HTML 页面的 nonce 已在模板编译期写入。
+
+    这个钩子注册在 ``inject_csrf_helpers`` 之前，因此**最后**执行（Flask 的
+    after_request 是后进先出），此时正文已经包含 CSRF 自动注入的脚本。
+    """
+    if not _CSP_ENABLED:
+        return response
+    try:
+        if response.direct_passthrough:
+            # 静态文件等流式响应不读正文，但仍要给出最小策略：
+            # 一旦被当作文档打开，什么子资源都不该加载。
+            response.headers.setdefault("Content-Security-Policy", MINIMAL_POLICY)
+            return response
+
+        mimetype = response.mimetype or ""
+        if "text/html" not in mimetype:
+            # JSON / 静态文件：不是文档，任何子资源都不该加载。
+            response.headers.setdefault("Content-Security-Policy", MINIMAL_POLICY)
+            return response
+
+        if response.status_code in (204, 304):
+            return response
+
+        nonce = getattr(g, "csp_nonce", "") or new_nonce()
+        body = response.get_data(as_text=True)
+
+        # 自检：模板之外的脚本（例如某处动态拼接的 HTML 片段）拿不到 nonce，
+        # 会被 CSP 拦掉。这里只告警，不自动补 nonce——自动补就等于给注入内容
+        # 发通行证，那正是要防的事。
+        unprotected = find_unprotected_scripts(body)
+        if unprotected:
+            print(f"[csp] {request.path} 存在未带 nonce 的脚本，将被拦截：{unprotected[:3]}")
+
+        allow_inline_handlers = True
+        handler_hashes = None
+        if not _CSP_INLINE_HANDLERS:
+            handler_hashes, complete = collect_handler_hashes(body)
+            # hash 数量爆炸（超长列表页）时退回 inline，避免响应头几十 KB。
+            allow_inline_handlers = not complete
+
+        policy = build_policy(
+            nonce,
+            handler_hashes=handler_hashes,
+            allow_inline_handlers=allow_inline_handlers,
+        )
+        header = "Content-Security-Policy-Report-Only" if _CSP_REPORT_ONLY else "Content-Security-Policy"
+        response.headers[header] = policy
+    except Exception as e:
+        print(f"注入 CSP 失败: {e}")
+    return response
+
+
+@app.after_request
 def inject_csrf_helpers(response):
     try:
         if request.method != "GET":
@@ -778,7 +869,10 @@ def inject_csrf_helpers(response):
         if "</head>" not in body or 'name="csrf-token"' in body:
             return response
         token = _get_csrf_token()
-        body = body.replace("</head>", _CSRF_AUTO_SCRIPT.format(token=token) + "\n</head>", 1)
+        nonce = getattr(g, "csp_nonce", "")
+        body = body.replace(
+            "</head>", _CSRF_AUTO_SCRIPT.format(token=token, nonce=nonce) + "\n</head>", 1
+        )
         response.set_data(body)
         response.headers["Content-Length"] = str(len(response.get_data()))
     except Exception as e:
@@ -2028,6 +2122,10 @@ def _sync_runtime_database_schema():
         },
         'manual_bet_records': {
             'bettor_name': 'VARCHAR(50)',
+        },
+        'user_notification': {
+            # 不设默认值：留 NULL 才能区分「历史记录」与「新的纯文本记录」
+            'content_format': 'VARCHAR(10)',
         },
     }
 
@@ -15148,7 +15246,7 @@ def send_winning_notification_email(user, prediction, region):
                 <h2>恭喜您！预测命中通知</h2>
             </div>
             <div class="content">
-                <p>尊敬的 <strong>{user.username}</strong>：</p>
+                <p>尊敬的 <strong>{escape(user.username)}</strong>：</p>
                 <p>恭喜您！您使用<strong>{strategy_name}</strong>对{region_name}六合彩第{prediction.period}期的特码预测已经<span class="highlight">命中</span>！</p>
                 
                 <div class="info-row"><strong>预测期数：</strong> {prediction.period}</div>
