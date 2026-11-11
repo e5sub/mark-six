@@ -172,7 +172,32 @@ python auto_update_db.py
 - `smtp_port`
 - `smtp_username`
 - `smtp_password`
-- `notify_email_enabled`
+- `notify_email_enabled` — 邮件通道总开关，**默认开启**（表示“系统有能力发信”，
+  不代表所有用户都收信）
+
+邮件通知是**用户级订阅**，默认关闭，由每个用户在「用户中心 → 推送设置 → 邮件通知」
+自行开启。两层开关是「与」的关系：
+
+| 层级 | 配置 | 默认 | 作用 |
+| --- | --- | --- | --- |
+| 系统 | `notify_email_enabled` | 开 | 邮件通道是否可用，SMTP 未配置时实际也发不出 |
+| 用户 | `user_notify_<id>_email_enabled` | 关 | 该用户是否订阅通知邮件 |
+
+按邮件类型区分：
+
+| 类型 | 内容 | 受开关控制 |
+| --- | --- | --- |
+| 通知邮件 | 预测生成、命中提醒、系统通知、激活申请提醒 | 是（系统开关 + 用户订阅都需开启） |
+| 账户邮件 | 邮箱验证、更换邮箱确认、重置密码 | 否（关掉会导致用户无法验证和找回密码） |
+
+升级说明：新库无需处理。旧库首次启动会自动补齐每个用户的
+`user_notify_<id>_email_enabled = false`（标记 `email_notify_user_default_off_v1`，
+只执行一次，用户之后手动开启不会被重置）。也可以不等重启，直接执行：
+
+```bash
+python scripts/reset_email_notification_defaults.py          # 预览
+python scripts/reset_email_notification_defaults.py --apply  # 写入
+```
 
 ### 激活申请通知
 
@@ -181,7 +206,7 @@ python auto_update_db.py
 说明：
 
 - 可填写一个或多个邮箱，多个邮箱使用英文逗号分隔
-- 用户提交激活码申请后，系统会发送通知邮件
+- 用户提交激活码申请后，系统会发送通知邮件：优先发往 `activation_request_notify_emails` 配置的地址（配置即视为订阅），未配置时只发给已在用户中心开启邮件的管理员；站内通知不受影响
 - 留空时默认通知所有管理员账号邮箱
 
 ### 系统展示配置

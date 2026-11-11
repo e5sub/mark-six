@@ -445,7 +445,7 @@ configs = [
     ("smtp_username", "", "SMTP 用户名"),
     ("smtp_password", "", "SMTP 密码"),
     ("activation_request_notify_emails", "", "激活申请通知邮箱"),
-    ("notify_email_enabled", "true", "启用邮件通知"),
+    ("notify_email_enabled", "true", "启用邮件通道（用户需在用户中心自行开启接收）"),
     ("site_name", "AI数据分析预测系统", "站点名称"),
     ("site_description", "", "站点描述"),
     ("seo_title", "彩研所 - 香港澳门彩票数据分析与智能预测", "SEO标题"),

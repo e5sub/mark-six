@@ -3211,6 +3211,8 @@ def notification_settings():
         'user/notification_settings.html',
         user=user,
         notification_config=get_user_notification_config(user),
+        # 邮件通道是否可用：SMTP 已配置且管理员没有关掉全局开关
+        email_channel_ready=bool(has_email_config()),
     )
 
 @user_bp.route('/save_prediction_settings', methods=['POST'])

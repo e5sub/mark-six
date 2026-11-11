@@ -81,6 +81,18 @@
         line-height: 1.55;
     }
 
+    .notify-hint {
+        margin: 0;
+        color: #fbbf24;
+        font-size: 0.85rem;
+        line-height: 1.55;
+    }
+
+    .notify-toggle.is-disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+
     .notify-toggle {
         display: inline-flex;
         align-items: center;
@@ -229,6 +241,31 @@
                         <span class="notify-toggle-text">启用</span>
                     </label>
                 </div>
+            </section>
+
+            <section class="notify-panel">
+                <div class="notify-panel-head">
+                    <div>
+                        <h3 class="notify-channel-name">邮件通知</h3>
+                        <p class="notify-channel-note">
+                            {% if user.email %}
+                                预测生成、命中提醒等通知会发送到 {{ user.email }}。默认关闭，需要时手动开启。
+                            {% else %}
+                                当前账号还没有填写邮箱，请先在个人资料中补充邮箱后再开启。
+                            {% endif %}
+                        </p>
+                    </div>
+                    <label class="notify-toggle{{ '' if user.email else ' is-disabled' }}">
+                        <input type="checkbox" name="email_enabled"
+                               {{ 'checked' if notification_config.get('email_enabled') else '' }}
+                               {{ 'disabled' if not user.email else '' }}>
+                        <span class="notify-switch" aria-hidden="true"></span>
+                        <span class="notify-toggle-text">启用</span>
+                    </label>
+                </div>
+                {% if user.email and not email_channel_ready %}
+                <p class="notify-hint">管理员还没有配置发件邮箱（SMTP），此时开启也暂时收不到邮件。</p>
+                {% endif %}
             </section>
 
             <section class="notify-panel">

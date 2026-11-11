@@ -289,6 +289,56 @@ def main():
         check("纯文本通知按文本转义", "<script" not in plain and "&lt;script&gt;" in plain)
         check("纯文本通知保留换行", "<br>" in plain)
 
+        print("\n--- 11. 邮件通知：用户级订阅默认关闭 ---")
+        import notification_service as ns_module
+
+        sub_user = User(username="sub_user_r", email="sub_user_r@example.com",
+                        is_admin=False, is_active=True)
+        sub_user.set_password("UserPass123")
+        db.session.add(sub_user)
+        db.session.commit()
+
+        check("新用户默认不订阅邮件",
+              ns_module.get_user_notification_config(sub_user).get("email_enabled") is False)
+
+        class _Form(dict):
+            def get(self, key, default=None):
+                return dict.get(self, key, default)
+
+        mailbox = []
+        original_send_html = ns_module.send_html_email
+        ns_module.send_html_email = lambda to, subject, body: mailbox.append(to)
+        try:
+            ns_module.notify_user(sub_user, "测试通知", "内容")
+            check("默认关闭时不发通知邮件", mailbox == [], str(mailbox))
+
+            ns_module.save_user_notification_config(sub_user, _Form(email_enabled="on"))
+            check("用户开启后状态为已订阅",
+                  ns_module.get_user_notification_config(sub_user).get("email_enabled") is True)
+
+            mailit = []
+            ns_module.send_html_email = lambda to, subject, body: mailit.append(to)
+            ns_module.notify_user(sub_user, "测试通知", "内容")
+            check("用户开启后发送通知邮件", mailit == ["sub_user_r@example.com"], str(mailit))
+
+            ns_module.save_user_notification_config(sub_user, _Form())
+            mailit.clear()
+            ns_module.notify_user(sub_user, "测试通知", "内容")
+            check("取消订阅后立即停发", mailit == [], str(mailit))
+        finally:
+            ns_module.send_html_email = original_send_html
+
+        sub_client = app.test_client()
+        with sub_client.session_transaction() as sess:
+            sess["user_id"] = sub_user.id
+            sess["is_active"] = True
+        page = sub_client.get("/user/notification_settings")
+        html = page.get_data(as_text=True) if page.status_code == 200 else ""
+        check("推送设置页有邮件开关", 'name="email_enabled"' in html, str(page.status_code))
+        check("未订阅时开关为未勾选",
+              'name="email_enabled"' in html and "checked" not in
+              html.split('name="email_enabled"', 1)[1].split(">", 1)[0])
+
     print()
     print("FAILED:", FAILS if FAILS else "none")
     return 1 if FAILS else 0

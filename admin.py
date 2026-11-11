@@ -1624,15 +1624,29 @@ SYSTEM_CONFIG_DEFAULTS = {
     'auto_optimize_min_gain': '0.6',
 }
 
+# 表单里以复选框呈现的开关：未勾选时浏览器根本不会提交该字段，
+# 必须按“存在即 true”处理，否则回退到默认值会让开关永远关不掉。
+BOOLEAN_CONFIG_KEYS = frozenset({
+    'notify_email_enabled',
+    'allow_registration',
+    'require_email_verification',
+    'enable_turnstile',
+    'enable_github_login',
+    'enable_personalized_predictions',
+    'auto_optimize_enabled',
+})
+
 @admin_bp.route('/system_config', methods=['GET', 'POST'])
 @admin_required
 def system_config():
     try:
         if request.method == 'POST':
-            configs = {
-                key: request.form.get(key, default)
-                for key, default in SYSTEM_CONFIG_DEFAULTS.items()
-            }
+            configs = {}
+            for key, default in SYSTEM_CONFIG_DEFAULTS.items():
+                if key in BOOLEAN_CONFIG_KEYS:
+                    configs[key] = 'true' if request.form.get(key) else 'false'
+                else:
+                    configs[key] = request.form.get(key, default)
 
             retention_keys = (
                 'prediction_record_retention_days',

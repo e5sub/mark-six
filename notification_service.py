@@ -104,6 +104,8 @@ def get_user_notification_config(user):
         return {}
     return {
         'station_enabled': _is_enabled(_user_config_key(user_id, 'station_enabled'), 'true'),
+        # 邮件通知是用户主动订阅项：默认关闭，由用户在用户中心自行开启。
+        'email_enabled': _is_enabled(_user_config_key(user_id, 'email_enabled'), 'false'),
         'webhook_enabled': _is_enabled(_user_config_key(user_id, 'webhook_enabled')),
         'webhook_url': _get_config(_user_config_key(user_id, 'webhook_url')),
         'telegram_enabled': _is_enabled(_user_config_key(user_id, 'telegram_enabled')),
@@ -124,6 +126,7 @@ def save_user_notification_config(user, form):
         return
     values = {
         'station_enabled': 'true' if 'station_enabled' in form else 'false',
+        'email_enabled': 'true' if 'email_enabled' in form else 'false',
         'webhook_enabled': 'true' if 'webhook_enabled' in form else 'false',
         'webhook_url': (form.get('webhook_url') or '').strip(),
         'telegram_enabled': 'true' if 'telegram_enabled' in form else 'false',
@@ -390,7 +393,12 @@ def notify_user(user, title, content, html_content=None, event_type='general', l
             db.session.rollback()
             results['station'] = str(exc)
 
-    if user and user.email and _is_enabled('notify_email_enabled', 'true'):
+    if (
+        user
+        and user.email
+        and user_config.get('email_enabled')
+        and _is_enabled('notify_email_enabled', 'true')
+    ):
         try:
             send_html_email(user.email, email_subject or title, html_content or text_to_html(content))
             results['email'] = True
@@ -435,7 +443,17 @@ def notify_admins(title, content, html_content=None, event_type='admin', link_ur
     if _is_enabled('notify_email_enabled', 'true'):
         recipients = list(email_recipients or [])
         if not recipients:
-            recipients = [admin.email for admin in admin_users if admin.email]
+            # 未显式指定收件人时，只发给在用户中心开启邮件的管理员。
+            recipients = []
+            for admin in admin_users:
+                if not admin.email:
+                    continue
+                try:
+                    if not get_user_notification_config(admin).get('email_enabled'):
+                        continue
+                except Exception:
+                    continue
+                recipients.append(admin.email)
         email_results = []
         for email in recipients:
             if not email or email in sent_to:
