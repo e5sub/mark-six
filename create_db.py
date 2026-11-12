@@ -471,6 +471,9 @@ configs = [
     ("auto_optimize_enabled", "false", "启用策略自动优化"),
     ("auto_optimize_level", "balanced", "策略自动优化等级"),
     ("auto_optimize_min_gain", "0.6", "策略自动优化最小收益阈值"),
+    ("adsense_enabled", "false", "启用 Google AdSense 广告"),
+    ("adsense_client_id", "", "Google AdSense 发布商 ID（ca-pub-开头）"),
+    ("adsense_adsense_txt", "", "ads.txt 内容（AdSense 后台提供，一行一条记录）"),
 ]
 
 for key, value, description in configs:

@@ -1,0 +1,5 @@
+{# Google AdSense 自动广告：后台「系统配置 → 广告配置」开启后，前台页面加载。
+   脚本 nonce 由 Jinja 编译期扩展统一注入；管理后台与用户中心不引入本片段。 #}
+{% if adsense_enabled and adsense_client_id %}
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client_id }}" crossorigin="anonymous"></script>
+{% endif %}

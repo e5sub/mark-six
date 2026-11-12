@@ -1622,6 +1622,9 @@ SYSTEM_CONFIG_DEFAULTS = {
     'auto_optimize_enabled': 'false',
     'auto_optimize_level': 'balanced',
     'auto_optimize_min_gain': '0.6',
+    'adsense_enabled': 'false',
+    'adsense_client_id': '',
+    'adsense_adsense_txt': '',
 }
 
 # 表单里以复选框呈现的开关：未勾选时浏览器根本不会提交该字段，
@@ -1634,6 +1637,7 @@ BOOLEAN_CONFIG_KEYS = frozenset({
     'enable_github_login',
     'enable_personalized_predictions',
     'auto_optimize_enabled',
+    'adsense_enabled',
 })
 
 @admin_bp.route('/system_config', methods=['GET', 'POST'])

@@ -308,6 +308,9 @@ def update_database():
             ensure_system_config(cursor, 'user_notification_retention_days', '30', '站内通知保留天数，0 表示永久保留')
             ensure_system_config(cursor, 'backtest_runs_retention_days', '90', '回测快照保留天数，0 表示永久保留')
             ensure_system_config(cursor, 'macau_collected_data_retention_days', '365', '澳门采集记录保留天数，0 表示永久保留')
+            ensure_system_config(cursor, 'adsense_enabled', 'false', '启用 Google AdSense 广告')
+            ensure_system_config(cursor, 'adsense_client_id', '', 'Google AdSense 发布商 ID（ca-pub-开头）')
+            ensure_system_config(cursor, 'adsense_adsense_txt', '', 'ads.txt 内容（AdSense 后台提供，一行一条记录）')
             # 存量库迁移：站内通知保留期从旧的默认 365 天改为 30 天（管理员自定义过的值不覆盖）
             _sqlite_migrate_notification_retention(cursor)
         

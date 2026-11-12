@@ -850,6 +850,7 @@ def apply_content_security_policy(response):
             nonce,
             handler_hashes=handler_hashes,
             allow_inline_handlers=allow_inline_handlers,
+            adsense=_adsense_enabled(),
         )
         header = "Content-Security-Policy-Report-Only" if _CSP_REPORT_ONLY else "Content-Security-Policy"
         response.headers[header] = policy
@@ -902,6 +903,39 @@ def _safe_system_config(key, default=""):
         return default
 
 
+# Google AdSense 发布商 ID 形如 ca-pub-1234567890123456。
+# 只放行合法格式，避免配置值被拼进脚本 URL 时夹带其他内容。
+_ADSENSE_CLIENT_RE = re.compile(r"^ca-pub-\d{4,}$")
+
+
+def _adsense_client_id():
+    raw = str(_safe_system_config("adsense_client_id", "") or "").strip()
+    return raw if _ADSENSE_CLIENT_RE.fullmatch(raw) else ""
+
+
+def _adsense_enabled():
+    if str(_safe_system_config("adsense_enabled", "false")).strip().lower() != "true":
+        return False
+    return bool(_adsense_client_id())
+
+
+@app.route("/ads.txt")
+def ads_txt():
+    """AdSense 要求在站点根路径提供 ads.txt；内容由后台配置维护。"""
+    if not _adsense_enabled():
+        return Response("", mimetype="text/plain"), 404
+    raw = str(_safe_system_config("adsense_adsense_txt", "") or "")
+    lines = []
+    for line in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = line.strip()
+        # 只放行 ads.txt 记录的合法字符（域名、ID、逗号、DIRECT/RESELLER 等）
+        if line and re.fullmatch(r"[A-Za-z0-9. ,=_\-]+", line):
+            lines.append(line)
+    if not lines:
+        return Response("", mimetype="text/plain"), 404
+    return Response("\n".join(lines) + "\n", mimetype="text/plain")
+
+
 @app.context_processor
 def inject_system_settings():
     default_seo_title = "彩研所 - 香港澳门彩票数据分析与智能预测"
@@ -927,6 +961,8 @@ def inject_system_settings():
         "system_description": system_description,
         "seo_title": seo_title,
         "seo_description": seo_description,
+        "adsense_enabled": _adsense_enabled(),
+        "adsense_client_id": _adsense_client_id(),
     }
 
 _startup_log_lock_path = None
@@ -15535,6 +15571,9 @@ def init_database():
             ('smtp_password', '', 'SMTP密码'),
             ('site_base_url', '', '站点对外地址（邮件/回调链接基于此生成，留空则用当前访问域名）'),
             ('notify_email_enabled', 'true', '启用邮件通道（用户需在用户中心自行开启接收）'),
+            ('adsense_enabled', 'false', '启用 Google AdSense 广告'),
+            ('adsense_client_id', '', 'Google AdSense 发布商 ID（ca-pub-开头）'),
+            ('adsense_adsense_txt', '', 'ads.txt 内容（AdSense 后台提供，一行一条记录）'),
         ]
         
         for key, value, description in configs:

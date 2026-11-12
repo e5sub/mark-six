@@ -352,6 +352,34 @@
                 </div>
             </section>
 
+            <section class="config-section" style="--section-accent: #f59e0b;">
+                <h3 class="config-section-title">💰 广告配置（Google AdSense）</h3>
+                <div class="config-grid">
+                    <div class="config-field config-field-full">
+                        <label class="admin-switch">
+                            <input type="checkbox" name="adsense_enabled"
+                                   {{ 'checked' if configs.get('adsense_enabled', 'false') == 'true' else '' }}>
+                            <span class="admin-switch-track" aria-hidden="true"></span>
+                            <span class="admin-switch-text">启用 Google AdSense 广告</span>
+                        </label>
+                        <span class="config-hint">开启后在前台页面（分析主页、AI 聊天室、登录/注册）加载 AdSense 自动广告；管理后台和用户中心不投放。</span>
+                    </div>
+                    <div class="config-field config-field-full">
+                        <label>AdSense 发布商 ID</label>
+                        <input type="text" name="adsense_client_id" class="form-control"
+                               value="{{ configs.get('adsense_client_id', '') }}"
+                               placeholder="ca-pub-1234567890123456">
+                        <span class="config-hint">在 AdSense 后台「账号 → 客户端」查看，ca-pub- 开头。格式不合法时广告不会加载。</span>
+                    </div>
+                    <div class="config-field config-field-full">
+                        <label>ads.txt 内容</label>
+                        <textarea name="adsense_adsense_txt" class="form-control" rows="3"
+                                  placeholder="google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0">{{ configs.get('adsense_adsense_txt', '') }}</textarea>
+                        <span class="config-hint">AdSense 后台「站点 → ads.txt」提供的记录，一行一条；保存后通过 https://你的域名/ads.txt 访问。留空则该路径返回 404。</span>
+                    </div>
+                </div>
+            </section>
+
             <section class="config-section config-section-wide" style="--section-accent: #0ea5e9;">
                 <h3 class="config-section-title">🧩 功能开关与优化</h3>
                 <div class="config-grid config-grid-three">
@@ -421,7 +449,8 @@ document.getElementById('configForm').addEventListener('submit', function(e) {
         'enable_github_login',
         'enable_personalized_predictions',
         'auto_optimize_enabled',
-        'notify_email_enabled'
+        'notify_email_enabled',
+        'adsense_enabled'
     ];
 
     for (const [key, value] of formData.entries()) {

@@ -38,6 +38,27 @@ __all__ = [
 _STYLE_SOURCES = ("https://cdnjs.cloudflare.com", "https://fastly.jsdelivr.net")
 _TURNSTILE = "https://challenges.cloudflare.com"
 
+# Google AdSense（后台开启广告后放行）。脚本本体在模板里带 nonce 加载，
+# strict-dynamic 会放行它动态创建的子脚本；这里补齐广告 iframe / 回传 /
+# 图片素材需要的 connect-src / img-src / frame-src 主机。
+_ADSENSE_CONNECT = (
+    "https://pagead2.googlesyndication.com",
+    "https://googleads.g.doubleclick.net",
+    "https://tpc.googlesyndication.com",
+    "https://fundingchoicesmessages.google.com",
+)
+_ADSENSE_IMG = (
+    "https://pagead2.googlesyndication.com",
+    "https://googleads.g.doubleclick.net",
+    "https://tpc.googlesyndication.com",
+    "https://www.google.com",
+)
+_ADSENSE_FRAME = (
+    "https://googleads.g.doubleclick.net",
+    "https://tpc.googlesyndication.com",
+    "https://fundingchoicesmessages.google.com",
+)
+
 # 模板源码里的 <script>：已带 nonce 的跳过，避免重复处理。
 _TEMPLATE_SCRIPT_TAG = re.compile(r"<script(?![^>]*\bnonce\s*=)(\s[^>]*)?>", re.IGNORECASE)
 # 渲染后的正文里仍未带 nonce 的 <script>（= 不是模板产出的，需要关注）
@@ -102,7 +123,7 @@ def collect_handler_hashes(html_body, limit=_MAX_HANDLER_HASHES):
     return hashes, True
 
 
-def build_policy(nonce, handler_hashes=None, allow_inline_handlers=True, report_uri=None):
+def build_policy(nonce, handler_hashes=None, allow_inline_handlers=True, report_uri=None, adsense=False):
     """拼出完整 CSP。``handler_hashes`` 仅在 ``allow_inline_handlers=False`` 时生效。"""
     directives = [
         "default-src 'self'",
@@ -131,6 +152,15 @@ def build_policy(nonce, handler_hashes=None, allow_inline_handlers=True, report_
         "connect-src 'self' " + _TURNSTILE,
         "frame-src 'self' " + _TURNSTILE,
     ])
+
+    if adsense:
+        for i, d in enumerate(directives):
+            if d.startswith("connect-src"):
+                directives[i] = d + " " + " ".join(_ADSENSE_CONNECT)
+            elif d.startswith("img-src"):
+                directives[i] = d + " " + " ".join(_ADSENSE_IMG)
+            elif d.startswith("frame-src"):
+                directives[i] = d + " " + " ".join(_ADSENSE_FRAME)
 
     if report_uri:
         directives.append(f"report-uri {report_uri}")

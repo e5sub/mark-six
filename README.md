@@ -229,6 +229,20 @@ python scripts/reset_email_notification_defaults.py --apply  # 写入
 - `auto_optimize_level`
 - `auto_optimize_min_gain`
 
+### 广告配置（Google AdSense）
+
+| 配置键 | 默认 | 说明 |
+|---|---|---|
+| `adsense_enabled` | `false` | 是否启用 AdSense 广告 |
+| `adsense_client_id` | 空 | 发布商 ID，`ca-pub-` 开头；格式不合法时广告不会加载 |
+| `adsense_adsense_txt` | 空 | ads.txt 记录，一行一条；通过 `https://站点域名/ads.txt` 访问，留空则该路径返回 404 |
+
+说明：
+
+- 开启后在前台页面（分析主页、AI 聊天室、登录/注册）的 `<head>` 加载 AdSense 自动广告脚本；管理后台和用户中心不投放。
+- 广告脚本自动带上 CSP nonce，相关 Google 广告域名（pagead2.googlesyndication.com、googleads.g.doubleclick.net、tpc.googlesyndication.com、fundingchoicesmessages.google.com）仅在开启时加入 CSP 白名单。
+- 新配置项会在启动时通过 `auto_update_db.py` 自动写入 `system_config` 表，无需手动迁移。
+
 ## 使用流程
 
 ### 普通用户
