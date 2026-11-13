@@ -311,6 +311,8 @@ def update_database():
             ensure_system_config(cursor, 'adsense_enabled', 'false', '启用 Google AdSense 广告')
             ensure_system_config(cursor, 'adsense_client_id', '', 'Google AdSense 发布商 ID（ca-pub-开头）')
             ensure_system_config(cursor, 'adsense_adsense_txt', '', 'ads.txt 内容（AdSense 后台提供，一行一条记录）')
+            ensure_system_config(cursor, 'smtp_use_tls', 'true', 'SMTP 启用 TLS（STARTTLS）')
+            ensure_system_config(cursor, 'smtp_use_ssl', '', 'SMTP 启用 SSL（空为自动：跟随TLS取反）')
             # 存量库迁移：站内通知保留期从旧的默认 365 天改为 30 天（管理员自定义过的值不覆盖）
             _sqlite_migrate_notification_retention(cursor)
         

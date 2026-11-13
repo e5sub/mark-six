@@ -444,6 +444,8 @@ configs = [
     ("smtp_port", "587", "SMTP 端口"),
     ("smtp_username", "", "SMTP 用户名"),
     ("smtp_password", "", "SMTP 密码"),
+    ("smtp_use_tls", "true", "SMTP 启用 TLS（STARTTLS）"),
+    ("smtp_use_ssl", "", "SMTP 启用 SSL（空为自动：跟随TLS取反）"),
     ("activation_request_notify_emails", "", "激活申请通知邮箱"),
     ("notify_email_enabled", "true", "启用邮件通道（用户需在用户中心自行开启接收）"),
     ("site_name", "AI数据分析预测系统", "站点名称"),

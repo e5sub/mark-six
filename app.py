@@ -2345,57 +2345,6 @@ def _sync_runtime_database_schema():
             except Exception as e:
                 print(f"Failed to create missing index {name} on {table_name}: {e}")
 
-EMAIL_NOTIFY_MIGRATION_FLAG = 'email_notify_user_default_off_v1'
-LEGACY_EMAIL_NOTIFY_MIGRATION_FLAG = 'email_notify_default_off_v1'
-
-
-def _migrate_email_notification_defaults():
-    """一次性迁移：邮件通知改为「用户级订阅，默认关闭」。
-
-    旧版本只有一个全局开关 notify_email_enabled（默认开启），等于所有用户默认
-    收信。现在拆成两层：
-
-    - 全局开关表示「邮件通道是否可用」，恢复默认开启，由管理员控制；
-    - 每个用户在用户中心自己决定是否订阅（user_notify_<id>_email_enabled，
-      默认关闭）。
-
-    存量用户补齐一条显式的 false，既保证升级后立即停发，也让后台能直接看到
-    真实状态。用标记键保证只跑一次——用户之后手动开启不会被下次启动重置。
-    """
-    with app.app_context():
-        try:
-            if SystemConfig.query.filter_by(key=EMAIL_NOTIFY_MIGRATION_FLAG).first():
-                return
-
-            # 上一版迁移曾把全局开关自动改成 false；若那个标记存在，说明是我们
-            # 改的而不是管理员的意愿，这里还原成默认的 true。
-            if SystemConfig.query.filter_by(key=LEGACY_EMAIL_NOTIFY_MIGRATION_FLAG).first():
-                SystemConfig.set_config(
-                    'notify_email_enabled',
-                    'true',
-                    '启用邮件通道（用户需在用户中心自行开启接收）',
-                )
-
-            migrated = 0
-            for user in User.query.all():
-                key = f'user_notify_{user.id}_email_enabled'
-                if SystemConfig.query.filter_by(key=key).first():
-                    continue
-                SystemConfig.set_config(
-                    key, 'false', f'User notification config {user.id}:email_enabled'
-                )
-                migrated += 1
-
-            SystemConfig.set_config(
-                EMAIL_NOTIFY_MIGRATION_FLAG, '1', '邮件通知用户级默认关闭迁移标记'
-            )
-            if _should_log_startup():
-                print(f'邮件通知已改为用户级订阅：{migrated} 个存量用户设为关闭')
-        except Exception as e:
-            db.session.rollback()
-            print(f'迁移邮件通知默认值失败: {e}')
-
-
 def ensure_runtime_database_schema():
     """在应用启动时尽早补齐数据库结构，避免WSGI模式下缺列报错。"""
     with app.app_context():
@@ -2408,8 +2357,6 @@ def ensure_runtime_database_schema():
             _sync_runtime_database_schema()
         except Exception as e:
             print(f"Runtime schema sync failed: {e}")
-
-        _migrate_email_notification_defaults()
 
         try:
             from auto_update_db import check_and_update_database
@@ -15569,6 +15516,8 @@ def init_database():
             ('smtp_port', '587', 'SMTP端口'),
             ('smtp_username', '', 'SMTP用户名'),
             ('smtp_password', '', 'SMTP密码'),
+            ('smtp_use_tls', 'true', 'SMTP 启用 TLS（STARTTLS）'),
+            ('smtp_use_ssl', '', 'SMTP 启用 SSL（空为自动：跟随TLS取反）'),
             ('site_base_url', '', '站点对外地址（邮件/回调链接基于此生成，留空则用当前访问域名）'),
             ('notify_email_enabled', 'true', '启用邮件通道（用户需在用户中心自行开启接收）'),
             ('adsense_enabled', 'false', '启用 Google AdSense 广告'),

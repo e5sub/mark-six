@@ -205,6 +205,22 @@ def has_email_config():
     ])
 
 
+def _smtp_connection_mode():
+    """解析 SMTP 连接模式：是否走 SSL 直连、是否用 STARTTLS。
+
+    - `smtp_use_tls` 默认开启（STARTTLS）；
+    - `smtp_use_ssl` 为空表示自动：跟随 TLS 取反——启用 TLS 时默认关闭 SSL，
+      未启用 TLS 时默认启用 SSL；显式配置 true/false 时以配置为准。
+    """
+    use_tls = str(SystemConfig.get_config('smtp_use_tls', 'true') or 'true').strip().lower() == 'true'
+    raw_ssl = str(SystemConfig.get_config('smtp_use_ssl', '') or '').strip().lower()
+    if raw_ssl in ('true', 'false'):
+        use_ssl = raw_ssl == 'true'
+    else:
+        use_ssl = not use_tls
+    return use_tls, use_ssl
+
+
 def send_html_email(email, subject, html_body):
     from flask import has_app_context
     if not has_app_context():
@@ -233,8 +249,13 @@ def send_html_email(email, subject, html_body):
     msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
     # 给 SMTP 每段加超时，避免邮箱服务慢时无限阻塞调用线程。
-    server = smtplib.SMTP(smtp_server, smtp_port, timeout=15)
-    server.starttls()
+    use_tls, use_ssl = _smtp_connection_mode()
+    if use_ssl:
+        server = smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=15)
+    else:
+        server = smtplib.SMTP(smtp_server, smtp_port, timeout=15)
+        if use_tls:
+            server.starttls()
     server.login(smtp_username, smtp_password)
     server.send_message(msg)
     server.quit()

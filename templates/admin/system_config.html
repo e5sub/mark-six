@@ -214,6 +214,23 @@
                                value="{{ configs.get('smtp_password', '') }}"
                                placeholder="应用专用密码">
                     </div>
+                    <div class="config-field">
+                        <label>连接加密方式</label>
+                        <div class="config-switch-item" style="display: flex; gap: 1rem; align-items: center;">
+                            <label class="admin-switch" style="flex: 1;">
+                                <input type="checkbox" name="smtp_use_tls"
+                                       {{ 'checked' if configs.get('smtp_use_tls', 'true') == 'true' else '' }}>
+                                <span class="admin-switch-track" aria-hidden="true"></span>
+                                <span class="admin-switch-text">启用 TLS</span>
+                            </label>
+                            <select name="smtp_use_ssl" class="form-control" style="flex: 1;">
+                                <option value="" {{ 'selected' if (configs.get('smtp_use_ssl') or '') == '' else '' }}>SSL 自动</option>
+                                <option value="true" {{ 'selected' if configs.get('smtp_use_ssl') == 'true' else '' }}>启用 SSL</option>
+                                <option value="false" {{ 'selected' if configs.get('smtp_use_ssl') == 'false' else '' }}>关闭 SSL</option>
+                            </select>
+                        </div>
+                        <span class="config-hint">TLS 走 STARTTLS（常用端口 587）；SSL 为直连加密（常用端口 465）。选「SSL 自动」时跟随 TLS 取反：启用 TLS 默认关闭 SSL，未启用 TLS 默认启用 SSL。</span>
+                    </div>
                     <div class="config-field config-field-full">
                         <label>激活申请通知邮箱</label>
                         <input type="text" name="activation_request_notify_emails" class="form-control"
@@ -450,7 +467,8 @@ document.getElementById('configForm').addEventListener('submit', function(e) {
         'enable_personalized_predictions',
         'auto_optimize_enabled',
         'notify_email_enabled',
-        'adsense_enabled'
+        'adsense_enabled',
+        'smtp_use_tls'
     ];
 
     for (const [key, value] of formData.entries()) {

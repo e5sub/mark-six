@@ -1595,6 +1595,8 @@ SYSTEM_CONFIG_DEFAULTS = {
     'smtp_port': '587',
     'smtp_username': '',
     'smtp_password': '',
+    'smtp_use_tls': 'true',
+    'smtp_use_ssl': '',
     'activation_request_notify_emails': '',
     'notify_email_enabled': 'true',
     'site_name': 'AI数据分析预测系统',
@@ -1638,6 +1640,7 @@ BOOLEAN_CONFIG_KEYS = frozenset({
     'enable_personalized_predictions',
     'auto_optimize_enabled',
     'adsense_enabled',
+    'smtp_use_tls',
 })
 
 @admin_bp.route('/system_config', methods=['GET', 'POST'])
