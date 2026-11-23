@@ -6,6 +6,7 @@
 """
 
 import os
+import re
 import sqlite3
 from datetime import datetime
 from urllib.parse import quote_plus
@@ -231,6 +232,11 @@ def _update_mysql_database():
                 ))
                 changes.append("Created ix_macau_collected_created_at")
 
+            # 修复数据源偶发写入的年份错位期号（如 2016122 对应 2026-11-17）
+            repaired_draws = _repair_mismatched_draw_periods_mysql(connection)
+            if repaired_draws:
+                changes.append(f"Repaired {repaired_draws} mismatched draw periods")
+
         if changes:
             print("MySQL/MariaDB database schema updated:")
             for change in changes:
@@ -280,6 +286,214 @@ def ensure_system_config(cursor, key, value, description):
         (key, value, description),
     )
     print(f"Added system_config {key}")
+
+
+def _draw_year_from_date(value):
+    """从开奖日期中提取 4 位年份，支持 2026-11-17 / 2026/11/17 等格式。"""
+    match = re.match(r"^\s*(\d{4})", str(value or ""))
+    return match.group(1) if match else None
+
+
+def _corrected_draw_id(draw_id, draw_date):
+    """期号年份与开奖日期年份不一致时返回修正后的期号，否则返回 None。"""
+    text = str(draw_id or "").strip()
+    year = _draw_year_from_date(draw_date)
+    if not text or not year:
+        return None
+    match = re.match(r"^(\d{4})(.*)$", text, re.S)
+    if not match or match.group(1) == year:
+        return None
+    return year + match.group(2)
+
+
+def _repoint_period_sqlite(cursor, region, old_period, new_period):
+    """把引用错误期号的业务记录改指到正确期号，避免修复后产生孤儿记录。"""
+    if check_table_exists(cursor, 'prediction_record'):
+        rows = cursor.execute(
+            "SELECT id, user_id, strategy FROM prediction_record WHERE region = ? AND period = ?",
+            (region, old_period),
+        ).fetchall()
+        for row_id, user_id, strategy in rows:
+            conflict = cursor.execute(
+                "SELECT id FROM prediction_record "
+                "WHERE region = ? AND period = ? AND user_id = ? AND strategy = ?",
+                (region, new_period, user_id, strategy),
+            ).fetchone()
+            if conflict:
+                cursor.execute("DELETE FROM prediction_record WHERE id = ?", (row_id,))
+            else:
+                cursor.execute(
+                    "UPDATE prediction_record SET period = ? WHERE id = ?",
+                    (new_period, row_id),
+                )
+
+    if check_table_exists(cursor, 'manual_bet_records'):
+        cursor.execute(
+            "UPDATE manual_bet_records SET period = ? WHERE region = ? AND period = ?",
+            (new_period, region, old_period),
+        )
+
+    if check_table_exists(cursor, 'macau_collected_data'):
+        rows = cursor.execute(
+            "SELECT id FROM macau_collected_data WHERE region = ? AND period = ?",
+            (region, old_period),
+        ).fetchall()
+        for (row_id,) in rows:
+            conflict = cursor.execute(
+                "SELECT id FROM macau_collected_data WHERE region = ? AND period = ?",
+                (region, new_period),
+            ).fetchone()
+            if conflict:
+                cursor.execute("DELETE FROM macau_collected_data WHERE id = ?", (row_id,))
+            else:
+                cursor.execute(
+                    "UPDATE macau_collected_data SET period = ? WHERE id = ?",
+                    (new_period, row_id),
+                )
+
+
+def _repair_mismatched_draw_periods_sqlite(cursor):
+    """修复 SQLite 中期号年份与开奖日期不一致的开奖记录。"""
+    if not check_table_exists(cursor, 'lottery_draws'):
+        return 0
+
+    repaired = 0
+    rows = cursor.execute(
+        "SELECT id, region, draw_id, draw_date FROM lottery_draws"
+    ).fetchall()
+    for row_id, region, draw_id, draw_date in rows:
+        old_period = str(draw_id or "").strip()
+        corrected = _corrected_draw_id(old_period, draw_date)
+        if not corrected:
+            continue
+
+        _repoint_period_sqlite(cursor, region, old_period, corrected)
+        existing = cursor.execute(
+            "SELECT id FROM lottery_draws WHERE region = ? AND draw_id = ?",
+            (region, corrected),
+        ).fetchone()
+        if existing:
+            cursor.execute("DELETE FROM lottery_draws WHERE id = ?", (row_id,))
+            action = "删除与正确期号重复的异常记录"
+        else:
+            cursor.execute(
+                "UPDATE lottery_draws SET draw_id = ? WHERE id = ?",
+                (corrected, row_id),
+            )
+            action = "修正期号"
+        print(f"{action}: {region} {draw_id} -> {corrected}")
+        repaired += 1
+    return repaired
+
+
+def _repoint_period_mysql(connection, region, old_period, new_period):
+    """MySQL 版本的业务期号引用修复。"""
+    if _mysql_table_exists(connection, 'prediction_record'):
+        rows = connection.execute(
+            text(
+                "SELECT id, user_id, strategy FROM prediction_record "
+                "WHERE region = :region AND period = :old_period"
+            ),
+            {"region": region, "old_period": old_period},
+        ).fetchall()
+        for row in rows:
+            conflict = connection.execute(
+                text(
+                    "SELECT id FROM prediction_record "
+                    "WHERE region = :region AND period = :new_period "
+                    "AND user_id = :user_id AND strategy = :strategy"
+                ),
+                {
+                    "region": region,
+                    "new_period": new_period,
+                    "user_id": row.user_id,
+                    "strategy": row.strategy,
+                },
+            ).fetchone()
+            if conflict:
+                connection.execute(
+                    text("DELETE FROM prediction_record WHERE id = :id"),
+                    {"id": row.id},
+                )
+            else:
+                connection.execute(
+                    text("UPDATE prediction_record SET period = :period WHERE id = :id"),
+                    {"period": new_period, "id": row.id},
+                )
+
+    if _mysql_table_exists(connection, 'manual_bet_records'):
+        connection.execute(
+            text(
+                "UPDATE manual_bet_records SET period = :new_period "
+                "WHERE region = :region AND period = :old_period"
+            ),
+            {"new_period": new_period, "region": region, "old_period": old_period},
+        )
+
+    if _mysql_table_exists(connection, 'macau_collected_data'):
+        rows = connection.execute(
+            text(
+                "SELECT id FROM macau_collected_data "
+                "WHERE region = :region AND period = :old_period"
+            ),
+            {"region": region, "old_period": old_period},
+        ).fetchall()
+        for row in rows:
+            conflict = connection.execute(
+                text(
+                    "SELECT id FROM macau_collected_data "
+                    "WHERE region = :region AND period = :new_period"
+                ),
+                {"region": region, "new_period": new_period},
+            ).fetchone()
+            if conflict:
+                connection.execute(
+                    text("DELETE FROM macau_collected_data WHERE id = :id"),
+                    {"id": row.id},
+                )
+            else:
+                connection.execute(
+                    text("UPDATE macau_collected_data SET period = :period WHERE id = :id"),
+                    {"period": new_period, "id": row.id},
+                )
+
+
+def _repair_mismatched_draw_periods_mysql(connection):
+    """修复 MySQL 中期号年份与开奖日期不一致的开奖记录。"""
+    if not _mysql_table_exists(connection, 'lottery_draws'):
+        return 0
+
+    repaired = 0
+    rows = connection.execute(
+        text("SELECT id, region, draw_id, draw_date FROM lottery_draws")
+    ).fetchall()
+    for row in rows:
+        old_period = str(row.draw_id or "").strip()
+        corrected = _corrected_draw_id(old_period, row.draw_date)
+        if not corrected:
+            continue
+
+        _repoint_period_mysql(connection, row.region, old_period, corrected)
+        existing = connection.execute(
+            text(
+                "SELECT id FROM lottery_draws WHERE region = :region AND draw_id = :draw_id"
+            ),
+            {"region": row.region, "draw_id": corrected},
+        ).fetchone()
+        if existing:
+            connection.execute(
+                text("DELETE FROM lottery_draws WHERE id = :id"), {"id": row.id}
+            )
+            action = "删除与正确期号重复的异常记录"
+        else:
+            connection.execute(
+                text("UPDATE lottery_draws SET draw_id = :draw_id WHERE id = :id"),
+                {"draw_id": corrected, "id": row.id},
+            )
+            action = "修正期号"
+        print(f"{action}: {row.region} {row.draw_id} -> {corrected}")
+        repaired += 1
+    return repaired
 
 
 def update_database():
@@ -668,6 +882,11 @@ def update_database():
                 ''')
                 print("manual_bet_records.bettor_name 字段添加成功")
         
+        # 修复数据源偶发写入的年份错位期号（如 2016122 对应 2026-11-17）
+        repaired_draws = _repair_mismatched_draw_periods_sqlite(cursor)
+        if repaired_draws:
+            print(f"✓ 修复了 {repaired_draws} 条期号年份错位的开奖记录")
+
         # 验证更新结果
         print("\n验证更新结果:")
         cursor.execute('''

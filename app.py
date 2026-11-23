@@ -2745,9 +2745,13 @@ def _normalize_hkjc_draw_record(record):
         return None
     all_numbers = numbers + [special]
     wave = ",".join(_hkjc_number_color(n) for n in all_numbers) or ""
+    draw_date = _parse_hkjc_date_part(record.get("drawDate"))
     return {
-        "id": _convert_hkjc_period(record.get("year"), record.get("no")),
-        "date": _parse_hkjc_date_part(record.get("drawDate")),
+        "id": LotteryDraw.normalize_draw_id(
+            _convert_hkjc_period(record.get("year"), record.get("no")),
+            draw_date,
+        ),
+        "date": draw_date,
         "no": numbers,
         "sno": special,
         "sno_zodiac": "",
@@ -3413,7 +3417,7 @@ def load_hk_data(force_refresh=False):
             wave = record.get("wave", "").split(',')
             
             normalized_data.append({
-                "id": record.get("expect"),
+                "id": LotteryDraw.normalize_draw_id(record.get("expect"), record.get("openTime")),
                 "date": record.get("openTime"),
                 "no": numbers[:6],
                 "sno": numbers[6],
@@ -3488,7 +3492,8 @@ def _fetch_macau_data_from_api(year):
             simplified_zodiacs = [ZODIAC_TRAD_TO_SIMP.get(z, z) for z in traditional_zodiacs]
             
             normalized_data.append({
-                "id": record.get("expect"), "date": record.get("openTime"), "no": numbers[:6], "sno": numbers[6],
+                "id": LotteryDraw.normalize_draw_id(record.get("expect"), record.get("openTime")),
+                "date": record.get("openTime"), "no": numbers[:6], "sno": numbers[6],
                 "sno_zodiac": simplified_zodiacs[6] if len(simplified_zodiacs) >= 7 else "",
                 "raw_wave": record.get("wave", ""), "raw_zodiac": ",".join(simplified_zodiacs)
             })
@@ -12661,12 +12666,14 @@ def save_draws_to_database(draws, region):
         before_latest = _latest_draw_cache_marker(region)
         count = 0
         for draw in draws:
+            # 结算与入库使用同一份修正后的期号
+            period = LotteryDraw.normalize_draw_id(draw.get('id'), draw.get('date'))
             # 调用LotteryDraw模型的save_draw方法保存记录
             if LotteryDraw.save_draw(region, draw):
                 count += 1
-                settled = settle_pending_manual_bets(region, draw.get('id'))
+                settled = settle_pending_manual_bets(region, period)
                 if settled:
-                    print(f"已自动结算{settled}条手动下注记录，期号: {draw.get('id')}")
+                    print(f"已自动结算{settled}条手动下注记录，期号: {period}")
         
         after_latest = _latest_draw_cache_marker(region)
         if count and before_latest != after_latest:

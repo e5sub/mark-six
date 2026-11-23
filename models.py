@@ -6,6 +6,7 @@ from sqlalchemy.dialects.mysql import MEDIUMTEXT
 import uuid
 import hashlib
 import json
+import re
 
 db = SQLAlchemy()
 LargeText = db.Text().with_variant(MEDIUMTEXT(), 'mysql').with_variant(MEDIUMTEXT(), 'mariadb')
@@ -1081,6 +1082,27 @@ class LotteryDraw(db.Model):
         db.Index('ix_lottery_draws_region_draw_date_draw_id', 'region', 'draw_date', 'draw_id'),
     )
     
+    @staticmethod
+    def normalize_draw_id(draw_id, draw_date=None):
+        """按开奖日期年份修正数据源误写的期号年份前缀。
+
+        上游偶尔会返回类似 ``2016122`` + ``2026-11-17`` 的记录，
+        直接入库就会和正确的 ``2026122`` 同时出现。这里只在期号前 4 位
+        与开奖日期年份不一致时替换年份前缀，其余格式（含 ``/``、字母后缀）
+        保持原样；无法判断时原样返回。
+        """
+        raw = str(draw_id or "").strip()
+        if not raw:
+            return ""
+        date_year_match = re.match(r"^\s*(\d{4})", str(draw_date or ""))
+        if not date_year_match:
+            return raw
+        date_year = date_year_match.group(1)
+        prefix_match = re.match(r"^(\d{4})(.*)$", raw, re.S)
+        if not prefix_match or prefix_match.group(1) == date_year:
+            return raw
+        return date_year + prefix_match.group(2)
+
     def to_dict(self):
         """将记录转换为字典，方便API返回"""
         return {
@@ -1097,14 +1119,21 @@ class LotteryDraw(db.Model):
     def save_draw(region, draw_data):
         """保存开奖记录到数据库"""
         try:
+            # 获取生肖年份（按农历新年切换）
+            draw_date = draw_data.get('date', '')
+
+            # 统一修正上游偶发的期号年份错位（如 2016122 + 2026-11-17）
+            draw_id = LotteryDraw.normalize_draw_id(draw_data.get('id'), draw_date)
+            if not draw_id:
+                print("保存开奖记录失败：期号为空")
+                return False
+
             # 检查记录是否已存在
             existing = LotteryDraw.query.filter_by(
                 region=region,
-                draw_id=draw_data.get('id')
+                draw_id=draw_id
             ).first()
             
-            # 获取生肖年份（按农历新年切换）
-            draw_date = draw_data.get('date', '')
             current_year = ZodiacSetting.get_zodiac_year_for_date(draw_date)
             
             # 获取号码列表
@@ -1167,7 +1196,7 @@ class LotteryDraw(db.Model):
                 # 创建新记录
                 new_draw = LotteryDraw(
                     region=region,
-                    draw_id=draw_data.get('id', ''),
+                    draw_id=draw_id,
                     draw_date=draw_date,
                     normal_numbers=','.join(normal_numbers),
                     special_number=special_number,

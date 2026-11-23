@@ -980,7 +980,9 @@ def macau_draw_import():
         
         for record in records:
             try:
-                draw_id = str(record.get('expect', '')).strip()
+                draw_id = LotteryDraw.normalize_draw_id(
+                    record.get('expect'), record.get('openTime')
+                )
                 if not draw_id:
                     continue
 
@@ -1147,7 +1149,9 @@ def hk_draw_import():
         merged_ids = set(merged_draws.keys())
         for record in records:
             try:
-                draw_id = str(record.get('expect', '')).strip()
+                draw_id = LotteryDraw.normalize_draw_id(
+                    record.get('expect'), record.get('openTime')
+                )
                 if not draw_id:
                     continue
                 if not draw_id.startswith(str(year)):
