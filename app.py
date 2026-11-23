@@ -12409,6 +12409,87 @@ def index():
     
     return render_template('index.html', user=user, show_normal_numbers=bool(user.show_normal_numbers))
 
+
+_LUNAR_HEAVENLY_STEMS = ('甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸')
+_LUNAR_EARTHLY_BRANCHES = ('子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥')
+_LUNAR_MONTH_NAMES = ('正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '腊')
+_LUNAR_DAY_NAMES = {
+    10: '初十', 20: '二十', 30: '三十',
+    1: '初一', 2: '初二', 3: '初三', 4: '初四', 5: '初五',
+    6: '初六', 7: '初七', 8: '初八', 9: '初九',
+    11: '十一', 12: '十二', 13: '十三', 14: '十四', 15: '十五',
+    16: '十六', 17: '十七', 18: '十八', 19: '十九',
+    21: '廿一', 22: '廿二', 23: '廿三', 24: '廿四', 25: '廿五',
+    26: '廿六', 27: '廿七', 28: '廿八', 29: '廿九',
+}
+
+
+def _lunar_ganzhi_year(year):
+    """按农历年数字返回干支，如 2027 -> 丁未。"""
+    stem = _LUNAR_HEAVENLY_STEMS[((year - 4) % 10 + 10) % 10]
+    branch = _LUNAR_EARTHLY_BRANCHES[((year - 4) % 12 + 12) % 12]
+    return f'{stem}{branch}'
+
+
+@app.route('/api/lunar_info')
+def lunar_info_api():
+    """返回服务端权威的农历信息，供首页时钟面板使用。
+
+    农历数据与项目其余口径统一使用 lunardate + ZodiacSetting 春节表，
+    避免浏览器 Intl 实现差异导致农历日期 / 新年倒计时偏差。
+    """
+    from models import ZodiacSetting
+
+    today = datetime.now().date()
+    lunar_year = None
+    lunar_month = None
+    lunar_day = None
+    is_leap_month = False
+    try:
+        from lunardate import LunarDate
+        lunar = LunarDate.fromSolarDate(today.year, today.month, today.day)
+        lunar_year = lunar.year
+        lunar_month = lunar.month
+        lunar_day = lunar.day
+        is_leap_month = bool(lunar.isLeapMonth)
+    except Exception:
+        lunar_year = ZodiacSetting.get_zodiac_year_for_date(datetime.now())
+
+    lunar_month_text = ''
+    if lunar_month:
+        lunar_month_text = ('闰' if is_leap_month else '') + _LUNAR_MONTH_NAMES[lunar_month - 1] + '月'
+    lunar_day_text = _LUNAR_DAY_NAMES.get(lunar_day, str(lunar_day or ''))
+
+    # 下一农历新年：优先使用权威春节表，缺失时按当前农历年 +1 兜底。
+    next_new_year_date = None
+    next_lunar_year = (lunar_year + 1) if lunar_year else datetime.now().year + 1
+    new_year_table = ZodiacSetting._LUNAR_NEW_YEAR_DATES
+    # 若今天已过某年春节，则下一年春节对应的是 lunar_year + 1。
+    candidate_year = (lunar_year + 1) if lunar_year else today.year
+    for year in range(candidate_year - 1, candidate_year + 3):
+        nyd = new_year_table.get(year)
+        if nyd and nyd > today:
+            next_new_year_date = nyd
+            next_lunar_year = year
+            break
+
+    days_remaining = None
+    if next_new_year_date:
+        days_remaining = (next_new_year_date - today).days
+
+    return jsonify({
+        'success': True,
+        'date_key': f'{today.year}-{today.month}-{today.day}',
+        'lunar_year': lunar_year,
+        'ganzhi': _lunar_ganzhi_year(lunar_year) if lunar_year else '',
+        'lunar_month_day': f'{lunar_month_text}{lunar_day_text}'.strip(),
+        'next_lunar_year': next_lunar_year,
+        'next_ganzhi': _lunar_ganzhi_year(next_lunar_year),
+        'next_new_year_date': next_new_year_date.isoformat() if next_new_year_date else '',
+        'days_remaining': days_remaining,
+    })
+
+
 def get_yearly_data(region, year):
     print(f"获取年度数据: 地区={region}, 年份={year}")
     
