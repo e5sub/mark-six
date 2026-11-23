@@ -133,17 +133,25 @@ class ActivationCode(db.Model):
 
     def use_code(self, user):
         """使用激活码"""
-        if self.is_used or self.is_expired():
-            if self.is_used:
-                return False, "激活码已被使用"
-            else:
-                return False, "激活码已过期"
-        
-        # 标记激活码为已使用
-        self.is_used = True
-        self.used_by = user.username
-        self.used_at = datetime.now()
-        
+        if self.is_expired():
+            return False, "激活码已过期"
+
+        # 原子占用激活码：仅当未被使用时才能置为已使用，
+        # 防止并发请求重复兑换同一激活码（TOCTOU 竞态）。
+        claimed = ActivationCode.query.filter(
+            ActivationCode.id == self.id,
+            ActivationCode.is_used.is_(False),
+        ).update(
+            {
+                'is_used': True,
+                'used_by': user.username,
+                'used_at': datetime.now(),
+            },
+            synchronize_session=False,
+        )
+        if not claimed:
+            return False, "激活码已被使用"
+
         # 根据激活码类型延长用户激活时间
         if self.validity_type == 'permanent':
             user.set_permanent_activation()
@@ -422,13 +430,24 @@ class InviteCode(db.Model):
         # 检查用户是否已经使用过邀请码
         if hasattr(user, 'invite_code_used') and user.invite_code_used:
             return False, "您已经使用过邀请码，每个用户只能使用一次"
-        
+
         try:
-            # 标记邀请码为已使用
-            self.is_used = True
-            self.used_by = user.username
-            self.used_at = datetime.now()
-            
+            # 原子占用邀请码：仅当未被使用时才能置为已使用，
+            # 防止并发注册重复使用同一邀请码（TOCTOU 竞态）。
+            claimed = InviteCode.query.filter(
+                InviteCode.id == self.id,
+                InviteCode.is_used.is_(False),
+            ).update(
+                {
+                    'is_used': True,
+                    'used_by': user.username,
+                    'used_at': datetime.now(),
+                },
+                synchronize_session=False,
+            )
+            if not claimed:
+                return False, "邀请码已被使用"
+
             # 更新被邀请人信息（这些字段在User模型中已定义
             user.invited_by = self.created_by
             user.invite_code_used = self.code

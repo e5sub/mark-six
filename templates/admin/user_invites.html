@@ -112,6 +112,15 @@
 </div>
 
 <script>
+function escapeHtml(text) {
+    return String(text ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function viewInviteDetail(inviteId) {
     fetch(`/admin/user_invites/${inviteId}/detail`)
         .then(response => response.json())
@@ -122,22 +131,22 @@ function viewInviteDetail(inviteId) {
                     <div style="display: grid; gap: 1rem;">
                         <div style="background: rgba(102, 126, 234, 0.05); padding: 1rem; border-radius: 8px;">
                             <h4 style="margin-bottom: 0.5rem; color: #667eea;">邀请人信息</h4>
-                            <p><strong>用户名：</strong>${detail.inviter_username}</p>
-                            <p><strong>邮箱：</strong>${detail.inviter_email}</p>
+                            <p><strong>用户名：</strong>${escapeHtml(detail.inviter_username)}</p>
+                            <p><strong>邮箱：</strong>${escapeHtml(detail.inviter_email)}</p>
                             <p><strong>注册时间：</strong>${detail.inviter_created_at}</p>
                         </div>
                         
                         <div style="background: rgba(40, 167, 69, 0.05); padding: 1rem; border-radius: 8px;">
                             <h4 style="margin-bottom: 0.5rem; color: #28a745;">被邀请人信息</h4>
-                            <p><strong>用户名：</strong>${detail.invitee_username}</p>
-                            <p><strong>邮箱：</strong>${detail.invitee_email}</p>
+                            <p><strong>用户名：</strong>${escapeHtml(detail.invitee_username)}</p>
+                            <p><strong>邮箱：</strong>${escapeHtml(detail.invitee_email)}</p>
                             <p><strong>注册时间：</strong>${detail.invitee_created_at}</p>
                             <p><strong>激活状态：</strong>${detail.is_activated ? '已激活' : '未激活'}</p>
                         </div>
                         
                         <div style="background: rgba(255, 193, 7, 0.05); padding: 1rem; border-radius: 8px;">
                             <h4 style="margin-bottom: 0.5rem; color: #ffc107;">邀请信息</h4>
-                            <p><strong>邀请码：</strong>${detail.invite_code}</p>
+                            <p><strong>邀请码：</strong>${escapeHtml(detail.invite_code)}</p>
                             <p><strong>邀请时间：</strong>${detail.invite_time}</p>
                             <p><strong>奖励状态：</strong>${detail.reward_given ? '已发放' : '未发放'}</p>
                         </div>

@@ -167,6 +167,16 @@
 </div>
 
 <script>
+// 用户可控字段（用户名/邮箱/备注）进 innerHTML 前必须转义，防止存储型 XSS。
+function escapeHtml(text) {
+    return String(text ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // 当前页码
 let currentPage = 1;
 const perPage = 10;
@@ -193,7 +203,7 @@ function loadActivationCodes(page) {
                 renderPagination(data.pagination);
             } else {
                 document.getElementById('activationCodesList').innerHTML = 
-                    `<tr><td colspan="8" class="text-center text-danger">加载激活码数据失败: ${data.message}</td></tr>`;
+                    `<tr><td colspan="8" class="text-center text-danger">加载激活码数据失败: ${escapeHtml(data.message)}</td></tr>`;
             }
         })
         .catch(error => {
@@ -225,19 +235,19 @@ function renderActivationCodes(codes) {
         html += `
         <tr>
             <td>
-                <div class="invite-code">${code.code}</div>
-                <button class="copy-btn" onclick="copyCode('${code.code}')">复制</button>
+                <div class="invite-code">${escapeHtml(code.code)}</div>
+                <button class="copy-btn" onclick="copyCode('${escapeHtml(code.code)}')">复制</button>
             </td>
             <td>
                 <span class="invite-status ${code.validity_type === 'permanent' ? 'status-unused' : 'status-used'}">${validityType}</span>
             </td>
             <td>${status}</td>
-            <td>${code.used_by || '-'}</td>
-            <td>${code.created_at || '-'}</td>
-            <td>${code.used_at || '-'}</td>
-            <td>${code.expires_at || '永不过期'}</td>
+            <td>${escapeHtml(code.used_by) || '-'}</td>
+            <td>${escapeHtml(code.created_at) || '-'}</td>
+            <td>${escapeHtml(code.used_at) || '-'}</td>
+            <td>${escapeHtml(code.expires_at) || '永不过期'}</td>
             <td>
-                ${!code.is_used ? `<button class="btn btn-danger btn-sm" onclick="deleteCode('${code.code}')">删除</button>` : ''}
+                ${!code.is_used ? `<button class="btn btn-danger btn-sm" onclick="deleteCode('${escapeHtml(code.code)}')">删除</button>` : ''}
             </td>
         </tr>
         `;
@@ -255,7 +265,7 @@ function loadActivationRequests() {
                 renderActivationRequests(rows.filter(item => item.status === 'pending'));
             } else {
                 document.getElementById('activationRequestsList').innerHTML =
-                    `<tr><td colspan="7" class="text-center text-danger">加载申请记录失败: ${data.message}</td></tr>`;
+                    `<tr><td colspan="7" class="text-center text-danger">加载申请记录失败: ${escapeHtml(data.message)}</td></tr>`;
             }
         })
         .catch(error => {
@@ -274,7 +284,7 @@ function loadActivationRequestHistory() {
                 renderActivationRequests(rows, 'activationRequestsHistoryList', '最近 30 天暂无处理历史', true);
             } else {
                 document.getElementById('activationRequestsHistoryList').innerHTML =
-                    `<tr><td colspan="7" class="text-center text-danger">加载历史记录失败: ${data.message}</td></tr>`;
+                    `<tr><td colspan="7" class="text-center text-danger">加载历史记录失败: ${escapeHtml(data.message)}</td></tr>`;
             }
         })
         .catch(error => {
@@ -325,20 +335,20 @@ function renderActivationRequests(rows, targetId = 'activationRequestsList', emp
         html += `
         <tr>
             <td>
-                <div style="font-weight:700;">${item.username}</div>
-                <div style="font-size:0.82rem; color:#94a3b8;">${item.email}</div>
+                <div style="font-weight:700;">${escapeHtml(item.username)}</div>
+                <div style="font-size:0.82rem; color:#94a3b8;">${escapeHtml(item.email)}</div>
             </td>
             <td>
-                <div>${item.request_note || '-'}</div>
-                ${item.admin_note ? `<div style="font-size:0.82rem; color:#94a3b8; margin-top:0.3rem;">备注：${item.admin_note}</div>` : ''}
+                <div>${escapeHtml(item.request_note) || '-'}</div>
+                ${item.admin_note ? `<div style="font-size:0.82rem; color:#94a3b8; margin-top:0.3rem;">备注：${escapeHtml(item.admin_note)}</div>` : ''}
             </td>
-            <td><span class="invite-status ${statusClass}">${item.status_label || item.status}</span></td>
+            <td><span class="invite-status ${statusClass}">${escapeHtml(item.status_label || item.status)}</span></td>
             <td>
-                ${item.issued_code ? `<div class="invite-code">${item.issued_code}</div>` : '-'}
-                ${item.issued_validity_label ? `<div style="font-size:0.82rem; color:#94a3b8; margin-top:0.3rem;">${item.issued_validity_label}</div>` : ''}
+                ${item.issued_code ? `<div class="invite-code">${escapeHtml(item.issued_code)}</div>` : '-'}
+                ${item.issued_validity_label ? `<div style="font-size:0.82rem; color:#94a3b8; margin-top:0.3rem;">${escapeHtml(item.issued_validity_label)}</div>` : ''}
             </td>
-            <td>${item.created_at || '-'}</td>
-            <td>${item.processed_at || '-'}</td>
+            <td>${escapeHtml(item.created_at) || '-'}</td>
+            <td>${escapeHtml(item.processed_at) || '-'}</td>
             <td>${issueActions}</td>
         </tr>
         `;
@@ -401,7 +411,7 @@ function issueRequest(requestId, validityType, adminNote) {
             if (document.getElementById('activationRequestHistory').open) {
                 loadActivationRequestHistory();
             }
-            showToast(`${data.message}：${data.code}`, 'success');
+            showToast(`${escapeHtml(data.message)}：${data.code}`, 'success');
         } else {
             showToast('发放失败：' + data.message, 'error');
         }

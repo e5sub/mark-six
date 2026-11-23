@@ -17,7 +17,12 @@ VALIDITY_TYPES = {'permanent', 'day', 'month', 'quarter', 'year'}
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in session or not session.get('is_admin'):
+        if 'user_id' not in session:
+            return jsonify({'success': False, 'message': '需要管理员权限'}), 403
+        # 与 admin.py 的 admin_required 保持一致：实时查库校验管理员身份，
+        # 避免依赖会话中的 is_admin 快照（撤销管理员权限后仍可能残留访问权）。
+        user = User.query.get(session['user_id'])
+        if not user or not user.is_admin:
             return jsonify({'success': False, 'message': '需要管理员权限'}), 403
         return f(*args, **kwargs)
 
@@ -276,12 +281,13 @@ def reject_activation_code_request(request_id):
         if request_record.status not in {'pending', 'issued'}:
             return jsonify({'success': False, 'message': '该申请当前不能驳回'})
 
+        applicant = User.query.get(request_record.user_id)
         request_record.status = 'rejected'
         request_record.admin_note = admin_note
         request_record.processed_at = datetime.now()
         db.session.commit()
         _send_activation_request_result_notification(
-            user,
+            applicant,
             request_record,
             'rejected',
             admin_note=admin_note,

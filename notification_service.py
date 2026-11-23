@@ -293,7 +293,8 @@ def _send_webhook(title, content, event_type='general', user=None, link_url=None
     elif 'oapi.dingtalk.com' in lower_url:
         payload = {'msgtype': 'text', 'text': {'content': bot_text}}
 
-    requests.post(webhook_url, json=payload, timeout=10).raise_for_status()
+    # 用户可控 URL：禁用重定向，防止 302 跳转到内网地址绕过 SSRF 校验。
+    requests.post(webhook_url, json=payload, timeout=10, allow_redirects=False).raise_for_status()
     return True
 
 
@@ -351,7 +352,8 @@ def _send_bark(title, content, link_url=None, config=None):
     payload = {'title': title, 'body': _plain_text(content)}
     if link_url:
         payload['url'] = link_url
-    requests.post(f'{server_url}/{device_key}', json=payload, timeout=10).raise_for_status()
+    # 用户可控 URL：禁用重定向，防止 302 跳转到内网地址绕过 SSRF 校验。
+    requests.post(f'{server_url}/{device_key}', json=payload, timeout=10, allow_redirects=False).raise_for_status()
     return True
 
 
