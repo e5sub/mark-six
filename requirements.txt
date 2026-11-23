@@ -4,9 +4,10 @@ SQLAlchemy>=2.0,<3
 Flask-Login==0.6.3
 Werkzeug==3.1.9
 requests==2.34.2
-gunicorn==26.2.0
+urllib3==2.8.0
+gunicorn==27.0.1
 APScheduler==3.11.3
-lunardate==0.3.0
-PyMySQL==1.2.3
+lunardate==0.3.1
+PyMySQL==1.2.4
 cryptography==50.0.2
 tzdata>=2026.5
