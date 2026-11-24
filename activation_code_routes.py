@@ -236,6 +236,9 @@ def issue_activation_code_request(request_id):
         code.code = ActivationCode.generate_code()
         code.set_validity(validity_type)
         db.session.add(code)
+        # 先落库拿到 id：use_code() 的原子占位 UPDATE 依赖 code.id 匹配，
+        # 未 flush 的新对象 id 为 None，会被误判为“激活码已被使用”。
+        db.session.flush()
 
         request_record.status = 'issued'
         request_record.admin_note = admin_note
