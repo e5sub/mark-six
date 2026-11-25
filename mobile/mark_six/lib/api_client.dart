@@ -198,7 +198,6 @@ class ApiClient {
       'region': region,
       'strategy': strategy,
       'year': year,
-      if (strategy == 'ai') 'stream': '0',
     });
     return _ensureJsonMap(response.data);
   }
@@ -207,79 +206,6 @@ class ApiClient {
   Future<Map<String, dynamic>> macauFiveZodiac() async {
     final response = await get('/api/macau_five_zodiac');
     return _ensureJsonMap(response.data);
-  }
-
-  Stream<Map<String, dynamic>> predictAiStream({
-    required String region,
-    required String year,
-  }) async* {
-    late final Response<ResponseBody> response;
-    try {
-      response = await _dio.get<ResponseBody>(
-        '/api/predict',
-        queryParameters: {
-          'region': region,
-          'strategy': 'ai',
-          'year': year,
-          'stream': '1',
-        },
-        options: Options(
-          responseType: ResponseType.stream,
-          receiveTimeout: const Duration(minutes: 2),
-          validateStatus: (status) => status != null && status < 600,
-          headers: {
-            'Accept': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-          },
-        ),
-      );
-    } on DioException catch (e) {
-      yield {'type': 'error', 'error': _formatDioError(e)};
-      return;
-    } catch (_) {
-      yield {'type': 'error', 'error': 'AI预测服务连接失败，请稍后重试'};
-      return;
-    }
-
-    if (response.statusCode != 200) {
-      final bytes = await response.data?.stream
-              .fold<List<int>>(<int>[], (acc, chunk) => acc..addAll(chunk)) ??
-          <int>[];
-      final body = bytes.isEmpty ? '' : utf8.decode(bytes);
-      try {
-        final data = jsonDecode(body);
-        if (data is Map<String, dynamic>) {
-          yield {
-            'type': 'error',
-            'error': data['message'] ??
-                data['error'] ??
-                _formatHttpError(response.statusCode),
-          };
-          return;
-        }
-      } catch (_) {}
-      yield {'type': 'error', 'error': _formatHttpError(response.statusCode)};
-      return;
-    }
-
-    final stream = response.data?.stream;
-    if (stream == null) {
-      yield {'type': 'error', 'error': 'empty stream'};
-      return;
-    }
-
-    final textStream = stream.cast<List<int>>().transform(utf8.decoder);
-    await for (final chunk in _splitByDoubleNewline(textStream)) {
-      final trimmed = chunk.trim();
-      if (trimmed.isEmpty) continue;
-      final payload = _extractSsePayload(trimmed);
-      if (payload.isEmpty) continue;
-      try {
-        yield _ensureJsonMap(jsonDecode(payload) as Map<String, dynamic>);
-      } catch (_) {
-        yield {'type': 'content', 'content': payload};
-      }
-    }
   }
 
   Future<Map<String, dynamic>> predictions({
@@ -454,76 +380,5 @@ class ApiClient {
       return jsonDecode(data) as Map<String, dynamic>;
     }
     return <String, dynamic>{};
-  }
-
-  String _formatDioError(DioException error) {
-    final statusCode = error.response?.statusCode;
-    if (statusCode != null) {
-      return _formatHttpError(statusCode);
-    }
-    switch (error.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-        return 'AI预测服务响应超时，请稍后重试';
-      case DioExceptionType.connectionError:
-        return 'AI预测服务连接失败，请检查网络后重试';
-      default:
-        return 'AI预测服务暂时不可用，请稍后重试';
-    }
-  }
-
-  String _formatHttpError(int? statusCode) {
-    if (statusCode == null) {
-      return 'AI预测服务暂时不可用，请稍后重试';
-    }
-    if (statusCode == 401 || statusCode == 403) {
-      return '登录状态或权限已失效，请重新登录后再试';
-    }
-    if (statusCode == 429) {
-      return 'AI预测请求过于频繁，请稍后再试';
-    }
-    if (statusCode >= 500) {
-      return 'AI预测服务暂时不可用（HTTP $statusCode），请稍后重试';
-    }
-    return 'AI预测请求失败（HTTP $statusCode），请稍后重试';
-  }
-
-  Stream<String> _splitByDoubleNewline(Stream<String> source) async* {
-    var buffer = '';
-    await for (final chunk in source) {
-      buffer += chunk;
-      while (true) {
-        var delimiterLength = 2;
-        var index = buffer.indexOf('\r\n\r\n');
-        if (index != -1) {
-          delimiterLength = 4;
-        } else {
-          index = buffer.indexOf('\n\n');
-        }
-        if (index == -1) break;
-        final part = buffer.substring(0, index);
-        buffer = buffer.substring(index + delimiterLength);
-        if (part.isNotEmpty) {
-          yield part;
-        }
-      }
-    }
-    if (buffer.trim().isNotEmpty) {
-      yield buffer;
-    }
-  }
-
-  String _extractSsePayload(String chunk) {
-    if (!chunk.contains('data:')) {
-      return chunk;
-    }
-    final payloadLines = <String>[];
-    for (final line in chunk.split(RegExp(r'\r?\n'))) {
-      if (line.startsWith('data:')) {
-        payloadLines.add(line.substring(5).trimLeft());
-      }
-    }
-    return payloadLines.join('\n').trim();
   }
 }

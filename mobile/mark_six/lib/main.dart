@@ -4188,7 +4188,6 @@ class _PredictScreenState extends State<PredictScreen> {
   String _region = 'macau';
   String _strategy = 'ml';
   bool _loading = false;
-  String _aiText = '';
   Map<String, dynamic>? _result;
   Map<String, dynamic>? _macauFiveZodiac;
   List<String> _normalZodiacs = [];
@@ -4199,7 +4198,6 @@ class _PredictScreenState extends State<PredictScreen> {
   bool _showAllPredictionPeriods = false;
   final Map<int, List<String>> _recordNormalZodiacs = {};
   final Map<int, String> _recordSpecialZodiacs = {};
-  StreamSubscription<Map<String, dynamic>>? _aiSubscription;
 
   bool get _showNormalNumbers =>
       widget.appState.user?.showNormalNumbers ?? false;
@@ -4212,7 +4210,6 @@ class _PredictScreenState extends State<PredictScreen> {
     'hot': '热门',
     'cold': '冷门',
     'trend': '走势',
-    'ai': 'AI智能',
   };
 
   // 五码五肖仅澳门地区展示，排在“综合”之后。
@@ -4235,7 +4232,6 @@ class _PredictScreenState extends State<PredictScreen> {
     'hot': Icons.local_fire_department,
     'cold': Icons.ac_unit,
     'trend': Icons.trending_up,
-    'ai': Icons.auto_awesome,
     _macauFiveZodiacKey: Icons.casino,
   };
 
@@ -4268,10 +4264,6 @@ class _PredictScreenState extends State<PredictScreen> {
       case 'ml':
         return const LinearGradient(
           colors: [Color(0xFFB45309), Color(0xFFF4B547)],
-        );
-      case 'ai':
-        return const LinearGradient(
-          colors: [Color(0xFF17A2B8), Color(0xFF6F42C1)],
         );
       case _macauFiveZodiacKey:
         return const LinearGradient(
@@ -4424,15 +4416,8 @@ class _PredictScreenState extends State<PredictScreen> {
     _loadPredictionRecords();
   }
 
-  @override
-  void dispose() {
-    _aiSubscription?.cancel();
-    super.dispose();
-  }
-
   void _resetPrediction() {
     _result = null;
-    _aiText = '';
     _macauFiveZodiac = null;
     _normalZodiacs = [];
     _specialZodiac = '';
@@ -4565,69 +4550,6 @@ class _PredictScreenState extends State<PredictScreen> {
       _resetPrediction();
     });
 
-    if (_strategy == 'ai') {
-      _aiSubscription?.cancel();
-      _aiSubscription = ApiClient.instance
-          .predictAiStream(region: _region, year: _predictionYear)
-          .listen((event) async {
-        if (!mounted) return;
-        if (event['type'] == 'content') {
-          setState(() {
-            _aiText += event['content']?.toString() ?? '';
-          });
-        } else if (event['type'] == 'done' ||
-            event.containsKey('normal') ||
-            event.containsKey('special')) {
-          final normal = _uniqueNumbers(
-            (event['normal'] as List<dynamic>? ?? [])
-                .map((value) => value.toString())
-                .toList(),
-          );
-          final special = (event['special'] as Map<String, dynamic>? ?? {});
-          final specialNumber = special['number']?.toString() ?? '';
-          final cleanNormal = _removeSpecialFromNormal(normal, specialNumber);
-          final numbers = [...cleanNormal, specialNumber]
-              .where((n) => n.isNotEmpty)
-              .toList();
-          setState(() {
-            _result = {
-              ...event,
-              'normal': cleanNormal,
-              'special': special,
-            };
-            _loading = false;
-          });
-          await _updateZodiacs(numbers);
-          if (!mounted) return;
-          _upsertPredictionRecordFromResult(
-            result: _result ?? event,
-            normalNumbers: cleanNormal,
-            normalZodiacs: _normalZodiacs,
-            specialNumber: specialNumber,
-            specialZodiac: _specialZodiac,
-          );
-        } else if (event.containsKey('error')) {
-          setState(() {
-            _loading = false;
-          });
-          _showMessage(event['error']?.toString() ?? 'AI预测失败');
-        } else if (event['type'] == 'error') {
-          setState(() {
-            _loading = false;
-          });
-          _showMessage(event['error']?.toString() ?? 'AI预测失败');
-        }
-      }, onError: (e) {
-        if (!mounted) return;
-        setState(() => _loading = false);
-        _showMessage('AI预测服务暂时不可用，请稍后重试');
-      }, onDone: () {
-        if (!mounted) return;
-        setState(() => _loading = false);
-      });
-      return;
-    }
-
     await _runPredictOnce(_strategy);
     if (mounted) {
       setState(() => _loading = false);
@@ -4751,11 +4673,7 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
-  String get _aiMarkdownText {
-    final streaming = _aiText.trim();
-    if (streaming.isNotEmpty) {
-      return streaming;
-    }
+  String get _recommendationText {
     return _result?['recommendation_text']?.toString().trim() ?? '';
   }
 
@@ -4781,8 +4699,6 @@ class _PredictScreenState extends State<PredictScreen> {
     switch (_resultStrategy) {
       case 'ml':
         return '机器学习分析';
-      case 'ai':
-        return 'AI分析';
       case 'markov':
         return '马尔科夫分析';
       default:
@@ -5597,8 +5513,8 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
-  Widget _buildAiMarkdownCard() {
-    final markdownText = _aiMarkdownText;
+  Widget _buildAnalysisCard() {
+    final markdownText = _recommendationText;
     if (_result == null && markdownText.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -5797,8 +5713,6 @@ class _PredictScreenState extends State<PredictScreen> {
         return const Color(0xFF2563EB);
       case 'ml':
         return const Color(0xFFB45309);
-      case 'ai':
-        return const Color(0xFF5E35B1);
       default:
         return Colors.black87;
     }
@@ -6611,8 +6525,8 @@ class _PredictScreenState extends State<PredictScreen> {
                     _buildMacauFiveZodiacCard(),
                     const SizedBox(height: 16),
                   ],
-                  if (_result != null || _aiMarkdownText.isNotEmpty) ...[
-                    _buildAiMarkdownCard(),
+                  if (_result != null) ...[
+                    _buildAnalysisCard(),
                     const SizedBox(height: 16),
                   ],
                   _buildSummaryCards(),
