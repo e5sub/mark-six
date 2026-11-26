@@ -62,22 +62,137 @@ class _MarkSixAppState extends State<MarkSixApp> {
           secondary: const Color(0xFFF4B547),
         ),
         fontFamily: 'NotoSansSC',
-        textTheme: ThemeData.light().textTheme.apply(fontFamily: 'NotoSansSC'),
+        textTheme: ThemeData.light().textTheme.apply(
+              fontFamily: 'NotoSansSC',
+              displayColor: const Color(0xFF1F2937),
+              bodyColor: const Color(0xFF1F2937),
+            ),
         primaryTextTheme:
             ThemeData.light().textTheme.apply(fontFamily: 'NotoSansSC'),
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF6F7FB),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFFF6F7FB),
+          foregroundColor: Color(0xFF1F2937),
           elevation: 0,
           centerTitle: true,
+          titleTextStyle: TextStyle(
+            fontFamily: 'NotoSansSC',
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1F2937),
+          ),
+        ),
+        cardTheme: CardThemeData(
+          color: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.grey.shade200),
+          ),
+        ),
+        dividerTheme: DividerThemeData(
+          color: Colors.grey.shade200,
+          thickness: 1,
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(
+              color: Color(0xFFB91C1C),
+              width: 1.5,
+            ),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFB91C1C),
+            foregroundColor: Colors.white,
+            minimumSize: const Size(0, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            textStyle: const TextStyle(
+              fontFamily: 'NotoSansSC',
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            textStyle: const TextStyle(
+              fontFamily: 'NotoSansSC',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF1F2937),
+            side: BorderSide(color: Colors.grey.shade300),
+            minimumSize: const Size(0, 40),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            textStyle: const TextStyle(
+              fontFamily: 'NotoSansSC',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: const Color(0xFFB91C1C),
+            textStyle: const TextStyle(
+              fontFamily: 'NotoSansSC',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: Colors.white,
+          indicatorColor: const Color(0xFFB91C1C).withOpacity(0.12),
+          elevation: 0,
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return TextStyle(
+              fontFamily: 'NotoSansSC',
+              fontSize: 11,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected
+                  ? const Color(0xFFB91C1C)
+                  : const Color(0xFF6B7280),
+            );
+          }),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
           ),
         ),
       ),
@@ -2495,7 +2610,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? color : color.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: selected ? color : color.withOpacity(0.35),
               width: selected ? 1.5 : 1,
@@ -2505,7 +2620,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
             label,
             style: TextStyle(
               color: selected ? Colors.white : color,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
               fontSize: 14,
             ),
           ),
@@ -3299,11 +3414,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
             const SizedBox(height: 10),
             ElevatedButton(
               onPressed: _settling ? null : _submitBet,
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
               child: Text('提交下注 · 共 ${total.toStringAsFixed(0)} 元'),
             ),
           ],
