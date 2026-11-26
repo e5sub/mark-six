@@ -859,6 +859,163 @@ def api_request_activation_code():
     })
 
 
+def _settle_manual_bet_record(record, draw):
+    """按开奖记录结算一条注单，写回命中与盈亏字段（不提交事务）。
+
+    新的独立结算接口与旧的提交时结算共用此实现，避免两套逻辑漂移。
+    """
+    number_stakes = _parse_number_stakes(record.selected_numbers)
+    selected_numbers = (
+        sorted(number_stakes.keys())
+        if number_stakes
+        else _parse_int_list(record.selected_numbers)
+    )
+    zodiac_entries = _parse_common_stake_entries(record.selected_zodiacs)
+    color_entries = _parse_common_stake_entries(record.selected_colors)
+    parity_entries = _parse_common_stake_entries(record.selected_parity)
+    selected_zodiacs = (
+        [value for value, _ in zodiac_entries]
+        if zodiac_entries
+        else _parse_list(record.selected_zodiacs)
+    )
+    selected_colors = (
+        [value for value, _ in color_entries]
+        if color_entries
+        else _parse_list(record.selected_colors)
+    )
+    selected_parity = (
+        [value for value, _ in parity_entries]
+        if parity_entries
+        else _parse_list(record.selected_parity)
+    )
+    bet_number = bool(selected_numbers)
+    bet_zodiac = bool(zodiac_entries or selected_zodiacs)
+    bet_color = bool(color_entries or selected_colors)
+    bet_parity = bool(parity_entries or selected_parity)
+    stake_special = record.stake_special or 0
+    stake_common = record.stake_common or 0
+    odds_number = record.odds_number or 0
+    odds_zodiac = record.odds_zodiac or 0
+    odds_color = record.odds_color or 0
+    odds_parity = record.odds_parity or 0
+    total_stake = record.total_stake or 0
+
+    raw_zodiacs = draw.raw_zodiac.split(",") if draw.raw_zodiac else []
+    special_zodiac = draw.special_zodiac or ""
+    if raw_zodiacs:
+        special_zodiac = raw_zodiacs[-1] or special_zodiac
+
+    special_number = draw.special_number or ""
+    special_color = _get_color_zh(special_number)
+    special_parity = "双"
+    try:
+        special_parity = "双" if int(special_number) % 2 == 0 else "单"
+    except (TypeError, ValueError):
+        special_parity = ""
+
+    result_number = None
+    result_zodiac = None
+    result_color = None
+    result_parity = None
+    profit_number = None
+    profit_zodiac = None
+    profit_color = None
+    profit_parity = None
+    total_profit = 0
+    total_number_stake = 0
+    common_total = 0
+
+    if bet_number:
+        result_number = special_number.isdigit() and int(special_number) in selected_numbers
+        if number_stakes:
+            total_number_stake = sum(number_stakes.values())
+            hit_stake = number_stakes.get(int(special_number), 0)
+            profit_number = hit_stake * odds_number - total_number_stake
+        else:
+            total_number_stake = stake_special
+            profit_number = (
+                stake_special * odds_number - stake_special
+                if result_number
+                else -stake_special
+            )
+        total_profit += profit_number
+
+    if bet_zodiac:
+        if zodiac_entries:
+            result_zodiac, profit_zodiac, zodiac_total = _calc_common_entries(
+                zodiac_entries, special_zodiac, odds_zodiac
+            )
+            common_total += zodiac_total
+        else:
+            result_zodiac = special_zodiac in selected_zodiacs
+            profit_zodiac = (
+                stake_common * odds_zodiac - stake_common
+                if result_zodiac
+                else -stake_common
+            )
+            common_total += stake_common
+        total_profit += profit_zodiac
+
+    if bet_color:
+        if color_entries:
+            result_color, profit_color, color_total = _calc_common_entries(
+                color_entries, special_color, odds_color
+            )
+            common_total += color_total
+        else:
+            result_color = special_color in selected_colors
+            profit_color = (
+                stake_common * odds_color - stake_common
+                if result_color
+                else -stake_common
+            )
+            common_total += stake_common
+        total_profit += profit_color
+
+    if bet_parity:
+        if parity_entries:
+            result_parity, profit_parity, parity_total = _calc_common_entries(
+                parity_entries, special_parity, odds_parity
+            )
+            common_total += parity_total
+        else:
+            result_parity = special_parity in selected_parity
+            profit_parity = (
+                stake_common * odds_parity - stake_common
+                if result_parity
+                else -stake_common
+            )
+            common_total += stake_common
+        total_profit += profit_parity
+
+    if total_number_stake or common_total:
+        total_stake = total_number_stake + common_total
+
+    record.result_number = result_number
+    record.result_zodiac = result_zodiac
+    record.result_color = result_color
+    record.result_parity = result_parity
+    record.profit_number = profit_number
+    record.profit_zodiac = profit_zodiac
+    record.profit_color = profit_color
+    record.profit_parity = profit_parity
+    record.total_profit = total_profit
+    record.special_number = special_number
+    record.special_zodiac = special_zodiac
+    record.special_color = special_color
+    record.special_parity = special_parity
+    record.total_stake = total_stake
+
+    return {
+        "total_profit": total_profit,
+        "total_stake": total_stake,
+        "special_number": special_number,
+        "special_zodiac": special_zodiac,
+        "special_color": special_color,
+        "special_parity": special_parity,
+    }
+
+
 @mobile_api_bp.route("/manual_bets", methods=["POST"])
 def api_manual_bets():
     user, error = _require_active_user()
@@ -1231,7 +1388,6 @@ def api_manual_bets():
     if not draw:
         return _json_error("draw not found", status=404, code="draw_not_found")
 
-    record = None
     if record_id is not None:
         record = ManualBetRecord.query.filter_by(
             id=record_id, user_id=user.id
@@ -1240,147 +1396,6 @@ def api_manual_bets():
             return _json_error("record not found", status=404, code="record_not_found")
         if record.total_profit is not None:
             return _json_error("record already settled", status=400, code="record_settled")
-
-        number_stakes = _parse_number_stakes(record.selected_numbers)
-        selected_numbers = (
-            sorted(number_stakes.keys())
-            if number_stakes
-            else _parse_int_list(record.selected_numbers)
-        )
-        zodiac_entries = _parse_common_stake_entries(record.selected_zodiacs)
-        color_entries = _parse_common_stake_entries(record.selected_colors)
-        parity_entries = _parse_common_stake_entries(record.selected_parity)
-        selected_zodiacs = (
-            [value for value, _ in zodiac_entries]
-            if zodiac_entries
-            else _parse_list(record.selected_zodiacs)
-        )
-        selected_colors = (
-            [value for value, _ in color_entries]
-            if color_entries
-            else _parse_list(record.selected_colors)
-        )
-        selected_parity = (
-            [value for value, _ in parity_entries]
-            if parity_entries
-            else _parse_list(record.selected_parity)
-        )
-        bet_number = bool(selected_numbers)
-        bet_zodiac = bool(zodiac_entries or selected_zodiacs)
-        bet_color = bool(color_entries or selected_colors)
-        bet_parity = bool(parity_entries or selected_parity)
-        stake_special = record.stake_special or 0
-        stake_common = record.stake_common or 0
-        odds_number = record.odds_number or 0
-        odds_zodiac = record.odds_zodiac or 0
-        odds_color = record.odds_color or 0
-        odds_parity = record.odds_parity or 0
-        if record.total_stake is not None:
-            total_stake = record.total_stake
-        elif number_stakes:
-            total_stake = sum(number_stakes.values())
-        else:
-            total_stake = total_stake
-
-    raw_zodiacs = draw.raw_zodiac.split(",") if draw.raw_zodiac else []
-    special_zodiac = draw.special_zodiac or ""
-    if raw_zodiacs:
-        special_zodiac = raw_zodiacs[-1] or special_zodiac
-
-    special_number = draw.special_number or ""
-    special_color = _get_color_zh(special_number)
-    special_parity = "双"
-    try:
-        special_parity = "双" if int(special_number) % 2 == 0 else "单"
-    except (TypeError, ValueError):
-        special_parity = ""
-
-    result_number = None
-    result_zodiac = None
-    result_color = None
-    result_parity = None
-    profit_number = None
-    profit_zodiac = None
-    profit_color = None
-    profit_parity = None
-    total_profit = 0
-
-    total_number_stake = 0
-    common_total = 0
-
-    if bet_number:
-        result_number = special_number.isdigit() and int(
-            special_number
-        ) in selected_numbers
-        if number_stakes:
-            total_number_stake = sum(number_stakes.values())
-            hit_stake = number_stakes.get(int(special_number), 0)
-            profit_number = hit_stake * odds_number - total_number_stake
-        else:
-            total_number_stake = stake_special
-            profit_number = (
-                stake_special * odds_number - stake_special
-                if result_number
-                else -stake_special
-            )
-        total_profit += profit_number
-
-    if bet_zodiac:
-        if zodiac_entries:
-            result_zodiac, profit_zodiac, zodiac_total = _calc_common_entries(
-                zodiac_entries,
-                special_zodiac,
-                odds_zodiac,
-            )
-            common_total += zodiac_total
-        else:
-            result_zodiac = special_zodiac in selected_zodiacs
-            profit_zodiac = (
-                stake_common * odds_zodiac - stake_common
-                if result_zodiac
-                else -stake_common
-            )
-            common_total += stake_common
-        total_profit += profit_zodiac
-
-    if bet_color:
-        if color_entries:
-            result_color, profit_color, color_total = _calc_common_entries(
-                color_entries,
-                special_color,
-                odds_color,
-            )
-            common_total += color_total
-        else:
-            result_color = special_color in selected_colors
-            profit_color = (
-                stake_common * odds_color - stake_common
-                if result_color
-                else -stake_common
-            )
-            common_total += stake_common
-        total_profit += profit_color
-
-    if bet_parity:
-        if parity_entries:
-            result_parity, profit_parity, parity_total = _calc_common_entries(
-                parity_entries,
-                special_parity,
-                odds_parity,
-            )
-            common_total += parity_total
-        else:
-            result_parity = special_parity in selected_parity
-            profit_parity = (
-                stake_common * odds_parity - stake_common
-                if result_parity
-                else -stake_common
-            )
-            common_total += stake_common
-        total_profit += profit_parity
-
-    if total_number_stake or common_total:
-        total_stake = total_number_stake + common_total
 
     if record is None:
         record_zodiacs = (
@@ -1422,40 +1437,32 @@ def api_manual_bets():
         )
         db.session.add(record)
 
-    if common_total:
-        record.stake_common = common_total
-    if total_stake:
-        record.total_stake = total_stake
-
-    record.result_number = result_number
-    record.result_zodiac = result_zodiac
-    record.result_color = result_color
-    record.result_parity = result_parity
-    record.profit_number = profit_number
-    record.profit_zodiac = profit_zodiac
-    record.profit_color = profit_color
-    record.profit_parity = profit_parity
-    record.total_profit = total_profit
-    record.special_number = special_number
-    record.special_zodiac = special_zodiac
-    record.special_color = special_color
-    record.special_parity = special_parity
-    record.total_stake = total_stake
-
+    result = _settle_manual_bet_record(record, draw)
     db.session.commit()
+    return jsonify({"success": True, "record_id": record.id, **result})
 
-    return jsonify(
-        {
-            "success": True,
-            "record_id": record.id,
-            "total_profit": total_profit,
-            "total_stake": total_stake,
-            "special_number": special_number,
-            "special_zodiac": special_zodiac,
-            "special_color": special_color,
-            "special_parity": special_parity,
-        }
-    )
+
+@mobile_api_bp.route("/manual_bets/<int:record_id>/settle", methods=["POST"])
+def api_settle_manual_bet(record_id):
+    user, error = _require_active_user()
+    if error:
+        return error
+
+    record = ManualBetRecord.query.filter_by(id=record_id, user_id=user.id).first()
+    if not record:
+        return _json_error("record not found", status=404, code="record_not_found")
+    if record.total_profit is not None:
+        return _json_error("record already settled", status=400, code="record_settled")
+
+    draw = LotteryDraw.query.filter_by(
+        region=record.region, draw_id=record.period
+    ).first()
+    if not draw:
+        return _json_error("draw not found", status=404, code="draw_not_found")
+
+    result = _settle_manual_bet_record(record, draw)
+    db.session.commit()
+    return jsonify({"success": True, "record_id": record.id, **result})
 
 
 @mobile_api_bp.route("/manual_bets", methods=["GET"])
