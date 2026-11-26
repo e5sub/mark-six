@@ -2565,6 +2565,13 @@ def _hydrate_prediction_model_meta(strategy, existing_meta, data, region):
     if strategy != "ml" or not data:
         return meta
 
+    # 记录已带训练诊断信息（epochs_completed 等）时直接复用，
+    # 避免缓存命中仍完整重跑机器学习训练与推理。
+    if "epochs_completed" in meta or meta.get("samples"):
+        if "display_copy" not in meta:
+            meta["display_copy"] = _build_ml_display_copy(meta)
+        return meta
+
     try:
         refreshed = (_predict_with_ml(data, region) or {}).get("model_meta") or {}
         if refreshed:

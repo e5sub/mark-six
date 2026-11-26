@@ -3464,7 +3464,11 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                         ' ${draw.specialZodiac.isNotEmpty ? draw.specialZodiac : '-'}'
                         ' ${ballColorName(draw.specialNumber)}'
                         ' ${(int.tryParse(draw.specialNumber) ?? 0) % 2 == 0 ? '双' : '单'}',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                style: const TextStyle(
+                  color: Color(0xFF4B5563),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -4529,13 +4533,18 @@ class _PredictScreenState extends State<PredictScreen> {
     'trend': '走势',
   };
 
-  // 五码五肖仅澳门地区展示，排在“综合”之后。
+  // 五码五肖仅澳门地区展示；与“机器学习”互换位置：五码五肖排最前，机器学习排到“综合”之后。
   List<MapEntry<String, String>> get _strategyChipEntries {
     final entries = <MapEntry<String, String>>[];
+    final showFiveZodiac = _region == 'macau';
+    if (showFiveZodiac) {
+      entries.add(const MapEntry(_macauFiveZodiacKey, '五码五肖'));
+    }
     for (final entry in _strategyLabels.entries) {
+      if (showFiveZodiac && entry.key == 'ml') continue;
       entries.add(entry);
-      if (entry.key == 'hybrid' && _region == 'macau') {
-        entries.add(const MapEntry(_macauFiveZodiacKey, '五码五肖'));
+      if (entry.key == 'hybrid' && showFiveZodiac) {
+        entries.add(MapEntry('ml', _strategyLabels['ml'] ?? '机器学习'));
       }
     }
     return entries;
