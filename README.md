@@ -234,7 +234,9 @@ python auto_update_db.py
 说明：
 
 - 开启后在前台页面（分析主页、AI 聊天室、登录/注册）的 `<head>` 加载 AdSense 自动广告脚本；管理后台和用户中心不投放。
-- 广告脚本自动带上 CSP nonce，相关 Google 广告域名（pagead2.googlesyndication.com、googleads.g.doubleclick.net、tpc.googlesyndication.com、fundingchoicesmessages.google.com）仅在开启时加入 CSP 白名单。
+- 使用**自动广告**模式：页面里不需要写 `<ins class="adsbygoogle">` 广告位，广告插入位置、格式和数量由 Google 脚本根据页面内容自动决定。还需在 AdSense 后台「广告 → 自动广告」中打开需要的广告格式（如文中广告、匹配内容广告、锚定广告），否则脚本加载了也不会展示广告。
+- 自动广告更适合内容较多的页面（分析主页）；登录/注册等页面内容较少，Google 可能不插入广告。
+- 广告脚本自动带上 CSP nonce；开启广告时，CSP 会按 [AdSense 官方要求](https://support.google.com/adsense/answer/16283098) 放宽 script-src，并放行相关 Google 广告域名（pagead2.googlesyndication.com、googleads.g.doubleclick.net、tpc.googlesyndication.com、fundingchoicesmessages.google.com）。关闭广告时这些放宽全部撤回。
 - 新配置项会在启动时通过 `auto_update_db.py` 自动写入 `system_config` 表，无需手动迁移。
 
 ## 使用流程

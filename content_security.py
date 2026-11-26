@@ -155,7 +155,13 @@ def build_policy(nonce, handler_hashes=None, allow_inline_handlers=True, report_
 
     if adsense:
         for i, d in enumerate(directives):
-            if d.startswith("connect-src"):
+            if d.startswith("script-src "):
+                # AdSense 官方只支持 nonce + strict-dynamic 的严格 CSP，并要求
+                # 带上这几个 token；缺 unsafe-eval 时广告脚本可能中途失效。
+                # 有 nonce/strict-dynamic 的浏览器会忽略 unsafe-inline 和来源列表，
+                # 不会因此放开内联脚本。
+                directives[i] = d + " 'unsafe-inline' 'unsafe-eval' https: http:"
+            elif d.startswith("connect-src"):
                 directives[i] = d + " " + " ".join(_ADSENSE_CONNECT)
             elif d.startswith("img-src"):
                 directives[i] = d + " " + " ".join(_ADSENSE_IMG)

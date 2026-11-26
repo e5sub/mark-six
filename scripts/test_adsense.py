@@ -74,8 +74,18 @@ for host in ("pagead2.googlesyndication.com", "googleads.g.doubleclick.net",
              "tpc.googlesyndication.com", "fundingchoicesmessages.google.com"):
     assert host in csp, f"CSP 缺少 {host}"
 assert "connect-src" in csp and "frame-src" in csp
+# AdSense 官方要求的严格 CSP token；缺这些会导致自动广告中途失效
+assert "'unsafe-eval'" in csp, "开启广告后 CSP 缺少 unsafe-eval"
+assert "'strict-dynamic'" in csp and "https:" in csp
 print(f"[4] 广告脚本带 nonce 且 CSP 已放行  ✓")
 print(f"    script tag: {tag[:100]}")
+
+# 自动广告脚本也要覆盖聊天页，位置由 Google 脚本自身决定，页面里不写广告位
+r = client.get("/chat")
+assert r.status_code == 200, r.status_code
+assert "adsbygoogle.js?client=ca-pub-1234567890123456" in r.get_data(as_text=True)
+assert "adsbygoogle" in r.get_data(as_text=True)
+print("[4b] 聊天页同样加载自动广告脚本  ✓")
 
 r = client.get("/ads.txt")
 assert r.status_code == 200
@@ -105,8 +115,9 @@ client.post("/admin/system_config/save", json={
 r = client.get("/")
 assert r.status_code == 200
 assert "adsbygoogle.js" not in r.get_data(as_text=True)
+assert "'unsafe-eval'" not in r.headers.get("Content-Security-Policy", "")
 r = client.get("/ads.txt")
 assert r.status_code == 404
-print("[7] 关闭开关后广告脚本与 ads.txt 均停止  ✓")
+print("[7] 关闭开关后广告脚本、CSP 放宽与 ads.txt 均停止  ✓")
 
-print("\n全部 7 项验证通过 ✅")
+print("\n全部验证通过 ✅")
