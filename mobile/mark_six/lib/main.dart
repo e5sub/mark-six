@@ -4516,7 +4516,6 @@ class _PredictScreenState extends State<PredictScreen> {
   bool _loadingRecords = false;
   List<PredictionItem> _predictionRecords = [];
   List<Map<String, dynamic>> _regionSummaries = [];
-  bool _showAllPredictionPeriods = false;
   final Map<int, List<String>> _recordNormalZodiacs = {};
   final Map<int, String> _recordSpecialZodiacs = {};
 
@@ -5909,12 +5908,223 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
+  Widget _buildPredictionPeriodGroup(
+    String periodKey,
+    Map<String, List<PredictionItem>> grouped,
+    Map<String, String> displayPeriods,
+  ) {
+    final items = grouped[periodKey] ?? [];
+    final period = displayPeriods[periodKey] ?? periodKey;
+    final firstItem = items.isNotEmpty ? items.first : null;
+    final actualSpecialNumber = firstItem?.actualSpecialNumber ?? '';
+    final actualSpecialZodiac = firstItem?.actualSpecialZodiac ?? '';
+    final periodHit = items.any((item) => item.result == 'special_hit');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: periodHit
+              ? const [
+                  Color(0xFFFFFBF2),
+                  Color(0xFFFFF1F2),
+                ]
+              : const [
+                  Color(0xFFF9FCFF),
+                  Color(0xFFF5FAF8),
+                ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: periodHit
+              ? const Color(0xFFFFC2D1)
+              : const Color(0xFFE2E8F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: periodHit
+                ? const Color(0x24E11D48)
+                : const Color(0x12000000),
+            blurRadius: periodHit ? 14 : 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildPredictionPeriodHeader(
+            period: period,
+            actualSpecialNumber: actualSpecialNumber,
+            actualSpecialZodiac: actualSpecialZodiac,
+            hit: periodHit,
+          ),
+          const SizedBox(height: 8),
+          if (_showNormalNumbers)
+            Column(
+              children: items.map(_buildPredictionRecordItem).toList(),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const spacing = 8.0;
+                final cardWidth =
+                    (constraints.maxWidth - spacing * 2) / 3;
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: items
+                        .map(
+                          (item) => _buildPredictionRecordItem(
+                            item,
+                            inlineSpecialOnly: true,
+                            forcedWidth: cardWidth,
+                          ),
+                        )
+                        .toList(),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _openPredictionRecordsDialog() {
+    int page = 1;
+    const perPage = 2;
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final grouped = <String, List<PredictionItem>>{};
+            final orderedPeriods = <String>[];
+            final displayPeriods = <String, String>{};
+            for (final item in _predictionRecords) {
+              final groupKey = '${item.region}:${item.period}';
+              if (!grouped.containsKey(groupKey)) {
+                grouped[groupKey] = [];
+                orderedPeriods.add(groupKey);
+                displayPeriods[groupKey] = item.period;
+              }
+              grouped[groupKey]!.add(item);
+            }
+            for (final entry in grouped.entries) {
+              entry.value.sort((a, b) {
+                final aNum = int.tryParse(a.specialNumber) ?? 999;
+                final bNum = int.tryParse(b.specialNumber) ?? 999;
+                return aNum.compareTo(bNum);
+              });
+            }
+            final totalPages =
+                (orderedPeriods.length + perPage - 1) ~/ perPage;
+            if (page > totalPages) page = totalPages;
+            if (page < 1) page = 1;
+            final start = (page - 1) * perPage;
+            final end = (start + perPage) < orderedPeriods.length
+                ? (start + perPage)
+                : orderedPeriods.length;
+            final slice =
+                orderedPeriods.sublist(start, end);
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Container(
+                width: 360,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            '预测记录',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          icon: const Icon(Icons.close, size: 20),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Flexible(
+                      child: orderedPeriods.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(child: Text('暂无预测记录')),
+                            )
+                          : SingleChildScrollView(
+                              child: Column(
+                                children: slice
+                                    .map(
+                                      (periodKey) =>
+                                          _buildPredictionPeriodGroup(
+                                        periodKey,
+                                        grouped,
+                                        displayPeriods,
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        OutlinedButton(
+                          onPressed: page > 1
+                              ? () => setDialogState(() => page -= 1)
+                              : null,
+                          child: const Text('上一页'),
+                        ),
+                        Text(
+                          '第 $page / $totalPages 页 · 共 ${orderedPeriods.length} 期',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        OutlinedButton(
+                          onPressed: page < totalPages
+                              ? () => setDialogState(() => page += 1)
+                              : null,
+                          child: const Text('下一页'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _loadPredictionRecords() async {
     setState(() => _loadingRecords = true);
     try {
       final res = await ApiClient.instance.predictions(
         page: 1,
-        pageSize: 24,
+        pageSize: 60,
         region: _region,
         includeZodiacs: true,
         includeSummaries: false,
@@ -5928,7 +6138,6 @@ class _PredictScreenState extends State<PredictScreen> {
       if (!mounted) return;
       setState(() {
         _predictionRecords = items;
-        _showAllPredictionPeriods = false;
         for (final item in items) {
           if (item.normalZodiacs.isNotEmpty) {
             _recordNormalZodiacs[item.id] = item.normalZodiacs;
@@ -6613,119 +6822,22 @@ class _PredictScreenState extends State<PredictScreen> {
                     });
                   }
 
-                  final visiblePeriods = _showAllPredictionPeriods
-                      ? orderedPeriods
-                      : orderedPeriods.take(3).toList();
+                  final visiblePeriods = orderedPeriods.take(1).toList();
 
                   return Column(
                     children: [
                       ...visiblePeriods.map((periodKey) {
-                        final items = grouped[periodKey] ?? [];
-                        final period = displayPeriods[periodKey] ?? periodKey;
-                        final firstItem =
-                            items.isNotEmpty ? items.first : null;
-                        final actualSpecialNumber =
-                            firstItem?.actualSpecialNumber ?? '';
-                        final actualSpecialZodiac =
-                            firstItem?.actualSpecialZodiac ?? '';
-                        final periodHit =
-                            items.any((item) => item.result == 'special_hit');
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: periodHit
-                                  ? const [
-                                      Color(0xFFFFFBF2),
-                                      Color(0xFFFFF1F2),
-                                    ]
-                                  : const [
-                                      Color(0xFFF9FCFF),
-                                      Color(0xFFF5FAF8),
-                                    ],
-                            ),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(
-                              color: periodHit
-                                  ? const Color(0xFFFFC2D1)
-                                  : const Color(0xFFE2E8F0),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: periodHit
-                                    ? const Color(0x24E11D48)
-                                    : const Color(0x12000000),
-                                blurRadius: periodHit ? 14 : 10,
-                                offset: Offset(0, 5),
-                              ),
-                            ],
-                            ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildPredictionPeriodHeader(
-                                period: period,
-                                actualSpecialNumber: actualSpecialNumber,
-                                actualSpecialZodiac: actualSpecialZodiac,
-                                hit: periodHit,
-                              ),
-                              const SizedBox(height: 8),
-                              if (_showNormalNumbers)
-                                Column(
-                                  children: items
-                                      .map(_buildPredictionRecordItem)
-                                      .toList(),
-                                )
-                              else
-                                LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    const spacing = 8.0;
-                                    final cardWidth =
-                                        (constraints.maxWidth - spacing * 2) / 3;
-                                    return Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Wrap(
-                                        spacing: spacing,
-                                        runSpacing: spacing,
-                                        children: items
-                                            .map(
-                                              (item) => _buildPredictionRecordItem(
-                                                item,
-                                                inlineSpecialOnly: true,
-                                                forcedWidth: cardWidth,
-                                              ),
-                                            )
-                                            .toList(),
-                                      ),
-                                    );
-                                  },
-                                ),
-                            ],
-                          ),
+                        return _buildPredictionPeriodGroup(
+                          periodKey,
+                          grouped,
+                          displayPeriods,
                         );
                       }).toList(),
-                      if (!_showAllPredictionPeriods &&
-                          orderedPeriods.length > 3)
-                        TextButton(
-                          onPressed: () {
-                            setState(() {
-                              _showAllPredictionPeriods = true;
-                            });
-                          },
-                          child: const Text('显示更多'),
-                        ),
-                      if (_showAllPredictionPeriods &&
-                          orderedPeriods.length > 3)
-                        TextButton(
-                          onPressed: () {
-                            setState(() {
-                              _showAllPredictionPeriods = false;
-                            });
-                          },
-                          child: const Text('收起'),
+                      if (orderedPeriods.length > 1)
+                        OutlinedButton.icon(
+                          onPressed: _openPredictionRecordsDialog,
+                          icon: const Icon(Icons.unfold_more, size: 16),
+                          label: const Text('查看更多'),
                         ),
                     ],
                   );
