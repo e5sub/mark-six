@@ -3187,6 +3187,42 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     );
   }
 
+  Widget _buildSheetSelectionChips() {
+    final labels = switch (_betType) {
+      'number' =>
+        _selectedNumbers.map((n) => n.toString().padLeft(2, '0')).toList(),
+      'zodiac' => _selectedZodiacs.toList(),
+      'color' => _selectedColors.toList(),
+      _ => _selectedParity.toList(),
+    };
+    labels.sort();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: labels.map((label) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.blue.shade700,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   Widget _buildBottomSheet() {
     final total = _currentTotalStake();
     return Positioned(
@@ -3223,6 +3259,8 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                 ),
               ],
             ),
+            if (_selectedCount > 0) _buildSheetSelectionChips(),
+            const SizedBox(height: 4),
             Wrap(
               spacing: 6,
               children: ['10', '20', '50', '100'].map((amount) {
@@ -3467,7 +3505,10 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                           _buildNumberGrid()
                         else
                           _buildOptionGrid(),
-                        const SizedBox(height: 160),
+                        // 底部浮层（提交下注）可见时留出其高度，避免遮挡号码
+                        SizedBox(
+                          height: _hasSelection() && !_sheetHidden ? 300 : 24,
+                        ),
                         if (_statusMessage != null)
                           Card(
                             color: Colors.orange.shade50,
