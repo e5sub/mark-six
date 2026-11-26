@@ -351,6 +351,14 @@ class ApiClient {
     return _ensureJsonMap(response.data);
   }
 
+  Future<Map<String, dynamic>> settleManualBet(int recordId) async {
+    final response = await post(
+      '/api/mobile/manual_bets/$recordId/settle',
+      data: <String, dynamic>{},
+    );
+    return _ensureJsonMap(response.data);
+  }
+
   Future<Map<String, dynamic>> manualBets({
     String? region,
     String? status,

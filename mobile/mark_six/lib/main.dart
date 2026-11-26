@@ -1422,8 +1422,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
 
   final TextEditingController _periodController = TextEditingController();
   final TextEditingController _bettorController = TextEditingController();
-  final TextEditingController _stakeSpecialController =
-      TextEditingController(text: '10');
   final TextEditingController _stakeCommonController =
       TextEditingController(text: '10');
   final TextEditingController _numberOddsController =
@@ -1858,6 +1856,17 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   ),
                 ),
               ),
+              if (status != 'settled' && recordId != null)
+                IconButton(
+                  tooltip: '结算',
+                  icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+                  onPressed: _settling
+                      ? null
+                      : () {
+                          final id = int.tryParse(recordId.toString());
+                          if (id != null) _settleRecord(id);
+                        },
+                ),
               IconButton(
                 tooltip: '删除',
                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
@@ -2027,7 +2036,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   void dispose() {
     _periodController.dispose();
     _bettorController.dispose();
-    _stakeSpecialController.dispose();
     _stakeCommonController.dispose();
     _numberOddsController.dispose();
     _zodiacOddsController.dispose();
@@ -2182,218 +2190,38 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     }
   }
 
-  Future<void> _settleBet() async {
+  Future<void> _settleRecord(int recordId) async {
     if (!await _requireActivation()) return;
     setState(() {
       _settling = true;
       _statusMessage = null;
-      _outcomes = [];
-      _totalStake = 0;
-      _totalProfit = 0;
     });
-    final draw = await _fetchLatestDraw();
-    if (!mounted) return;
-    if (draw == null) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '获取最新开奖失败';
-      });
-      return;
-    }
-
-    final period = _periodController.text.trim();
-    if (period.isEmpty) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '请输入期号';
-      });
-      return;
-    }
-    if (period != draw.id) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '当前期号未开奖，最新期号：${draw.id}';
-      });
-      return;
-    }
-
-    await _saveOddsPrefs();
-
-    final stakeSpecial =
-        double.tryParse(_stakeSpecialController.text.trim()) ?? 0;
-    final stakeCommon =
-        double.tryParse(_stakeCommonController.text.trim()) ?? 0;
-    final betNumber = _betType == 'number';
-    final betZodiac = _betType == 'zodiac';
-    final betColor = _betType == 'color';
-    final betParity = _betType == 'parity';
-
-    if (betNumber && _selectedNumbers.isEmpty) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '请选择号码';
-      });
-      return;
-    }
-    if ((betZodiac || betColor || betParity) && stakeCommon <= 0) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '请输入有效的共用下注金额';
-      });
-      return;
-    }
-
-    if (betNumber) {
-      final numberStakes = _collectNumberStakes();
-      if (numberStakes.length != _selectedNumbers.length) {
+    try {
+      final response = await ApiClient.instance.settleManualBet(recordId);
+      if (response['success'] != true) {
+        if (!mounted) return;
         setState(() {
           _settling = false;
-          _statusMessage = '请为每个号码填写下注金额';
+          _statusMessage = response['message']?.toString() ?? '结算失败';
         });
         return;
       }
-    }
-    if (betZodiac && _selectedZodiacs.isEmpty) {
+      if (!mounted) return;
+      final profit = (response['total_profit'] as num?)?.toDouble();
       setState(() {
         _settling = false;
-        _statusMessage = '请选择生肖';
+        _statusMessage = profit == null
+            ? '结算成功'
+            : '结算成功，盈亏 ${profit.toStringAsFixed(2)} 元';
       });
-      return;
-    }
-    if (betColor && _selectedColors.isEmpty) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '请选择波色';
-      });
-      return;
-    }
-    if (betParity && _selectedParity.isEmpty) {
-      setState(() {
-        _settling = false;
-        _statusMessage = '请选择单双';
-      });
-      return;
-    }
-
-    final specialNumber = draw.specialNumber;
-    final specialZodiac = await _resolveSpecialZodiac(draw);
-    final specialColor = ballColorName(specialNumber);
-    final specialParity =
-        (int.tryParse(specialNumber) ?? 0) % 2 == 0 ? '双' : '单';
-
-    final outcomes = <_ManualBetOutcome>[];
-    double totalStake = 0;
-    double totalProfit = 0;
-
-    if (betNumber) {
-      final odds = double.tryParse(_numberOddsController.text.trim()) ?? 0;
-      final numberStakes = _collectNumberStakes();
-      final totalNumberStake =
-          numberStakes.values.fold(0.0, (sum, value) => sum + value);
-      final hitStake = numberStakes[int.tryParse(specialNumber)] ?? 0;
-      final win = hitStake > 0;
-      final profit = hitStake * odds - totalNumberStake;
-      outcomes.add(_ManualBetOutcome(
-        label: '号码',
-        win: win,
-        profit: profit,
-        stake: totalNumberStake,
-        odds: odds,
-      ));
-      totalStake += totalNumberStake;
-      totalProfit += profit;
-    }
-    if (betZodiac) {
-      final odds = double.tryParse(_zodiacOddsController.text.trim()) ?? 0;
-      final win = specialZodiac.isNotEmpty && _selectedZodiacs.contains(specialZodiac);
-      final profit =
-          win ? stakeCommon * odds - stakeCommon : -stakeCommon;
-      outcomes.add(_ManualBetOutcome(
-        label: '生肖',
-        win: win,
-        profit: profit,
-        stake: stakeCommon,
-        odds: odds,
-      ));
-      totalStake += stakeCommon;
-      totalProfit += profit;
-    }
-    if (betColor) {
-      final odds = double.tryParse(_colorOddsController.text.trim()) ?? 0;
-      final win = specialColor.isNotEmpty && _selectedColors.contains(specialColor);
-      final profit =
-          win ? stakeCommon * odds - stakeCommon : -stakeCommon;
-      outcomes.add(_ManualBetOutcome(
-        label: '波色',
-        win: win,
-        profit: profit,
-        stake: stakeCommon,
-        odds: odds,
-      ));
-      totalStake += stakeCommon;
-      totalProfit += profit;
-    }
-    if (betParity) {
-      final odds = double.tryParse(_parityOddsController.text.trim()) ?? 0;
-      final win = _selectedParity.contains(specialParity);
-      final profit =
-          win ? stakeCommon * odds - stakeCommon : -stakeCommon;
-      outcomes.add(_ManualBetOutcome(
-        label: '单双',
-        win: win,
-        profit: profit,
-        stake: stakeCommon,
-        odds: odds,
-      ));
-      totalStake += stakeCommon;
-      totalProfit += profit;
-    }
-
-    String? saveError;
-    try {
-      final response = await ApiClient.instance.createManualBet(
-        region: _region,
-        period: period,
-        settle: true,
-        recordId: _pendingRecordId,
-        bettorName: _bettorController.text,
-        betNumber: betNumber,
-        betZodiac: betZodiac,
-        betColor: betColor,
-        betParity: betParity,
-        numbers: betNumber ? _selectedNumbers.toList() : <int>[],
-        numberStakes: betNumber ? _buildNumberStakePayload() : null,
-        zodiacs: betZodiac ? _selectedZodiacs.toList() : <String>[],
-        colors: betColor ? _selectedColors.toList() : <String>[],
-        parity: betParity ? _selectedParity.toList() : <String>[],
-        stakeSpecial: _stakeSpecialController.text.trim(),
-        stakeCommon: _stakeCommonController.text.trim(),
-        oddsNumber: _numberOddsController.text.trim(),
-        oddsZodiac: _zodiacOddsController.text.trim(),
-        oddsColor: _colorOddsController.text.trim(),
-        oddsParity: _parityOddsController.text.trim(),
-      );
-      if (response['success'] != true) {
-        saveError = response['message']?.toString() ?? '记录保存失败';
-      }
+      await _loadManualBets();
     } catch (_) {
-      saveError = '记录保存失败';
+      if (!mounted) return;
+      setState(() {
+        _settling = false;
+        _statusMessage = '结算失败，请稍后重试';
+      });
     }
-
-    if (!mounted) return;
-    setState(() {
-      _settling = false;
-      _latestDraw = draw;
-      _outcomes = outcomes;
-      _totalStake = totalStake;
-      _totalProfit = totalProfit;
-      if (saveError != null) {
-        _statusMessage = saveError;
-      } else {
-        _pendingRecordId = null;
-        _loadManualBets();
-      }
-    });
   }
 
   Future<void> _submitBet() async {
@@ -2413,8 +2241,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
 
     await _saveOddsPrefs();
 
-    final stakeSpecial =
-        double.tryParse(_stakeSpecialController.text.trim()) ?? 0;
     final stakeCommon =
         double.tryParse(_stakeCommonController.text.trim()) ?? 0;
     final betNumber = _betType == 'number';
@@ -2483,7 +2309,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         zodiacs: betZodiac ? _selectedZodiacs.toList() : <String>[],
         colors: betColor ? _selectedColors.toList() : <String>[],
         parity: betParity ? _selectedParity.toList() : <String>[],
-        stakeSpecial: _stakeSpecialController.text.trim(),
+        stakeSpecial: '0',
         stakeCommon: _stakeCommonController.text.trim(),
         oddsNumber: _numberOddsController.text.trim(),
         oddsZodiac: _zodiacOddsController.text.trim(),
@@ -3058,8 +2884,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   ],
                   const SizedBox(height: 12),
                   Builder(builder: (context) {
-                    final stakeSpecial =
-                        double.tryParse(_stakeSpecialController.text.trim()) ?? 0;
+                    final stakeSpecial = 0.0;
                     final stakeCommon =
                         double.tryParse(_stakeCommonController.text.trim()) ?? 0;
                     final oddsNumber =
