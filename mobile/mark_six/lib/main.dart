@@ -2729,24 +2729,58 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
 
   ButtonStyle get _rectButtonStyle => OutlinedButton.styleFrom(
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(10),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        side: BorderSide(color: Colors.grey.shade300),
+        backgroundColor: Colors.grey.shade50,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       );
 
-  Widget _buildSmallButton(String label, VoidCallback? onPressed,
-      {bool primary = false}) {
+  Widget _buildSmallButton(
+    String label,
+    VoidCallback? onPressed, {
+    bool primary = false,
+    IconData? icon,
+  }) {
+    final accent = Colors.blue.shade600;
+    final child = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Icon(
+            icon,
+            size: 15,
+            color: primary ? Colors.white : accent,
+          ),
+          const SizedBox(width: 5),
+        ],
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: primary ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+    if (primary) {
+      return FilledButton(
+        style: FilledButton.styleFrom(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          backgroundColor: accent,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        ),
+        onPressed: onPressed,
+        child: child,
+      );
+    }
     return OutlinedButton(
       style: _rectButtonStyle,
       onPressed: onPressed,
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          color: primary ? Colors.blue : null,
-          fontWeight: primary ? FontWeight.w700 : null,
-        ),
-      ),
+      child: child,
     );
   }
 
@@ -3254,8 +3288,10 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         ),
         const SizedBox(height: 10),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
+              flex: 3,
               child: TextField(
                 controller: _periodController,
                 onChanged: (_) => setState(_clearPending),
@@ -3263,26 +3299,30 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                   labelText: '期号（默认下一期）',
                   hintText: _nextPeriod,
                   border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    onPressed: () => _loadLatestDraw(),
+                    icon: const Icon(Icons.refresh),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            IconButton(
-              onPressed: () => _loadLatestDraw(),
-              icon: const Icon(Icons.refresh),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 2,
+              child: Text(
+                draw == null
+                    ? '上期开奖 --'
+                    : '上期开奖 ${draw.specialNumber}'
+                        ' ${draw.specialZodiac.isNotEmpty ? draw.specialZodiac : '-'}'
+                        ' ${ballColorName(draw.specialNumber)}'
+                        ' ${(int.tryParse(draw.specialNumber) ?? 0) % 2 == 0 ? '双' : '单'}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),
-        if (draw != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              '上期开奖 ${draw.specialNumber} · 生肖 ${draw.specialZodiac.isNotEmpty ? draw.specialZodiac : '-'}'
-              ' · 波色 ${ballColorName(draw.specialNumber)}'
-              ' · 单双 ${(int.tryParse(draw.specialNumber) ?? 0) % 2 == 0 ? '双' : '单'}',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            ),
-          ),
       ],
     );
   }
@@ -3368,25 +3408,32 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                         ],
                         _buildHeader(),
                         const SizedBox(height: 16),
-                        const Text(
-                          '下注类型',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 8),
                         Row(
                           children: [
-                            _buildBetTypeButton('number', '号码'),
-                            const SizedBox(width: 8),
-                            _buildBetTypeButton('zodiac', '生肖'),
-                            const SizedBox(width: 8),
-                            _buildBetTypeButton('color', '波色'),
-                            const SizedBox(width: 8),
-                            _buildBetTypeButton('parity', '单双'),
+                            const Text(
+                              '下注类型',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  _buildBetTypeButton('number', '号码'),
+                                  const SizedBox(width: 8),
+                                  _buildBetTypeButton('zodiac', '生肖'),
+                                  const SizedBox(width: 8),
+                                  _buildBetTypeButton('color', '波色'),
+                                  const SizedBox(width: 8),
+                                  _buildBetTypeButton('parity', '单双'),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 10),
                         Wrap(
-                          spacing: 6,
+                          spacing: 8,
+                          runSpacing: 8,
                           children: [
                             if (_betType == 'number')
                               _buildSmallButton(
@@ -3396,15 +3443,22 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                                   setState(() => _showConditionDialog = true);
                                 },
                                 primary: true,
+                                icon: Icons.filter_alt_outlined,
                               ),
-                            _buildSmallButton('清空', _clearCurrentSelection),
+                            _buildSmallButton(
+                              '清空',
+                              _clearCurrentSelection,
+                              icon: Icons.delete_sweep_outlined,
+                            ),
                             _buildSmallButton(
                               '赔率设置',
                               () => setState(() => _showOddsDialog = true),
+                              icon: Icons.tune,
                             ),
                             _buildSmallButton(
                               '下注记录',
                               () => setState(() => _showRecordsDialog = true),
+                              icon: Icons.receipt_long_outlined,
                             ),
                           ],
                         ),
