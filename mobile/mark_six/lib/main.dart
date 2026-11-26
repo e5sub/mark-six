@@ -3437,6 +3437,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
             ),
     );
   }
+}
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
