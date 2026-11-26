@@ -1447,6 +1447,20 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   bool _loadingBets = false;
   List<Map<String, dynamic>> _manualBets = [];
   bool _showAllManualBetPeriods = false;
+  final TextEditingController _unifiedAmountController =
+      TextEditingController(text: '20');
+  String _conditionTab = 'zodiac';
+  final Map<int, String> _zodiacByNumber = {};
+  bool _showConditionDialog = false;
+  bool _showOddsDialog = false;
+  bool _showRecordsDialog = false;
+  bool _sheetHidden = false;
+  String _recordField = 'period';
+  final TextEditingController _recordKeywordController =
+      TextEditingController();
+  int _recordPage = 1;
+  static const int _recordPageSize = 4;
+
 
   bool get _activationValid => widget.appState.activationValid;
 
@@ -2030,6 +2044,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     setState(() => _region = savedRegion);
     _loadLatestDraw();
     _loadManualBets();
+    _loadZodiacMapping();
   }
 
   @override
@@ -2037,6 +2052,8 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     _periodController.dispose();
     _bettorController.dispose();
     _stakeCommonController.dispose();
+    _unifiedAmountController.dispose();
+    _recordKeywordController.dispose();
     _numberOddsController.dispose();
     _zodiacOddsController.dispose();
     _colorOddsController.dispose();
@@ -2355,12 +2372,15 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         final color = ballColor(number.toString());
         return GestureDetector(
           onTap: () {
+            _sheetHidden = false;
             setState(() {
               if (selected) {
                 _selectedNumbers.remove(number);
                 _numberStakeControllers.remove(number)?.dispose();
               } else {
                 _selectedNumbers.add(number);
+                _numberStakeControllers[number]?.text =
+                    _unifiedAmountController.text.trim();
               }
               _syncNumberStakeControllers();
               _clearPending();
@@ -2407,10 +2427,12 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
             _latestDraw = null;
             _nextPeriod = '';
             _periodController.clear();
+            _zodiacByNumber.clear();
             _clearPending();
           });
           _loadLatestDraw(showLoading: false, replacePeriod: true);
           _loadManualBets();
+          _loadZodiacMapping();
         },
         child: Container(
           height: 48,
@@ -2524,6 +2546,787 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     );
   }
 
+  bool _hasSelection() {
+    switch (_betType) {
+      case 'number':
+        return _selectedNumbers.isNotEmpty;
+      case 'zodiac':
+        return _selectedZodiacs.isNotEmpty;
+      case 'color':
+        return _selectedColors.isNotEmpty;
+      case 'parity':
+        return _selectedParity.isNotEmpty;
+      default:
+        return false;
+    }
+  }
+
+  int get _selectedCount {
+    switch (_betType) {
+      case 'number':
+        return _selectedNumbers.length;
+      case 'zodiac':
+        return _selectedZodiacs.length;
+      case 'color':
+        return _selectedColors.length;
+      case 'parity':
+        return _selectedParity.length;
+      default:
+        return 0;
+    }
+  }
+
+  double _currentTotalStake() {
+    if (_betType == 'number') {
+      return _numberStakeControllers.values.fold(
+        0.0,
+        (sum, controller) =>
+            sum + (double.tryParse(controller.text.trim()) ?? 0),
+      );
+    }
+    return (double.tryParse(_stakeCommonController.text.trim()) ?? 0) *
+        _selectedCount;
+  }
+
+  Future<void> _loadZodiacMapping() async {
+    if (_zodiacByNumber.isNotEmpty) return;
+    try {
+      final res = await ApiClient.instance.getZodiacs(
+        numbers: List.generate(49, (index) => '${index + 1}'),
+        region: _region,
+        year: DateTime.now().year.toString(),
+      );
+      final normal = res['normal_zodiacs'];
+      final map = <int, String>{};
+      if (normal is List) {
+        for (var i = 0; i < normal.length && i < 48; i++) {
+          map[i + 1] = normal[i].toString();
+        }
+      }
+      final special = res['special_zodiac']?.toString() ?? '';
+      if (special.isNotEmpty) map[49] = special;
+      if (!mounted) return;
+      setState(() => _zodiacByNumber.addAll(map));
+    } catch (_) {}
+  }
+
+  void _applyUnifiedAmount([String? value]) {
+    final raw = (value ?? _unifiedAmountController.text).trim();
+    if (_betType == 'number') {
+      for (final number in _selectedNumbers) {
+        final controller = _numberStakeControllers.putIfAbsent(
+          number,
+          () => TextEditingController(text: raw),
+        );
+        controller.text = raw;
+      }
+    } else {
+      _stakeCommonController.text = raw;
+    }
+    _sheetHidden = false;
+    setState(_clearPending);
+  }
+
+  List<int> _numbersForCondition(String group) {
+    final result = <int>[];
+    if (_conditionTab == 'zodiac') {
+      _zodiacByNumber.forEach((number, zodiac) {
+        if (zodiac == group) result.add(number);
+      });
+    } else {
+      for (var number = 1; number <= 49; number++) {
+        final value = _conditionTab == 'color'
+            ? ballColorName(number.toString())
+            : (number % 2 == 1 ? '单' : '双');
+        if (value == group) result.add(number);
+      }
+    }
+    result.sort();
+    return result;
+  }
+
+  void _toggleConditionGroup(String group) {
+    if (_betType != 'number') return;
+    final numbers = _numbersForCondition(group);
+    if (numbers.isEmpty) return;
+    final allSelected = numbers.every(_selectedNumbers.contains);
+    _sheetHidden = false;
+    setState(() {
+      for (final number in numbers) {
+        if (allSelected) {
+          _selectedNumbers.remove(number);
+          _numberStakeControllers.remove(number)?.dispose();
+        } else {
+          _selectedNumbers.add(number);
+        }
+      }
+      _syncNumberStakeControllers();
+      if (!allSelected) {
+        for (final number in numbers) {
+          _numberStakeControllers[number]?.text =
+              _unifiedAmountController.text.trim();
+        }
+      }
+      _clearPending();
+    });
+  }
+
+  void _clearCurrentSelection() {
+    _sheetHidden = false;
+    setState(() {
+      if (_betType == 'number') {
+        for (final controller in _numberStakeControllers.values) {
+          controller.dispose();
+        }
+        _numberStakeControllers.clear();
+        _selectedNumbers.clear();
+      } else if (_betType == 'zodiac') {
+        _selectedZodiacs.clear();
+      } else if (_betType == 'color') {
+        _selectedColors.clear();
+      } else if (_betType == 'parity') {
+        _selectedParity.clear();
+      }
+      _clearPending();
+    });
+  }
+
+  List<String> _conditionGroups() {
+    if (_conditionTab == 'zodiac') {
+      return const ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪'];
+    }
+    if (_conditionTab == 'color') return const ['红', '蓝', '绿'];
+    return const ['单', '双'];
+  }
+
+  List<Map<String, dynamic>> _filteredRecords() {
+    final keyword = _recordKeywordController.text.trim().toLowerCase();
+    if (keyword.isEmpty) return _manualBets;
+    return _manualBets.where((item) {
+      String value;
+      switch (_recordField) {
+        case 'special':
+          value = item['special_number']?.toString() ?? '';
+          break;
+        case 'zodiac':
+          value = item['special_zodiac']?.toString() ?? '';
+          break;
+        case 'color':
+          value = item['special_color']?.toString() ?? '';
+          break;
+        case 'parity':
+          value = item['special_parity']?.toString() ?? '';
+          break;
+        case 'bettor':
+          value = item['bettor_name']?.toString() ?? '';
+          break;
+        default:
+          value = item['period']?.toString() ?? '';
+      }
+      return value.toLowerCase().contains(keyword);
+    }).toList();
+  }
+
+  ButtonStyle get _rectButtonStyle => OutlinedButton.styleFrom(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      );
+
+  Widget _buildSmallButton(String label, VoidCallback? onPressed,
+      {bool primary = false}) {
+    return OutlinedButton(
+      style: _rectButtonStyle,
+      onPressed: onPressed,
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          color: primary ? Colors.blue : null,
+          fontWeight: primary ? FontWeight.w700 : null,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverlay(Widget child) {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black45,
+        alignment: Alignment.center,
+        child: SingleChildScrollView(child: Center(child: child)),
+      ),
+    );
+  }
+
+  Widget _buildConditionDialog() {
+    final groups = _conditionGroups();
+    return _buildOverlay(
+      Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '按条件选号',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _buildSmallButton('生肖',
+                      () => setState(() => _conditionTab = 'zodiac'),
+                      primary: _conditionTab == 'zodiac'),
+                  const SizedBox(width: 6),
+                  _buildSmallButton('波色',
+                      () => setState(() => _conditionTab = 'color'),
+                      primary: _conditionTab == 'color'),
+                  const SizedBox(width: 6),
+                  _buildSmallButton('单双',
+                      () => setState(() => _conditionTab = 'parity'),
+                      primary: _conditionTab == 'parity'),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: groups.map((group) {
+                  final numbers = _numbersForCondition(group);
+                  final all = numbers.isNotEmpty &&
+                      numbers.every(_selectedNumbers.contains);
+                  return _buildSmallButton(
+                    '$group · ${numbers.length}个${all ? ' ✓' : ''}',
+                    () => _toggleConditionGroup(group),
+                    primary: all,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '点一个分类整批加入；已全选时再点只移出该批。',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildSmallButton(
+                      '确认',
+                      () => setState(() => _showConditionDialog = false),
+                      primary: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildSmallButton('清空', _clearCurrentSelection),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOddsDialog() {
+    return _buildOverlay(
+      Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '赔率设置',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _numberOddsController,
+                onChanged: (_) => setState(_clearPending),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: '号码赔率',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _zodiacOddsController,
+                onChanged: (_) => setState(_clearPending),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: '生肖赔率',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _colorOddsController,
+                onChanged: (_) => setState(_clearPending),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: '波色赔率',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _parityOddsController,
+                onChanged: (_) => setState(_clearPending),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: '单双赔率',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildSmallButton(
+                      '确定',
+                      () {
+                        _saveOddsPrefs();
+                        setState(() => _showOddsDialog = false);
+                      },
+                      primary: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildSmallButton(
+                      '关闭',
+                      () => setState(() => _showOddsDialog = false),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecordCard(Map<String, dynamic> item) {
+    final status = item['status']?.toString() ?? 'pending';
+    final settled = status == 'settled';
+    final profit = (item['total_profit'] as num?)?.toDouble();
+    final recordId = item['id'];
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${item['created_at']?.toString() ?? ''} · 第${item['period']?.toString() ?? ''}期',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: settled ? Colors.blue.shade50 : Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  settled ? '已结算' : '待结算',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: settled ? Colors.blue : Colors.orange,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${item['bettor_name']?.toString() ?? '未填写'} · 投注 ${_formatYuan((item['total_stake'] as num?)?.toDouble())}',
+            style: const TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '特码 ${item['special_number']?.toString() ?? '-'} · 生肖 ${item['special_zodiac']?.toString() ?? '-'} · 波色 ${item['special_color']?.toString() ?? '-'} · 单双 ${item['special_parity']?.toString() ?? '-'}',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            settled
+                ? '盈亏 ${profit != null && profit >= 0 ? '+' : ''}${_formatYuan(profit)}'
+                : '盈亏 —',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: settled
+                  ? (profit != null && profit < 0 ? Colors.red : Colors.green)
+                  : Colors.grey,
+            ),
+          ),
+          if (!settled && recordId != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: _buildSmallButton(
+                '结算',
+                () {
+                  final id = int.tryParse(recordId.toString());
+                  if (id != null) _settleRecord(id);
+                },
+                primary: true,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecordsDialog() {
+    final matched = _filteredRecords();
+    final pages = matched.isEmpty ? 1 : (matched.length / _recordPageSize).ceil();
+    if (_recordPage > pages) _recordPage = pages;
+    final start = (_recordPage - 1) * _recordPageSize;
+    final pageItems = matched.skip(start).take(_recordPageSize).toList();
+    final totalStake = matched.fold<double>(
+      0.0,
+      (sum, item) => sum + ((item['total_stake'] as num?)?.toDouble() ?? 0),
+    );
+    final totalProfit = matched.fold<double>(
+      0.0,
+      (sum, item) => sum + ((item['total_profit'] as num?)?.toDouble() ?? 0),
+    );
+    final height = MediaQuery.of(context).size.height * 0.8;
+
+    return _buildOverlay(
+      Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: SizedBox(
+          width: double.maxFinite,
+          height: height > 620 ? 620.0 : height,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '下注记录',
+                        style:
+                            TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => setState(() => _showRecordsDialog = false),
+                    ),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '共 ${matched.length} 单 · 总投注 ${_formatYuan(totalStake)} · 累计盈亏 ${totalProfit >= 0 ? '+' : ''}${_formatYuan(totalProfit)}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    DropdownButton<String>(
+                      value: _recordField,
+                      items: const [
+                        DropdownMenuItem(value: 'period', child: Text('期号')),
+                        DropdownMenuItem(value: 'special', child: Text('特码')),
+                        DropdownMenuItem(value: 'zodiac', child: Text('生肖')),
+                        DropdownMenuItem(value: 'color', child: Text('波色')),
+                        DropdownMenuItem(value: 'parity', child: Text('单双')),
+                        DropdownMenuItem(value: 'bettor', child: Text('下注人')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _recordField = value;
+                            _recordPage = 1;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: TextField(
+                        controller: _recordKeywordController,
+                        onSubmitted: (_) {
+                          setState(() => _recordPage = 1);
+                        },
+                        decoration: const InputDecoration(
+                          hintText: '关键词',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    _buildSmallButton(
+                      '搜索',
+                      () => setState(() => _recordPage = 1),
+                      primary: true,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {
+                      _recordKeywordController.clear();
+                      setState(() {
+                        _recordField = 'period';
+                        _recordPage = 1;
+                      });
+                    },
+                    child: const Text('重置', style: TextStyle(fontSize: 12)),
+                  ),
+                ),
+                Expanded(
+                  child: pageItems.isEmpty
+                      ? const Center(
+                          child: Text('没有匹配的记录',
+                              style: TextStyle(color: Colors.grey)))
+                      : ListView.separated(
+                          itemCount: pageItems.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) =>
+                              _buildRecordCard(pageItems[index]),
+                        ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildSmallButton(
+                      '上一页',
+                      _recordPage > 1
+                          ? () => setState(() => _recordPage--)
+                          : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Text('$_recordPage / $pages',
+                        style: const TextStyle(fontSize: 12)),
+                    const SizedBox(width: 12),
+                    _buildSmallButton(
+                      '下一页',
+                      _recordPage < pages
+                          ? () => setState(() => _recordPage++)
+                          : null,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                _buildSmallButton(
+                  '关闭',
+                  () => setState(() => _showRecordsDialog = false),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomSheet() {
+    final total = _currentTotalStake();
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.12),
+              blurRadius: 12,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '已选 $_selectedCount 个 · 共 ${total.toStringAsFixed(0)} 元',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _sheetHidden = true),
+                  child: const Text('关闭'),
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 6,
+              children: ['10', '20', '50', '100'].map((amount) {
+                final on = _unifiedAmountController.text.trim() == amount;
+                return _buildSmallButton(
+                  amount,
+                  () {
+                    _unifiedAmountController.text = amount;
+                    _applyUnifiedAmount(amount);
+                  },
+                  primary: on,
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _unifiedAmountController,
+              onChanged: (value) => _applyUnifiedAmount(value),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: '统一金额（元 / 项）',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _bettorController,
+              onChanged: (_) => setState(_clearPending),
+              decoration: const InputDecoration(
+                labelText: '下注人（选填）',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ElevatedButton(
+              onPressed: _settling ? null : _submitBet,
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              child: Text('提交下注 · 共 ${total.toStringAsFixed(0)} 元'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    final draw = _latestDraw;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _buildRegionButton('macau', '澳门'),
+            const SizedBox(width: 10),
+            _buildRegionButton('hk', '香港'),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _periodController,
+                onChanged: (_) => setState(_clearPending),
+                decoration: InputDecoration(
+                  labelText: '期号（默认下一期）',
+                  hintText: _nextPeriod,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: () => _loadLatestDraw(),
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        if (draw != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '上期开奖 ${draw.specialNumber} · 生肖 ${draw.specialZodiac.isNotEmpty ? draw.specialZodiac : '-'}'
+              ' · 波色 ${ballColorName(draw.specialNumber)}'
+              ' · 单双 ${(int.tryParse(draw.specialNumber) ?? 0) % 2 == 0 ? '双' : '单'}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildOptionGrid() {
+    final options = <String>[];
+    final Set<String> selected;
+    if (_betType == 'zodiac') {
+      options.addAll(const ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪']);
+      selected = _selectedZodiacs;
+    } else if (_betType == 'color') {
+      options.addAll(const ['红', '蓝', '绿']);
+      selected = _selectedColors;
+    } else {
+      options.addAll(const ['单', '双']);
+      selected = _selectedParity;
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: options.map((option) {
+        final on = selected.contains(option);
+        return SizedBox(
+          width: 88,
+          child: _buildSmallButton(
+            option,
+            () {
+              _sheetHidden = false;
+              setState(() {
+                if (on) {
+                  selected.remove(option);
+                } else {
+                  selected.add(option);
+                }
+                _clearPending();
+              });
+            },
+            primary: on,
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final activationValid = _activationValid;
@@ -2531,630 +3334,109 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
       appBar: AppBar(title: const Text('模拟选号')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadLatestDraw,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
+          : SafeArea(
+              child: Stack(
                 children: [
-                  if (!activationValid) ...[
-                    Card(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.lock, color: Colors.orange),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text(
-                                '账号未激活或已过期，请先激活后使用模拟选号功能。',
-                                style: TextStyle(color: Colors.orange),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: _promptActivation,
-                              child: const Text('去激活'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  Row(
-                    children: [
-                      _buildRegionButton('macau', '澳门'),
-                      const SizedBox(width: 10),
-                      _buildRegionButton('hk', '香港'),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _periodController,
-                          onChanged: (_) => setState(_clearPending),
-                          decoration: InputDecoration(
-                            labelText: '期号（默认下一期）',
-                            hintText: _nextPeriod,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      IconButton(
-                        onPressed: () => _loadLatestDraw(),
-                        icon: const Icon(Icons.refresh),
-                      ),
-                    ],
-                  ),
-                  if (_latestDraw != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        '最新期号：${_latestDraw!.id}  开奖：${_latestDraw!.specialNumber}'
-                        '  生肖：${_latestDraw!.specialZodiac.isNotEmpty ? _latestDraw!.specialZodiac : '-'}'
-                        '  波色：${ballColorName(_latestDraw!.specialNumber)}'
-                        '  单双：${(int.tryParse(_latestDraw!.specialNumber) ?? 0) % 2 == 0 ? '双' : '单'}',
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '下注类型',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _buildBetTypeButton('number', '号码'),
-                      const SizedBox(width: 8),
-                      _buildBetTypeButton('zodiac', '生肖'),
-                      const SizedBox(width: 8),
-                      _buildBetTypeButton('color', '波色'),
-                      const SizedBox(width: 8),
-                      _buildBetTypeButton('parity', '单双'),
-                    ],
-                  ),
-                  if (_betType == 'number') ...[
-                    const SizedBox(height: 16),
-                    const Text(
-                      '选择号码（视为特码）',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildNumberGrid(),
-                  ],
-                  if (_betType == 'zodiac') ...[
-                    const SizedBox(height: 16),
-                    const Text(
-                      '生肖下注',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        const columns = 6;
-                        const spacing = 8.0;
-                        final itemWidth =
-                            (constraints.maxWidth - spacing * (columns - 1)) /
-                                columns;
-                        return Wrap(
-                          spacing: spacing,
-                          runSpacing: spacing,
-                          children: _zodiacOptions.map((zodiac) {
-                            final selected = _selectedZodiacs.contains(zodiac);
-                            return SizedBox(
-                              width: itemWidth,
-                              child: FilterChip(
-                                label: Center(child: Text(zodiac)),
-                                selected: selected,
-                                showCheckmark: false,
-                                padding: EdgeInsets.zero,
-                                onSelected: (_) {
-                                  setState(() {
-                                    if (selected) {
-                                      _selectedZodiacs.remove(zodiac);
-                                    } else {
-                                      _selectedZodiacs.add(zodiac);
-                                    }
-                                    _clearPending();
-                                  });
-                                },
-                              ),
-                            );
-                          }).toList(),
-                        );
-                      },
-                    ),
-                  ],
-                  if (_betType == 'color') ...[
-                    const SizedBox(height: 16),
-                    const Text(
-                      '波色下注',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        const columns = 3;
-                        const spacing = 8.0;
-                        final itemWidth =
-                            (constraints.maxWidth - spacing * (columns - 1)) /
-                                columns;
-                        return Wrap(
-                          spacing: spacing,
-                          runSpacing: spacing,
-                          children: _colorOptions.map((color) {
-                            final selected = _selectedColors.contains(color);
-                            final chipColor = color == '红'
-                                ? const Color(0xFFE54B4B)
-                                : color == '蓝'
-                                    ? const Color(0xFF2D6CDF)
-                                    : const Color(0xFF36B37E);
-                            return SizedBox(
-                              width: itemWidth,
-                              child: FilterChip(
-                                label: Center(child: Text(color)),
-                                selected: selected,
-                                showCheckmark: false,
-                                selectedColor: chipColor.withOpacity(0.15),
-                                padding: EdgeInsets.zero,
-                                onSelected: (_) {
-                                  setState(() {
-                                    if (selected) {
-                                      _selectedColors.remove(color);
-                                    } else {
-                                      _selectedColors.add(color);
-                                    }
-                                    _clearPending();
-                                  });
-                                },
-                              ),
-                            );
-                          }).toList(),
-                        );
-                      },
-                    ),
-                  ],
-                  if (_betType == 'parity') ...[
-                    const SizedBox(height: 16),
-                    const Text(
-                      '单双下注',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        const columns = 2;
-                        const spacing = 8.0;
-                        final itemWidth =
-                            (constraints.maxWidth - spacing * (columns - 1)) /
-                                columns;
-                        return Wrap(
-                          spacing: spacing,
-                          runSpacing: spacing,
-                          children: _parityOptions.map((parity) {
-                            final selected = _selectedParity.contains(parity);
-                            return SizedBox(
-                              width: itemWidth,
-                              child: FilterChip(
-                                label: Center(child: Text(parity)),
-                                selected: selected,
-                                showCheckmark: false,
-                                padding: EdgeInsets.zero,
-                                onSelected: (_) {
-                                  setState(() {
-                                    if (selected) {
-                                      _selectedParity.remove(parity);
-                                    } else {
-                                      _selectedParity.add(parity);
-                                    }
-                                    _clearPending();
-                                  });
-                                },
-                              ),
-                            );
-                          }).toList(),
-                        );
-                      },
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  const Text(
-                    '赔率与金额',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  if (_betType == 'number') ...[
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  RefreshIndicator(
+                    onRefresh: _loadLatestDraw,
+                    child: ListView(
+                      padding: const EdgeInsets.all(16),
                       children: [
+                        if (!activationValid) ...[
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.lock, color: Colors.orange),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      '账号未激活或已过期，请先激活后使用模拟选号功能。',
+                                      style: TextStyle(color: Colors.orange),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: _promptActivation,
+                                    child: const Text('去激活'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        _buildHeader(),
+                        const SizedBox(height: 16),
                         const Text(
-                          '号码下注金额',
+                          '下注类型',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
-                        if (_selectedNumbers.isEmpty)
-                          Text(
-                            '请选择号码后设置金额',
-                            style: TextStyle(color: Colors.grey.shade600),
-                          )
-                        else
-                          Column(
-                            children: (() {
-                              final numbers = _selectedNumbers.toList()..sort();
-                              return numbers.map((number) {
-                                final controller =
-                                    _numberStakeControllers[number] ??
-                                        TextEditingController(text: '');
-                                _numberStakeControllers[number] = controller;
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Row(
-                                    children: [
-                                      _Ball(
-                                        number: number.toString(),
-                                        color: ballColor(number.toString()),
-                                        size: 26,
-                                        fontSize: 11,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: TextField(
-                                          controller: controller,
-                                          onChanged: (_) => setState(_clearPending),
-                                          keyboardType:
-                                              const TextInputType.numberWithOptions(
-                                                decimal: true,
-                                              ),
-                                          decoration: const InputDecoration(
-                                            labelText: '金额',
-                                            border: OutlineInputBorder(),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }).toList();
-                            })(),
-                          ),
-                        const SizedBox(height: 12),
-                        _buildOddsAndBettorRow(
-                          _numberOddsController,
-                          '号码赔率',
+                        Row(
+                          children: [
+                            _buildBetTypeButton('number', '号码'),
+                            const SizedBox(width: 8),
+                            _buildBetTypeButton('zodiac', '生肖'),
+                            const SizedBox(width: 8),
+                            _buildBetTypeButton('color', '波色'),
+                            const SizedBox(width: 8),
+                            _buildBetTypeButton('parity', '单双'),
+                          ],
                         ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 6,
+                          children: [
+                            if (_betType == 'number')
+                              _buildSmallButton(
+                                '按条件选号',
+                                () {
+                                  _loadZodiacMapping();
+                                  setState(() => _showConditionDialog = true);
+                                },
+                                primary: true,
+                              ),
+                            _buildSmallButton('清空', _clearCurrentSelection),
+                            _buildSmallButton(
+                              '赔率设置',
+                              () => setState(() => _showOddsDialog = true),
+                            ),
+                            _buildSmallButton(
+                              '下注记录',
+                              () => setState(() => _showRecordsDialog = true),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        if (_betType == 'number')
+                          _buildNumberGrid()
+                        else
+                          _buildOptionGrid(),
+                        const SizedBox(height: 160),
+                        if (_statusMessage != null)
+                          Card(
+                            color: Colors.orange.shade50,
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Text(
+                                _statusMessage!,
+                                style: const TextStyle(color: Colors.orange),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
-                  ],
-                  if (_betType == 'zodiac') ...[
-                    TextField(
-                      controller: _stakeCommonController,
-                      onChanged: (_) => setState(_clearPending),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '下注金额',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildOddsAndBettorRow(
-                      _zodiacOddsController,
-                      '生肖赔率',
-                    ),
-                  ],
-                  if (_betType == 'color') ...[
-                    TextField(
-                      controller: _stakeCommonController,
-                      onChanged: (_) => setState(_clearPending),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '下注金额',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildOddsAndBettorRow(
-                      _colorOddsController,
-                      '波色赔率',
-                    ),
-                  ],
-                  if (_betType == 'parity') ...[
-                    TextField(
-                      controller: _stakeCommonController,
-                      onChanged: (_) => setState(_clearPending),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: '下注金额',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildOddsAndBettorRow(
-                      _parityOddsController,
-                      '单双赔率',
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  Builder(builder: (context) {
-                    final stakeSpecial = 0.0;
-                    final stakeCommon =
-                        double.tryParse(_stakeCommonController.text.trim()) ?? 0;
-                    final oddsNumber =
-                        double.tryParse(_numberOddsController.text.trim()) ?? 0;
-                    final oddsZodiac =
-                        double.tryParse(_zodiacOddsController.text.trim()) ?? 0;
-                    final oddsColor =
-                        double.tryParse(_colorOddsController.text.trim()) ?? 0;
-                    final oddsParity =
-                        double.tryParse(_parityOddsController.text.trim()) ?? 0;
-
-                    double win = 0;
-                    double lose = 0;
-                    if (_betType == 'number') {
-                      final numberStakes = _collectNumberStakes();
-                      final totalNumberStake =
-                          numberStakes.values.fold(0.0, (sum, value) => sum + value);
-                      final maxStake = numberStakes.isEmpty
-                          ? 0
-                          : numberStakes.values.reduce(
-                              (value, element) => value > element ? value : element);
-                      win = maxStake * oddsNumber - totalNumberStake;
-                      lose = -totalNumberStake;
-                    } else if (_betType == 'zodiac') {
-                      win = stakeCommon * oddsZodiac - stakeCommon;
-                      lose = -stakeCommon;
-                    } else if (_betType == 'color') {
-                      win = stakeCommon * oddsColor - stakeCommon;
-                      lose = -stakeCommon;
-                    } else if (_betType == 'parity') {
-                      win = stakeCommon * oddsParity - stakeCommon;
-                      lose = -stakeCommon;
-                    }
-
-                    return Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x12000000),
-                            blurRadius: 6,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '预估盈亏',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 6),
-                          Text('命中：${_formatYuan(win)}'),
-                          Text('未中：${_formatYuan(lose)}'),
-                        ],
-                      ),
-                    );
-                  }),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _settling
-                              ? null
-                              : activationValid
-                                  ? _submitBet
-                                  : _promptActivation,
-                          child: const Text('提交下注'),
-                        ),
-                      ),
-                    ],
                   ),
-                  if (_statusMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        _statusMessage!,
-                        style: TextStyle(color: Colors.red.shade400),
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          '已提交下注',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: _loadingBets ? null : _loadManualBets,
-                        icon: const Icon(Icons.refresh),
-                      ),
-                    ],
-                  ),
-                  if (_loadingBets)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (_manualBets.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        '暂无记录',
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                    )
-                  else
-                    Builder(
-                      builder: (context) {
-                        final grouped =
-                            <String, List<Map<String, dynamic>>>{};
-                        final orderedPeriods = <String>[];
-                        for (final item in _manualBets) {
-                          final period = item['period']?.toString() ?? '';
-                          if (!grouped.containsKey(period)) {
-                            grouped[period] = [];
-                            orderedPeriods.add(period);
-                          }
-                          grouped[period]!.add(item);
-                        }
-
-                        final visiblePeriods = _showAllManualBetPeriods
-                            ? orderedPeriods
-                            : orderedPeriods.take(2).toList();
-
-                        return Column(
-                          children: [
-                            ...visiblePeriods.map((period) {
-                              final items = grouped[period] ?? [];
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF7FAF9),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: const Color(0xFFE2E8F0),
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            '期号：$period',
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                        Text(
-                                          '共${items.length}条',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Column(
-                                      children: items
-                                          .map(_buildManualBetItem)
-                                          .toList(),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                            if (!_showAllManualBetPeriods &&
-                                orderedPeriods.length > 2)
-                              TextButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _showAllManualBetPeriods = true;
-                                  });
-                                },
-                                child: const Text('显示更多'),
-                              ),
-                            if (_showAllManualBetPeriods &&
-                                orderedPeriods.length > 2)
-                              TextButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _showAllManualBetPeriods = false;
-                                  });
-                                },
-                                child: const Text('收起'),
-                              ),
-                          ],
-                        );
-                      },
-                    ),
-                  if (_outcomes.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    const Text(
-                      '结算结果',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    ..._outcomes.map(
-                      (item) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x12000000),
-                              blurRadius: 6,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '${item.label} 赔率 ${item.odds.toStringAsFixed(0)}',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            Text(
-                              item.win ? '中奖' : '未中',
-                              style: TextStyle(
-                                color: item.win ? const Color(0xFF2563EB) : Colors.redAccent,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              _formatYuan(item.profit),
-                              style: TextStyle(
-                                color: item.profit >= 0
-                                    ? const Color(0xFF2563EB)
-                                    : Colors.redAccent,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildBetSummaryWrap(
-                      stake: _totalStake,
-                      profit: _totalProfit,
-                    ),
-                  ],
-                  const SizedBox(height: 24),
+                  if (_hasSelection() && !_sheetHidden) _buildBottomSheet(),
+                  if (_showConditionDialog) _buildConditionDialog(),
+                  if (_showOddsDialog) _buildOddsDialog(),
+                  if (_showRecordsDialog) _buildRecordsDialog(),
                 ],
               ),
             ),
     );
   }
-}
-
-class RecordsScreen extends StatefulWidget {
-  const RecordsScreen({super.key});
-
   @override
   State<RecordsScreen> createState() => _RecordsScreenState();
 }
