@@ -2921,7 +2921,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                '按条件选号',
+                '筛选',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 10),
@@ -3589,7 +3589,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                           children: [
                             if (_betType == 'number')
                               _buildSmallButton(
-                                '按条件选号',
+                                '筛选',
                                 () {
                                   _loadZodiacMapping();
                                   setState(() => _showConditionDialog = true);
