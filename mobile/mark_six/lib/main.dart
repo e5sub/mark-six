@@ -1569,7 +1569,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   bool _showConditionDialog = false;
   bool _showOddsDialog = false;
   bool _showRecordsDialog = false;
-  bool _sheetHidden = false;
   String _recordField = 'period';
   final TextEditingController _recordKeywordController =
       TextEditingController();
@@ -2487,7 +2486,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
         final color = ballColor(number.toString());
         return GestureDetector(
           onTap: () {
-            _sheetHidden = false;
             setState(() {
               if (selected) {
                 _selectedNumbers.remove(number);
@@ -2738,7 +2736,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     } else {
       _stakeCommonController.text = raw;
     }
-    _sheetHidden = false;
     setState(_clearPending);
   }
 
@@ -2765,7 +2762,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     final numbers = _numbersForCondition(group);
     if (numbers.isEmpty) return;
     final allSelected = numbers.every(_selectedNumbers.contains);
-    _sheetHidden = false;
     setState(() {
       for (final number in numbers) {
         if (allSelected) {
@@ -2787,7 +2783,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
   }
 
   void _clearCurrentSelection() {
-    _sheetHidden = false;
     setState(() {
       if (_betType == 'number') {
         for (final controller in _numberStakeControllers.values) {
@@ -3338,86 +3333,84 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
     );
   }
 
-  Widget _buildBottomSheet() {
+  Widget _buildBetPanel() {
     final total = _currentTotalStake();
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.12),
-              blurRadius: 12,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '已选 $_selectedCount 个 · 共 ${total.toStringAsFixed(0)} 元',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade100),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '确认下注',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                 ),
-                TextButton(
-                  onPressed: () => setState(() => _sheetHidden = true),
-                  child: const Text('关闭'),
-                ),
-              ],
-            ),
-            if (_selectedCount > 0) _buildSheetSelectionChips(),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 6,
-              children: ['10', '20', '50', '100'].map((amount) {
-                final on = _unifiedAmountController.text.trim() == amount;
-                return _buildSmallButton(
-                  amount,
-                  () {
-                    _unifiedAmountController.text = amount;
-                    _applyUnifiedAmount(amount);
-                  },
-                  primary: on,
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _unifiedAmountController,
-              onChanged: (value) => _applyUnifiedAmount(value),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: '统一金额（元 / 项）',
-                isDense: true,
-                border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _bettorController,
-              onChanged: (_) => setState(_clearPending),
-              decoration: const InputDecoration(
-                labelText: '下注人（选填）',
-                isDense: true,
-                border: OutlineInputBorder(),
+              Text(
+                '已选 $_selectedCount 个 · 共 ${total.toStringAsFixed(0)} 元',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF4B5563)),
               ),
+            ],
+          ),
+          if (_selectedCount > 0) _buildSheetSelectionChips(),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            children: ['10', '20', '50', '100'].map((amount) {
+              final on = _unifiedAmountController.text.trim() == amount;
+              return _buildSmallButton(
+                amount,
+                () {
+                  _unifiedAmountController.text = amount;
+                  _applyUnifiedAmount(amount);
+                },
+                primary: on,
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _unifiedAmountController,
+            onChanged: (value) => _applyUnifiedAmount(value),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: '统一金额（元 / 项）',
+              isDense: true,
+              border: OutlineInputBorder(),
             ),
-            const SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: _settling ? null : _submitBet,
-              child: Text('提交下注 · 共 ${total.toStringAsFixed(0)} 元'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _bettorController,
+            onChanged: (_) => setState(_clearPending),
+            decoration: const InputDecoration(
+              labelText: '下注人（选填）',
+              isDense: true,
+              border: OutlineInputBorder(),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 10),
+          ElevatedButton(
+            onPressed: _settling ? null : _submitBet,
+            child: Text('提交下注 · 共 ${total.toStringAsFixed(0)} 元'),
+          ),
+        ],
       ),
     );
   }
@@ -3502,7 +3495,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
           child: _buildSmallButton(
             option,
             () {
-              _sheetHidden = false;
               setState(() {
                 if (on) {
                   selected.remove(option);
@@ -3608,7 +3600,7 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                               icon: Icons.tune,
                             ),
                             _buildSmallButton(
-                              '下注记录',
+                              '记录',
                               () => setState(() => _showRecordsDialog = true),
                               icon: Icons.receipt_long_outlined,
                             ),
@@ -3619,10 +3611,8 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                           _buildNumberGrid()
                         else
                           _buildOptionGrid(),
-                        // 底部浮层（提交下注）可见时留出其高度，避免遮挡号码
-                        SizedBox(
-                          height: _hasSelection() && !_sheetHidden ? 300 : 24,
-                        ),
+                        // 确认下注面板始终紧跟在号码/选项下方，不遮挡选号区
+                        if (_hasSelection()) _buildBetPanel(),
                         if (_statusMessage != null)
                           Card(
                             color: Colors.orange.shade50,
@@ -3637,7 +3627,6 @@ class _ManualPickScreenState extends State<ManualPickScreen> {
                       ],
                     ),
                   ),
-                  if (_hasSelection() && !_sheetHidden) _buildBottomSheet(),
                   if (_showConditionDialog) _buildConditionDialog(),
                   if (_showOddsDialog) _buildOddsDialog(),
                   if (_showRecordsDialog) _buildRecordsDialog(),
